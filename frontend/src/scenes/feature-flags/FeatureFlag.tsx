@@ -50,6 +50,7 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
+    DashboardType,
     FeatureFlagGroupType,
     FeatureFlagType,
     NotebookNodeType,
@@ -620,10 +621,15 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     } = featureFlag
     const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-    const { receivedErrorsFromAPI, dashboard } = useValues(
-        dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
-    )
-    const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
+    let dashboard: DashboardType | null = null
+    let connectedDashboardExists = false
+    if (dashboardId) {
+        const dashboardLogicValues = useValues(
+            dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+        )
+        dashboard = dashboardLogicValues.dashboard
+        connectedDashboardExists = !dashboardLogicValues.receivedErrorsFromAPI
+    }
 
     const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
     const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
@@ -660,7 +666,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                             </Link>
                         </LemonBanner>
                     )}
-                    <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+                    <Dashboard id={dashboardId!.toString()} placement={DashboardPlacement.FeatureFlag} />
                 </>
             ) : (
                 <div>

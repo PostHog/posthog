@@ -18,10 +18,13 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
         primaryDashboardId: [() => [teamLogic.selectors.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
         dashboardLogicProps: [
             (s) => [s.primaryDashboardId],
-            (primaryDashboardId): DashboardLogicProps => ({
-                id: primaryDashboardId ?? undefined,
-                placement: DashboardPlacement.ProjectHomepage,
-            }),
+            (primaryDashboardId): DashboardLogicProps | null =>
+                primaryDashboardId
+                    ? {
+                          id: primaryDashboardId,
+                          placement: DashboardPlacement.ProjectHomepage,
+                      }
+                    : null,
         ],
     }),
 

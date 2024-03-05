@@ -5,7 +5,7 @@ import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoic
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { personDashboardLogic } from 'scenes/persons/personDashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -15,8 +15,34 @@ export function PersonDashboard({ person }: { person: PersonType }): JSX.Element
     const { showSceneDashboardChoiceModal } = useActions(sceneDashboardChoiceModalLogic({ scene: Scene.Person }))
     const { dashboardLogicProps } = useValues(personDashboardLogic)
 
+    return (
+        <>
+            {dashboardLogicProps?.id !== undefined ? (
+                <PersonDashboardExisting person={person} dashboardLogicProps={dashboardLogicProps} />
+            ) : (
+                <SceneDashboardChoiceRequired
+                    open={() => {
+                        showSceneDashboardChoiceModal()
+                    }}
+                    scene={Scene.Person}
+                />
+            )}
+            <SceneDashboardChoiceModal scene={Scene.Person} />
+        </>
+    )
+}
+
+function PersonDashboardExisting({
+    person,
+    dashboardLogicProps,
+}: {
+    person: PersonType
+    dashboardLogicProps: DashboardLogicProps
+}): JSX.Element {
+    const { showSceneDashboardChoiceModal } = useActions(sceneDashboardChoiceModalLogic({ scene: Scene.Person }))
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
     const { setProperties } = useActions(dashboardLogic(dashboardLogicProps))
+
     useEffect(() => {
         if (dashboard && person) {
             // `dashboard?.filters.properties` is typed as `any` but it's a list...
@@ -45,29 +71,17 @@ export function PersonDashboard({ person }: { person: PersonType }): JSX.Element
 
     return (
         <>
-            {dashboardLogicProps.id !== undefined ? (
-                <>
-                    <div className="flex items-center justify-end mb-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            data-attr="person-dashboard-change-dashboard"
-                            onClick={showSceneDashboardChoiceModal}
-                        >
-                            Change dashboard
-                        </LemonButton>
-                    </div>
-                    <Dashboard id={dashboardLogicProps.id.toString()} placement={dashboardLogicProps.placement} />
-                </>
-            ) : (
-                <SceneDashboardChoiceRequired
-                    open={() => {
-                        showSceneDashboardChoiceModal()
-                    }}
-                    scene={Scene.Person}
-                />
-            )}
-            <SceneDashboardChoiceModal scene={Scene.Person} />
+            <div className="flex items-center justify-end mb-2">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    data-attr="person-dashboard-change-dashboard"
+                    onClick={showSceneDashboardChoiceModal}
+                >
+                    Change dashboard
+                </LemonButton>
+            </div>
+            <Dashboard id={dashboardLogicProps.id.toString()} placement={dashboardLogicProps.placement} />
         </>
     )
 }

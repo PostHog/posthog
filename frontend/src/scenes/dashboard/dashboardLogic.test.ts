@@ -432,17 +432,6 @@ describe('dashboardLogic', () => {
         })
     })
 
-    describe('when there is no props id', () => {
-        beforeEach(() => {
-            logic = dashboardLogic({ id: undefined })
-            logic.mount()
-        })
-
-        it('does not fetch dashboard items on mount', async () => {
-            await expectLogic(logic).toNotHaveDispatchedActions(['loadDashboardItems'])
-        })
-    })
-
     describe('when the dashboard API errors', () => {
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)

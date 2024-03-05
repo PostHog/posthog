@@ -13,11 +13,10 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
@@ -27,10 +26,13 @@ import { RecentInsights } from './RecentInsights'
 import { RecentPersons } from './RecentPersons'
 import { RecentRecordings } from './RecentRecordings'
 
+export const scene: SceneExport = {
+    component: ProjectHomepage,
+    logic: projectHomepageLogic,
+}
+
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
     const { showInviteModal } = useActions(inviteLogic)
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
@@ -70,30 +72,8 @@ export function ProjectHomepage(): JSX.Element {
                 <RecentPersons />
                 <RecentRecordings />
             </div>
-            {currentTeam?.primary_dashboard ? (
-                <>
-                    <div className="ProjectHomepage__dashboardheader">
-                        <div className="ProjectHomepage__dashboardheader__title">
-                            {!dashboard && <LemonSkeleton className="w-20 h-4" />}
-                            {dashboard?.name && (
-                                <>
-                                    <IconHome className="mr-2 text-2xl opacity-50" />
-                                    <Link
-                                        className="font-semibold text-xl text-default"
-                                        to={urls.dashboard(dashboard.id)}
-                                    >
-                                        {dashboard?.name}
-                                    </Link>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                    <LemonDivider className="mt-3 mb-4" />
-                    <Dashboard
-                        id={currentTeam.primary_dashboard.toString()}
-                        placement={DashboardPlacement.ProjectHomepage}
-                    />
-                </>
+            {dashboardLogicProps ? (
+                <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
             ) : (
                 <SceneDashboardChoiceRequired
                     open={() => {
@@ -107,7 +87,26 @@ export function ProjectHomepage(): JSX.Element {
     )
 }
 
-export const scene: SceneExport = {
-    component: ProjectHomepage,
-    logic: projectHomepageLogic,
+function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: DashboardLogicProps }): JSX.Element {
+    const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
+
+    return (
+        <>
+            <div className="ProjectHomepage__dashboardheader">
+                <div className="ProjectHomepage__dashboardheader__title">
+                    {!dashboard && <LemonSkeleton className="w-20 h-4" />}
+                    {dashboard?.name && (
+                        <>
+                            <IconHome className="mr-2 text-2xl opacity-50" />
+                            <Link className="font-semibold text-xl text-default" to={urls.dashboard(dashboard.id)}>
+                                {dashboard?.name}
+                            </Link>
+                        </>
+                    )}
+                </div>
+            </div>
+            <LemonDivider className="mt-3 mb-4" />
+            <Dashboard id={dashboardLogicProps.id.toString()} placement={DashboardPlacement.ProjectHomepage} />
+        </>
+    )
 }
