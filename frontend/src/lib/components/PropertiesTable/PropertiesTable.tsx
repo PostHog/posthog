@@ -1,8 +1,8 @@
 import './PropertiesTable.scss'
 
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { Dropdown, Input, Menu, Popconfirm } from 'antd'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Dropdown, Input, Menu } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
@@ -342,6 +342,23 @@ export function PropertiesTable({
         })
 
         if (onDelete && nestingLevel === 0) {
+            const onClickDelete = (property: string): void => {
+                LemonDialog.open({
+                    title: (
+                        <>
+                            Are you sure you want to delete property <code>{property}</code>?
+                        </>
+                    ),
+                    description: 'This cannot be undone',
+                    primaryButton: {
+                        type: 'primary',
+                        status: 'danger',
+                        onClick: () => onDelete(property),
+                        children: 'Delete',
+                    },
+                })
+            }
+
             columns.push({
                 key: 'delete',
                 title: '',
@@ -350,20 +367,12 @@ export function PropertiesTable({
                     return (
                         !PROPERTY_KEYS.includes(item[0]) &&
                         !String(item[0]).startsWith('$initial_') && (
-                            <Popconfirm
-                                onConfirm={() => onDelete(item[0])}
-                                okButtonProps={{ danger: true }}
-                                okText="Delete"
-                                title={
-                                    <>
-                                        Are you sure you want to delete property <code>{item[0]}</code>?{' '}
-                                        <b>This cannot be undone.</b>
-                                    </>
-                                }
-                                placement="left"
-                            >
-                                <LemonButton icon={<IconTrash />} status="danger" size="small" />
-                            </Popconfirm>
+                            <LemonButton
+                                icon={<IconTrash />}
+                                status="danger"
+                                size="small"
+                                onClick={() => onClickDelete(item[0])}
+                            />
                         )
                     )
                 },
