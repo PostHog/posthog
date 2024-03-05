@@ -222,7 +222,7 @@ class ClickHouseClient:
 
         params["query"] = self.prepare_query(query, query_parameters)
 
-        async with self.session.get(url=self.url, params=params, headers=self.headers) as response:
+        async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
             await self.acheck_response(response, query)
             yield response
 

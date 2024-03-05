@@ -14,7 +14,10 @@ from posthog.tasks.utils import CeleryQueue
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=False, queue=CeleryQueue.SESSION_REPLAY_EMBEDDINGS.value)
+# rate limits are per worker, and this task makes multiple calls to open AI
+# we currently are allowed 500 calls per minute, so let's rate limit each worker
+# to much less than that
+@shared_task(ignore_result=False, queue=CeleryQueue.SESSION_REPLAY_EMBEDDINGS.value, rate_limit="75/m")
 def embed_batch_of_recordings_task(recordings: List[Any], team_id: int) -> None:
     embed_batch_of_recordings(recordings, team_id)
 
