@@ -1,20 +1,17 @@
-import { afterMount, kea, path, selectors, connect } from 'kea'
+import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
+import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 import { DataWarehouseViewLink } from '~/types'
 
 import type { dataWarehouseJoinsLogicType } from './dataWarehouseJoinsLogicType'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 
 export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'dataWarehouseJoinsLogic']),
     connect(() => ({
-        values: [
-            dataWarehouseSceneLogic,
-            ['externalTablesMap']
-        ],
+        values: [dataWarehouseSceneLogic, ['externalTablesMap']],
     })),
     loaders({
         joins: [
@@ -28,10 +25,7 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
         ],
     }),
     selectors({
-        personTableJoins: [
-            (s) => [s.joins],
-            (joins) => joins.filter((join) => join.source_table_name === 'persons'),
-        ],
+        personTableJoins: [(s) => [s.joins], (joins) => joins.filter((join) => join.source_table_name === 'persons')],
         tablesJoinedToPersons: [
             (s) => [s.externalTablesMap, s.personTableJoins],
             (externalTablesMap, personTableJoins) => {
@@ -46,12 +40,14 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
             (tablesJoinedToPersons) => {
                 return tablesJoinedToPersons.reduce((acc, table) => {
                     if (table) {
-                        acc.push(...table.columns)
+                        acc.push(
+                            ...table.columns.map((column) => ({ id: column.key, name: column.key, table: table.name }))
+                        )
                     }
                     return acc
                 }, [] as DatabaseSchemaQueryResponseField[])
             },
-        ]
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadJoins()

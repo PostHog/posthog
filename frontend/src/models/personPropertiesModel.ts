@@ -3,22 +3,19 @@ import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { PersonProperty } from '~/types'
 
 import type { personPropertiesModelType } from './personPropertiesModelType'
 import { PersonPropertiesModelProps } from './types'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 
 export const personPropertiesModel = kea<personPropertiesModelType>([
     props({} as PersonPropertiesModelProps),
     path(['models', 'personPropertiesModel']),
     connect({
-        values: [
-            teamLogic, ['currentTeamId'],
-            dataWarehouseJoinsLogic, ['columnsJoinedToPersons'],
-        ],
+        values: [teamLogic, ['currentTeamId'], dataWarehouseJoinsLogic, ['columnsJoinedToPersons']],
     }),
     loaders(({ values }) => ({
         personProperties: [
@@ -40,8 +37,7 @@ export const personPropertiesModel = kea<personPropertiesModelType>([
         combinedPersonProperties: [
             (s) => [s.personProperties, s.columnsJoinedToPersons],
             (personProperties, columnsJoinedToPersons) => {
-                // TODO: Add columns to list
-                return [...personProperties]
+                return [...personProperties, ...columnsJoinedToPersons]
             },
         ],
         propertyAllowList: [
