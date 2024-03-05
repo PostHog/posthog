@@ -28,6 +28,7 @@ from posthog.schema import (
     ActionsNode,
     CorrelationType,
     EventDefinition,
+    EventsNode,
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
     FunnelCorrelationResult,
@@ -691,14 +692,18 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             if isinstance(entity, ActionsNode):
                 action = Action.objects.get(pk=int(entity.id), team=self.context.team)
                 events.update(action.get_step_events())
-            elif entity.event is not None:
+            elif isinstance(entity, EventsNode):
+                assert entity.event is not None
                 events.add(entity.event)
+            else:
+                raise ValidationError("Data warehouse nodes are not supported here")
 
         return sorted(list(events))
 
     @property
     def properties_to_include(self) -> List[str]:
-        props_to_include = []
+        props_to_include: List[str] = []
+        # TODO: implement or remove
         # if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
         #     assert self.query.funnelCorrelationNames is not None
 

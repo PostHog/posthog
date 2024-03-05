@@ -3,15 +3,15 @@ import unittest
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels.funnel_correlation import (
-    EventContingencyTable,
-    EventStats,
-)
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
     FunnelCorrelationActors,
 )
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
+from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import (
+    EventContingencyTable,
+    EventStats,
+    FunnelCorrelationQueryRunner,
+)
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -159,7 +159,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, _ = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.events)
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [11, 1 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
@@ -203,7 +203,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationExcludeEventNames=["positively_related"],
         )
 
-        odds_ratio = result[0].pop("odds_ratio")  # type: ignore
+        odds_ratio = result[0].pop("odds_ratio")
         expected_odds_ratio = 1 / 11
 
         self.assertAlmostEqual(odds_ratio, expected_odds_ratio)
@@ -268,7 +268,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             }
         ]
 
-        journeys_for(events_by_person=journey, team=self.team)  # type: ignore
+        journeys_for(events_by_person=journey, team=self.team)
 
         sign_up_action = _create_action(
             name="user signed up",
@@ -418,7 +418,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, _ = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.events)
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [12 / 7, 1 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
@@ -469,7 +469,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, _ = self._get_events_for_filters({**filters, **excludes})  # TODO destructure
 
-        # odds_ratio = result[0].pop("odds_ratio")  # type: ignore
+        # odds_ratio = result[0].pop("odds_ratio")
         # expected_odds_ratio = 1
         # # success total and failure totals remove other groups too
 
@@ -585,7 +585,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             filters, funnelCorrelationType=FunnelCorrelationResultsType.properties, funnelCorrelationNames=["$browser"]
         )
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in result]
 
         # Success Total = 11, Failure Total = 11
         #
@@ -768,7 +768,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             filters, funnelCorrelationType=FunnelCorrelationResultsType.properties, funnelCorrelationNames=["industry"]
         )
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in result]
 
         # Success Total = 11, Failure Total = 11
         #
@@ -832,7 +832,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             filters, funnelCorrelationType=FunnelCorrelationResultsType.properties, funnelCorrelationNames=["$all"]
         )
 
-        odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in new_result]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
             self.assertAlmostEqual(odds, expected_odds)
@@ -970,7 +970,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 funnelCorrelationNames=["industry"],
             )
 
-            odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+            odds_ratios = [item.pop("odds_ratio") for item in result]
 
             # Success Total = 11, Failure Total = 11
             #
@@ -1036,7 +1036,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 funnelCorrelationNames=["$all"],
             )
 
-            odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
+            odds_ratios = [item.pop("odds_ratio") for item in new_result]
 
             for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
                 self.assertAlmostEqual(odds, expected_odds)
@@ -1105,7 +1105,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         self.assertFalse(skewed_totals)
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [9, 1 / 3]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
@@ -1291,7 +1291,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # Failure Total = 5 + 1 = 6
         # Add 1 for priors
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [
             (16 / 2) * ((7 - 1) / (17 - 15)),
             (11 / 1) * ((7 - 0) / (17 - 10)),
@@ -1357,7 +1357,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             filters, funnelCorrelationType=FunnelCorrelationResultsType.properties, funnelCorrelationNames=["$all"]
         )
 
-        odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in new_result]
 
         new_expected_odds_ratios = expected_odds_ratios[:-1]
         new_expected_result = expected_result[:-1]
@@ -1378,7 +1378,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationExcludeNames=["$browser"],
         )
 
-        odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in new_result]
 
         new_expected_odds_ratios = expected_odds_ratios[1:4]  # choosing the $nice property values
         new_expected_result = expected_result[1:4]
@@ -1524,7 +1524,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, _ = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.events)
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [4]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
@@ -1609,7 +1609,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [11, 5.5, 2 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
@@ -1749,7 +1749,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [11, 5.5, 2 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
