@@ -343,9 +343,11 @@ async def squash_events_partition(inputs: SquashEventsPartitionInputs) -> str:
     """
     from django.conf import settings
 
-    async with get_client() as clickhouse_client:
-        activity.logger.info("Updating events with person overrides in partition %s", inputs.partition_id)
+    activity.logger.info(
+        "Submitting mutation to update events with person overrides in partition %s", inputs.partition_id
+    )
 
+    async with get_client() as clickhouse_client:
         query = SQUASH_EVENTS_QUERY.format(
             database=settings.CLICKHOUSE_DATABASE,
             cluster=settings.CLICKHOUSE_CLUSTER,
@@ -406,6 +408,8 @@ async def wait_for_mutation(inputs: WaitForMutationInputs) -> None:
     """
     from django.conf import settings
 
+    activity.logger.info("Waiting for mutation in table %s", inputs.table)
+
     if inputs.dry_run is True:
         activity.logger.info("This is a DRY RUN so nothing will be waited for.")
         return
@@ -439,7 +443,7 @@ async def wait_for_mutation(inputs: WaitForMutationInputs) -> None:
                     if mutations_in_progress == 0 and total_mutations > 0:
                         break
 
-                    activity.logger.info("Waiting for mutation in table %s", {inputs.table})
+                    activity.logger.info("Still waiting for mutation in table %s", inputs.table)
 
                     await asyncio.sleep(5)
 
