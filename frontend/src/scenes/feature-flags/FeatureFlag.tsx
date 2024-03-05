@@ -405,7 +405,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <FeatureFlagRollout />
                         <LemonDivider />
                         <FeatureFlagReleaseConditions
-                            id={`${featureFlag.id}-${JSON.stringify(featureFlag.filters)}`}
+                            id={`${featureFlag.id}`}
                             filters={featureFlag.filters}
                             onChange={setFeatureFlagFilters}
                         />

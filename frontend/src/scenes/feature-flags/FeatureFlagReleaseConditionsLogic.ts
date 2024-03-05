@@ -1,9 +1,10 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -17,15 +18,11 @@ import {
 import { teamLogic } from '../teamLogic'
 import type { featureFlagReleaseConditionsLogicType } from './FeatureFlagReleaseConditionsLogicType'
 
-// type Stringify<T> = {
-//     [K in keyof T]: T[K] extends object ? Stringify<T[K]> : string;
-// };
 // TODO: Type onChange errors properly
 export interface FeatureFlagReleaseConditionsLogicProps {
     filters: FeatureFlagFilters
     id?: string
     readOnly?: boolean
-    // TODO: Check early access features don't break because of this refactor
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
 }
 
@@ -44,6 +41,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         ],
     }),
     actions({
+        setFilters: (filters: FeatureFlagFilters) => ({ filters }),
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
         addConditionSet: true,
         removeConditionSet: (index: number) => ({ index }),
@@ -67,6 +65,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         filters: [
             props.filters,
             {
+                setFilters: (_, { filters }) => ({ ...filters }),
                 setAggregationGroupTypeIndex: (state, { value }) => {
                     if (!state || state.aggregation_group_type_index == value) {
                         return state
@@ -145,6 +144,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         ],
     })),
     listeners(({ actions, values }) => ({
+        duplicateConditionSet: async ({ index }, breakpoint) => {
+            await breakpoint(1000) // in ms
+            const valueForSourceCondition = values.affectedUsers[index]
+            const newIndex = values.filters.groups.length - 1
+            actions.setAffectedUsers(newIndex, valueForSourceCondition)
+        },
         updateConditionSet: async ({ index, newProperties }, breakpoint) => {
             if (newProperties) {
                 // properties have changed, so we'll have to re-fetch affected users
@@ -306,10 +311,14 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             },
         ],
     }),
+    propsChanged(({ props, values, actions }) => {
+        if (!objectsEqual(props.filters, values.filters)) {
+            actions.setFilters(props.filters)
+        }
+    }),
     subscriptions(({ props, values }) => ({
         filters: (value: FeatureFlagFilters, oldValue: FeatureFlagFilters): void => {
-            // TODO: Consider JSON stringify for better equality check?
-            if (value !== oldValue) {
+            if (!objectsEqual(value, oldValue)) {
                 props.onChange?.(value, values.propertySelectErrors)
             }
         },
