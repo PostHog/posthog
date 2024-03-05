@@ -430,14 +430,6 @@ export class PersonState {
         const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         this.applyEventPropertyUpdates(properties)
 
-        if (this.personOverrideWriter) {
-            // Optimize merging persons to keep using the person id that has longer history,
-            // which means we'll have less events to update during the squash later
-            if (otherPerson.created_at < mergeInto.created_at) {
-                ;[mergeInto, otherPerson] = [otherPerson, mergeInto]
-            }
-        }
-
         const [kafkaMessages, mergedPerson] = await this.handleMergeTransaction(
             mergeInto,
             otherPerson,

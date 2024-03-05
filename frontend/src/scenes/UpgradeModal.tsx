@@ -1,45 +1,30 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'lib/utils'
-import posthog from 'posthog-js'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 import { sceneLogic } from './sceneLogic'
-import { urls } from './urls'
 
 export function UpgradeModal(): JSX.Element {
-    const { upgradeModalFeatureNameAndCaption } = useValues(sceneLogic)
+    const { upgradeModalFeatureKey, upgradeModalFeatureUsage, upgradeModalIsGrandfathered } = useValues(sceneLogic)
     const { hideUpgradeModal } = useActions(sceneLogic)
 
-    const [featureName, featureCaption] = upgradeModalFeatureNameAndCaption ?? []
-
-    return (
-        <LemonModal
-            title="Unleash PostHog's full power"
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={hideUpgradeModal}>
-                        Maybe later
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        to={urls.organizationBilling()}
-                        onClick={() => {
-                            hideUpgradeModal()
-                            posthog.capture('upgrade modal pricing interaction')
-                        }}
-                    >
-                        Upgrade now
-                    </LemonButton>
-                </>
-            }
-            onClose={hideUpgradeModal}
-            isOpen={!!featureName}
-        >
-            <p>
-                <b>{featureName && capitalizeFirstLetter(featureName)}</b> is an advanced PostHog feature.
-            </p>
-            {featureCaption && <p>{featureCaption}</p>}
-            <p className="mb-0">Upgrade and get access to this, as well as to other powerful enhancements.</p>
+    return upgradeModalFeatureKey ? (
+        <LemonModal onClose={hideUpgradeModal} isOpen={!!upgradeModalFeatureKey}>
+            <div className="max-w-2xl">
+                <PayGateMini
+                    feature={upgradeModalFeatureKey}
+                    currentUsage={upgradeModalFeatureUsage ?? undefined}
+                    isGrandfathered={upgradeModalIsGrandfathered ?? undefined}
+                    background={false}
+                >
+                    <>
+                        You should have access to this feature already. If you are still seeing this modal, please let
+                        us know 🙂
+                    </>
+                </PayGateMini>
+            </div>
         </LemonModal>
+    ) : (
+        <></>
     )
 }
