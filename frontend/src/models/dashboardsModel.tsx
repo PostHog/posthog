@@ -42,10 +42,6 @@ export const dashboardsModel = kea<dashboardsModelType>([
             extraDashboardIds,
             updateTileOnDashboards,
         }),
-        updateDashboardTile: (tile: DashboardTile, extraDashboardIds?: number[]) => ({
-            tile,
-            extraDashboardIds,
-        }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
         // to dashboard items in dashboards
         updateDashboardRefreshStatus: (

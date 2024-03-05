@@ -20,7 +20,6 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
-    TextModel,
     TileLayout,
 } from '~/types'
 
@@ -679,22 +678,6 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboardItems'])
         })
-
-        it('can respond to external insight update for a text tile', async () => {
-            expect(logic.values.dashboard?.tiles).toHaveLength(2)
-
-            await expectLogic(logic, () => {
-                const updatedTile: DashboardTile = {
-                    ...TEXT_TILE,
-                    text: { ...TEXT_TILE.text, body: 'updated body' } as TextModel,
-                }
-                dashboardsModel.actions.updateDashboardTile(updatedTile, [9])
-            }).toFinishAllListeners()
-
-            expect(logic.values.dashboard?.tiles).toHaveLength(2)
-            expect(logic.values.insightTiles[0].insight!.name).toEqual('donut')
-            expect(logic.values.textTiles[0].text!.body).toEqual('updated body')
-        })
     })
 
     describe('with a half-cached dashboard', () => {
@@ -816,13 +799,6 @@ describe('dashboardLogic', () => {
                 dashboards: t.insight!.dashboards,
             }))
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
-
-        const changedTile: DashboardTile = {
-            ...(nineLogic.values.dashboard?.tiles[0] as DashboardTile), // we know it isn't undefined
-            insight: { ...insight800(), dashboards: [10, 5] },
-        }
-
-        dashboardsModel.actions.updateDashboardTile(changedTile, [9])
 
         expect(
             fiveLogic.values.insightTiles.map((t) => ({

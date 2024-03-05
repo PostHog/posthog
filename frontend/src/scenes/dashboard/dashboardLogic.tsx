@@ -385,35 +385,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     return null
                 },
-                [dashboardsModel.actionTypes.updateDashboardTile]: (state, { tile, extraDashboardIds }) => {
-                    const targetDashboards = (tile.insight?.dashboards || []).concat(extraDashboardIds || [])
-
-                    if (!targetDashboards.includes(props.id)) {
-                        // this update is not for this dashboard
-                        return state
-                    }
-
-                    if (state) {
-                        const tileIndex = state.tiles.findIndex((t) => t.id === tile.id)
-                        const newTiles = state.tiles.slice(0)
-                        if (tileIndex >= 0) {
-                            if (!!tile.text || tile.insight?.dashboards?.includes(props.id)) {
-                                newTiles[tileIndex] = { ...newTiles[tileIndex], ...tile }
-                            } else {
-                                newTiles.splice(tileIndex, 1)
-                            }
-                        } else {
-                            newTiles.push(tile)
-                        }
-
-                        return {
-                            ...state,
-                            tiles: newTiles.filter((t) => !t.deleted || !t.insight?.deleted),
-                        } as DashboardType
-                    }
-
-                    return null
-                },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
                     return state && dashboard && state.id === dashboard.id ? dashboard : state
                 },
