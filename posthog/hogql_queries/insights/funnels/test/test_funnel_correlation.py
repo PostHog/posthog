@@ -268,7 +268,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             }
         ]
 
-        journeys_for(events_by_person=journey, team=self.team)
+        journeys_for(events_by_person=journey, team=self.team)  # type: ignore
 
         sign_up_action = _create_action(
             name="user signed up",
