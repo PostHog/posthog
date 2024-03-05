@@ -45,7 +45,7 @@
                          count(DISTINCT person_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi__person.id AS person_id,
+          (SELECT events__pdi.person_id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
@@ -121,7 +121,7 @@
                          count(DISTINCT person_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi__person.id AS person_id,
+          (SELECT events__pdi.person_id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
@@ -192,7 +192,7 @@
                          count(DISTINCT person_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi__person.id AS person_id,
+          (SELECT events__pdi.person_id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
@@ -263,7 +263,7 @@
                          count(DISTINCT person_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi__person.id AS person_id,
+          (SELECT events__pdi.person_id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'US/Pacific')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,

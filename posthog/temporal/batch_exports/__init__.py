@@ -53,6 +53,7 @@ ACTIVITIES = [
     create_batch_export_backfill_model,
     create_export_run,
     delete_squashed_person_overrides_from_clickhouse,
+    drop_delete_join_table,
     drop_dictionary,
     get_schedule_frequency,
     insert_into_bigquery_activity,

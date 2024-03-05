@@ -81,7 +81,9 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
         tabs.push({
             key: 'elements',
             label: 'Elements',
-            content: <HTMLElementsDisplay elements={event.elements} />,
+            content: (
+                <HTMLElementsDisplay elements={event.elements} selectedText={event.properties['$selected_content']} />
+            ),
         })
     }
 

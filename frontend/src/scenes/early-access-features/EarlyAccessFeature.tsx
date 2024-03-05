@@ -1,4 +1,4 @@
-import { IconFlag, IconX } from '@posthog/icons'
+import { IconFlag, IconQuestion, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSkeleton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -9,7 +9,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconHelpOutline } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -459,7 +458,7 @@ function PersonsTableByFilterComponent({
                     <LemonButton
                         key="help-button"
                         onClick={toggleImplementOptInInstructionsModal}
-                        sideIcon={<IconHelpOutline />}
+                        sideIcon={<IconQuestion />}
                     >
                         Implement public opt-in
                     </LemonButton>

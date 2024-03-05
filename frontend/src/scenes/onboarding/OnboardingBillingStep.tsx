@@ -1,9 +1,9 @@
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { StarHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -73,7 +73,7 @@ export const OnboardingBillingStep = ({
                         <div className="mb-8">
                             <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
                                 <div className="flex gap-x-4">
-                                    <IconCheckCircleOutline className="text-success text-3xl mb-6" />
+                                    <IconCheckCircle className="text-success text-3xl mb-6" />
                                     <div>
                                         <h3 className="text-lg font-bold mb-1 text-left">
                                             {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
