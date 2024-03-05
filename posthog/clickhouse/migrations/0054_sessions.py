@@ -8,9 +8,9 @@ from posthog.models.sessions.sql import (
 )
 
 operations = [
-    run_sql_with_exceptions(WRITABLE_SESSIONS_TABLE_SQL()),
-    run_sql_with_exceptions(DISTRIBUTED_SESSIONS_TABLE_SQL()),
-    run_sql_with_exceptions(SESSIONS_TABLE_SQL()),
-    run_sql_with_exceptions(SESSIONS_TABLE_MV_SQL()),
-    run_sql_with_exceptions(SESSIONS_VIEW_SQL()),
+    run_sql_with_exceptions(WRITABLE_SESSIONS_TABLE_SQL),
+    run_sql_with_exceptions(DISTRIBUTED_SESSIONS_TABLE_SQL),
+    run_sql_with_exceptions(SESSIONS_TABLE_SQL),
+    run_sql_with_exceptions(SESSIONS_TABLE_MV_SQL),
+    run_sql_with_exceptions(SESSIONS_VIEW_SQL),
 ]
