@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 import structlog
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.clickhouse.client.execute import sync_execute, query_with_columns
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 
@@ -21,32 +22,10 @@ TARGET_TABLE = "sessions"
 class BackfillQuery:
     team_id: int
 
-    def execute(self, dry_run: bool = True) -> None:
-        # Find the earliest timestamp where there is an existing entry in the sessions table, we need to backfill before this point
-        timestamp_response = query_with_columns(
-            f"""
-            SELECT
-                min_first_timestamp
-            FROM {TARGET_TABLE}
-            WHERE
-                team_id = %(team_id)s
-            ORDER BY min_first_timestamp ASC
-        """,
-            {"team_id": self.team_id},
-        )
-
-        try:
-            earliest_existing_timestamp = timestamp_response[0]["min_first_timestamp"]
-        except IndexError:
-            earliest_existing_timestamp = None
-
-        logger.info(f"Earliest existing timestamp: {earliest_existing_timestamp}")
-
+    def execute(self, dry_run: bool = True, month: Optional[str] = None) -> None:
         where = "true"
-        if earliest_existing_timestamp is not None:
-            where = (
-                f"timestamp < toDateTime64('{earliest_existing_timestamp.isoformat().replace('+00:00', '')}', 6, 'UTC')"
-            )
+        if month is not None:
+            where = f"toYYYYMM(timestamp) < {month}"
 
         def source_column(column_name: str) -> str:
             return get_property_string_expr(
@@ -136,6 +115,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--team-id", required=True, type=int, help="team to backfill for")
+        parser.add_argument("--month", type=str, help="month to backfill for (format: YYYY-MM)")
         parser.add_argument(
             "--live-run", action="store_true", help="actually execute INSERT queries (default is dry-run)"
         )

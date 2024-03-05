@@ -213,3 +213,37 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(responses), 1)
         responses = self.select_by_session_id(session_id3)
         self.assertEqual(len(responses), 0)
+
+    def test_select_from_sessions(self):
+        # just make sure that we can select from the sessions table without error
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+        )
+
+        # we can't include all the columns as this clickhouse driver doesn't support selecting states
+        responses = sync_execute(
+            """
+        SELECT
+            session_id,
+            team_id,
+            distinct_id,
+            min_timestamp,
+            max_timestamp,
+            urls,
+            event_count_map,
+            pageview_count,
+            autocapture_count
+        FROM sessions
+        WHERE session_id = %(session_id)s AND team_id = %(team_id)s
+        """,
+            {
+                "session_id": session_id,
+                "team_id": self.team.id,
+            },
+        )
+        self.assertEqual(len(responses), 1)
