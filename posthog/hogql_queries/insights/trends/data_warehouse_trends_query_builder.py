@@ -175,7 +175,7 @@ class DataWarehouseTrendsQueryBuilder(TrendsQueryBuilderAbstract):
 
         # TODO: Move this logic into the below branches when working on adding breakdown support for the person modal
         if is_actors_query:
-            default_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
+            default_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person_id"]))]
             default_query.distinct = True
             default_query.group_by = []
 

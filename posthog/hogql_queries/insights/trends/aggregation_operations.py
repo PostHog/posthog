@@ -356,9 +356,7 @@ class AggregationOperations:
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,
                     "person_field": ast.Field(
-                        chain=["e", "distinct_id"]
-                        if self.team.aggregate_users_by_distinct_id
-                        else ["e", "person", "id"]
+                        chain=["e", "distinct_id"] if self.team.aggregate_users_by_distinct_id else ["e", "person_id"]
                     ),
                 },
             )
@@ -386,7 +384,7 @@ class AggregationOperations:
                 "events_where_clause": where_clause_combined,
                 "sample": sample_value,
                 "person_field": ast.Field(
-                    chain=["e", "distinct_id"] if self.team.aggregate_users_by_distinct_id else ["e", "person", "id"]
+                    chain=["e", "distinct_id"] if self.team.aggregate_users_by_distinct_id else ["e", "person_id"]
                 ),
             },
         )
