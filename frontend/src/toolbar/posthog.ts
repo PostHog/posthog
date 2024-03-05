@@ -4,10 +4,12 @@ const DEFAULT_API_KEY = 'sTMFPsFhdP1Ssg'
 
 const runningOnPosthog = !!window.POSTHOG_APP_CONTEXT
 const apiKey = runningOnPosthog ? window.JS_POSTHOG_API_KEY : DEFAULT_API_KEY
-const apiHost = runningOnPosthog ? window.JS_POSTHOG_HOST : 'https://app.posthog.com'
+const apiHost = runningOnPosthog ? window.JS_POSTHOG_HOST : 'https://d1iyf54ud053a4.cloudfront.net'
+const uiHost = runningOnPosthog ? window.JS_POSTHOG_UI_HOST : 'https://app.posthog.com'
 
 export const posthog = new PostHog(apiKey || DEFAULT_API_KEY, {
     host: apiHost,
+    ui_host: uiHost,
     enable: false, // must call .optIn() before any events are sent
     persistence: 'memory', // We don't want to persist anything, all events are in-memory
     persistence_name: apiKey + '_toolbar', // We don't need this but it ensures we don't accidentally mess with the standard persistence
