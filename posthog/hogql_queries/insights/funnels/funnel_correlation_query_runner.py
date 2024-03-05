@@ -71,8 +71,6 @@ class EventContingencyTable:
     failure_total: int
 
 
-MIN_PERSON_COUNT = 25
-MIN_PERSON_PERCENTAGE = 0.02
 PRIOR_COUNT = 1
 
 
@@ -80,6 +78,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     TOTAL_IDENTIFIER = "Total_Values_In_Query"
     ELEMENTS_DIVIDER = "__~~__"
     AUTOCAPTURE_EVENT_TYPE = "$event_type"
+    MIN_PERSON_COUNT = 25
+    MIN_PERSON_PERCENTAGE = 0.02
 
     query: FunnelCorrelationQuery
     query_type = FunnelCorrelationQuery
@@ -263,7 +263,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         odds_ratios = [
             get_entity_odds_ratio(event_stats, PRIOR_COUNT)
             for event_stats in event_contingency_tables
-            if not are_results_insignificant(event_stats)
+            if not self.are_results_insignificant(event_stats)
         ]
 
         positively_correlated_events = sorted(
@@ -715,6 +715,23 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             return True
         return False
 
+    @staticmethod
+    def are_results_insignificant(event_contingency_table: EventContingencyTable) -> bool:
+        """
+        Check if the results are insignificant, i.e. if the success/failure counts are
+        significantly different from the total counts
+        """
+
+        total_count = event_contingency_table.success_total + event_contingency_table.failure_total
+
+        if event_contingency_table.visited.success_count + event_contingency_table.visited.failure_count < min(
+            FunnelCorrelationQueryRunner.MIN_PERSON_COUNT,
+            FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE * total_count,
+        ):
+            return True
+
+        return False
+
 
 def get_entity_odds_ratio(event_contingency_table: EventContingencyTable, prior_counts: int) -> EventOddsRatio:
     # Add 1 to all values to prevent divide by zero errors, and introduce a [prior](https://en.wikipedia.org/wiki/Prior_probability)
@@ -733,20 +750,3 @@ def get_entity_odds_ratio(event_contingency_table: EventContingencyTable, prior_
         odds_ratio=odds_ratio,
         correlation_type="success" if odds_ratio > 1 else "failure",
     )
-
-
-def are_results_insignificant(event_contingency_table: EventContingencyTable) -> bool:
-    """
-    Check if the results are insignificant, i.e. if the success/failure counts are
-    significantly different from the total counts
-    """
-
-    total_count = event_contingency_table.success_total + event_contingency_table.failure_total
-
-    if event_contingency_table.visited.success_count + event_contingency_table.visited.failure_count < min(
-        MIN_PERSON_COUNT,
-        MIN_PERSON_PERCENTAGE * total_count,
-    ):
-        return True
-
-    return False

@@ -6,7 +6,6 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.queries.funnels.funnel_correlation import (
     EventContingencyTable,
     EventStats,
-    FunnelCorrelation,
 )
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
     FunnelCorrelationActors,
@@ -1469,9 +1468,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # Thus, to discard the low sig count, % needs to be >= 10%, or count >= 2
 
         # Discard both due to %
-        # TODO: implement this
-        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.11
-        FunnelCorrelation.MIN_PERSON_COUNT = 25
+        FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.11
+        FunnelCorrelationQueryRunner.MIN_PERSON_COUNT = 25
         result, _ = self._get_events_for_filters(filters, funnelCorrelationType=FunnelCorrelationResultsType.events)
 
         self.assertEqual(len(result), 2)
@@ -2035,61 +2033,61 @@ class TestCorrelationFunctions(unittest.TestCase):
         ]
 
         # Discard both low_sig due to %
-        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.11
-        FunnelCorrelation.MIN_PERSON_COUNT = 25
+        FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.11
+        FunnelCorrelationQueryRunner.MIN_PERSON_COUNT = 25
         result = [
             1
             for contingency_table in contingency_tables
-            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+            if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
         self.assertEqual(len(result), 2)
 
         # Discard one low_sig due to %
-        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.051
-        FunnelCorrelation.MIN_PERSON_COUNT = 25
+        FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.051
+        FunnelCorrelationQueryRunner.MIN_PERSON_COUNT = 25
         result = [
             1
             for contingency_table in contingency_tables
-            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+            if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
         self.assertEqual(len(result), 3)
 
         # Discard both due to count
-        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.5
-        FunnelCorrelation.MIN_PERSON_COUNT = 3
+        FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.5
+        FunnelCorrelationQueryRunner.MIN_PERSON_COUNT = 3
         result = [
             1
             for contingency_table in contingency_tables
-            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+            if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
         self.assertEqual(len(result), 2)
 
         # Discard one due to count
-        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.5
-        FunnelCorrelation.MIN_PERSON_COUNT = 2
+        FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.5
+        FunnelCorrelationQueryRunner.MIN_PERSON_COUNT = 2
         result = [
             1
             for contingency_table in contingency_tables
-            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+            if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
         self.assertEqual(len(result), 3)
 
         # Discard everything due to %
-        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.5
-        FunnelCorrelation.MIN_PERSON_COUNT = 100
+        FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.5
+        FunnelCorrelationQueryRunner.MIN_PERSON_COUNT = 100
         result = [
             1
             for contingency_table in contingency_tables
-            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+            if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
         self.assertEqual(len(result), 0)
 
         # Discard everything due to count
-        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.5
-        FunnelCorrelation.MIN_PERSON_COUNT = 6
+        FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.5
+        FunnelCorrelationQueryRunner.MIN_PERSON_COUNT = 6
         result = [
             1
             for contingency_table in contingency_tables
-            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+            if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
         self.assertEqual(len(result), 0)
