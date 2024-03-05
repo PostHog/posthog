@@ -13,7 +13,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -78,8 +77,6 @@ export function SessionsRecordings(): JSX.Element {
                                     onClick={(e) =>
                                         guardAvailableFeature(
                                             AvailableFeature.RECORDINGS_PLAYLISTS,
-                                            'recording playlists',
-                                            "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
                                             () => {
                                                 // choose the type of playlist handler so that analytics correctly report
                                                 // whether filters have been changed before saving
@@ -110,8 +107,6 @@ export function SessionsRecordings(): JSX.Element {
                                 onClick={(e) =>
                                     guardAvailableFeature(
                                         AvailableFeature.RECORDINGS_PLAYLISTS,
-                                        'recording playlists',
-                                        "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
                                         () => newPlaylistHandler.onEvent?.(e),
                                         undefined,
                                         playlists.count
@@ -136,7 +131,6 @@ export function SessionsRecordings(): JSX.Element {
             />
             <div className="space-y-2">
                 <VersionCheckerBanner />
-                <AndroidRecordingsPromptBanner context="replay" />
 
                 {recordingsDisabled ? (
                     <LemonBanner

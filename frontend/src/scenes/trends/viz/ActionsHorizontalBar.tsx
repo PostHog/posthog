@@ -32,9 +32,8 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isTrends, query } = useValues(insightVizDataLogic(insightProps))
-    const { indexedResults, labelGroupType, trendsFilter, formula, showValueOnSeries } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const { indexedResults, labelGroupType, trendsFilter, formula, showValueOnSeries, isDataWarehouseSeries } =
+        useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
         const _data = [...indexedResults]
@@ -99,7 +98,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             formula={formula}
             showValueOnSeries={showValueOnSeries}
             onClick={
-                !showPersonsModal || trendsFilter?.formula
+                !showPersonsModal || trendsFilter?.formula || isDataWarehouseSeries
                     ? undefined
                     : (point) => {
                           const { index, points, crossDataset } = point

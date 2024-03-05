@@ -119,7 +119,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
     def setUp(self):
         super().setUp()
-        self.organization.available_features = [AvailableFeature.DASHBOARD_PERMISSIONING]
+        self.organization.available_features = [AvailableFeature.ADVANCED_PERMISSIONS]
         self.organization.save()
         self.dashboard = Dashboard.objects.create(team=self.team)
 
@@ -236,7 +236,7 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
 class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
     def setUp(self):
         super().setUp()
-        self.organization.available_features = [AvailableFeature.DASHBOARD_PERMISSIONING]
+        self.organization.available_features = [AvailableFeature.ADVANCED_PERMISSIONS]
         self.organization.save()
 
         self.dashboard1 = Dashboard.objects.create(
@@ -307,7 +307,7 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
     def test_dashboard_efficiency(self):
         self.organization.available_features = [
             AvailableFeature.PROJECT_BASED_PERMISSIONING,
-            AvailableFeature.DASHBOARD_PERMISSIONING,
+            AvailableFeature.ADVANCED_PERMISSIONS,
         ]
         self.organization.save()
 

@@ -105,6 +105,7 @@ class BreakdownType(str, Enum):
     group = "group"
     session = "session"
     hogql = "hogql"
+    data_warehouse = "data_warehouse"
 
 
 class BreakdownValueInt(RootModel[int]):
@@ -205,6 +206,7 @@ class EmptyPropertyFilter(BaseModel):
 class EntityType(str, Enum):
     actions = "actions"
     events = "events"
+    data_warehouse = "data_warehouse"
     new_entity = "new_entity"
 
 
@@ -529,6 +531,7 @@ class LifecycleToggle(str, Enum):
 class NodeKind(str, Enum):
     EventsNode = "EventsNode"
     ActionsNode = "ActionsNode"
+    DataWarehouseNode = "DataWarehouseNode"
     EventsQuery = "EventsQuery"
     PersonsNode = "PersonsNode"
     HogQLQuery = "HogQLQuery"
@@ -629,6 +632,7 @@ class PropertyFilterType(str, Enum):
     recording = "recording"
     group = "group"
     hogql = "hogql"
+    data_warehouse = "data_warehouse"
 
 
 class PropertyMathType(str, Enum):
@@ -1107,6 +1111,17 @@ class ChartSettings(BaseModel):
     goalLines: Optional[List[GoalLine]] = None
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[List[ChartAxis]] = None
+
+
+class DataWarehousePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["data_warehouse"] = "data_warehouse"
+    value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
 class ElementPropertyFilter(BaseModel):
@@ -1697,9 +1712,67 @@ class DashboardFilter(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = None
+
+
+class DataWarehouseNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    id: str
+    id_field: str
+    kind: Literal["DataWarehouseNode"] = "DataWarehouseNode"
+    math: Optional[
+        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
+    table_name: str
+    timestamp_field: str
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -1730,6 +1803,7 @@ class EntityNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(
@@ -1757,6 +1831,7 @@ class EntityNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1782,6 +1857,7 @@ class EventsNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(
@@ -1811,6 +1887,7 @@ class EventsNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1839,6 +1916,7 @@ class EventsQuery(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(
@@ -1863,6 +1941,7 @@ class EventsQuery(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1889,6 +1968,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(
@@ -1919,6 +1999,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1944,6 +2025,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(
@@ -1975,6 +2057,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2000,6 +2083,7 @@ class HogQLFilters(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = None
@@ -2039,6 +2123,7 @@ class PersonsNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(
@@ -2061,6 +2146,7 @@ class PersonsNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2087,6 +2173,7 @@ class PropertyGroupFilterValue(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ],
         ]
     ]
@@ -2193,6 +2280,7 @@ class ActionsNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(
@@ -2221,6 +2309,7 @@ class ActionsNode(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2311,6 +2400,7 @@ class RetentionQuery(BaseModel):
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2347,13 +2437,16 @@ class StickinessQuery(BaseModel):
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
         ]
     ] = Field(default=None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+        ..., description="Events and actions to include"
+    )
     stickinessFilter: Optional[StickinessFilter] = Field(
         default=None, description="Properties specific to the stickiness insight"
     )
@@ -2387,6 +2480,7 @@ class TrendsQuery(BaseModel):
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2394,7 +2488,9 @@ class TrendsQuery(BaseModel):
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+        ..., description="Events and actions to include"
+    )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
@@ -2410,6 +2506,7 @@ class FilterType(BaseModel):
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
+    data_warehouse: Optional[List[Dict[str, Any]]] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     entity_id: Optional[Union[str, float]] = None
@@ -2439,6 +2536,7 @@ class FilterType(BaseModel):
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2478,13 +2576,16 @@ class FunnelsQuery(BaseModel):
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
         ]
     ] = Field(default=None, description="Property filters for all series")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+        ..., description="Events and actions to include"
+    )
 
 
 class InsightsQueryBase(BaseModel):
@@ -2511,6 +2612,7 @@ class InsightsQueryBase(BaseModel):
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2548,6 +2650,7 @@ class LifecycleQuery(BaseModel):
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2555,7 +2658,9 @@ class LifecycleQuery(BaseModel):
     ] = Field(default=None, description="Property filters for all series")
     response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+        ..., description="Events and actions to include"
+    )
 
 
 class NamedParametersTypeofDateRangeForFilter(BaseModel):
@@ -2590,6 +2695,7 @@ class PathsQuery(BaseModel):
                     FeaturePropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2711,6 +2817,7 @@ class ActorsQuery(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = None
@@ -2731,6 +2838,7 @@ class ActorsQuery(BaseModel):
                 FeaturePropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
             ]
         ]
     ] = None
@@ -2852,6 +2960,7 @@ class QueryRequest(BaseModel):
         EventsNode,
         ActionsNode,
         PersonsNode,
+        DataWarehouseNode,
         TimeToSeeDataSessionsQuery,
         EventsQuery,
         ActorsQuery,
@@ -2890,6 +2999,7 @@ class QuerySchemaRoot(
             EventsNode,
             ActionsNode,
             PersonsNode,
+            DataWarehouseNode,
             TimeToSeeDataSessionsQuery,
             EventsQuery,
             ActorsQuery,
@@ -2921,6 +3031,7 @@ class QuerySchemaRoot(
         EventsNode,
         ActionsNode,
         PersonsNode,
+        DataWarehouseNode,
         TimeToSeeDataSessionsQuery,
         EventsQuery,
         ActorsQuery,

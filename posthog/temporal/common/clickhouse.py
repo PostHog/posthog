@@ -176,7 +176,7 @@ class ClickHouseClient:
             request_data = None
         return request_data
 
-    async def acheck_response(self, response, query, request_data) -> None:
+    async def acheck_response(self, response, query) -> None:
         """Asynchronously check the HTTP response received from ClickHouse.
 
         Raises:
@@ -195,6 +195,36 @@ class ClickHouseClient:
         if response.status_code != 200:
             error_message = response.text
             raise ClickHouseError(query, error_message)
+
+    @contextlib.asynccontextmanager
+    async def aget_query(
+        self, query, query_parameters, query_id
+    ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
+        """Send a GET request to the ClickHouse HTTP interface with a query.
+
+        Only read-only queries may be sent as a GET request. For inserts, use apost_query.
+
+        The context manager protocol is used to control when to release the response.
+
+        Arguments:
+            query: The query to POST.
+            *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
+            query_parameters: Parameters to be formatted in the query.
+            query_id: A query ID to pass to ClickHouse.
+
+        Returns:
+            The response received from the ClickHouse HTTP interface.
+        """
+
+        params = {**self.params}
+        if query_id is not None:
+            params["query_id"] = query_id
+
+        params["query"] = self.prepare_query(query, query_parameters)
+
+        async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
+            await self.acheck_response(response, query)
+            yield response
 
     @contextlib.asynccontextmanager
     async def apost_query(
@@ -227,7 +257,7 @@ class ClickHouseClient:
             request_data = query.encode("utf-8")
 
         async with self.session.post(url=self.url, params=params, headers=self.headers, data=request_data) as response:
-            await self.acheck_response(response, query, request_data)
+            await self.acheck_response(response, query)
             yield response
 
     @contextlib.contextmanager
@@ -277,13 +307,13 @@ class ClickHouseClient:
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id):
             return None
 
-    async def read_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> bytes:
-        """Execute the given query in ClickHouse and read the response in full.
+    async def read_query(self, query, query_parameters=None, query_id: str | None = None) -> bytes:
+        """Execute the given readonly query in ClickHouse and read the response in full.
 
         As the entire payload will be read at once, use this method when expecting a small payload, like
         when running a 'count(*)' query.
         """
-        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        async with self.aget_query(query, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
 
     async def stream_query_as_jsonl(
@@ -338,7 +368,9 @@ class ClickHouseClient:
 
 
 @contextlib.asynccontextmanager
-async def get_client(**kwargs) -> collections.abc.AsyncIterator[ClickHouseClient]:
+async def get_client(
+    *, team_id: typing.Optional[int] = None, **kwargs
+) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
     async context manager.
@@ -369,6 +401,14 @@ async def get_client(**kwargs) -> collections.abc.AsyncIterator[ClickHouseClient
     #    elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
     #        ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
     timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None, sock_read=None)
+
+    if team_id is None:
+        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+    else:
+        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES.get(
+            team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+        )
+
     with aiohttp.TCPConnector(ssl=False) as connector:
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             async with ClickHouseClient(
@@ -377,9 +417,8 @@ async def get_client(**kwargs) -> collections.abc.AsyncIterator[ClickHouseClient
                 user=settings.CLICKHOUSE_USER,
                 password=settings.CLICKHOUSE_PASSWORD,
                 database=settings.CLICKHOUSE_DATABASE,
-                # TODO: make this a setting.
-                max_execution_time=0,
-                max_block_size=10000,
+                max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
+                max_block_size=max_block_size,
                 output_format_arrow_string_as_string="true",
                 **kwargs,
             ) as client:

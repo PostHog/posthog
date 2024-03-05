@@ -48,7 +48,7 @@ google-cloud-sqlcommenter==2.0.0
 gunicorn==20.1.0
 idna==2.8
 importlib-metadata==6.8.0
-infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@37722f350f3b449bbcd6564917c436b0d93e796f
+infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
 kafka-python==2.0.2
 kafka-helper==0.2
 kombu==5.3.2
@@ -97,6 +97,7 @@ more-itertools==9.0.0
 django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
 openai==1.10.0
+tiktoken==0.6.0
 nh3==0.2.14
 hogql-parser==1.0.3
 urllib3[secure,socks]==1.26.18

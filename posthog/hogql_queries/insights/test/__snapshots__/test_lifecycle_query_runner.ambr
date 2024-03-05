@@ -45,7 +45,7 @@
                          count(DISTINCT person_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi__person.id AS person_id,
+          (SELECT events__pdi.person_id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
@@ -79,7 +79,7 @@
            WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), ifNull(in(person_id,
                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                              FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 7))
+                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2))
                                                                                                                                                                                                                                                                                                                                                                                                              GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                                                              HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0), equals(events.event, '$pageview'))
            GROUP BY person_id)
@@ -121,7 +121,7 @@
                          count(DISTINCT person_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi__person.id AS person_id,
+          (SELECT events__pdi.person_id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
@@ -192,7 +192,7 @@
                          count(DISTINCT person_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi__person.id AS person_id,
+          (SELECT events__pdi.person_id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
@@ -263,7 +263,7 @@
                          count(DISTINCT person_id) AS counts,
                          status AS status
         FROM
-          (SELECT events__pdi__person.id AS person_id,
+          (SELECT events__pdi.person_id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'US/Pacific')) AS created_at,
                   arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,

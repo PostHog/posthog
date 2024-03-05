@@ -13,10 +13,11 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, TrendsQuery
+from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, TrendsQuery, ChartDisplayType
+from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
 
 
-class TrendsQueryBuilder:
+class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
@@ -47,16 +48,17 @@ class TrendsQueryBuilder:
 
         if self._trends_display.should_aggregate_values():
             events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
+            return events_query
         else:
             date_subqueries = self._get_date_subqueries(breakdown=breakdown)
             event_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
 
             events_query = ast.SelectUnionQuery(select_queries=[*date_subqueries, event_query])
 
-        inner_select = self._inner_select_query(inner_query=events_query, breakdown=breakdown)
-        full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
+            inner_select = self._inner_select_query(inner_query=events_query, breakdown=breakdown)
+            full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
 
-        return full_query
+            return full_query
 
     def build_actors_query(
         self, time_frame: Optional[str | int] = None, breakdown_filter: Optional[str | int] = None
@@ -194,8 +196,17 @@ class TrendsQueryBuilder:
         default_query.group_by = []
 
         if not self._trends_display.should_aggregate_values() and not is_actors_query:
+            # For cumulative unique users or groups, we want to count each user or group once per query, not per day
+            if (
+                self.query.trendsFilter
+                and self.query.trendsFilter.display == ChartDisplayType.ActionsLineGraphCumulative
+                and (self.series.math == "unique_group" or self.series.math == "dau")
+            ):
+                day_start.expr = ast.Call(name="min", args=[day_start.expr])
+                default_query.group_by.append(self._aggregation_operation.actor_id())
+            else:
+                default_query.group_by.append(ast.Field(chain=["day_start"]))
             default_query.select.append(day_start)
-            default_query.group_by.append(ast.Field(chain=["day_start"]))
 
         # TODO: Move this logic into the below branches when working on adding breakdown support for the person modal
         if is_actors_query:

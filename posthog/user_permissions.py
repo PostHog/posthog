@@ -187,7 +187,7 @@ class UserDashboardPermissions:
         return (
             self.dashboard.restriction_level
             if cast(Organization, self.p.current_organization).is_feature_available(
-                AvailableFeature.DASHBOARD_PERMISSIONING
+                AvailableFeature.ADVANCED_PERMISSIONS
             )
             else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )

@@ -49,7 +49,7 @@ export function Cohorts(): JSX.Element {
                         <Link to={combineUrl(urls.cohort(id), searchParams).url} className="row-name">
                             {name || 'Untitled'}
                         </Link>
-                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
+                        {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && description && (
                             <span className="row-description">{description}</span>
                         )}
                     </>

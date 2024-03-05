@@ -152,10 +152,6 @@ export const surveysLogic = kea<surveysLogicType>([
             ],
         ],
         payGateFlagOn: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.SURVEYS_PAYGATES]],
-        whitelabelAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
-        ],
         surveysStylingAvailable: [
             (s) => [s.hasAvailableFeature, s.payGateFlagOn],
             (hasAvailableFeature, payGateFlagOn) =>

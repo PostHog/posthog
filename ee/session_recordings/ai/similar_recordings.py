@@ -23,7 +23,7 @@ def closest_embeddings(session_id: str, team_id: int):
     query = """
             WITH (
                 SELECT
-                    embeddings
+                    argMax(embeddings, generation_timestamp) as target_embeddings
                 FROM
                     session_replay_embeddings
                 WHERE
@@ -31,6 +31,7 @@ def closest_embeddings(session_id: str, team_id: int):
                     -- don't load all data for all time
                     AND generation_timestamp > now() - INTERVAL 7 DAY
                     AND session_id = %(session_id)s
+                group by session_id
                 LIMIT 1
             ) as target_embeddings
             SELECT

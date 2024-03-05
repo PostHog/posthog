@@ -3,23 +3,23 @@ import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { useEffect } from 'react'
+import { IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelExportsLogic } from './sidePanelExportsLogic'
 
 export const SidePanelExportsIcon = (): JSX.Element => {
-    return <IconDownload />
+    const { freshUndownloadedExports } = useValues(sidePanelExportsLogic)
+    return (
+        <IconWithCount count={freshUndownloadedExports.length}>
+            <IconDownload />
+        </IconWithCount>
+    )
 }
 
 const ExportsContent = (): JSX.Element => {
-    const { exports } = useValues(sidePanelExportsLogic)
-    const { loadExports } = useActions(sidePanelExportsLogic)
-
-    useEffect(() => {
-        loadExports()
-    }, [])
+    const { exports, freshUndownloadedExports } = useValues(sidePanelExportsLogic)
+    const { loadExports, removeFresh } = useActions(sidePanelExportsLogic)
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
@@ -30,31 +30,42 @@ const ExportsContent = (): JSX.Element => {
                     </LemonButton>
                 </div>
 
-                {exports.map((asset) => (
-                    <LemonButton
-                        type="secondary"
-                        key={asset.id}
-                        fullWidth
-                        className="mt-2"
-                        disabledReason={!asset.has_content ? 'Export not ready yet' : undefined}
-                        onClick={() => {
-                            void downloadExportedAsset(asset)
-                        }}
-                        sideIcon={asset.has_content ? <IconDownload className="text-link" /> : undefined}
-                    >
-                        <div className="flex items-center justify-between flex-auto p-2">
-                            <div>
-                                <span className="text-link font-medium block">{asset.filename}</span>
-                                {asset.expires_after && (
-                                    <span className="text-xs text-muted mt-1">
-                                        Expires {dayjs(asset.expires_after).fromNow()}
-                                    </span>
-                                )}
+                {exports.map((asset) => {
+                    const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
+                    return (
+                        <LemonButton
+                            type={isNotDownloaded ? 'primary' : 'secondary'}
+                            key={asset.id}
+                            fullWidth
+                            className="mt-2"
+                            disabledReason={!asset.has_content ? 'Export not ready yet' : undefined}
+                            onClick={() => {
+                                removeFresh(asset)
+                                void downloadExportedAsset(asset)
+                            }}
+                            sideIcon={asset.has_content ? <IconDownload className="text-link" /> : undefined}
+                        >
+                            <div className="flex items-center justify-between flex-auto p-2">
+                                <div>
+                                    <span className="text-link font-medium block">{asset.filename}</span>
+                                    {asset.created_at && (
+                                        <span className="text-xs mt-1">{dayjs(asset.created_at).fromNow()}</span>
+                                    )}
+                                    {asset.expires_after && (
+                                        <span className="text-xs text-muted mt-1">
+                                            {' '}
+                                            · expires {dayjs(asset.expires_after).fromNow()}
+                                        </span>
+                                    )}
+                                    {isNotDownloaded && (
+                                        <span className="text-xs text-muted mt-1"> · not downloaded yet</span>
+                                    )}
+                                </div>
+                                <div>{!asset.has_content && <Spinner />}</div>
                             </div>
-                            <div>{!asset.has_content && <Spinner />}</div>
-                        </div>
-                    </LemonButton>
-                ))}
+                        </LemonButton>
+                    )
+                })}
             </div>
         </div>
     )
