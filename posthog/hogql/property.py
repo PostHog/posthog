@@ -72,7 +72,13 @@ def property_to_expr(
     scope: Literal["event", "person"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
-        property = Property(**property)
+        try:
+            property = Property(**property)
+        # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
+        except ValueError:
+            return ast.Constant(value=True)
+        except TypeError:
+            return ast.Constant(value=True)
     elif isinstance(property, list):
         properties = [property_to_expr(p, team, scope) for p in property]
         if len(properties) == 0:
