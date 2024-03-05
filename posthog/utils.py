@@ -311,7 +311,7 @@ def render_template(
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://d1iyf54ud053a4.cloudfront.net'"
+        context["js_posthog_host"] = "'https://internal-e.posthog.com'"
         context["js_posthog_ui_host"] = "'https://app.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
