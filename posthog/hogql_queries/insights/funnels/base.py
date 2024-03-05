@@ -966,6 +966,6 @@ class FunnelBase(ABC):
         exprs: List[ast.Expr] = []
 
         for prop in self.context.includeProperties:
-            exprs.append(parse_expr(f"any({prop}) as {prop}") if aggregate else parse_expr("prop"))
+            exprs.append(parse_expr(f"any({prop}) as {prop}") if aggregate else parse_expr(prop))
 
         return exprs
