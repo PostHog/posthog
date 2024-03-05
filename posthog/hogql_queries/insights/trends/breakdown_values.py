@@ -106,20 +106,21 @@ class BreakdownValues:
                 replaced = parse_expr(f"count(DISTINCT {actor})")
                 aggregation_expression = replace_placeholders(aggregation_expression, {"replaced": replaced})
 
+        timestamp_field = self.series.timestamp_field if hasattr(self.series, "timestamp_field") else "timestamp"
         date_filter = ast.And(
             exprs=[
                 parse_expr(
                     "{timestamp} >= {date_from_with_adjusted_start_of_interval}",
                     placeholders={
                         **self.query_date_range.to_placeholders(),
-                        "timestamp": ast.Field(chain=[self.series.timestamp_field or "timestamp"]),
+                        "timestamp": ast.Field(chain=[timestamp_field]),
                     },
                 ),
                 parse_expr(
                     "{timestamp} <= {date_to}",
                     placeholders={
                         **self.query_date_range.to_placeholders(),
-                        "timestamp": ast.Field(chain=[self.series.timestamp_field or "timestamp"]),
+                        "timestamp": ast.Field(chain=[timestamp_field]),
                     },
                 ),
             ]
