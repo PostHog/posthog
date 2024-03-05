@@ -2,7 +2,7 @@ from typing import List, Optional, Union, Any
 from posthog.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.placeholders import replace_placeholders, find_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
@@ -91,6 +91,16 @@ class BreakdownValues:
         else:
             breakdown_limit = int(self.breakdown_limit) if self.breakdown_limit is not None else BREAKDOWN_VALUES_LIMIT
 
+        if self._aggregation_operation.aggregating_on_session_duration():
+            aggregation_expression = ast.Call(name="max", args=[ast.Field(chain=["session", "duration"])])
+        else:
+            aggregation_expression = self._aggregation_operation.select_aggregation()
+            # Take a shortcut with WAU and MAU queries. Get the total AU-s for the period instead.
+            if len(find_placeholders(aggregation_expression)) > 0:
+                actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person.id"
+                replaced = parse_expr(f"count(DISTINCT {actor})")
+                aggregation_expression = replace_placeholders(aggregation_expression, {"replaced": replaced})
+
         inner_events_query = parse_select(
             """
                 SELECT
@@ -112,13 +122,7 @@ class BreakdownValues:
                 "breakdown_limit": ast.Constant(value=breakdown_limit),
                 "table": self._table,
                 "id_field": self._id_field,
-                "aggregation_expression": replace_placeholders(
-                    ast.Call(name="max", args=[ast.Field(chain=["session", "duration"])])
-                    if self._aggregation_operation.aggregating_on_session_duration()
-                    else self._aggregation_operation.select_aggregation(),
-                    # take a shortcut with weekly_active and monthly_active options, and just select for total count
-                    {"replaced": ast.Call(name="count", args=[self._id_field])},
-                ),
+                "aggregation_expression": aggregation_expression,
             },
         )
         if self.series.math_property is not None and self.series.math == "min":
