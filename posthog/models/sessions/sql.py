@@ -103,8 +103,7 @@ def source_column(column_name: str) -> str:
             raise e
 
 
-SESSIONS_TABLE_MV_SQL = (
-    lambda: """
+SESSIONS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
@@ -139,20 +138,19 @@ FROM {database}.sharded_events
 WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
 GROUP BY `$session_id`, team_id
 """.format(
-        table_name=f"{TABLE_BASE_NAME}_mv",
-        target_table=f"writable_{TABLE_BASE_NAME}",
-        cluster=settings.CLICKHOUSE_CLUSTER,
-        database=settings.CLICKHOUSE_DATABASE,
-        current_url_property=source_column("$current_url"),
-        referring_domain_property=source_column("$referring_domain"),
-        utm_source_property=source_column("utm_source"),
-        utm_campaign_property=source_column("utm_campaign"),
-        utm_medium_property=source_column("utm_medium"),
-        utm_term_property=source_column("utm_term"),
-        utm_content_property=source_column("utm_content"),
-        gclid_property=source_column("gclid"),
-        gad_source_property=source_column("gad_source"),
-    )
+    table_name=f"{TABLE_BASE_NAME}_mv",
+    target_table=f"writable_{TABLE_BASE_NAME}",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
+    current_url_property=source_column("$current_url"),
+    referring_domain_property=source_column("$referring_domain"),
+    utm_source_property=source_column("utm_source"),
+    utm_campaign_property=source_column("utm_campaign"),
+    utm_medium_property=source_column("utm_medium"),
+    utm_term_property=source_column("utm_term"),
+    utm_content_property=source_column("utm_content"),
+    gclid_property=source_column("gclid"),
+    gad_source_property=source_column("gad_source"),
 )
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
