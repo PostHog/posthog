@@ -29,6 +29,7 @@ from posthog.batch_exports.service import (
     BatchExportServiceError,
     BatchExportServiceRPCError,
     BatchExportServiceScheduleNotFound,
+    BatchExportWithNoEndNotAllowedError,
     backfill_export,
     batch_export_delete_schedule,
     cancel_running_batch_export_backfill,
@@ -371,7 +372,10 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         batch_export = self.get_object()
         temporal = sync_connect()
-        backfill_id = backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
+        try:
+            backfill_id = backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
+        except BatchExportWithNoEndNotAllowedError:
+            raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
 
         return response.Response({"backfill_id": backfill_id})
 
