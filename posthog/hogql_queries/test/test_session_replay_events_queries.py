@@ -1,11 +1,18 @@
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.schema import HogQLQuery
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.test.base import ClickhouseTestMixin, APIBaseTest
+from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.base import ClickhouseTestMixin, APIBaseTest, QueryMatchingTest, snapshot_clickhouse_queries
 
 
-class TestSessionReplayEventsHogQLQueries(ClickhouseTestMixin, APIBaseTest):
-    def test_session_replay_events_table_is_always_grouped_by_session_id(self):
+class TestSessionReplayEventsHogQLQueries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def tearDown(self):
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+    def setUp(self):
+        super().setUp()
+
         produce_replay_summary(
             team_id=self.team.id,
             session_id="session_id_one",
@@ -25,6 +32,8 @@ class TestSessionReplayEventsHogQLQueries(ClickhouseTestMixin, APIBaseTest):
             mouse_activity_count=300,
         )
 
+    @snapshot_clickhouse_queries
+    def test_session_replay_events_table_is_always_grouped_by_session_id(self):
         # test that the "not raw" table is always grouped by session id
         runner = HogQLQueryRunner(
             team=self.team,
