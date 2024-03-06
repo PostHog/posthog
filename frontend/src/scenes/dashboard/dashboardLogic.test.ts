@@ -800,6 +800,9 @@ describe('dashboardLogic', () => {
             }))
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
 
+        const changedInsight: InsightModel = { ...insight800(), dashboards: [10, 5] } // Moved from to 9 to 5
+        dashboardsModel.actions.updateDashboardInsight(changedInsight, [9])
+
         expect(
             fiveLogic.values.insightTiles.map((t) => ({
                 short_id: t.insight!.short_id,
@@ -807,8 +810,7 @@ describe('dashboardLogic', () => {
             }))
         ).toEqual([
             { dashboards: [5, 6], short_id: '172' },
-            { dashboards: [5, 6], short_id: '175' },
-            { dashboards: [10, 5], short_id: '800' },
+            { dashboards: [5, 6], short_id: '175' }, // It's expected that 800 isn't here yet, because we expect to load it from the API for correctness
         ])
         expect(
             nineLogic.values.insightTiles.map((t) => ({
@@ -816,5 +818,7 @@ describe('dashboardLogic', () => {
                 dashboards: t.insight!.dashboards,
             }))
         ).toEqual([])
+        // Ensuring we do go back to the API for 800, which was added to dashboard 5
+        expectLogic(fiveLogic).toDispatchActions(['loadDashboardItems']).toFinishAllListeners()
     })
 })

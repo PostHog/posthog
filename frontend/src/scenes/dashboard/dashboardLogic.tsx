@@ -361,7 +361,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             (t) => !!t.insight && t.insight.short_id === insight.short_id
                         )
 
-                        const newTiles = state.tiles.slice(0)
+                        const newTiles = state.tiles.slice()
 
                         if (tileIndex >= 0) {
                             if (insight.dashboards?.includes(props.id)) {
