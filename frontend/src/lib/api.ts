@@ -2041,6 +2041,10 @@ const api = {
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
+        if (res.status === 204) {
+            // No content response - nothing to parse
+            return null
+        }
         return await getJSONOrThrow(res)
     },
 
