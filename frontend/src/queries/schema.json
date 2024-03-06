@@ -1564,6 +1564,38 @@
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
+        "FunnelCorrelationActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelCorrelationPersonConverted": {
+                    "type": "boolean"
+                },
+                "funnelCorrelationPersonEntity": {
+                    "$ref": "#/definitions/AnyEntityNode"
+                },
+                "funnelCorrelationPropertyValues": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/FunnelCorrelationQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "FunnelCorrelationQuery": {
             "additionalProperties": false,
             "properties": {

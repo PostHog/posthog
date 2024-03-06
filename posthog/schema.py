@@ -2916,6 +2916,35 @@ class DataTableNode(BaseModel):
     ] = Field(..., description="Source of the events")
 
 
+class FunnelCorrelationActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelCorrelationPersonConverted: Optional[bool] = None
+    funnelCorrelationPersonEntity: Optional[Union[EventsNode, ActionsNode, DataWarehouseNode]] = None
+    funnelCorrelationPropertyValues: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+            ]
+        ]
+    ] = None
+    includeRecordings: Optional[bool] = None
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    response: Optional[ActorsQueryResponse] = None
+    source: FunnelCorrelationQuery
+
+
 class HogQLMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

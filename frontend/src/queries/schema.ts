@@ -1105,6 +1105,14 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     funnelTrendsEntrancePeriodStart?: string
 }
 
+export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.InsightActorsQuery
+    source: FunnelCorrelationQuery
+    funnelCorrelationPersonConverted?: boolean
+    funnelCorrelationPersonEntity?: AnyEntityNode
+    funnelCorrelationPropertyValues?: AnyPropertyFilter[]
+}
+
 export interface EventDefinition {
     event: string
     properties: Record<string, any>
