@@ -1,5 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -19,6 +21,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             ['filteredTables', 'dataWarehouse'],
             dataWarehouseSavedQueriesLogic,
             ['savedQueries'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             dataWarehouseSavedQueriesLogic,
@@ -139,7 +143,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             lemonToast.success(`${table.name} successfully deleted`)
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadDataWarehouse()
+    afterMount(({ actions, values }) => {
+        if (values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
+            actions.loadDataWarehouse()
+        }
     }),
 ])
