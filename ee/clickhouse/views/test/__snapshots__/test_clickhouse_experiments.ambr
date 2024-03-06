@@ -857,50 +857,153 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results
   '''
-  /* user_id:2 celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
+  /* user_id:0 request:_snapshot_ */
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+    AND (((isNull(replaceRegexpAll(JSONExtractRaw(e.properties, 'exclude'), '^"|"$', ''))
+           OR NOT JSONHas(e.properties, 'exclude')))
+         AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', ''))))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
   '''
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.1
   '''
-  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-06 00:00:00', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(6)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['test', 'control'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['test', 'control']), (['test', 'control']), '$$_posthog_breakdown_other_$$') as breakdown_value
+           FROM events e
+           WHERE e.team_id = 2
+             AND event = '$pageview'
+             AND (((isNull(replaceRegexpAll(JSONExtractRaw(e.properties, 'exclude'), '^"|"$', ''))
+                    OR NOT JSONHas(e.properties, 'exclude')))
+                  AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', ''))))
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '''
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.2
   '''
-  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
+  /* user_id:0 request:_snapshot_ */
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = '$feature_flag_called'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+    AND (((isNull(replaceRegexpAll(JSONExtractRaw(e.properties, 'exclude'), '^"|"$', ''))
+           OR NOT JSONHas(e.properties, 'exclude')))
+         AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+              AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
   '''
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.3
   '''
-  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-06 00:00:00', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(6)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['control', 'test'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT person_id) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            breakdown_value
+           FROM
+             (SELECT person_id,
+                     min(timestamp) as timestamp,
+                     breakdown_value
+              FROM
+                (SELECT pdi.person_id as person_id, timestamp, transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['control', 'test']), (['control', 'test']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE e.team_id = 2
+                   AND event = '$feature_flag_called'
+                   AND (((isNull(replaceRegexpAll(JSONExtractRaw(e.properties, 'exclude'), '^"|"$', ''))
+                          OR NOT JSONHas(e.properties, 'exclude')))
+                        AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+                             AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))))
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') )
+              GROUP BY person_id,
+                       breakdown_value) AS pdi
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '''
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.4
@@ -1127,8 +1230,8 @@
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
-    AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+    AND ((has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+         AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1307,8 +1410,8 @@
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
     AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
-    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+    AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+         AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1361,8 +1464,8 @@
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$feature_flag_called'
-                   AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-                        AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+                   AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+                        AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
                    AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
                    AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific') )
               GROUP BY person_id,
@@ -1595,8 +1698,8 @@
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
-    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+    AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+         AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1649,8 +1752,8 @@
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$feature_flag_called'
-                   AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-                        AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+                   AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+                        AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') )
               GROUP BY person_id,
