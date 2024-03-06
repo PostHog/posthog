@@ -1,9 +1,9 @@
-import { IconCheckCircle, IconChevronDown, IconInfo, IconPlus } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconDocument, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconArticle, IconCheckCircleOutline, IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -126,7 +126,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
                     {addon.docs_url && (
                         <Tooltip title="Read the docs">
-                            <LemonButton icon={<IconArticle />} size="small" to={addon.docs_url} />
+                            <LemonButton icon={<IconDocument />} size="small" to={addon.docs_url} />
                         </Tooltip>
                     )}
                     {addon.subscribed ? (
@@ -352,7 +352,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             {product.docs_url && (
                                 <Tooltip title="Read the docs">
                                     <LemonButton
-                                        icon={<IconArticle />}
+                                        icon={<IconDocument />}
                                         size="small"
                                         to={product.docs_url}
                                         className="justify-end"
@@ -622,7 +622,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         className="flex gap-x-2 items-center mb-2"
                                                         key={'additional-features-' + product.type + i}
                                                     >
-                                                        <IconCheckCircleOutline className="text-success" />
+                                                        <IconCheckCircle className="text-success" />
                                                         <Tooltip key={feature.key} title={feature.description}>
                                                             <b>{feature.name} </b>
                                                         </Tooltip>
@@ -632,14 +632,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         })}
                                         {!billing?.has_active_subscription && (
                                             <div className="flex gap-x-2 items-center mb-2">
-                                                <IconCheckCircleOutline className="text-success" />
+                                                <IconCheckCircle className="text-success" />
                                                 <Tooltip title="Multiple projects, Feature flags, Experiments, Integrations, Apps, and more">
                                                     <b>Upgraded platform features</b>
                                                 </Tooltip>
                                             </div>
                                         )}
                                         <div className="flex gap-x-2 items-center mb-2">
-                                            <IconCheckCircleOutline className="text-success" />
+                                            <IconCheckCircle className="text-success" />
                                             <Link onClick={toggleIsPlanComparisonModalOpen}>
                                                 <b>And more...</b>
                                             </Link>

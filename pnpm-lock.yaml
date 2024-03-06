@@ -245,8 +245,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.110.0
-    version: 1.110.0
+    specifier: 1.111.1
+    version: 1.111.1
   posthog-js-lite:
     specifier: 2.5.0
     version: 2.5.0
@@ -274,6 +274,9 @@ dependencies:
   react-dom:
     specifier: ^18.2.0
     version: 18.2.0(react@18.2.0)
+  react-draggable:
+    specifier: ^4.2.0
+    version: 4.4.5(react-dom@18.2.0)(react@18.2.0)
   react-grid-layout:
     specifier: ^1.3.0
     version: 1.3.4(react-dom@18.2.0)(react@18.2.0)
@@ -286,6 +289,9 @@ dependencies:
   react-modal:
     specifier: ^3.15.1
     version: 3.16.1(react-dom@18.2.0)(react@18.2.0)
+  react-resizable:
+    specifier: ^3.0.5
+    version: 3.0.5(react-dom@18.2.0)(react@18.2.0)
   react-shadow:
     specifier: ^20.3.0
     version: 20.4.0(prop-types@15.8.1)(react-dom@18.2.0)(react@18.2.0)
@@ -17319,8 +17325,8 @@ packages:
     resolution: {integrity: sha512-Urvlp0Vu9h3td0BVFWt0QXFJDoOZcaAD83XM9d91NKMKTVPZtfU0ysoxstIf5mw/ce9ZfuMgpWPaagrZI4rmSg==}
     dev: false
 
-  /posthog-js@1.110.0:
-    resolution: {integrity: sha512-A5d0vYKLjmVtwF2uPxoFidDkVC6bTQUebm4s1LgKDIE+hHVfSmhbZ4pHqvwWmeJXdQHoQdvzG5Ve4STiiizBGQ==}
+  /posthog-js@1.111.1:
+    resolution: {integrity: sha512-glBx1uYFNzC7WXcB2V+FAPqTwumXMC+RhB0C2MzSGkyBjVB53ZnvSJnoEbwCo8eHzTIdlt+jWL6DtXf4SOu3OA==}
     dependencies:
       fflate: 0.4.8
       preact: 10.19.6

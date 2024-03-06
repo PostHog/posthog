@@ -1,11 +1,10 @@
-import { IconBug, IconClock, IconKeyboard, IconPinFilled } from '@posthog/icons'
+import { IconBug, IconClock, IconCursorClick, IconKeyboard, IconMagicWand, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconAutoAwesome, IconAutocapture } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -199,7 +198,7 @@ function ActivityIndicators({
                 title={`Mouse clicks: ${recording.click_count}`}
                 className="flex items-center gap-1  overflow-hidden shrink-0"
             >
-                <IconAutocapture />
+                <IconCursorClick />
                 {recording.click_count}
             </span>
 
@@ -303,7 +302,7 @@ export function SessionRecordingPreview({
                                     summaryButtonIsVisible ? 'block' : 'hidden',
                                     'absolute right-px top-px'
                                 )}
-                                icon={<IconAutoAwesome />}
+                                icon={<IconMagicWand />}
                                 onClick={(e) => {
                                     e.preventDefault()
                                     e.stopPropagation()
