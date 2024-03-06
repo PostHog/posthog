@@ -39,8 +39,7 @@ AS
 SETTINGS
     max_execution_time = 0,
     max_memory_usage = 0,
-    distributed_ddl_task_timeout = 0,
-    persistent = 0
+    distributed_ddl_task_timeout = 0
 """
 
 DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
@@ -114,8 +113,7 @@ GROUP BY
 SETTINGS
     max_execution_time = 0,
     max_memory_usage = 0,
-    distributed_ddl_task_timeout = 0,
-    persistent = 0
+    distributed_ddl_task_timeout = 0
 """
 
 DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN_TO_DELETE = """
@@ -274,6 +272,9 @@ async def optimize_person_distinct_id_overrides(dry_run: bool) -> None:
     activity.logger.info("Optimized person_distinct_id_overrides")
 
 
+QueryParameters = dict[str, typing.Any]
+
+
 @dataclass
 class TableActivityInputs:
     """Inputs for activities that work with tables.
@@ -285,6 +286,7 @@ class TableActivityInputs:
     """
 
     name: str
+    query_parameters: QueryParameters
     exists: bool = True
     dry_run: bool = True
 
@@ -313,7 +315,7 @@ async def create_table(inputs: TableActivityInputs) -> None:
 
     async with heartbeat_every():
         async with get_client() as clickhouse_client:
-            await clickhouse_client.execute_query(create_table_query)
+            await clickhouse_client.execute_query(create_table_query, query_parameters=inputs.query_parameters)
 
     activity.logger.info("Created JOIN table person_distinct_id_overrides_join_table")
 
@@ -439,10 +441,13 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
 
 
 @contextlib.asynccontextmanager
-async def manage_table(table_name: str, dry_run: bool) -> collections.abc.AsyncGenerator[None, None]:
+async def manage_table(
+    table_name: str, dry_run: bool, query_parameters: QueryParameters
+) -> collections.abc.AsyncGenerator[None, None]:
     """A context manager to create ans subsequently drop a table."""
     table_activity_inputs = TableActivityInputs(
         name=table_name,
+        query_parameters=query_parameters,
         dry_run=dry_run,
         exists=True,
     )
@@ -482,9 +487,6 @@ async def manage_table(table_name: str, dry_run: bool) -> collections.abc.AsyncG
             retry_policy=RetryPolicy(maximum_attempts=1),
             heartbeat_timeout=timedelta(seconds=20),
         )
-
-
-QueryParameters = dict[str, typing.Any]
 
 
 @dataclass
@@ -747,7 +749,10 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=1),
         )
 
-        async with manage_table("person_distinct_id_overrides_join", inputs.dry_run):
+        table_query_parameters = {
+            "team_ids": list(inputs.team_ids),
+        }
+        async with manage_table("person_distinct_id_overrides_join", inputs.dry_run, table_query_parameters):
             for partition_id in inputs.iter_partition_ids():
                 mutation_parameters: QueryParameters = {
                     "partition_id": partition_id,
@@ -760,7 +765,9 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
                 )
                 workflow.logger.info("Squash finished for all requested partitions, now deleting person overrides")
 
-            async with manage_table("person_distinct_id_overrides_join_to_delete", inputs.dry_run):
+            async with manage_table(
+                "person_distinct_id_overrides_join_to_delete", inputs.dry_run, table_query_parameters
+            ):
                 delete_mutation_parameters: QueryParameters = {
                     "partition_ids": list(inputs.iter_partition_ids()),
                     "grace_period": inputs.delete_grace_period_seconds,

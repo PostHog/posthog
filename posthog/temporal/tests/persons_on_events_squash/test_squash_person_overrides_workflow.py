@@ -136,6 +136,7 @@ async def test_create_person_distinct_id_overrides_join_table(
 
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
     await activity_environment.run(create_table, inputs)
@@ -232,6 +233,7 @@ async def test_create_person_distinct_id_overrides_join_with_older_overrides_pre
     """
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -270,6 +272,7 @@ async def test_create_person_distinct_id_overrides_join_with_newer_overrides_aft
     """Test `person_distinct_id_overrides_join` contains a static set of mappings."""
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -323,6 +326,7 @@ async def test_create_wait_and_drop_table(activity_environment, person_overrides
     """Test if a table is created, waited on, and dropped in a normal workflow."""
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -447,6 +451,7 @@ async def overrides_join_table(optimized_person_overrides, activity_environment)
     """
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -579,6 +584,7 @@ async def test_update_events_with_person_overrides_mutation_with_older_overrides
     await activity_environment.run(optimize_person_distinct_id_overrides, False)
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -616,6 +622,7 @@ async def test_update_events_with_person_overrides_mutation_with_newer_overrides
     await activity_environment.run(optimize_person_distinct_id_overrides, False)
     inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -709,6 +716,7 @@ async def test_delete_person_overrides_mutation(
 
     join_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -717,6 +725,7 @@ async def test_delete_person_overrides_mutation(
 
     delete_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join_to_delete",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -790,6 +799,7 @@ async def test_delete_person_overrides_mutation_within_grace_period(
 
     join_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -798,6 +808,7 @@ async def test_delete_person_overrides_mutation_within_grace_period(
 
     delete_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join_to_delete",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -856,6 +867,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse_dry_run(
 
     join_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
@@ -864,6 +876,7 @@ async def test_delete_squashed_person_overrides_from_clickhouse_dry_run(
 
     delete_table_inputs = TableActivityInputs(
         name="person_distinct_id_overrides_join_to_delete",
+        query_parameters={"team_ids": []},
         dry_run=False,
     )
 
