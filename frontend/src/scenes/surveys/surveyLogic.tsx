@@ -658,9 +658,11 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey): FeatureFlagFilters | undefined => {
                 if (survey.targeting_flag_filters) {
                     return {
+                        ...survey.targeting_flag_filters,
                         groups: survey.targeting_flag_filters.groups,
                         multivariate: null,
                         payloads: {},
+                        super_groups: undefined,
                     }
                 }
                 return survey.targeting_flag?.filters || undefined
