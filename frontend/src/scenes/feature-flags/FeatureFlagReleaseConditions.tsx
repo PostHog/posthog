@@ -61,6 +61,7 @@ export function FeatureFlagReleaseConditions({
         totalUsers,
         filtersTaxonomicOptions,
         enabledFeatures,
+        aggregationTargetName,
     } = useValues(releaseConditionsLogic)
 
     const {
@@ -71,15 +72,9 @@ export function FeatureFlagReleaseConditions({
         addConditionSet,
     } = useActions(releaseConditionsLogic)
 
-    const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
-    const {
-        aggregationTargetName,
-        earlyAccessFeaturesList,
-        hasEarlyAccessFeatures,
-        featureFlagKey,
-        groupTypes,
-        nonEmptyVariants,
-    } = useValues(featureFlagLogic)
+    const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
+    const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants } =
+        useValues(featureFlagLogic)
 
     const { cohortsById } = useValues(cohortsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)

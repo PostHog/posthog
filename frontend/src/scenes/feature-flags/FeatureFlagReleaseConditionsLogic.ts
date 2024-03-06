@@ -11,6 +11,7 @@ import {
     AnyPropertyFilter,
     FeatureFlagFilters,
     FeatureFlagGroupType,
+    GroupTypeIndex,
     PropertyFilterType,
     UserBlastRadiusType,
 } from '~/types'
@@ -35,7 +36,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             teamLogic,
             ['currentTeamId'],
             groupsModel,
-            ['groupsTaxonomicTypes', 'aggregationLabel'],
+            ['groupTypes', 'aggregationLabel'],
             enabledFeaturesLogic,
             ['featureFlags as enabledFeatures'],
         ],
@@ -171,6 +172,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         addConditionSet: () => {
             actions.setAffectedUsers(values.filters.groups.length - 1, -1)
         },
+        setAggregationGroupTypeIndex: () => {
+            actions.calculateBlastRadius()
+        },
         calculateBlastRadius: async () => {
             const usersAffected: Promise<UserBlastRadiusType>[] = []
 
@@ -206,13 +210,19 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     })),
     selectors({
         taxonomicGroupTypes: [
-            (s) => [s.filters, s.groupsTaxonomicTypes, s.enabledFeatures],
-            (filters, groupsTaxonomicTypes, enabledFeatures): TaxonomicFilterGroupType[] => {
+            (s) => [s.filters, s.groupTypes, s.enabledFeatures],
+            (filters, groupTypes, enabledFeatures): TaxonomicFilterGroupType[] => {
                 const baseGroupTypes = []
                 const additionalGroupTypes = []
                 const newFlagOperatorsEnabled = enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]
-                if (filters && filters.aggregation_group_type_index != null && groupsTaxonomicTypes.length > 0) {
-                    baseGroupTypes.push(groupsTaxonomicTypes[filters.aggregation_group_type_index])
+                const targetGroup =
+                    filters?.aggregation_group_type_index != null
+                        ? groupTypes.get(filters.aggregation_group_type_index as GroupTypeIndex)
+                        : undefined
+                if (targetGroup) {
+                    baseGroupTypes.push(
+                        `${TaxonomicFilterGroupType.GroupsPrefix}_${targetGroup?.group_type_index}` as unknown as TaxonomicFilterGroupType
+                    )
 
                     if (newFlagOperatorsEnabled) {
                         additionalGroupTypes.push(
@@ -229,6 +239,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
 
                 return [...baseGroupTypes, ...additionalGroupTypes]
+            },
+        ],
+        aggregationTargetName: [
+            (s) => [s.filters, s.aggregationLabel],
+            (filters, aggregationLabel): string => {
+                if (filters.aggregation_group_type_index != null) {
+                    return aggregationLabel(filters.aggregation_group_type_index).plural
+                }
+                return 'users'
             },
         ],
         filtersTaxonomicOptions: [
