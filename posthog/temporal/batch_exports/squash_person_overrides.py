@@ -32,6 +32,8 @@ AS
         max(version) AS latest_version
     FROM
         {database}.person_distinct_id_overrides
+    WHERE
+        ((length(%(team_ids)s) = 0) OR (team_id IN %(team_ids)s))
     GROUP BY
         team_id, distinct_id
 SETTINGS
@@ -105,6 +107,7 @@ FROM
     {database}.sharded_events
 WHERE
     (joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id) != defaultValueOfTypeName('UUID'))
+    AND ((length(%(team_ids)s) = 0) OR (team_id IN %(team_ids)s))
 GROUP BY
     team_id, distinct_id
 SETTINGS
