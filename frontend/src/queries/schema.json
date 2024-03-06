@@ -3238,6 +3238,9 @@
                 "operator": {
                     "$ref": "#/definitions/PropertyOperator"
                 },
+                "table_name": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "person",
                     "description": "Person properties",
