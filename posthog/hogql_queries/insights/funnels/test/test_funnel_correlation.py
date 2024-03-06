@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, Dict, cast
 import unittest
 
 from rest_framework.exceptions import ValidationError
@@ -12,6 +12,7 @@ from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner impo
     EventStats,
     FunnelCorrelationQueryRunner,
 )
+from posthog.hogql_queries.insights.funnels.test.test_funnel_correlations_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -21,6 +22,7 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.schema import (
+    EventsNode,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
     FunnelsQuery,
@@ -75,19 +77,13 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         result, skewed_totals, _, _ = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate()
         return result, skewed_totals
 
-    def _get_actors_for_event(self, filter: Filter, event_name: str, properties=None, success=True):
-        actor_filter = filter.shallow_clone(
-            {
-                "funnel_correlation_person_entity": {
-                    "id": event_name,
-                    "type": "events",
-                    "properties": properties,
-                },
-                "funnel_correlation_person_converted": "TrUe" if success else "falSE",
-            }
+    def _get_actors_for_event(self, filters: Dict[str, Any], event_name: str, properties=None, success=True):
+        serialized_actors = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationPersonConverted=success,
+            funnelCorrelationPersonEntity=EventsNode(event=event_name, properties=properties),
         )
-
-        _, serialized_actors, _ = FunnelCorrelationActors(actor_filter, self.team).get_actors()
         return [str(row["id"]) for row in serialized_actors]
 
     def _get_actors_for_property(self, filter: Filter, property_values: list, success=True):
@@ -185,16 +181,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        # self.assertEqual(len(self._get_actors_for_event(filters, "positively_related")), 5)
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filters, "positively_related", success=False)),
-        #     0,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filters, "negatively_related", success=False)),
-        #     5,
-        # )
-        # self.assertEqual(len(self._get_actors_for_event(filters, "negatively_related")), 0)
+        self.assertEqual(len(self._get_actors_for_event(filters, "positively_related")), 5)
+        self.assertEqual(
+            len(self._get_actors_for_event(filters, "positively_related", success=False)),
+            0,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_event(filters, "negatively_related", success=False)),
+            5,
+        )
+        self.assertEqual(len(self._get_actors_for_event(filters, "negatively_related")), 0)
 
         # Now exclude positively_related
         result, _ = self._get_events_for_filters(
@@ -221,16 +217,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         # Getting specific people isn't affected by exclude_events
-        # self.assertEqual(len(self._get_actors_for_event(filter, "positively_related")), 5)
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "positively_related", success=False)),
-        #     0,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "negatively_related", success=False)),
-        #     5,
-        # )
-        # self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 0)
+        self.assertEqual(len(self._get_actors_for_event(filters, "positively_related")), 5)
+        self.assertEqual(
+            len(self._get_actors_for_event(filters, "positively_related", success=False)),
+            0,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_event(filters, "negatively_related", success=False)),
+            5,
+        )
+        self.assertEqual(len(self._get_actors_for_event(filters, "negatively_related")), 0)
 
     @snapshot_clickhouse_queries
     def test_action_events_are_excluded_from_correlations(self):
