@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 from warnings import warn
 
 from django.db import models
@@ -6,6 +6,7 @@ from django.db import models
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.parser import parse_expr
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -35,8 +36,10 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     source_table_name: models.CharField = models.CharField(max_length=400)
     source_table_key: models.CharField = models.CharField(max_length=400)
+    source_table_key_hogql: models.CharField = models.CharField(max_length=400, null=True)
     joining_table_name: models.CharField = models.CharField(max_length=400)
     joining_table_key: models.CharField = models.CharField(max_length=400)
+    joining_table_key_hogql: models.CharField = models.CharField(max_length=400, null=True)
     field_name: models.CharField = models.CharField(max_length=400)
 
     @property
@@ -45,6 +48,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             from_table: str,
             to_table: str,
             requested_fields: Dict[str, Any],
+            join_constraint_overrides: Dict[str, List[str]],
             context: HogQLContext,
             node: SelectQuery,
         ):
@@ -53,6 +57,27 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not requested_fields:
                 raise HogQLException(f"No fields requested from {to_table}")
 
+            if self.source_table_key == "$hogql":
+                left = parse_expr(self.source_table_key_hogql)
+                if not isinstance(left, ast.Field):
+                    raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+            else:
+                left = ast.Field(chain=[from_table, self.source_table_key])
+
+            if self.joining_table_key == "$hogql":
+                right = parse_expr(self.joining_table_key_hogql)
+                if not isinstance(right, ast.Field):
+                    raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+            else:
+                right = ast.Field(chain=[to_table, self.joining_table_key])
+
+            for new_alias, chain in join_constraint_overrides.items():
+                if left.chain == chain:
+                    left.chain = [from_table, new_alias]
+
+                if right.chain == chain:
+                    right.chain = [to_table, new_alias]
+
             join_expr = ast.JoinExpr(
                 table=ast.Field(chain=[self.joining_table_name]),
                 join_type="LEFT JOIN",
@@ -60,8 +85,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=[from_table, self.source_table_key]),
-                        right=ast.Field(chain=[to_table, self.joining_table_key]),
+                        left=left,
+                        right=right,
                     )
                 ),
             )

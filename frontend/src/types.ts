@@ -3508,8 +3508,10 @@ export interface DataWarehouseViewLink {
     id: string
     source_table_name?: string
     source_table_key?: string
+    source_table_key_hogql?: string
     joining_table_name?: string
     joining_table_key?: string
+    joining_table_key_hogql?: string
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null

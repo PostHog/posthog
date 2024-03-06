@@ -180,6 +180,47 @@ class LazyTableResolver(TraversingVisitor):
                     new_join.lazy_join.from_field
                 ]
 
+        # Are any lazy joins joining from a lazy table we're about to resolve?
+        # If so, check to ensure all required fields are added to the lazy_select and
+        # store any constraints that need renaming later
+        join_constraint_overrides: Dict[str, Dict[str, List[str]]] = {}
+        for to_table, new_join in joins_to_add.items():
+            table = tables_to_add.get(new_join.from_table)
+            if table is not None:
+                join_to_add_expr: ast.JoinExpr = new_join.lazy_join.join_function(
+                    new_join.from_table,
+                    new_join.to_table,
+                    new_join.fields_accessed,
+                    {},
+                    self.context,
+                    node,
+                )
+
+                join_to_add_expr = cast(ast.JoinExpr, clone_expr(join_to_add_expr, clear_locations=True))
+                join_to_add_expr = cast(
+                    ast.JoinExpr, resolve_types(join_to_add_expr, self.context, self.dialect, [node.type])
+                )
+
+                join_field_collector: List[ast.FieldType] = []
+                self.stack_of_fields.append(join_field_collector)
+                super().visit_join_expr(join_to_add_expr)
+                self.stack_of_fields.pop()
+
+                # Get the fields accessed and give them a new alias
+                for join_field in join_field_collector:
+                    if isinstance(join_field, ast.PropertyType):
+                        join_field_chain: List[str | int] = [join_field.field_type.name, *join_field.chain]
+                        join_field_alias: (
+                            str
+                        ) = f"{new_join.from_table}___{'___'.join(map(lambda x: str(x), join_field_chain))}"
+                        table.fields_accessed[join_field_alias] = join_field_chain
+                        join_constraint_overrides[to_table] = {
+                            **join_constraint_overrides.get(to_table, {}),
+                            join_field_alias: [new_join.from_table, *join_field_chain],
+                        }
+                    else:
+                        table.fields_accessed[join_field.name] = [join_field.name]
+
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed, self.context.modifiers)
@@ -203,10 +244,30 @@ class LazyTableResolver(TraversingVisitor):
                 join_scope.from_table,
                 join_scope.to_table,
                 join_scope.fields_accessed,
+                join_constraint_overrides.get(to_table, {}),
                 self.context,
                 node,
             )
-            join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True))
+
+            # Removes the resolved table from scope if we've already seen it
+            if join_to_add.alias is not None:
+                join_to_add_table_name = join_to_add.alias
+            elif (
+                join_to_add.table is not None
+                and isinstance(join_to_add.table, ast.Field)
+                and join_to_add.table.chain is not None
+                and len(join_to_add.table.chain) > 0
+            ):
+                join_to_add_table_name = str(join_to_add.table.chain[0])
+
+            if (
+                join_to_add_table_name is not None
+                and node.type is not None
+                and node.type.tables.get(join_to_add_table_name) is not None
+            ):
+                node.type.tables.pop(join_to_add_table_name)
+
+            join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
             join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [node.type]))
 
             select_type.tables[to_table] = join_to_add.type

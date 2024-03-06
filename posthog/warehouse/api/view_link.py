@@ -22,8 +22,10 @@ class ViewLinkSerializer(serializers.ModelSerializer):
             "created_at",
             "source_table_name",
             "source_table_key",
+            "source_table_key_hogql",
             "joining_table_name",
             "joining_table_key",
+            "joining_table_key_hogql",
             "field_name",
         ]
         read_only_fields = ["id", "created_by", "created_at"]
@@ -70,7 +72,8 @@ class ViewLinkSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Invalid table: {table}")
 
         try:
-            table_instance.fields[join_key]
+            if join_key != "$hogql":
+                table_instance.fields[join_key]
         except Exception:
             raise serializers.ValidationError(f"Invalid join key: {join_key}")
 

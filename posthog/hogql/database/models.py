@@ -112,7 +112,7 @@ class Table(FieldOrTable):
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[[str, str, Dict[str, Any], "HogQLContext", "SelectQuery"], Any]
+    join_function: Callable[[str, str, Dict[str, Any], Dict[str, List[str]], "HogQLContext", "SelectQuery"], Any]
     join_table: Table
     from_field: str
 
