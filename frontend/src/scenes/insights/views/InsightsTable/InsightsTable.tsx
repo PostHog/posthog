@@ -66,9 +66,8 @@ export function InsightsTable({
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
-        const typeKey = `${filterKey}_data_exploration`
         const entityFilter = entityFilterLogic.findMounted({
-            typeKey,
+            typeKey: filterKey,
         })
         if (entityFilter) {
             entityFilter.actions.selectFilter(item.action)

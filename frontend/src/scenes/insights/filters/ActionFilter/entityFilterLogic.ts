@@ -2,6 +2,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { uuid } from 'lib/utils'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import {
     ActionFilter,
@@ -161,10 +162,12 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        renameFilter: async ({ custom_name }) => {
+        renameFilter: async ({ custom_name }, breakpoint) => {
             if (!values.selectedFilter) {
                 return
             }
+
+            await breakpoint(100)
 
             actions.updateFilter({
                 ...values.selectedFilter,
@@ -174,6 +177,13 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 index: number
             })
             actions.hideModal()
+
+            await breakpoint(100)
+
+            const dataLogic = insightDataLogic.findMounted({
+                dashboardItemId: props.typeKey,
+            })
+            dataLogic?.actions?.loadData(true)
         },
         hideModal: () => {
             actions.selectFilter(null)
