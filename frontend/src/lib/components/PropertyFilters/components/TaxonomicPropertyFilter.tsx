@@ -215,9 +215,7 @@ export function TaxonomicPropertyFilter({
                                             value: newValue || null,
                                             operator: newOperator,
                                             type: filter?.type,
-                                            ...(isPersonPropertyFilter(filter)
-                                                ? { table_name: filter?.table_name }
-                                                : {}),
+                                            ...(isPersonPropertyFilter(filter) ? { table: filter?.table } : {}),
                                             ...(isGroupPropertyFilter(filter)
                                                 ? { group_type_index: filter.group_type_index }
                                                 : {}),

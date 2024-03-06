@@ -3238,7 +3238,7 @@
                 "operator": {
                     "$ref": "#/definitions/PropertyOperator"
                 },
-                "table_name": {
+                "table": {
                     "type": "string"
                 },
                 "type": {

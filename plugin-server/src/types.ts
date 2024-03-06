@@ -864,7 +864,7 @@ export interface EventPropertyFilter extends PropertyFilterWithOperator {
 /** Sync with posthog/frontend/src/types.ts */
 export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
-    table_name?: string
+    table?: string
 }
 
 /** Sync with posthog/frontend/src/types.ts */

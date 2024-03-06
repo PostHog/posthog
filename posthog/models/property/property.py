@@ -202,7 +202,7 @@ class Property:
     total_periods: Optional[int]
     min_periods: Optional[int]
     negation: Optional[bool] = False
-    table_name: Optional[str]
+    table: Optional[str]
     _data: Dict
 
     def __init__(

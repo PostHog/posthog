@@ -135,8 +135,8 @@ def property_to_expr(
         value = property.value
 
         if property.type == "person" and scope != "person":
-            if property.table_name:
-                chain = ["person", property.table_name]
+            if property.table:
+                chain = ["person", property.table]
             else:
                 chain = ["person", "properties"]
         elif property.type == "group":
