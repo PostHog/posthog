@@ -329,6 +329,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             *api_settings.DEFAULT_RENDERER_CLASSES,
             csvrenderers.PaginatedCSVRenderer,
         ],
+        required_scopes=["cohort:read", "person:read"],
     )
     def persons(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()

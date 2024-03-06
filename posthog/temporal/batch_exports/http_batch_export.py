@@ -9,8 +9,8 @@ from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, HttpBatchExportInputs
+from posthog.models import BatchExportRun
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     BatchExportTemporaryFile,
@@ -23,11 +23,11 @@ from posthog.temporal.batch_exports.batch_exports import (
     iter_records,
     json_dumps_bytes,
 )
-from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -161,7 +161,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
         inputs.data_interval_end,
     )
 
-    async with get_client() as client:
+    async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
@@ -238,7 +238,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
         #
         # Why write to a file at all? Because we need to serialize the data anyway, and it's the
         # safest way to stay within batch endpoint payload limits and not waste process memory.
-        posthog_batch_header = """{"api_key": "%s","batch": [""" % inputs.token
+        posthog_batch_header = """{"api_key": "%s","historical_migration":true,"batch": [""" % inputs.token
         posthog_batch_footer = "]}"
 
         with BatchExportTemporaryFile() as batch_file:

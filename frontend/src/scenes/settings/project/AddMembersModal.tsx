@@ -1,6 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
@@ -9,13 +9,19 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { membershipLevelToName, teamMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { useState } from 'react'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { teamMembersLogic } from './teamMembersLogic'
 
 export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { addableMembers, allMembersLoading } = useValues(teamMembersLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const [isVisible, setIsVisible] = useState(false)
 
@@ -28,9 +34,16 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
             <LemonButton
                 type="primary"
                 data-attr="add-project-members-button"
-                onClick={() => {
-                    setIsVisible(true)
-                }}
+                onClick={() =>
+                    guardAvailableFeature(
+                        AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                        () => setIsVisible(true),
+                        undefined,
+                        undefined,
+                        !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) &&
+                            currentTeam?.access_control
+                    )
+                }
                 icon={<IconPlus />}
                 disabled={isRestricted}
             >

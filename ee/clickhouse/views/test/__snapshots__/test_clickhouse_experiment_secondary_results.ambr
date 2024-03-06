@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results
   '''
-  /* user_id:123 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  /* user_id:108 celery:posthog.tasks.tasks.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -84,8 +84,8 @@
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
-    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+    AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+         AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26

@@ -509,6 +509,9 @@ class TestSurvey(APIBaseTest):
         with self.assertRaises(FeatureFlag.DoesNotExist):
             FeatureFlag.objects.get(id=flagId)
 
+        with self.assertRaises(FeatureFlag.DoesNotExist):
+            FeatureFlag.objects.get(key="survey-targeting-survey-with-targeting")
+
     def test_updating_survey_other_props_doesnt_delete_targeting_flag(self):
         survey_with_targeting = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

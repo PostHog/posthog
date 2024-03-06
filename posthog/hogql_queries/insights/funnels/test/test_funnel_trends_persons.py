@@ -62,19 +62,21 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=timestamp,
         )
 
-        # "include_recordings": "true",
         results = get_actors(
             {"funnel_to_step": 1, **filters},
             self.team,
             funnelTrendsDropOff=False,
             funnelTrendsEntrancePeriodStart="2021-05-01 00:00:00",
+            includeRecordings=True,
         )
 
-        self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
-        # self.assertEqual(
-        #     [person["matched_recordings"][0]["session_id"] for person in results],
-        #     ["s1b"],
-        # )
+        # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
+        self.assertEqual(results[0][0], persons["user_one"].uuid)
+        self.assertEqual(
+            # [person["matched_recordings"][0]["session_id"] for person in results],
+            [list(results[0][2])[0]["session_id"]],
+            ["s1b"],
+        )
 
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_with_no_to_step(self):
@@ -110,19 +112,21 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=timestamp,
         )
 
-        # "include_recordings": "true",
         results = get_actors(
             filters,
             self.team,
             funnelTrendsDropOff=False,
             funnelTrendsEntrancePeriodStart="2021-05-01 00:00:00",
+            includeRecordings=True,
         )
 
-        self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
-        # self.assertEqual(
-        #     [person["matched_recordings"][0]["session_id"] for person in results],
-        #     ["s1c"],
-        # )
+        # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
+        self.assertEqual(results[0][0], persons["user_one"].uuid)
+        self.assertEqual(
+            # [person["matched_recordings"][0]["session_id"] for person in results],
+            [list(results[0][2])[0]["session_id"]],
+            ["s1c"],
+        )
 
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_with_drop_off(self):
@@ -147,16 +151,18 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=timestamp,
         )
 
-        # "include_recordings": "true",
         results = get_actors(
             filters,
             self.team,
             funnelTrendsDropOff=True,
             funnelTrendsEntrancePeriodStart="2021-05-01 00:00:00",
+            includeRecordings=True,
         )
 
-        self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
-        # self.assertEqual(
-        #     [person["matched_recordings"][0].get("session_id") for person in results],
-        #     ["s1a"],
-        # )
+        # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
+        self.assertEqual(results[0][0], persons["user_one"].uuid)
+        self.assertEqual(
+            # [person["matched_recordings"][0].get("session_id") for person in results],
+            [list(results[0][2])[0]["session_id"]],
+            ["s1a"],
+        )

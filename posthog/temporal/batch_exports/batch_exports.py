@@ -24,11 +24,11 @@ from posthog.batch_exports.service import (
     update_batch_export_backfill_status,
     update_batch_export_run_status,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 SELECT_QUERY_TEMPLATE = Template(
@@ -547,7 +547,7 @@ async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs) -> 
         latest_error=inputs.latest_error,
     )
 
-    if batch_export_run.status == BatchExportRun.Status.FAILED:
+    if batch_export_run.status in (BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE):
         logger.error("BatchExport failed with error: %s", batch_export_run.latest_error)
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
@@ -566,7 +566,7 @@ class CreateBatchExportBackfillInputs:
     team_id: int
     batch_export_id: str
     start_at: str
-    end_at: str
+    end_at: str | None
     status: str
 
 
@@ -613,7 +613,7 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
     )
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
-    if backfill.status == BatchExportBackfill.Status.FAILED:
+    if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
         logger.error("Historical export failed")
 
     elif backfill.status == BatchExportBackfill.Status.CANCELLED:

@@ -109,8 +109,8 @@ class FunnelStrict(FunnelBase):
             if i < level_index:
                 exprs.append(ast.Field(chain=[f"latest_{i}"]))
 
-                # for field in self.extra_event_fields_and_properties:
-                #     exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(ast.Field(chain=[f"{field}_{i}"]))
 
             else:
                 exprs.append(
@@ -119,11 +119,11 @@ class FunnelStrict(FunnelBase):
                     )
                 )
 
-                # for field in self.extra_event_fields_and_properties:
-                #     exprs.append(
-                #         parse_expr(
-                #             f'min("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) "{field}_{i}"'
-                #         )
-                #     )
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(
+                        parse_expr(
+                            f'min("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) "{field}_{i}"'
+                        )
+                    )
 
         return exprs

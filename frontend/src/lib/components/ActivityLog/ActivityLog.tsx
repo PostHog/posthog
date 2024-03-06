@@ -10,8 +10,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
-import { ProductKey } from '~/types'
+import { AvailableFeature, ProductKey } from '~/types'
 
+import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 
 export type ActivityLogProps = ActivityLogLogicProps & {
@@ -109,26 +110,28 @@ export const ActivityLog = ({
     return (
         <div className="ActivityLog">
             {caption && <div className="page-caption">{caption}</div>}
-            {activityLoading && humanizedActivity.length === 0 ? (
-                <Loading />
-            ) : humanizedActivity.length === 0 ? (
-                <Empty scope={scope} />
-            ) : (
-                <>
-                    <div className="space-y-2">
-                        {humanizedActivity.map((logItem, index) => (
-                            <ActivityLogRow
-                                key={index}
-                                logItem={logItem}
-                                showExtendedDescription={true}
-                                renderSideAction={renderSideAction}
-                            />
-                        ))}
-                    </div>
-                    <LemonDivider />
-                    <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
-                </>
-            )}
+            <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
+                {activityLoading && humanizedActivity.length === 0 ? (
+                    <Loading />
+                ) : humanizedActivity.length === 0 ? (
+                    <Empty scope={scope} />
+                ) : (
+                    <>
+                        <div className="space-y-2">
+                            {humanizedActivity.map((logItem, index) => (
+                                <ActivityLogRow
+                                    key={index}
+                                    logItem={logItem}
+                                    showExtendedDescription={true}
+                                    renderSideAction={renderSideAction}
+                                />
+                            ))}
+                        </div>
+                        <LemonDivider />
+                        <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
+                    </>
+                )}
+            </PayGateMini>
         </div>
     )
 }

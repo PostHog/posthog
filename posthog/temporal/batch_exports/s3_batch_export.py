@@ -26,11 +26,11 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
     iter_records,
 )
-from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -399,7 +399,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         inputs.data_interval_end,
     )
 
-    async with get_client() as client:
+    async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
@@ -573,6 +573,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 "ParamValidationError",
                 # This error usually indicates credentials are incorrect or permissions are missing.
                 "ClientError",
+                # An S3 bucket doesn't exist.
+                "NoSuchBucket",
             ],
             update_inputs=update_inputs,
         )

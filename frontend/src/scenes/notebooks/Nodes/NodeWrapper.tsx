@@ -8,7 +8,7 @@ import {
 } from '@tiptap/react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { IconDragHandle, IconFilter, IconLink } from 'lib/lemon-ui/icons'
+import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -32,7 +32,7 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconGear, IconPlus, IconX } from '@posthog/icons'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {

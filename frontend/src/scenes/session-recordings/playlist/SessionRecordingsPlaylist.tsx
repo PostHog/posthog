@@ -1,6 +1,6 @@
 import './SessionRecordingsPlaylist.scss'
 
-import { IconGear } from '@posthog/icons'
+import { IconFilter, IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { range } from 'd3'
@@ -10,7 +10,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -70,7 +70,7 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
 }
 
 function PinnedRecordingsList(): JSX.Element | null {
-    const { setSelectedRecordingId, setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { setSelectedRecordingId, setAdvancedFilters } = useActions(sessionRecordingsPlaylistLogic)
     const { activeSessionRecordingId, filters, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -93,7 +93,7 @@ function PinnedRecordingsList(): JSX.Element | null {
                         recording={rec}
                         onClick={() => setSelectedRecordingId(rec.id)}
                         onPropertyClick={(property, value) =>
-                            setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
+                            setAdvancedFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
                         }
                         isActive={activeSessionRecordingId === rec.id}
                         pinned={true}
@@ -107,6 +107,8 @@ function PinnedRecordingsList(): JSX.Element | null {
 function RecordingsLists(): JSX.Element {
     const {
         filters,
+        advancedFilters,
+        simpleFilters,
         hasNext,
         pinnedRecordings,
         otherRecordings,
@@ -117,8 +119,6 @@ function RecordingsLists(): JSX.Element {
         totalFiltersCount,
         sessionRecordingsAPIErrored,
         unusableEventsInFilter,
-        showAdvancedFilters,
-        hasAdvancedFilters,
         logicProps,
         showOtherRecordings,
         recordingsCount,
@@ -127,12 +127,12 @@ function RecordingsLists(): JSX.Element {
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
-        setFilters,
+        setAdvancedFilters,
+        setSimpleFilters,
         maybeLoadSessionRecordings,
         setShowFilters,
         setShowSettings,
         resetFilters,
-        setShowAdvancedFilters,
         toggleShowOtherRecordings,
         summarizeSession,
     } = useActions(sessionRecordingsPlaylistLogic)
@@ -142,7 +142,7 @@ function RecordingsLists(): JSX.Element {
     }
 
     const onPropertyClick = (property: string, value?: string): void => {
-        setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
+        setAdvancedFilters(defaultPageviewPropertyEntityFilter(advancedFilters, property, value))
     }
 
     const onSummarizeClick = (recording: SessionRecordingType): void => {
@@ -239,13 +239,13 @@ function RecordingsLists(): JSX.Element {
                 {!notebookNode && showFilters ? (
                     <div className="bg-side border-b">
                         <SessionRecordingsFilters
-                            filters={filters}
-                            setFilters={setFilters}
+                            advancedFilters={advancedFilters}
+                            simpleFilters={simpleFilters}
+                            setAdvancedFilters={setAdvancedFilters}
+                            setSimpleFilters={setSimpleFilters}
+                            hideSimpleFilters={logicProps.hideSimpleFilters}
                             showPropertyFilters={!logicProps.personUUID}
-                            onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                            hasAdvancedFilters={hasAdvancedFilters}
-                            showAdvancedFilters={showAdvancedFilters}
-                            setShowAdvancedFilters={setShowAdvancedFilters}
+                            onReset={resetFilters}
                         />
                     </div>
                 ) : showSettings ? (
@@ -322,7 +322,7 @@ function RecordingsLists(): JSX.Element {
                                             type="secondary"
                                             data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
                                             onClick={() => {
-                                                setFilters({
+                                                setAdvancedFilters({
                                                     date_from: '-30d',
                                                 })
                                             }}

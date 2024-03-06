@@ -20,7 +20,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     iter_records,
     update_export_run_status,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.http_batch_export import (
     HeartbeatDetails,
     HttpBatchExportInputs,
@@ -31,6 +30,7 @@ from posthog.temporal.batch_exports.http_batch_export import (
     http_default_fields,
     insert_into_http_activity,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -61,6 +61,7 @@ class MockServer:
 
     def post(self, url, data, **kwargs):
         data = json.loads(data.read())
+        assert data["historical_migration"]
         assert data["api_key"] == TEST_TOKEN
         self.records.extend(data["batch"])
 

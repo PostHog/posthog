@@ -1,13 +1,13 @@
 import './SurveyView.scss'
 
 import { TZLabel } from '@posthog/apps-common'
+import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconBarChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -35,7 +35,7 @@ import {
 } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, selectedQuestion } = useValues(surveyLogic)
+    const { survey, surveyLoading, selectedQuestion, targetingFlagFilters } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, setSelectedQuestion } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
@@ -197,7 +197,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             <SurveyReleaseSummary
                                                 id={id}
                                                 survey={survey}
-                                                hasTargetingFlag={!!survey.targeting_flag}
+                                                targetingFlagFilters={targetingFlagFilters}
                                             />
                                         </div>
                                         <div className="w-full flex flex-col items-center">
@@ -322,7 +322,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                 <LemonButton
                     type="primary"
                     data-attr="survey-results-explore"
-                    icon={<IconBarChart />}
+                    icon={<IconGraph />}
                     to={urls.insightNew({
                         insight: InsightType.TRENDS,
                         events: [

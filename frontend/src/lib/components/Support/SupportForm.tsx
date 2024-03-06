@@ -1,3 +1,4 @@
+import { IconBug, IconQuestion } from '@posthog/icons'
 import {
     LemonBanner,
     LemonInput,
@@ -9,7 +10,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconBugReport, IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
@@ -25,7 +26,7 @@ const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = 
     {
         value: 'support',
         label: 'Question',
-        icon: <IconHelpOutline />,
+        icon: <IconQuestion />,
     },
     {
         value: 'feedback',
@@ -35,7 +36,7 @@ const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = 
     {
         value: 'bug',
         label: 'Bug',
-        icon: <IconBugReport />,
+        icon: <IconBug />,
     },
 ]
 
@@ -92,16 +93,6 @@ export function SupportForm(): JSX.Element | null {
             <LemonField name="kind" label="What type of message is this?">
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
-            <LemonField name="target_area" label="What area does this best relate to?">
-                <LemonSelect
-                    fullWidth
-                    options={Object.entries(TARGET_AREA_TO_NAME).map(([key, value]) => ({
-                        label: value,
-                        value: key,
-                        'data-attr': `support-form-target-area-${key}`,
-                    }))}
-                />
-            </LemonField>
             {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
                 sendSupportRequest.target_area === 'session_replay' && (
                     <LemonBanner type="info">
@@ -136,6 +127,9 @@ export function SupportForm(): JSX.Element | null {
                         </>
                     </LemonBanner>
                 )}
+            <LemonField name="target_area" label="What area does this best relate to?">
+                <LemonSelect fullWidth type="secondary" options={TARGET_AREA_TO_NAME} />
+            </LemonField>
             <LemonField name="severity_level" label="What is the severity of this issue?">
                 <LemonSelect
                     fullWidth
@@ -145,13 +139,6 @@ export function SupportForm(): JSX.Element | null {
                     }))}
                 />
             </LemonField>
-            <span className="text-muted">
-                Check out the{' '}
-                <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
-                    severity level definitions
-                </Link>
-                .
-            </span>
             <LemonField
                 name="message"
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}

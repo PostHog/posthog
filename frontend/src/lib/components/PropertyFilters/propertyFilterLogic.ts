@@ -44,7 +44,8 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
 
     listeners(({ actions, props, values }) => ({
         // Only send update if value is set to something
-        setFilter: ({ property }) => {
+        setFilter: async ({ property }, breakpoint) => {
+            await breakpoint(300)
             if (props.sendAllKeyUpdates || property?.value || (property?.key && property.type === 'hogql')) {
                 actions.update()
             }

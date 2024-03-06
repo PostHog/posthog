@@ -17,6 +17,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccountPopoverOverlay } from '~/layout/navigation/TopBar/AccountPopover'
 
 import { navigation3000Logic } from '../navigationLogic'
+import { KeyboardShortcut } from './KeyboardShortcut'
 import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {
@@ -74,9 +75,20 @@ export function Navbar(): JSX.Element {
                             <NavbarButton
                                 identifier="search-button"
                                 icon={<IconSearch />}
-                                title="Search"
+                                shortTitle="Search"
+                                title={
+                                    <div className="flex flex-col gap-0.5">
+                                        <span>
+                                            For search, press <KeyboardShortcut command k />
+                                        </span>
+                                        <span>
+                                            For commands, press <KeyboardShortcut command shift k />
+                                        </span>
+                                    </div>
+                                }
+                                forceTooltipOnHover
+                                sideIcon={<KeyboardShortcut command k />}
                                 onClick={toggleSearchBar}
-                                keyboardShortcut={{ command: true, k: true }}
                             />
                             <NavbarButton
                                 icon={<IconToolbar />}
