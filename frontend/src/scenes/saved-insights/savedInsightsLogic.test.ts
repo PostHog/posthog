@@ -233,13 +233,13 @@ describe('savedInsightsLogic', () => {
         it('updates the list when an insight is changed', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight(createInsight(1, 'a new name'))
-            }).toDispatchActions(['loadInsights'])
+            }).toDispatchActions(['setInsight'])
         })
 
         it('adds to the list when a new insight is reported as changed', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight(createInsight(100, 'a new insight'))
-            }).toDispatchActions(['loadInsights'])
+            }).toDispatchActions(['addInsight'])
         })
     })
 })
