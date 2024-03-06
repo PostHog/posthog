@@ -4,7 +4,7 @@ const DEFAULT_API_KEY = 'sTMFPsFhdP1Ssg'
 
 const runningOnPosthog = !!window.POSTHOG_APP_CONTEXT
 const apiKey = runningOnPosthog ? window.JS_POSTHOG_API_KEY : DEFAULT_API_KEY
-const apiHost = runningOnPosthog ? window.JS_POSTHOG_HOST : 'https://app.posthog.com'
+const apiHost = runningOnPosthog ? window.JS_POSTHOG_HOST : 'https://us.i.posthog.com'
 
 export const posthog = new PostHog(apiKey || DEFAULT_API_KEY, {
     host: apiHost,

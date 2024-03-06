@@ -313,7 +313,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                         __init: null,
                         children: null,
                         file: null,
-                        src: 'https://app.posthog.com/uploaded_media/018c494d-132b-0000-2004-8861f35c13b5',
+                        src: 'https://us.posthog.com/uploaded_media/018c494d-132b-0000-2004-8861f35c13b5',
                     },
                 },
                 {
@@ -643,7 +643,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                         __init: null,
                         children: null,
                         file: null,
-                        src: 'https://app.posthog.com/uploaded_media/018c496c-d79a-0000-bbc8-fdb0c77ec46f',
+                        src: 'https://us.posthog.com/uploaded_media/018c496c-d79a-0000-bbc8-fdb0c77ec46f',
                     },
                 },
                 {

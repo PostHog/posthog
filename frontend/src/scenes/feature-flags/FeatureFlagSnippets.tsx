@@ -534,7 +534,7 @@ export function JSBootstrappingSnippet(): JSX.Element {
 // This avoids the delay between the library loading and feature flags becoming available to use.
 
 posthog.init('{project_api_key}', {
-    api_host: 'https://app.posthog.com',
+    api_host: '${apiHostOrigin()}'
     bootstrap:
     {
         distinctID: 'your-anonymous-id',

@@ -302,7 +302,7 @@ def render_template(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
-        context["js_posthog_host"] = "'https://app.posthog.com'"
+        context["js_posthog_host"] = "'https://us.i.posthog.com'"
     elif settings.SELF_CAPTURE:
         api_token = get_self_capture_api_token(request)
 
@@ -311,7 +311,7 @@ def render_template(
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://app.posthog.com'"
+        context["js_posthog_host"] = "'https://us.i.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
