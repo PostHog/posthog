@@ -124,7 +124,7 @@ class LogQuery:
 
     @staticmethod
     def _get_console_log_clause(
-        console_logs_filter: List[Literal["error", "warn", "log"]],
+        console_logs_filter: List[Literal["error", "warn", "info"]],
     ) -> Tuple[str, Dict[str, Any]]:
         return (
             (
@@ -771,6 +771,6 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         return duration_clause, duration_params
 
     @staticmethod
-    def _get_console_log_clause(console_logs_filter: List[Literal["error", "warn", "log"]]) -> str:
+    def _get_console_log_clause(console_logs_filter: List[Literal["error", "warn", "info"]]) -> str:
         filters = [f"console_{log}_count > 0" for log in console_logs_filter]
         return f"AND ({' OR '.join(filters)})" if filters else ""
