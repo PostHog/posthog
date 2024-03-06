@@ -6,7 +6,6 @@ from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, Funnel
 from rest_framework.exceptions import ValidationError
 
 
-
 def get_funnel_order_class(funnelsFilter: FunnelsFilter):
     from posthog.hogql_queries.insights.funnels import (
         Funnel,
