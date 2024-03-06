@@ -32,7 +32,7 @@ class TestSessionReplayEventsHogQLQueries(ClickhouseTestMixin, APIBaseTest):
                 query="""
             select distinct_id, sum(mouse_activity_count) as mouse_activity_count
             from session_replay_events
-            group by session_id, distinct_id -- this table is also always implicitly grouped by session id
+            group by distinct_id -- this table is also always implicitly grouped by session id
             order by mouse_activity_count desc
             """
             ),
