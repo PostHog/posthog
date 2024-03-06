@@ -459,6 +459,10 @@ describe('session recording process event', () => {
         { browserLogLevel: 'error', logLevel: 'error' },
         { browserLogLevel: 'assert', logLevel: 'error' },
         { browserLogLevel: 'countReset', logLevel: 'warn' },
+        { browserLogLevel: 'wakanda forever', logLevel: 'info' },
+        { browserLogLevel: '\\n\\r\\t\\0\\b\\f', logLevel: 'info' },
+        { browserLogLevel: null, logLevel: 'info' },
+        { browserLogLevel: undefined, logLevel: 'info' },
     ])('log level console log processing: %s', ({ browserLogLevel, logLevel }) => {
         const consoleLogEntries = gatherConsoleLogEvents(12345, 'session_id', [
             consoleMessageFor(['test'], browserLogLevel),
