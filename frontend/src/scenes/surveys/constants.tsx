@@ -120,7 +120,7 @@ export interface NewSurvey
     > {
     id: 'new'
     linked_flag_id: number | null
-    targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
+    targeting_flag_filters?: FeatureFlagFilters
 }
 
 export const NEW_SURVEY: NewSurvey = {
