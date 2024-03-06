@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
-import { DataWarehouseViewLink } from '~/types'
+import { DataWarehouseViewLink, PropertyDefinition, PropertyType } from '~/types'
 
 import type { dataWarehouseJoinsLogicType } from './dataWarehouseJoinsLogicType'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
@@ -47,12 +47,12 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
                                 id: column.key,
                                 name: column.key,
                                 table: table.name,
-                                property_type: capitalizeFirstLetter(column.type),
+                                property_type: capitalizeFirstLetter(column.type) as PropertyType,
                             }))
                         )
                     }
                     return acc
-                }, [] as DatabaseSchemaQueryResponseField[])
+                }, [] as PropertyDefinition[])
             },
         ],
     }),
