@@ -1182,7 +1182,7 @@ class FunnelCorrelationResponse(BaseModel):
     offset: Optional[int] = None
     results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
-    types: Optional[List[str]] = None
+    types: Optional[List] = None
 
 
 class FunnelsFilterLegacy(BaseModel):

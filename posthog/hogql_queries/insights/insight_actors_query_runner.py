@@ -3,6 +3,7 @@ from typing import cast
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
@@ -37,6 +38,10 @@ class InsightActorsQueryRunner(QueryRunner):
             funnels_runner = cast(FunnelsQueryRunner, self.source_runner)
             funnels_runner.context.actorsQuery = cast(FunnelsActorsQuery, self.query)
             return funnels_runner.to_actors_query()
+        elif isinstance(self.source_runner, FunnelCorrelationQueryRunner):
+            funnel_correlation_runner = cast(FunnelCorrelationQueryRunner, self.source_runner)
+            funnel_correlation_runner.correlation_actors_query = self.query
+            return funnel_correlation_runner.to_actors_query()
         elif isinstance(self.source_runner, RetentionQueryRunner):
             query = cast(InsightActorsQuery, self.query)
             retention_runner = cast(RetentionQueryRunner, self.source_runner)

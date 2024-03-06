@@ -1675,9 +1675,7 @@
                     "type": "array"
                 },
                 "types": {
-                    "items": {
-                        "type": "string"
-                    },
+                    "items": {},
                     "type": "array"
                 }
             },

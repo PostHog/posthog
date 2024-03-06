@@ -1135,7 +1135,7 @@ export interface FunnelCorrelationResult {
 export interface FunnelCorrelationResponse {
     results: FunnelCorrelationResult
     columns?: any[]
-    types?: string[]
+    types?: any[]
     hogql?: string
     timings?: QueryTiming[]
     hasMore?: boolean

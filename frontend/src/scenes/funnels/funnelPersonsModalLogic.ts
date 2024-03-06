@@ -192,8 +192,8 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                             {
                                 key: propertyName,
                                 value: propertyValue,
-                                type: propType,
-                                operator: 'exact',
+                                type: propType === 'person' ? PropertyFilterType.Person : PropertyFilterType.Group,
+                                operator: PropertyOperator.Exact,
                                 group_type_index: values.querySource?.aggregation_group_type_index,
                             },
                         ],
