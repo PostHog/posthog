@@ -264,10 +264,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         const allProductUrls = Object.values(productUrlMapping).flat()
                         if (
                             !teamLogic.values.hasOnboardedAnyProduct &&
-                            (values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' ||
-                                !allProductUrls.some((path) =>
-                                    removeProjectIdIfPresent(location.pathname).startsWith(path)
-                                ))
+                            !allProductUrls.some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
                         ) {
                             console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
@@ -296,7 +293,10 @@ export const sceneLogic = kea<sceneLogicType>([
                                 product_key: productKeyFromUrl,
                                 is_onboarding_first_product: !teamLogic.values.hasOnboardedAnyProduct,
                             })
-                            if (values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test') {
+                            if (
+                                values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test' ||
+                                !teamLogic.values.hasOnboardedAnyProduct
+                            ) {
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
