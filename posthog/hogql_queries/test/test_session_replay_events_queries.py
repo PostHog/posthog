@@ -33,6 +33,23 @@ class TestSessionReplayEventsHogQLQueries(ClickhouseTestMixin, APIBaseTest, Quer
         )
 
     @snapshot_clickhouse_queries
+    def test_session_replay_events_table_does_not_need_to_be_grouped_by_session_id_explicitly(self):
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(
+                query="""
+            select session_id, sum(mouse_activity_count) as mouse_activity_count
+            from session_replay_events
+            -- this table is always implicitly grouped by session id
+            order by mouse_activity_count desc
+            """
+            ),
+        )
+
+        response = runner.calculate()
+        assert response.results == [("session_id_two", 500), ("session_id_one", 100)]
+
+    @snapshot_clickhouse_queries
     def test_session_replay_events_table_is_always_grouped_by_session_id(self):
         # test that the "not raw" table is always grouped by session id
         runner = HogQLQueryRunner(
