@@ -121,6 +121,9 @@
                             "$ref": "#/definitions/FunnelsActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/FunnelCorrelationActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
@@ -1583,7 +1586,7 @@
                     "type": "boolean"
                 },
                 "kind": {
-                    "const": "InsightActorsQuery",
+                    "const": "FunnelCorrelationActorsQuery",
                     "type": "string"
                 },
                 "response": {
@@ -2013,7 +2016,7 @@
                     "type": "boolean"
                 },
                 "kind": {
-                    "const": "InsightActorsQuery",
+                    "const": "FunnelsActorsQuery",
                     "type": "string"
                 },
                 "response": {
@@ -2693,6 +2696,9 @@
                         },
                         {
                             "$ref": "#/definitions/FunnelsActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelCorrelationActorsQuery"
                         }
                     ]
                 }
@@ -3148,6 +3154,8 @@
                 "HogQLMetadata",
                 "HogQLAutocomplete",
                 "ActorsQuery",
+                "FunnelsActorsQuery",
+                "FunnelCorrelationActorsQuery",
                 "SessionsTimelineQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -4296,9 +4304,7 @@
                             "type": "array"
                         },
                         "types": {
-                            "items": {
-                                "type": "string"
-                            },
+                            "items": {},
                             "type": "array"
                         }
                     },

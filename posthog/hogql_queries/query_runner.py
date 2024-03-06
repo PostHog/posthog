@@ -198,11 +198,11 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "InsightActorsQuery":
+    if kind == "InsightActorsQuery" or kind == "FunnelsActorsQuery" or kind == "FunnelCorrelationActorsQuery":
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
-            query=cast(InsightActorsQuery | FunnelsActorsQuery | Dict[str, Any], query),
+            query=cast(InsightActorsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

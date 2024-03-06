@@ -109,7 +109,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             // openPersonsModalForStep is for the baseline - for breakdown series use openPersonsModalForSeries
             if (values.hogQLInsightsFunnelsFlagEnabled) {
                 const query: FunnelsActorsQuery = {
-                    kind: NodeKind.InsightActorsQuery,
+                    kind: NodeKind.FunnelsActorsQuery,
                     source: values.querySource!,
                     funnelStep: converted ? stepNo : -stepNo,
                     includeRecordings: true,
@@ -141,7 +141,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             // Version of openPersonsModalForStep that accurately handles breakdown series
             if (values.hogQLInsightsFunnelsFlagEnabled) {
                 const query: FunnelsActorsQuery = {
-                    kind: NodeKind.InsightActorsQuery,
+                    kind: NodeKind.FunnelsActorsQuery,
                     source: values.querySource!,
                     funnelStep: converted ? stepNo : -stepNo,
                     funnelStepBreakdown: series.breakdown_value,
@@ -174,7 +174,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     const [propertyName, propertyValue] = correlation.event.event.split('::')
                     const propType = values.querySource?.aggregation_group_type_index ? 'group' : 'person'
                     const actorsQuery: FunnelsActorsQuery = {
-                        kind: NodeKind.InsightActorsQuery,
+                        kind: NodeKind.FunnelsActorsQuery,
                         source: values.querySource!,
                         funnelStep: 1,
                         includeRecordings: true,
@@ -185,7 +185,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                         funnelCorrelationType: correlation.result_type,
                     }
                     const query: FunnelCorrelationActorsQuery = {
-                        kind: NodeKind.InsightActorsQuery,
+                        kind: NodeKind.FunnelCorrelationActorsQuery,
                         source: correlationQuery,
                         funnelCorrelationPersonConverted: success,
                         funnelCorrelationPropertyValues: [
@@ -219,7 +219,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
 
                 if (values.hogQLInsightsFunnelsFlagEnabled) {
                     const actorsQuery: FunnelsActorsQuery = {
-                        kind: NodeKind.InsightActorsQuery,
+                        kind: NodeKind.FunnelsActorsQuery,
                         source: values.querySource!,
                         funnelStep: 1,
                         includeRecordings: true,
@@ -280,8 +280,8 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                         }
                     }
 
-                    const query = {
-                        kind: NodeKind.InsightActorsQuery,
+                    const query: FunnelCorrelationActorsQuery = {
+                        kind: NodeKind.FunnelCorrelationActorsQuery,
                         source: correlationQuery,
                         funnelCorrelationPersonConverted: success,
                         funnelCorrelationPersonEntity: entity,

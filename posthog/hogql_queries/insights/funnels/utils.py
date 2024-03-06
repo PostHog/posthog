@@ -5,7 +5,6 @@ from posthog.hogql.parser import parse_expr
 from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, FunnelsFilter, StepOrderValue
 from rest_framework.exceptions import ValidationError
 
-from posthog.settings.ee import EE_AVAILABLE
 
 
 def get_funnel_order_class(funnelsFilter: FunnelsFilter):
@@ -30,20 +29,7 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
         FunnelTrendsActors,
     )
 
-    # if filter.correlation_person_entity and EE_AVAILABLE:
-    if False:
-        if EE_AVAILABLE:  # type: ignore
-            # from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
-            #     FunnelCorrelationActors,
-            # )
-
-            return FunnelActors
-            # return FunnelCorrelationActors
-        else:
-            raise ValueError(
-                "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
-            )
-    elif funnelsFilter.funnelVizType == FunnelVizType.trends:
+    if funnelsFilter.funnelVizType == FunnelVizType.trends:
         return FunnelTrendsActors
     else:
         if funnelsFilter.funnelOrderType == StepOrderValue.unordered:

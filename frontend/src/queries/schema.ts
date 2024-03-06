@@ -53,6 +53,8 @@ export enum NodeKind {
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
+    FunnelsActorsQuery = 'FunnelsActorsQuery',
+    FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
 
     // Interface nodes
@@ -921,7 +923,7 @@ export interface ActorsQueryResponse {
 
 export interface ActorsQuery extends DataNode {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | FunnelsActorsQuery | HogQLQuery
+    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
@@ -1090,7 +1092,7 @@ export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySo
 }
 
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {
-    kind: NodeKind.InsightActorsQuery
+    kind: NodeKind.FunnelsActorsQuery
     source: FunnelsQuery
     /** Index of the step for which we want to get the timestamp for, per person.
      * Positive for converted persons, negative for dropped of persons. */
@@ -1106,7 +1108,7 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
 }
 
 export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
-    kind: NodeKind.InsightActorsQuery
+    kind: NodeKind.FunnelCorrelationActorsQuery
     source: FunnelCorrelationQuery
     funnelCorrelationPersonConverted?: boolean
     funnelCorrelationPersonEntity?: AnyEntityNode
@@ -1196,7 +1198,7 @@ export interface InsightActorsQueryOptionsResponse {
 
 export interface InsightActorsQueryOptions {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery | FunnelsActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
     response?: InsightActorsQueryOptionsResponse
 }
 
