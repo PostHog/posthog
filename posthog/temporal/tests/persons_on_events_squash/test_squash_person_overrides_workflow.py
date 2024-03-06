@@ -766,7 +766,8 @@ ALTER TABLE
 ON CLUSTER
     {settings.CLICKHOUSE_CLUSTER}
 DELETE WHERE
-    hasAll(joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join_to_delete', 'partitions', team_id, distinct_id), ['202001'])
+    (joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join_to_delete', 'total_not_override_person_id', team_id, distinct_id) = 0)
+    AND (joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join_to_delete', 'total_override_person_id', team_id, distinct_id) > 0)
     AND ((now() - _timestamp) > 111111)
     AND (joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version)
 SETTINGS

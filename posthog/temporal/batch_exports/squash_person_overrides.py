@@ -136,8 +136,8 @@ ALTER TABLE
 ON CLUSTER
     {cluster}
 DELETE WHERE
-    joinGet('{database}.person_overrides_to_delete', 'total_not_override_person_id', team_id, distinct_id) = 0
-    AND joinGet('{database}.person_overrides_to_delete', 'total_override_person_id', team_id, distinct_id) > 0
+    (joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'total_not_override_person_id', team_id, distinct_id) = 0)
+    AND (joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'total_override_person_id', team_id, distinct_id) > 0)
     AND ((now() - _timestamp) > %(grace_period)s)
     AND (joinGet('{database}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version)
 SETTINGS
@@ -726,7 +726,7 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
     1. Build a JOIN table from person_distinct_id_overrides.
     2. For each partition issue an ALTER TABLE UPDATE. This query uses joinGet
         to efficiently find the override for each (team_id, distinct_id) pair
-        in the dictionary we built in 1.
+        in the JOIN table we built in 1.
     3. Delete from person_distinct_id_overrides any overrides that were squashed
         and are past the grace period. We construct an auxiliary JOIN table to
         identify the persons that can be deleted.
