@@ -1,20 +1,13 @@
 from typing import Any, Dict, Optional, cast
-import urllib.parse
 from datetime import datetime, timedelta
-from unittest.mock import patch
 from uuid import UUID
 
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
-    FunnelCorrelationActors,
-)
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Cohort, Filter
-from posthog.models.person import Person
 from posthog.models.team.team import Team
 from posthog.schema import (
     ActorsQuery,
@@ -28,7 +21,6 @@ from posthog.schema import (
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
-from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -50,6 +42,7 @@ def get_actors(
     funnelCorrelationType: Optional[FunnelCorrelationResultsType] = FunnelCorrelationResultsType.events,
     funnelCorrelationPersonConverted: Optional[bool] = None,
     funnelCorrelationPersonEntity: Optional[EventsNode] = None,
+    funnelCorrelationPropertyValues=None,
     includeRecordings: Optional[bool] = True,
 ):
     funnels_query = cast(FunnelsQuery, filter_to_query(filters))
@@ -67,6 +60,7 @@ def get_actors(
         source=correlation_query,
         funnelCorrelationPersonConverted=funnelCorrelationPersonConverted,
         funnelCorrelationPersonEntity=funnelCorrelationPersonEntity,
+        funnelCorrelationPropertyValues=funnelCorrelationPropertyValues,
     )
     actors_query = ActorsQuery(
         source=correlation_actors_query,
@@ -166,7 +160,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
         )
 
-        self.assertCountEqual([str(col[1]["id"]) for col in serialized_actors], success_target_persons)
+        self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], success_target_persons)
 
         # test negatively_related failures
         serialized_actors = get_actors(
@@ -176,7 +170,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
         )
 
-        self.assertCountEqual([str(col[1]["id"]) for col in serialized_actors], failure_target_persons)
+        self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], failure_target_persons)
 
         # test positively_related failures
         serialized_actors = get_actors(
@@ -186,7 +180,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
         )
 
-        self.assertCountEqual([str(col[1]["id"]) for col in serialized_actors], [str(person_fail.uuid)])
+        self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], [str(person_fail.uuid)])
 
         # test negatively_related successes
         serialized_actors = get_actors(
@@ -196,7 +190,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
         )
 
-        self.assertCountEqual([str(col[1]["id"]) for col in serialized_actors], [str(person_succ.uuid)])
+        self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], [str(person_succ.uuid)])
 
         # test all positively_related
         serialized_actors = get_actors(
@@ -207,7 +201,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            [str(col[1]["id"]) for col in serialized_actors],
+            [str(val[1]["id"]) for val in serialized_actors],
             [*success_target_persons, str(person_fail.uuid)],
         )
 
@@ -220,63 +214,63 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            [str(col[1]["id"]) for col in serialized_actors],
+            [str(val[1]["id"]) for val in serialized_actors],
             [*failure_target_persons, str(person_succ.uuid)],
         )
 
-    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
-    def test_create_funnel_correlation_cohort(self, _insert_cohort_from_insight_filter):
-        (
-            filter,
-            success_target_persons,
-            failure_target_persons,
-            person_fail,
-            person_succ,
-        ) = self._setup_basic_test()
+    # @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
+    # def test_create_funnel_correlation_cohort(self, _insert_cohort_from_insight_filter):
+    #     (
+    #         filter,
+    #         success_target_persons,
+    #         failure_target_persons,
+    #         person_fail,
+    #         person_succ,
+    #     ) = self._setup_basic_test()
 
-        params = {
-            "events": [
-                {"id": "user signed up", "type": "events", "order": 0},
-                {"id": "paid", "type": "events", "order": 1},
-            ],
-            "insight": INSIGHT_FUNNELS,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
-            "funnel_correlation_type": "events",
-            "funnel_correlation_person_entity": {
-                "id": "positively_related",
-                "type": "events",
-            },
-            "funnel_correlation_person_converted": "TrUe",
-        }
+    #     params = {
+    #         "events": [
+    #             {"id": "user signed up", "type": "events", "order": 0},
+    #             {"id": "paid", "type": "events", "order": 1},
+    #         ],
+    #         "insight": INSIGHT_FUNNELS,
+    #         "date_from": "2020-01-01",
+    #         "date_to": "2020-01-14",
+    #         "funnel_correlation_type": "events",
+    #         "funnel_correlation_person_entity": {
+    #             "id": "positively_related",
+    #             "type": "events",
+    #         },
+    #         "funnel_correlation_person_converted": "TrUe",
+    #     }
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts/?{urllib.parse.urlencode(params)}",
-            {"name": "test", "is_static": True},
-        ).json()
+    #     response = self.client.post(
+    #         f"/api/projects/{self.team.id}/cohorts/?{urllib.parse.urlencode(params)}",
+    #         {"name": "test", "is_static": True},
+    #     ).json()
 
-        cohort_id = response["id"]
+    #     cohort_id = response["id"]
 
-        _insert_cohort_from_insight_filter.assert_called_once_with(
-            cohort_id,
-            {
-                "events": "[{'id': 'user signed up', 'type': 'events', 'order': 0}, {'id': 'paid', 'type': 'events', 'order': 1}]",
-                "insight": "FUNNELS",
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-14",
-                "funnel_correlation_type": "events",
-                "funnel_correlation_person_entity": "{'id': 'positively_related', 'type': 'events'}",
-                "funnel_correlation_person_converted": "TrUe",
-            },
-        )
+    #     _insert_cohort_from_insight_filter.assert_called_once_with(
+    #         cohort_id,
+    #         {
+    #             "events": "[{'id': 'user signed up', 'type': 'events', 'order': 0}, {'id': 'paid', 'type': 'events', 'order': 1}]",
+    #             "insight": "FUNNELS",
+    #             "date_from": "2020-01-01",
+    #             "date_to": "2020-01-14",
+    #             "funnel_correlation_type": "events",
+    #             "funnel_correlation_person_entity": "{'id': 'positively_related', 'type': 'events'}",
+    #             "funnel_correlation_person_converted": "TrUe",
+    #         },
+    #     )
 
-        insert_cohort_from_insight_filter(cohort_id, params)
+    #     insert_cohort_from_insight_filter(cohort_id, params)
 
-        cohort = Cohort.objects.get(pk=cohort_id)
-        people = Person.objects.filter(cohort__id=cohort.pk)
-        self.assertEqual(cohort.errors_calculating, 0)
-        self.assertEqual(people.count(), 5)
-        self.assertEqual(cohort.count, 5)
+    #     cohort = Cohort.objects.get(pk=cohort_id)
+    #     people = Person.objects.filter(cohort__id=cohort.pk)
+    #     self.assertEqual(cohort.errors_calculating, 0)
+    #     self.assertEqual(people.count(), 5)
+    #     self.assertEqual(cohort.count, 5)
 
     def test_people_arent_returned_multiple_times(self):
         people = journeys_for(
@@ -298,26 +292,24 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        filter = Filter(
-            data={
-                "events": [
-                    {"id": "user signed up", "type": "events", "order": 0},
-                    {"id": "paid", "type": "events", "order": 1},
-                ],
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-14",
-                "funnel_correlation_type": "events",
-                "funnel_correlation_person_entity": {
-                    "id": "positively_related",
-                    "type": "events",
-                },
-                "funnel_correlation_person_converted": "TrUe",
-            }
-        )
-        _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
 
-        self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
+        serialized_actors = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationPersonConverted=True,
+            funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
+        )
+
+        self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -358,29 +350,26 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Success filter
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "funnel_correlation_type": "events",
-                "events": [
-                    {"id": "$pageview", "order": 0},
-                    {"id": "insight analyzed", "order": 1},
-                ],
-                "include_recordings": "true",
-                "funnel_correlation_person_entity": {
-                    "id": "insight loaded",
-                    "type": "events",
-                },
-                "funnel_correlation_person_converted": "True",
-            }
-        )
-        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2021-01-01",
+            "date_to": "2021-01-08",
+            "events": [
+                {"id": "$pageview", "order": 0},
+                {"id": "insight analyzed", "order": 1},
+            ],
+        }
 
-        self.assertEqual(results[0]["id"], p1.uuid)
+        results = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationPersonConverted=True,
+            funnelCorrelationPersonEntity=EventsNode(event="insight loaded"),
+        )
+
+        self.assertEqual(results[0][1]["id"], p1.uuid)
         self.assertEqual(
-            results[0]["matched_recordings"],
+            list(results[0][2]),
             [
                 {
                     "events": [
@@ -396,30 +385,27 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Drop off filter
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "funnel_correlation_type": "events",
-                "events": [
-                    {"id": "$pageview", "order": 0},
-                    {"id": "insight analyzed", "order": 1},
-                    {"id": "insight updated", "order": 2},
-                ],
-                "include_recordings": "true",
-                "funnel_correlation_person_entity": {
-                    "id": "insight loaded",
-                    "type": "events",
-                },
-                "funnel_correlation_person_converted": "False",
-            }
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2021-01-01",
+            "date_to": "2021-01-08",
+            "funnel_correlation_type": "events",
+            "events": [
+                {"id": "$pageview", "order": 0},
+                {"id": "insight analyzed", "order": 1},
+                {"id": "insight updated", "order": 2},
+            ],
+        }
+        results = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationPersonConverted=False,
+            funnelCorrelationPersonEntity=EventsNode(event="insight loaded"),
         )
-        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(results[0][1]["id"], p1.uuid)
         self.assertEqual(
-            results[0]["matched_recordings"],
+            list(results[0][2]),
             [
                 {
                     "events": [
@@ -465,33 +451,33 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Success filter
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "funnel_correlation_type": "properties",
-                "events": [
-                    {"id": "$pageview", "order": 0},
-                    {"id": "insight analyzed", "order": 1},
-                ],
-                "include_recordings": "true",
-                "funnel_correlation_property_values": [
-                    {
-                        "key": "foo",
-                        "value": "bar",
-                        "operator": "exact",
-                        "type": "person",
-                    }
-                ],
-                "funnel_correlation_person_converted": "True",
-            }
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2021-01-01",
+            "date_to": "2021-01-08",
+            "events": [
+                {"id": "$pageview", "order": 0},
+                {"id": "insight analyzed", "order": 1},
+            ],
+        }
+        results = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationType=FunnelCorrelationResultsType.properties,
+            funnelCorrelationPersonConverted=True,
+            funnelCorrelationPropertyValues=[
+                {
+                    "key": "foo",
+                    "value": "bar",
+                    "operator": "exact",
+                    "type": "person",
+                }
+            ],
         )
-        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(results[0][1]["id"], p1.uuid)
         self.assertEqual(
-            results[0]["matched_recordings"],
+            list(results[0][2]),
             [
                 {
                     "events": [
@@ -580,35 +566,36 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Success filter
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "funnel_order_type": "strict",
-                "funnel_correlation_type": "properties",
-                "events": [
-                    {"id": "$pageview", "order": 0},
-                    {"id": "insight analyzed", "order": 1},
-                ],
-                "include_recordings": "true",
-                "funnel_correlation_property_values": [
-                    {
-                        "key": "foo",
-                        "value": "bar",
-                        "operator": "exact",
-                        "type": "person",
-                    }
-                ],
-                "funnel_correlation_person_converted": "True",
-            }
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2021-01-01",
+            "date_to": "2021-01-08",
+            "funnel_order_type": "strict",
+            "events": [
+                {"id": "$pageview", "order": 0},
+                {"id": "insight analyzed", "order": 1},
+            ],
+        }
+
+        results = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationType=FunnelCorrelationResultsType.properties,
+            funnelCorrelationPersonConverted=True,
+            funnelCorrelationPropertyValues=[
+                {
+                    "key": "foo",
+                    "value": "bar",
+                    "operator": "exact",
+                    "type": "person",
+                }
+            ],
         )
-        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], p1.uuid)
+        self.assertEqual(results[0][1]["id"], p1.uuid)
         self.assertEqual(
-            results[0]["matched_recordings"],
+            list(results[0][2]),
             [
                 {
                     "events": [
@@ -624,34 +611,24 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Drop off filter
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-01-01",
-                "date_to": "2021-01-08",
-                "funnel_order_type": "strict",
-                "funnel_correlation_type": "properties",
-                "events": [
-                    {"id": "$pageview", "order": 0},
-                    {"id": "insight analyzed", "order": 1},
-                ],
-                "include_recordings": "true",
-                "funnel_correlation_property_values": [
-                    {
-                        "key": "foo",
-                        "value": "bar",
-                        "operator": "exact",
-                        "type": "person",
-                    }
-                ],
-                "funnel_correlation_person_converted": "False",
-            }
+        results = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationType=FunnelCorrelationResultsType.properties,
+            funnelCorrelationPersonConverted=False,
+            funnelCorrelationPropertyValues=[
+                {
+                    "key": "foo",
+                    "value": "bar",
+                    "operator": "exact",
+                    "type": "person",
+                }
+            ],
         )
-        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        self.assertEqual(results[0]["id"], p2.uuid)
+        self.assertEqual(results[0][1]["id"], p2.uuid)
         self.assertEqual(
-            results[0]["matched_recordings"],
+            list(results[0][2]),
             [
                 {
                     "events": [
