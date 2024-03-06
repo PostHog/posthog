@@ -6,12 +6,11 @@ describe('Billing', () => {
     beforeEach(() => {
         cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2.json' })
 
-        cy.visit('/organization/billing')
-
         cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture')
     })
 
     it('Show and submit unsubscribe survey', () => {
+        cy.visit('/organization/billing')
         cy.intercept('/api/billing-v2/deactivate?products=product_analytics', {
             fixture: 'api/billing-v2/billing-v2-unsubscribed-product-analytics.json',
         }).as('unsubscribeProductAnalytics')
@@ -40,6 +39,7 @@ describe('Billing', () => {
     })
 
     it('Unsubscribe survey text area maintains unique state between product types', () => {
+        cy.visit('/organization/billing')
         cy.get('[data-attr=more-button]').first().click()
         cy.contains('.LemonButton', 'Unsubscribe').click()
         cy.get('.LemonModal h3').should('contain', 'Why are you unsubscribing from Product analytics + data stack?')
