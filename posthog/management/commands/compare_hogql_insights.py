@@ -68,11 +68,12 @@ class Command(BaseCommand):
                 continue
             try:
                 all_ok = True
+                sorter = lambda x: (
+                    "$$_posthog_breakdown_other_$$" if x.get("breakdown_value") == "Other" else x.get("breakdown_value")
+                )
                 sorted_legacy_results = sorted(
                     legacy_results,
-                    key=lambda x: "$$_posthog_breakdown_other_$$"
-                    if x.get("breakdown_value") == "Other"
-                    else x.get("breakdown_value"),  # type: ignore
+                    key=sorter,
                 )
                 sorted_hogql_results = sorted(hogql_results, key=lambda x: x.get("breakdown_value"))
                 for legacy_result, hogql_result in zip(sorted_legacy_results, sorted_hogql_results):

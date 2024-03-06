@@ -160,6 +160,7 @@ class BreakdownValues:
             ):
                 inner_events_query.order_by[0].order = "ASC"
 
+        values: List[Any]
         if self.histogram_bin_count is not None:
             query = parse_select(
                 """
@@ -175,7 +176,10 @@ class BreakdownValues:
                 query=query,
                 team=self.team,
             )
-            values: List[Any] = response.results[0][0]
+            if response.results and len(response.results) > 0:
+                values = response.results[0][0]
+            else:
+                values = []
         else:
             # We're not running this through groupArray, as that eats NULL values.
             query = inner_events_query
@@ -184,8 +188,8 @@ class BreakdownValues:
                 query=query,
                 team=self.team,
             )
-            value_index = response.columns.index("value")
-            values: List[Any] = [row[value_index] for row in response.results]
+            value_index = (response.columns or []).index("value")
+            values = [row[value_index] for row in response.results or []]
 
             needs_other = False
             if len(values) == breakdown_limit + 1:
