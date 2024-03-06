@@ -23,4 +23,4 @@ class TestSessionReplayEventsHogQLQueries(ClickhouseTestMixin, APIBaseTest):
 
         # TODO add data so this does something
         response = runner.calculate()
-        assert response.results == []
+        assert response.results == ["definitely fail when you get here"]
