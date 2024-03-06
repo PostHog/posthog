@@ -660,6 +660,7 @@ export interface EventPropertyFilter extends BasePropertyFilter {
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
     operator: PropertyOperator
+    table_name?: string
 }
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {

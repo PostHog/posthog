@@ -51,14 +51,10 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     })),
     actions({
-        selectItem: (
-            taxonomicGroup: TaxonomicFilterGroup,
-            propertyKey?: TaxonomicFilterValue,
-            itemPropertyFilterType?: PropertyFilterType
-        ) => ({
+        selectItem: (taxonomicGroup: TaxonomicFilterGroup, propertyKey?: TaxonomicFilterValue, item?: any) => ({
             taxonomicGroup,
             propertyKey,
-            itemPropertyFilterType,
+            item,
         }),
         openDropdown: true,
         closeDropdown: true,
@@ -93,7 +89,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
+        selectItem: ({ taxonomicGroup, propertyKey, item }) => {
+            const itemPropertyFilterType = item?.propertyFilterType as PropertyFilterType
             const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === PropertyFilterType.Cohort) {
@@ -142,6 +139,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         operator,
                         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
                         group_type_index: taxonomicGroup.groupTypeIndex,
+                        table_name: item.table,
                     }
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, property)
                 }
