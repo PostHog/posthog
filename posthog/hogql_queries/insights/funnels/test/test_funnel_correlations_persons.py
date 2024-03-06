@@ -198,39 +198,31 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
         self.assertCountEqual([str(col[1]["id"]) for col in serialized_actors], [str(person_succ.uuid)])
 
-        # # test all positively_related
-        # filter = filter.shallow_clone(
-        #     {
-        #         "funnel_correlation_person_entity": {
-        #             "id": "positively_related",
-        #             "type": "events",
-        #         },
-        #         "funnel_correlation_person_converted": None,
-        #     }
-        # )
-        # _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
+        # test all positively_related
+        serialized_actors = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationPersonConverted=None,
+            funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
+        )
 
-        # self.assertCountEqual(
-        #     [str(col[1]["id"]) for col in serialized_actors],
-        #     [*success_target_persons, str(person_fail.uuid)],
-        # )
+        self.assertCountEqual(
+            [str(col[1]["id"]) for col in serialized_actors],
+            [*success_target_persons, str(person_fail.uuid)],
+        )
 
-        # # test all negatively_related
-        # filter = filter.shallow_clone(
-        #     {
-        #         "funnel_correlation_person_entity": {
-        #             "id": "negatively_related",
-        #             "type": "events",
-        #         },
-        #         "funnel_correlation_person_converted": None,
-        #     }
-        # )
-        # _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
+        # test all negatively_related
+        serialized_actors = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationPersonConverted=None,
+            funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
+        )
 
-        # self.assertCountEqual(
-        #     [str(col[1]["id"]) for col in serialized_actors],
-        #     [*failure_target_persons, str(person_succ.uuid)],
-        # )
+        self.assertCountEqual(
+            [str(col[1]["id"]) for col in serialized_actors],
+            [*failure_target_persons, str(person_succ.uuid)],
+        )
 
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_funnel_correlation_cohort(self, _insert_cohort_from_insight_filter):
