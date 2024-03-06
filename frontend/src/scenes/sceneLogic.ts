@@ -294,6 +294,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             posthog.capture('should view onboarding product intro', {
                                 did_view_intro: values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test',
                                 product_key: productKeyFromUrl,
+                                is_onboarding_first_product: !teamLogic.values.hasOnboardedAnyProduct,
                             })
                             if (values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test') {
                                 console.warn(
