@@ -84,7 +84,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonConverted=success,
             funnelCorrelationPersonEntity=EventsNode(event=event_name, properties=properties),
         )
-        return [str(row["id"]) for row in serialized_actors]
+        return [str(row[1]["id"]) for row in serialized_actors]
 
     def _get_actors_for_property(self, filter: Filter, property_values: list, success=True):
         actor_filter = filter.shallow_clone(
