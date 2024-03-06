@@ -457,8 +457,8 @@ async def manage_table(table_name: str, dry_run: bool) -> collections.abc.AsyncG
     await workflow.execute_activity(
         wait_for_table,
         table_activity_inputs,
-        start_to_close_timeout=timedelta(hours=4),
-        retry_policy=RetryPolicy(maximum_attempts=6, initial_interval=timedelta(seconds=20)),
+        start_to_close_timeout=timedelta(hours=6),
+        retry_policy=RetryPolicy(maximum_attempts=20, initial_interval=timedelta(seconds=20)),
         heartbeat_timeout=timedelta(minutes=2),
     )
 
@@ -634,8 +634,8 @@ async def submit_and_wait_for_mutation(
     await workflow.execute_activity(
         wait_for_mutation,
         mutation_activity_inputs,
-        start_to_close_timeout=timedelta(hours=4),
-        retry_policy=RetryPolicy(maximum_attempts=6, initial_interval=timedelta(seconds=20)),
+        start_to_close_timeout=timedelta(hours=6),
+        retry_policy=RetryPolicy(maximum_attempts=20, initial_interval=timedelta(seconds=20)),
         heartbeat_timeout=timedelta(minutes=2),
     )
 
