@@ -139,7 +139,7 @@ class BreakdownValues:
                 ORDER BY
                     count DESC,
                     value DESC
-                LIMIT {breakdown_limit}
+                LIMIT {breakdown_limit_plus_one}
             """,
             placeholders={
                 "select_field": select_field,
@@ -147,7 +147,7 @@ class BreakdownValues:
                 "table": self._table,
                 "date_filter": date_filter,
                 "events_where": self.events_filter,
-                "breakdown_limit": ast.Constant(value=breakdown_limit),
+                "breakdown_limit_plus_one": ast.Constant(value=breakdown_limit + 1),
             },
         )
 
@@ -160,50 +160,63 @@ class BreakdownValues:
             ):
                 inner_events_query.order_by[0].order = "ASC"
 
-        query = parse_select(
-            """
-                SELECT groupArray(value) FROM ({inner_events_query})
-            """,
-            placeholders={
-                "inner_events_query": inner_events_query,
-            },
-        )
-
         if self.histogram_bin_count is not None:
-            query.select = [self._to_bucketing_expression()]
+            query = parse_select(
+                """
+                    SELECT {expr} FROM ({inner_events_query})
+                """,
+                placeholders={
+                    "inner_events_query": inner_events_query,
+                    "expr": self._to_bucketing_expression(),
+                },
+            )
+            response = execute_hogql_query(
+                query_type="TrendsQueryBreakdownValues",
+                query=query,
+                team=self.team,
+            )
+            values: List[Any] = response.results[0][0]
+        else:
+            # We're not running this through groupArray, as that eats NULL values.
+            query = inner_events_query
+            response = execute_hogql_query(
+                query_type="TrendsQueryBreakdownValues",
+                query=query,
+                team=self.team,
+            )
+            value_index = response.columns.index("value")
+            values: List[Any] = [row[value_index] for row in response.results]
 
-        response = execute_hogql_query(
-            query_type="TrendsQueryBreakdownValues",
-            query=query,
-            team=self.team,
-        )
+            needs_other = False
+            if len(values) == breakdown_limit + 1:
+                needs_other = True
+                values = values[:-1]
 
-        values: List[Any] = response.results[0][0]
+            # Add "other" value if "other" is not hidden and we're not bucketing numeric values
+            if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
+                all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
+                all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
+                all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values)
+
+                if all_values_are_ints_or_none or all_values_are_floats_or_none:
+                    if all_values_are_ints_or_none:
+                        values = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values]
+                        if needs_other:
+                            values.insert(0, BREAKDOWN_OTHER_NUMERIC_LABEL)
+                    else:
+                        values = [float(BREAKDOWN_NULL_NUMERIC_LABEL) if value is None else value for value in values]
+                        if needs_other:
+                            values.insert(0, float(BREAKDOWN_OTHER_NUMERIC_LABEL))
+                elif all_values_are_string_or_none:
+                    values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
+                    if needs_other:
+                        values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
 
         if len(values) == 0:
             values.insert(0, None)
             return values
 
-        # Add "other" value if "other" is not hidden and we're not bucketing numeric values
-        if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
-            all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
-            all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
-            all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values)
-
-            if all_values_are_ints_or_none or all_values_are_floats_or_none:
-                if all_values_are_ints_or_none:
-                    values = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values]
-                    values.insert(0, BREAKDOWN_OTHER_NUMERIC_LABEL)
-                else:
-                    values = [float(BREAKDOWN_NULL_NUMERIC_LABEL) if value is None else value for value in values]
-                    values.insert(0, float(BREAKDOWN_OTHER_NUMERIC_LABEL))
-            elif all_values_are_string_or_none:
-                values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
-                values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
-
-            breakdown_limit += 1  # Add one to the limit to account for the "other" value
-
-        return values[:breakdown_limit]
+        return values
 
     def _to_bucketing_expression(self) -> ast.Expr:
         assert isinstance(self.histogram_bin_count, int)
