@@ -84,7 +84,7 @@ export function FeatureFlagReleaseConditions({
     const { cohortsById } = useValues(cohortsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    const filterGroups: FeatureFlagGroupType[] = isSuper ? filters?.super_groups || [] : filters?.groups || []
+    const filterGroups: FeatureFlagGroupType[] = (isSuper ? filters?.super_groups : filters?.groups) || []
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption()
     const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
@@ -309,7 +309,9 @@ export function FeatureFlagReleaseConditions({
                                     />
                                 </LemonField.Pure>{' '}
                                 <div
-                                    className={clsx(propertySelectErrors?.[index]?.rollout_percentage ? 'break' : '')}
+                                    className={clsx(
+                                        propertySelectErrors?.[index]?.rollout_percentage ? 'basis-full h-0' : ''
+                                    )}
                                 />
                                 of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
                                 {affectedUsers[index] !== undefined ? (

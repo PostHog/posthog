@@ -156,15 +156,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setAffectedUsers(index, undefined)
             }
 
-            if (
-                !newProperties ||
-                newProperties.some(
-                    (property) =>
-                        property.value === null ||
-                        property.value === undefined ||
-                        (Array.isArray(property.value) && property.value.length === 0)
-                )
-            ) {
+            if (!newProperties || newProperties.some(isEmptyProperty)) {
                 return
             }
 
@@ -186,16 +178,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setAffectedUsers(index, undefined)
 
                 const properties = condition.properties
-                if (
-                    !properties ||
-                    properties?.length === 0 ||
-                    properties.some(
-                        (property) =>
-                            property.value === null ||
-                            property.value === undefined ||
-                            (Array.isArray(property.value) && property.value.length === 0)
-                    )
-                ) {
+                if (!properties || properties?.length === 0 || properties.some(isEmptyProperty)) {
                     // don't compute for full rollouts or empty conditions
                     usersAffected.push(Promise.resolve({ users_affected: -1, total_users: -1 }))
                 } else {
@@ -268,12 +251,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             (filters) => {
                 return filters?.groups?.map(({ properties, rollout_percentage }: FeatureFlagGroupType) => ({
                     properties: properties?.map((property: AnyPropertyFilter) => ({
-                        value:
-                            property.value === null ||
-                            property.value === undefined ||
-                            (Array.isArray(property.value) && property.value.length === 0)
-                                ? "Property filters can't be empty"
-                                : undefined,
+                        value: isEmptyProperty(property) ? "Property filters can't be empty" : undefined,
                     })),
                     rollout_percentage:
                         rollout_percentage === undefined ? 'You need to set a rollout % value' : undefined,
@@ -329,3 +307,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         }
     }),
 ])
+
+function isEmptyProperty(property: AnyPropertyFilter): boolean {
+    return (
+        property.value === null ||
+        property.value === undefined ||
+        (Array.isArray(property.value) && property.value.length === 0)
+    )
+}
