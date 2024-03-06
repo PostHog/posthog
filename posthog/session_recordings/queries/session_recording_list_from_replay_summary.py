@@ -772,5 +772,6 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
     @staticmethod
     def _get_console_log_clause(console_logs_filter: List[Literal["error", "warn", "info"]]) -> str:
-        filters = [f"console_{log}_count > 0" for log in console_logs_filter]
+        # to avoid a CH migration we map from info to log when constructing the query here
+        filters = [f"console_{'log' if log == 'info' else log}_count > 0" for log in console_logs_filter]
         return f"AND ({' OR '.join(filters)})" if filters else ""
