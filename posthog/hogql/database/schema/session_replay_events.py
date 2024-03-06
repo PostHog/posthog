@@ -99,7 +99,10 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
             select_fields.append(ast.Alias(alias=name, expr=aggregate_fields[name]))
         else:
             select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name] + chain)))
-            group_by_fields.append(ast.Field(chain=[table_name] + chain))
+            # we are always anyway already grouped by session_id,
+            # and someone should use `raw_session_replay_events` if they don't want to group by session_id
+            if chain is not ["session_id"]:
+                group_by_fields.append(ast.Field(chain=[table_name] + chain))
 
     return ast.SelectQuery(
         select=select_fields,
