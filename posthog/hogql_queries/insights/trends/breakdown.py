@@ -157,6 +157,13 @@ class Breakdown:
                     ast.CompareOperation(left=transform_func, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=v))
                 )
             else:
+                if (
+                    v == BREAKDOWN_NULL_STRING_LABEL
+                    or v == BREAKDOWN_NULL_NUMERIC_LABEL
+                    or v == float(BREAKDOWN_NULL_NUMERIC_LABEL)
+                ):
+                    v = None
+
                 compare_ops.append(
                     ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=v))
                 )
