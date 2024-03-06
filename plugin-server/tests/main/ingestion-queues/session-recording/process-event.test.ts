@@ -5,6 +5,7 @@ import {
     createSessionReplayEvent,
     gatherConsoleLogEvents,
     getTimestampsFrom,
+    LogLevel,
     SummarizedSessionRecordingEvent,
 } from '../../../../src/main/ingestion-queues/session-recording/process-event'
 import { RRWebEvent, TimestampFormat } from '../../../../src/types'
@@ -133,6 +134,33 @@ describe('session recording process event', () => {
                         timestamp: 1682449093469,
                         windowId: '1',
                     },
+                    // group and trace end up in info
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'group' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'trace' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
+                    // assert ends up in error
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'assert' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
+                    // countReset ends up in warn
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'countReset' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
                 ],
             },
             expected: {
@@ -143,11 +171,11 @@ describe('session recording process event', () => {
                 first_timestamp: '2023-04-25 18:58:13.469',
                 last_timestamp: '2023-04-25 18:58:13.469',
                 active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
-                console_log_count: 2,
-                console_warn_count: 3,
-                console_error_count: 1,
-                size: 762,
-                event_count: 7,
+                console_log_count: 4,
+                console_warn_count: 4,
+                console_error_count: 2,
+                size: 1232,
+                event_count: 11,
                 message_count: 1,
                 snapshot_source: 'web',
             },
@@ -357,14 +385,14 @@ describe('session recording process event', () => {
         expect(getTimestampsFrom(events)).toEqual(expectedTimestamps)
     })
 
-    function consoleMessageFor(payload: any[]) {
+    function consoleMessageFor(payload: any[], level = 'info') {
         return {
             timestamp: 1682449093469,
             type: 6,
             data: {
                 plugin: 'rrweb/console@1',
                 payload: {
-                    level: 'info',
+                    level: level,
                     payload: payload,
                 },
             },
@@ -410,6 +438,43 @@ describe('session recording process event', () => {
                     TimestampFormat.ClickHouse
                 ),
                 message: expectedMessage,
+            } satisfies ConsoleLogEntry,
+        ])
+    })
+
+    test.each([
+        { browserLogLevel: 'log', logLevel: 'info' },
+        { browserLogLevel: 'trace', logLevel: 'info' },
+        { browserLogLevel: 'dir', logLevel: 'info' },
+        { browserLogLevel: 'dirxml', logLevel: 'info' },
+        { browserLogLevel: 'group', logLevel: 'info' },
+        { browserLogLevel: 'groupCollapsed', logLevel: 'info' },
+        { browserLogLevel: 'debug', logLevel: 'info' },
+        { browserLogLevel: 'timeLog', logLevel: 'info' },
+        { browserLogLevel: 'info', logLevel: 'info' },
+        { browserLogLevel: 'count', logLevel: 'info' },
+        { browserLogLevel: 'timeEnd', logLevel: 'info' },
+        { browserLogLevel: 'warn', logLevel: 'warn' },
+        { browserLogLevel: 'countReset', logLevel: 'warn' },
+        { browserLogLevel: 'error', logLevel: 'error' },
+        { browserLogLevel: 'assert', logLevel: 'error' },
+        { browserLogLevel: 'countReset', logLevel: 'warn' },
+    ])('log level console log processing: %s', ({ browserLogLevel, logLevel }) => {
+        const consoleLogEntries = gatherConsoleLogEvents(12345, 'session_id', [
+            consoleMessageFor(['test'], browserLogLevel),
+        ])
+        expect(consoleLogEntries).toEqual([
+            {
+                team_id: 12345,
+                level: logLevel as LogLevel,
+                log_source: 'session_replay',
+                log_source_id: 'session_id',
+                instance_id: null,
+                timestamp: castTimestampToClickhouseFormat(
+                    DateTime.fromMillis(1682449093469),
+                    TimestampFormat.ClickHouse
+                ),
+                message: 'test',
             } satisfies ConsoleLogEntry,
         ])
     })

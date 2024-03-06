@@ -45,10 +45,64 @@ export interface SummarizedSessionRecordingEvent {
     snapshot_source: string | null
 }
 
+// this is of course way more complicated than you'd expect
+// https://console.spec.whatwg.org/#loglevel-severity
+const browserLogLevels = [
+    'log',
+    'trace',
+    'dir',
+    'dirxml',
+    'group',
+    'groupCollapsed',
+    'debug',
+    'timeLog',
+    'info',
+    'count',
+    'timeEnd',
+    'warn',
+    'countReset',
+    'error',
+    'assert',
+    'warn',
+    'countReset',
+    'error',
+    'assert',
+] as const
+type BrowserLogLevel = (typeof browserLogLevels)[number]
+// we don't want that many log levels
+const logLevels = ['info', 'warn', 'error'] as const
+export type LogLevel = (typeof logLevels)[number]
+
+const levelMapping: Record<BrowserLogLevel, LogLevel> = {
+    info: 'info',
+    count: 'info',
+    timeEnd: 'info',
+    warn: 'warn',
+    countReset: 'warn',
+    error: 'error',
+    assert: 'error',
+    // really these should be 'log' but we don't want users to have to think about this
+    log: 'info',
+    trace: 'info',
+    dir: 'info',
+    dirxml: 'info',
+    group: 'info',
+    groupCollapsed: 'info',
+    debug: 'info',
+    timeLog: 'info',
+}
+
+// level is effectively user provided input, so we don't want to fire it into kafka to head to CH
+// without ensuring it only has known/expected values
+function safeLevel(level: unknown): LogLevel {
+    const needle = typeof level === 'string' ? level : 'info'
+    return levelMapping[needle as BrowserLogLevel] || 'info'
+}
+
 export type ConsoleLogEntry = {
     team_id: number
     message: string
-    level: 'info' | 'warn' | 'error'
+    level: LogLevel
     log_source: 'session_replay'
     // the session_id
     log_source_id: string
@@ -126,7 +180,7 @@ export const gatherConsoleLogEvents = (
         // but we've seen null in production so 🤷
         if (!!event && event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
             try {
-                const level = event.data.payload?.level
+                const level = safeLevel(event.data.payload?.level)
                 const message = safeString(event.data.payload?.payload)
                 consoleLogEntries.push({
                     team_id,
@@ -225,8 +279,8 @@ export const createSessionReplayEvent = (
             url = event.data.href
         }
         if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
-            const level = event.data.payload?.level
-            if (level === 'log') {
+            const level = safeLevel(event.data.payload?.level)
+            if (level === 'info') {
                 consoleLogCount += 1
             } else if (level === 'warn') {
                 consoleWarnCount += 1
