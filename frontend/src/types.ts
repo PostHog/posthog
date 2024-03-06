@@ -2783,6 +2783,9 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
+
+    // For Data warehouse person properties
+    table?: string
 }
 
 export enum PropertyDefinitionState {

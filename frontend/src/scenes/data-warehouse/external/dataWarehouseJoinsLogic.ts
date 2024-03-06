@@ -1,6 +1,7 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 import { DataWarehouseViewLink } from '~/types'
@@ -41,7 +42,12 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
                 return tablesJoinedToPersons.reduce((acc, table) => {
                     if (table) {
                         acc.push(
-                            ...table.columns.map((column) => ({ id: column.key, name: column.key, table: table.name }))
+                            ...table.columns.map((column) => ({
+                                id: column.key,
+                                name: column.key,
+                                table: table.name,
+                                property_type: capitalizeFirstLetter(column.type),
+                            }))
                         )
                     }
                     return acc

@@ -1,4 +1,4 @@
-import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark } from '@posthog/icons'
+import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark, IconServer } from '@posthog/icons'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     eventTaxonomicGroupProps,
@@ -28,6 +28,14 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
             </Tooltip>
         )
     }
+    if (definition.table) {
+        return (
+            <Tooltip title="Linked column from data warehouse table">
+                <IconServer className="taxonomy-icon taxonomy-icon-muted" />
+            </Tooltip>
+        )
+    }
+
     return (
         <Tooltip title="Event property">
             <IconList className="taxonomy-icon taxonomy-icon-muted" />
