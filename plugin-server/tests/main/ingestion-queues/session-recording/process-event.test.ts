@@ -401,7 +401,7 @@ describe('session recording process event', () => {
         expect(consoleLogEntries).toEqual([
             {
                 team_id: 12345,
-                log_level: 'info',
+                level: 'info',
                 log_source: 'session_replay',
                 log_source_id: 'session_id',
                 instance_id: null,

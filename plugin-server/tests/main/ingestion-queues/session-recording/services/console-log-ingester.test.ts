@@ -73,7 +73,7 @@ describe('console log ingester', () => {
                             JSON.stringify({
                                 team_id: 0,
                                 message: 'a'.repeat(2999),
-                                log_level: 'log',
+                                level: 'log',
                                 log_source: 'session_replay',
                                 log_source_id: '',
                                 instance_id: null,
@@ -117,7 +117,7 @@ describe('console log ingester', () => {
                             JSON.stringify({
                                 team_id: 0,
                                 message: 'aaaaa',
-                                log_level: 'log',
+                                level: 'log',
                                 log_source: 'session_replay',
                                 log_source_id: '',
                                 instance_id: null,
@@ -135,7 +135,7 @@ describe('console log ingester', () => {
                             JSON.stringify({
                                 team_id: 0,
                                 message: 'ccccc',
-                                log_level: 'log',
+                                level: 'log',
                                 log_source: 'session_replay',
                                 log_source_id: '',
                                 instance_id: null,
@@ -174,7 +174,7 @@ describe('console log ingester', () => {
                             JSON.stringify({
                                 team_id: 0,
                                 message: 'aaaaa',
-                                log_level: 'log',
+                                level: 'log',
                                 log_source: 'session_replay',
                                 log_source_id: '',
                                 instance_id: null,
