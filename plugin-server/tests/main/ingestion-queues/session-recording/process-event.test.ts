@@ -385,7 +385,7 @@ describe('session recording process event', () => {
         expect(getTimestampsFrom(events)).toEqual(expectedTimestamps)
     })
 
-    function consoleMessageFor(payload: any[], level = 'info') {
+    function consoleMessageFor(payload: any[], level: string | null | undefined = 'info') {
         return {
             timestamp: 1682449093469,
             type: 6,
