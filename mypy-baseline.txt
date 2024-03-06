@@ -178,7 +178,6 @@ posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "group_by"  [union-attr]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Item "None" of "list[Expr] | Any | None" has no attribute "append"  [union-attr]
-posthog/batch_exports/service.py:0: error: Missing positional argument "end_at" in call to "backfill_export"  [call-arg]
 ee/billing/billing_manager.py:0: error: TypedDict "CustomerInfo" has no key "available_product_features"  [typeddict-item]
 ee/billing/billing_manager.py:0: note: Did you mean "available_features"?
 posthog/hogql/resolver.py:0: error: Argument 1 of "visit" is incompatible with supertype "Visitor"; supertype defines the argument type as "AST"  [override]
@@ -779,9 +778,6 @@ posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: 
 posthog/temporal/tests/batch_exports/test_s3_batch_export_workflow.py:0: error: "tuple[Any, ...]" has no attribute "last_uploaded_part_timestamp"  [attr-defined]
 posthog/temporal/tests/batch_exports/test_s3_batch_export_workflow.py:0: error: "tuple[Any, ...]" has no attribute "upload_state"  [attr-defined]
 posthog/temporal/tests/batch_exports/test_s3_batch_export_workflow.py:0: error: "tuple[Any, ...]" has no attribute "upload_state"  [attr-defined]
-posthog/temporal/tests/batch_exports/test_backfill_batch_export.py:0: error: Argument "name" to "acreate_batch_export" has incompatible type "object"; expected "str"  [arg-type]
-posthog/temporal/tests/batch_exports/test_backfill_batch_export.py:0: error: Argument "destination_data" to "acreate_batch_export" has incompatible type "object"; expected "dict[Any, Any]"  [arg-type]
-posthog/temporal/tests/batch_exports/test_backfill_batch_export.py:0: error: Argument "interval" to "acreate_batch_export" has incompatible type "object"; expected "str"  [arg-type]
 posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py:0: error: Incompatible types in assignment (expression has type "str | int", variable has type "int")  [assignment]
 posthog/api/test/batch_exports/conftest.py:0: error: Argument "activities" to "ThreadedWorker" has incompatible type "list[function]"; expected "Sequence[Callable[..., Any]]"  [arg-type]
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: error: Incompatible return value type (got "dict[str, Collection[str]]", expected "dict[str, str]")  [return-value]

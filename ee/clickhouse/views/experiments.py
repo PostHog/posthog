@@ -32,12 +32,13 @@ EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
 
 
 def _calculate_experiment_results(experiment: Experiment, refresh: bool = False):
-    filter = Filter(experiment.filters, team=experiment.team)
+    # :TRICKY: Don't run any filter simplification on the experiment filter yet
+    filter = Filter({**experiment.filters, "is_simplified": True}, team=experiment.team)
 
     exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
     exposure_filter = None
     if exposure_filter_data:
-        exposure_filter = Filter(data=exposure_filter_data, team=experiment.team)
+        exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
 
     if filter.insight == INSIGHT_TRENDS:
         calculate_func = lambda: ClickhouseTrendExperimentResult(
