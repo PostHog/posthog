@@ -160,7 +160,8 @@
     (SELECT session_replay_events.session_id AS session_id
      FROM session_replay_events
      WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
+     GROUP BY session_replay_events.session_id,
+              session_replay_events.session_id) AS session_replay_events
   WHERE ifNull(in(session_replay_events.session_id, ['s1b']), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -328,7 +329,8 @@
     (SELECT session_replay_events.session_id AS session_id
      FROM session_replay_events
      WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
+     GROUP BY session_replay_events.session_id,
+              session_replay_events.session_id) AS session_replay_events
   WHERE ifNull(in(session_replay_events.session_id, ['s1a']), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -496,7 +498,8 @@
     (SELECT session_replay_events.session_id AS session_id
      FROM session_replay_events
      WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
+     GROUP BY session_replay_events.session_id,
+              session_replay_events.session_id) AS session_replay_events
   WHERE ifNull(in(session_replay_events.session_id, ['s1c']), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
