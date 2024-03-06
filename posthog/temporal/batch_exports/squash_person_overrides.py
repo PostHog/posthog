@@ -20,14 +20,16 @@ CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
 CREATE OR REPLACE TABLE {database}.person_distinct_id_overrides_join ON CLUSTER {cluster} (
     `team_id` Int64,
     `distinct_id` String,
-    `person_id` UUID
+    `person_id` UUID,
+    `latest_version` Int64
 )
 ENGINE = Join(ANY, left, team_id, distinct_id)
 AS
     SELECT
         team_id,
         distinct_id,
-        argMax(person_id, version) AS person_id
+        argMax(person_id, version) AS person_id,
+        max(version) AS latest_version
     FROM
         {database}.person_distinct_id_overrides
     GROUP BY
@@ -41,7 +43,7 @@ SETTINGS
 DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
 DROP TABLE IF EXISTS {database}.person_distinct_id_overrides_join ON CLUSTER {cluster}
 SETTINGS
-    distributed_ddl_task_timeout = -1
+    distributed_ddl_task_timeout = 0
 """
 
 SUBMIT_UPDATE_EVENTS_WITH_PERSON_OVERRIDES = """
@@ -125,6 +127,7 @@ ON CLUSTER
 DELETE WHERE
     hasAll(joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'partitions', team_id, distinct_id), %(partition_ids)s)
     AND ((now() - _timestamp) > %(grace_period)s)
+    AND (joinGet('{database}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version)
 SETTINGS
     max_execution_time = 0
 """

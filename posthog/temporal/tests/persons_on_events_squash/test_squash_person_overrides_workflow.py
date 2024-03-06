@@ -740,6 +740,7 @@ ON CLUSTER
 DELETE WHERE
     hasAll(joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join_to_delete', 'partitions', team_id, distinct_id), ['202001'])
     AND ((now() - _timestamp) > 111111)
+    AND (joinGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version)
 SETTINGS
     max_execution_time = 0
     """.split()
