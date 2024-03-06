@@ -46,6 +46,8 @@ export function PathNodeCardButton({
     }
     const openModal = (): void => openPersonsModal({ path_end_key: name })
 
+    const isTruncatedPath = name.endsWith('...')
+
     return (
         <div className="flex justify-between items-center w-full">
             <div className="flex items-center font-semibold">
@@ -59,6 +61,11 @@ export function PathNodeCardButton({
                 <LemonButtonWithDropdown
                     size="small"
                     icon={<IconEllipsis />}
+                    disabledReason={
+                        isTruncatedPath
+                            ? 'Multiple paths truncated and combined for efficiency during querying. No further analysis possible.'
+                            : undefined
+                    }
                     dropdown={{
                         overlay: (
                             <>
