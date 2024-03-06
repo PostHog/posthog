@@ -285,7 +285,7 @@ class BatchExportBackfill(UUIDModel):
         help_text="The BatchExport this backfill belongs to.",
     )
     start_at: models.DateTimeField = models.DateTimeField(help_text="The start of the data interval.")
-    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.")
+    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.", null=True)
     status: models.CharField = models.CharField(
         choices=Status.choices, max_length=64, help_text="The status of this backfill."
     )
