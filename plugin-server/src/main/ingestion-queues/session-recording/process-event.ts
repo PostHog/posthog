@@ -130,7 +130,6 @@ export const gatherConsoleLogEvents = (
                 const message = safeString(event.data.payload?.payload)
                 consoleLogEntries.push({
                     team_id,
-                    // TODO when is it not a single item array?
                     message: message,
                     level: level,
                     log_source: 'session_replay',
