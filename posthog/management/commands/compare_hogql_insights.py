@@ -19,11 +19,18 @@ class Command(BaseCommand):
             .order_by("created_at")
             .all()
         )
-        # insights = [i for i in insights if "breakdown" not in i.filters]
+        # len(insights)
+        insights = [i for i in insights if "breakdown" in i.filters]
+        len(insights)
         # insights = [i for i in insights if "formula" not in i.filters]
-        # insights = [i for i in insights if i.filters.get("display") == "ActionsLineGraph"]
-        # insights = [i for i in insights if i.id == 1133835]
-        for insight in insights[-100:]:
+        # len(insights)
+        insights = [i for i in insights if i.filters.get("display") != "ActionsLineGraph"]
+        len(insights)
+        # insights = [i for i in insights if i.filters.get("display") == "ActionsLineGraphCumulative"]
+        # len(insights)
+        # insights = [i for i in insights if i.id > 1134855]
+        # len(insights)
+        for insight in insights[0:500]:
             for event in insight.filters.get("events", []):
                 if event.get("math") in ("median", "p90", "p95", "p99"):
                     event["math"] = "sum"
@@ -35,7 +42,7 @@ class Command(BaseCommand):
                 insight_type = insight.filters.get("insight")
                 print(  # noqa: T201
                     f"Checking {insight_type} Insight {insight.id} {insight.short_id} - {insight.name} "
-                    f"(team {insight.team_id})... Interval: {insight.filters.get('interval')}"
+                    f"(team {insight.team_id})... Interval: {insight.filters.get('interval')}. {insight.filters.get('display')}"
                 )
                 if insight.filters.get("aggregation_group_type_index", None) is not None:
                     del insight.filters["aggregation_group_type_index"]
@@ -63,11 +70,13 @@ class Command(BaseCommand):
                 all_ok = True
                 sorted_legacy_results = sorted(
                     legacy_results,
-                    key=lambda x: "$$_posthog_breakdown_other_$$" if x.get("label") == "Other" else x.get("label"),  # type: ignore
+                    key=lambda x: "$$_posthog_breakdown_other_$$"
+                    if x.get("breakdown_value") == "Other"
+                    else x.get("breakdown_value"),  # type: ignore
                 )
-                sorted_hogql_results = sorted(hogql_results, key=lambda x: x.get("label"))
+                sorted_hogql_results = sorted(hogql_results, key=lambda x: x.get("breakdown_value"))
                 for legacy_result, hogql_result in zip(sorted_legacy_results, sorted_hogql_results):
-                    fields = ["label", "count", "data", "labels", "days"]
+                    fields = ["label", "count", "aggregated_value", "data", "labels", "days"]
                     for field in fields:
                         legacy_value = legacy_result.get(field)
                         hogql_value = hogql_result.get(field)
@@ -76,10 +85,11 @@ class Command(BaseCommand):
                             hogql_value = int(hogql_value)
                         if field == "data":
                             legacy_value = [int(x) for x in legacy_value or []]
-                            hogql_value = [int(x) for x in hogql_value]
+                            hogql_value = [int(x) for x in hogql_value or []]
                         if legacy_value != hogql_value:
                             if (
-                                (field == "labels" and insight.filters.get("interval") == "month")
+                                (field == "days" and hogql_value == [])
+                                or (field == "labels" and insight.filters.get("interval") == "month")
                                 or (field == "labels" and legacy_value == [] and hogql_value is None)
                                 or (
                                     field == "label"
@@ -93,7 +103,7 @@ class Command(BaseCommand):
                                 f" ({insight.id}). MISMATCH in {legacy_result.get('status')} row, field {field}"
                             )
                             print("Legacy:", legacy_value)  # noqa: T201
-                            print("HogQL:", hogql_value)  # noqa: T201
+                            print("HogQL: ", hogql_value)  # noqa: T201
                             print(json.dumps(insight.filters))  # noqa: T201
                             print("")  # noqa: T201
                             all_ok = False
