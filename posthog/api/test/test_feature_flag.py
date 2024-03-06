@@ -5201,6 +5201,100 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
 
+    def test_feature_flags_v3_with_skip_database_setting(self, mock_postgres_check):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
+
+        team_id = self.team.pk
+        rf = RequestFactory()
+        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
+        create_request.user = self.user
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "property-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "value": "tim@posthog.com",
+                                    "type": "person",
+                                    "operator": "exact",
+                                }
+                            ],
+                            "rollout_percentage": None,
+                        }
+                    ]
+                },
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        # Should be enabled for everyone
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "default-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        with self.assertNumQueries(0), self.settings(DECIDE_SKIP_DATABASE_FLAGS=True):
+            # No queries because of config parameter
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+            self.assertTrue("property-flag" not in all_flags)
+            self.assertTrue(all_flags["default-flag"])
+            self.assertTrue(errors)
+
+        # db is slow and times out, but shouldn't matter to us
+        with self.assertNumQueries(0), connection.execute_wrapper(slow_query), patch(
+            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+            500,
+        ), self.settings(DECIDE_SKIP_DATABASE_FLAGS=True):
+            mock_postgres_check.return_value = False
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+
+            self.assertTrue("property-flag" not in all_flags)
+            self.assertTrue(all_flags["default-flag"])
+            self.assertTrue(errors)
+
+            # decide was sent email parameter with correct email
+            with self.assertNumQueries(0):
+                all_flags, _, _, errors = get_all_feature_flags(
+                    team_id,
+                    "random",
+                    property_value_overrides={"email": "tim@posthog.com"},
+                )
+                self.assertTrue(all_flags["property-flag"])
+                self.assertTrue(all_flags["default-flag"])
+                self.assertFalse(errors)
+
+            # # now db is down, but decide was sent email parameter with different email
+            with self.assertNumQueries(0):
+                all_flags, _, _, errors = get_all_feature_flags(
+                    team_id,
+                    "example_id",
+                    property_value_overrides={"email": "tom@posthog.com"},
+                )
+                self.assertFalse(all_flags["property-flag"])
+                self.assertTrue(all_flags["default-flag"])
+                self.assertFalse(errors)
+
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
     def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self, mock_counter, *args):
         self.organization = Organization.objects.create(name="test")
