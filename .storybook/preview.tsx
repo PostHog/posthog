@@ -10,6 +10,7 @@ import { defaultMocks } from '~/mocks/handlers'
 import { withFeatureFlags } from './decorators/withFeatureFlags'
 import { withTheme } from './decorators/withTheme'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { getStorybookAppContext } from './app-context'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -28,6 +29,7 @@ const setupMsw = () => {
         },
     })
     ;(window as any).__mockServiceWorker = worker
+    ;(window as any).POSTHOG_APP_CONTEXT = getStorybookAppContext()
 }
 setupMsw()
 
