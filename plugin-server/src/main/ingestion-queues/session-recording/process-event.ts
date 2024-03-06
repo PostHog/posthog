@@ -145,9 +145,6 @@ export const gatherConsoleLogEvents = (
         }
     })
 
-    console.log('DAVID WAS ERE')
-    console.log(consoleLogEntries)
-
     return consoleLogEntries
 }
 export const getTimestampsFrom = (events: RRWebEvent[]): ClickHouseTimestamp[] =>
