@@ -48,7 +48,7 @@ export interface SummarizedSessionRecordingEvent {
 export type ConsoleLogEntry = {
     team_id: number
     message: string
-    log_level: 'info' | 'warn' | 'error'
+    level: 'info' | 'warn' | 'error'
     log_source: 'session_replay'
     // the session_id
     log_source_id: string
@@ -132,7 +132,7 @@ export const gatherConsoleLogEvents = (
                     team_id,
                     // TODO when is it not a single item array?
                     message: message,
-                    log_level: level,
+                    level: level,
                     log_source: 'session_replay',
                     log_source_id: session_id,
                     instance_id: null,
@@ -144,6 +144,9 @@ export const gatherConsoleLogEvents = (
             }
         }
     })
+
+    console.log('DAVID WAS ERE')
+    console.log(consoleLogEntries)
 
     return consoleLogEntries
 }
