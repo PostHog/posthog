@@ -39,7 +39,8 @@ AS
 SETTINGS
     max_execution_time = 0,
     max_memory_usage = 0,
-    distributed_ddl_task_timeout = 0
+    distributed_ddl_task_timeout = 0,
+    persistent = 0
 """
 
 DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN = """
@@ -113,7 +114,8 @@ GROUP BY
 SETTINGS
     max_execution_time = 0,
     max_memory_usage = 0,
-    distributed_ddl_task_timeout = 0
+    distributed_ddl_task_timeout = 0,
+    persistent = 0
 """
 
 DROP_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN_TO_DELETE = """
