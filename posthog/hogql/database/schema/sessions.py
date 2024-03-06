@@ -45,6 +45,21 @@ class RawSessionsTable(Table):
     def to_printed_hogql(self):
         return "raw_sessions"
 
+    def avoid_asterisk_fields(self) -> List[str]:
+        # our clickhouse driver can't return aggregate states
+        return [
+            "entry_url",
+            "exit_url",
+            "initial_utm_source",
+            "initial_utm_campaign",
+            "initial_utm_medium",
+            "initial_utm_term",
+            "initial_utm_content",
+            "initial_referring_domain",
+            "initial_gclid",
+            "initial_gad_source",
+        ]
+
 
 def select_from_sessions_table(requested_fields: Dict[str, List[str]]):
     from posthog.hogql import ast
