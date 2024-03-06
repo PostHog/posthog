@@ -78,7 +78,7 @@ export function TrendsSeries(): JSX.Element | null {
                 mathAvailability={mathAvailability}
                 propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
                 actionsTaxonomicGroupTypes={
-                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
                         ? [
                               TaxonomicFilterGroupType.Events,
                               TaxonomicFilterGroupType.Actions,
