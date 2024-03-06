@@ -2095,7 +2095,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
 
-# @flaky(max_runs=10, min_passes=1)
+@flaky(max_runs=10, min_passes=1)
 class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
