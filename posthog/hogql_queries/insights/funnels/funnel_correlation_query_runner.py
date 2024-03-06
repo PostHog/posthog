@@ -215,6 +215,11 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             ),
             timings=response.timings,
             hogql=hogql,
+            columns=response.columns,
+            types=response.types,
+            hasMore=response.hasMore,
+            limit=response.limit,
+            offset=response.offset,
         )
 
     def _calculate(self) -> tuple[List[EventOddsRatio], bool, str, HogQLQueryResponse]:
@@ -693,8 +698,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 action = Action.objects.get(pk=int(entity.id), team=self.context.team)
                 events.update(action.get_step_events())
             elif isinstance(entity, EventsNode):
-                assert entity.event is not None
-                events.add(entity.event)
+                if entity.event is not None:
+                    events.add(entity.event)
             else:
                 raise ValidationError("Data warehouse nodes are not supported here")
 

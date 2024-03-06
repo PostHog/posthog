@@ -1113,13 +1113,8 @@ export interface EventDefinition {
 
 export interface EventOddsRatioSerialized {
     event: EventDefinition
-
     success_count: integer
-    // success_people_url?: string
-
     failure_count: integer
-    // failure_people_url?: string
-
     odds_ratio: number
     correlation_type: 'success' | 'failure'
 }
@@ -1131,15 +1126,13 @@ export interface FunnelCorrelationResult {
 
 export interface FunnelCorrelationResponse {
     results: FunnelCorrelationResult
-    // results: any[][]
-    // columns: any[]
-    // types: string[]
+    columns?: any[]
+    types?: string[]
     hogql?: string
     timings?: QueryTiming[]
-    // hasMore?: boolean
-    // limit: integer
-    // offset: integer
-    // missing_actors_count?: integer
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
 }
 
 export enum FunnelCorrelationResultsType {

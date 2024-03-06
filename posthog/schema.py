@@ -1175,9 +1175,14 @@ class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[List] = None
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
     results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
+    types: Optional[List[str]] = None
 
 
 class FunnelsFilterLegacy(BaseModel):
@@ -1500,9 +1505,14 @@ class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[List] = None
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
     results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
+    types: Optional[List[str]] = None
 
 
 class RetentionFilter(BaseModel):

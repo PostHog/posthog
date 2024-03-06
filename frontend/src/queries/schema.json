@@ -1617,8 +1617,21 @@
         "FunnelCorrelationResponse": {
             "additionalProperties": false,
             "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
                 },
                 "results": {
                     "$ref": "#/definitions/FunnelCorrelationResult"
@@ -1626,6 +1639,12 @@
                 "timings": {
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
                     },
                     "type": "array"
                 }
@@ -4218,8 +4237,21 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "offset": {
+                            "type": "integer"
                         },
                         "results": {
                             "$ref": "#/definitions/FunnelCorrelationResult"
@@ -4227,6 +4259,12 @@
                         "timings": {
                             "items": {
                                 "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {
+                                "type": "string"
                             },
                             "type": "array"
                         }
