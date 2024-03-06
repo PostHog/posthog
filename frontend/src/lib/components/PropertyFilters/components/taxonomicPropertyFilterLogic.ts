@@ -139,7 +139,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         operator,
                         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
                         group_type_index: taxonomicGroup.groupTypeIndex,
-                        table_name: item.table,
+                        table: item.table,
                     }
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, property)
                 }

@@ -225,7 +225,7 @@ class Property:
         seq_time_value: Optional[int] = None,
         seq_time_interval: Optional[OperatorInterval] = None,
         negation: Optional[bool] = None,
-        table_name: Optional[str] = None,
+        table: Optional[str] = None,
         **kwargs,
     ) -> None:
         self.key = key
@@ -243,7 +243,7 @@ class Property:
         self.seq_time_value = seq_time_value
         self.seq_time_interval = seq_time_interval
         self.negation = None if negation is None else str_to_bool(negation)
-        self.table_name = table_name
+        self.table = table
 
         if value is None and self.operator in ["is_set", "is_not_set"]:
             self.value = self.operator
