@@ -5257,6 +5257,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(0), self.settings(DECIDE_SKIP_DATABASE_FLAGS=True):
             # No queries because of config parameter
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+            mock_postgres_check.assert_not_called()
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
             self.assertTrue(errors)
@@ -5272,6 +5273,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
             self.assertTrue(errors)
+            mock_postgres_check.assert_not_called()
 
             # decide was sent email parameter with correct email
             with self.assertNumQueries(0):
@@ -5283,6 +5285,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
+                mock_postgres_check.assert_not_called()
 
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(0):
@@ -5294,6 +5297,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertFalse(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
+                mock_postgres_check.assert_not_called()
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
     def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self, mock_counter, *args):
