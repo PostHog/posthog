@@ -166,52 +166,37 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
         )
 
-        # _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
-
         self.assertCountEqual([str(col[1]["id"]) for col in serialized_actors], success_target_persons)
 
-        # # test negatively_related failures
-        # filter = filter.shallow_clone(
-        #     {
-        #         "funnel_correlation_person_entity": {
-        #             "id": "negatively_related",
-        #             "type": "events",
-        #         },
-        #         "funnel_correlation_person_converted": "falsE",
-        #     }
-        # )
+        # test negatively_related failures
+        serialized_actors = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationPersonConverted=False,
+            funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
+        )
 
-        # _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
+        self.assertCountEqual([str(col[1]["id"]) for col in serialized_actors], failure_target_persons)
 
-        # self.assertCountEqual([str(val["id"]) for val in serialized_actors], failure_target_persons)
+        # test positively_related failures
+        serialized_actors = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationPersonConverted=False,
+            funnelCorrelationPersonEntity=EventsNode(event="positively_related"),
+        )
 
-        # # test positively_related failures
-        # filter = filter.shallow_clone(
-        #     {
-        #         "funnel_correlation_person_entity": {
-        #             "id": "positively_related",
-        #             "type": "events",
-        #         },
-        #         "funnel_correlation_person_converted": "False",
-        #     }
-        # )
-        # _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
+        self.assertCountEqual([str(col[1]["id"]) for col in serialized_actors], [str(person_fail.uuid)])
 
-        # self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_fail.uuid)])
+        # test negatively_related successes
+        serialized_actors = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationPersonConverted=True,
+            funnelCorrelationPersonEntity=EventsNode(event="negatively_related"),
+        )
 
-        # # test negatively_related successes
-        # filter = filter.shallow_clone(
-        #     {
-        #         "funnel_correlation_person_entity": {
-        #             "id": "negatively_related",
-        #             "type": "events",
-        #         },
-        #         "funnel_correlation_person_converted": "trUE",
-        #     }
-        # )
-        # _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
-
-        # self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_succ.uuid)])
+        self.assertCountEqual([str(col[1]["id"]) for col in serialized_actors], [str(person_succ.uuid)])
 
         # # test all positively_related
         # filter = filter.shallow_clone(
@@ -226,7 +211,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         # _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         # self.assertCountEqual(
-        #     [str(val["id"]) for val in serialized_actors],
+        #     [str(col[1]["id"]) for col in serialized_actors],
         #     [*success_target_persons, str(person_fail.uuid)],
         # )
 
@@ -243,7 +228,7 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         # _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         # self.assertCountEqual(
-        #     [str(val["id"]) for val in serialized_actors],
+        #     [str(col[1]["id"]) for col in serialized_actors],
         #     [*failure_target_persons, str(person_succ.uuid)],
         # )
 
