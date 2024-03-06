@@ -8,6 +8,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.test.base import BaseTest
+from posthog.warehouse.models.join import DataWarehouseJoin
 
 
 class TestLazyJoins(BaseTest):
@@ -86,3 +87,47 @@ class TestLazyJoins(BaseTest):
             "clickhouse",
         )
         return pretty_print_in_tests(query, self.team.pk)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_lazy_join_on_lazy_table(self):
+        DataWarehouseJoin(
+            team=self.team,
+            source_table_name="cohort_people",
+            source_table_key="person_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="new_person",
+        ).save()
+
+        printed = self._print_select("select new_person.id from cohort_people")
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_lazy_join_on_lazy_table_with_properties(self):
+        DataWarehouseJoin(
+            team=self.team,
+            source_table_name="cohort_people",
+            source_table_key="person_id",
+            joining_table_name="persons",
+            joining_table_key="$hogql",
+            joining_table_key_hogql="properties.email",
+            field_name="new_person",
+        ).save()
+
+        printed = self._print_select("select new_person.id from cohort_people")
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_lazy_join_on_lazy_table_with_person_properties(self):
+        DataWarehouseJoin(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="$hogql",
+            source_table_key_hogql="properties.email",
+            joining_table_name="events",
+            joining_table_key="event",
+            field_name="events",
+        ).save()
+
+        printed = self._print_select("select events.event from persons")
+        assert printed == self.snapshot

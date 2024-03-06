@@ -202,7 +202,7 @@ def create_hogql_database(
         source_table = database.get_table(join.source_table_name)
         joining_table = database.get_table(join.joining_table_name)
 
-        source_table.fields[join.joining_table_name] = LazyJoin(
+        source_table.fields[join.field_name] = LazyJoin(
             from_field=join.joining_table_key,
             join_table=joining_table,
             join_function=join.join_function,

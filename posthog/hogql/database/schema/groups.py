@@ -25,7 +25,7 @@ GROUPS_TABLE_FIELDS = {
 }
 
 
-def select_from_groups_table(requested_fields: Dict[str, List[str]]):
+def select_from_groups_table(requested_fields: Dict[str, List[str | int]]):
     return argmax_select(
         table_name="raw_groups",
         select_fields=requested_fields,
@@ -39,6 +39,7 @@ def join_with_group_n_table(group_index: int):
         from_table: str,
         to_table: str,
         requested_fields: Dict[str, Any],
+        join_constraint_overrides: Dict[str, List[str | int]],
         context: HogQLContext,
         node: SelectQuery,
     ):
@@ -83,7 +84,7 @@ class RawGroupsTable(Table):
 class GroupsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
         return select_from_groups_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

@@ -64,7 +64,7 @@ class RawSessionReplayEventsTable(Table):
         return "raw_session_replay_events"
 
 
-def select_from_session_replay_events_table(requested_fields: Dict[str, List[str]]):
+def select_from_session_replay_events_table(requested_fields: Dict[str, List[str | int]]):
     from posthog.hogql import ast
 
     table_name = "raw_session_replay_events"
@@ -115,7 +115,7 @@ class SessionReplayEventsTable(LazyTable):
         "first_url": StringDatabaseField(name="first_url"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
         return select_from_session_replay_events_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

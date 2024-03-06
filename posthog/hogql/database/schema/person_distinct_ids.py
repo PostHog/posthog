@@ -28,7 +28,7 @@ PERSON_DISTINCT_IDS_FIELDS = {
 }
 
 
-def select_from_person_distinct_ids_table(requested_fields: Dict[str, List[str]]):
+def select_from_person_distinct_ids_table(requested_fields: Dict[str, List[str | int]]):
     # Always include "person_id", as it's the key we use to make further joins, and it'd be great if it's available
     if "person_id" not in requested_fields:
         requested_fields = {**requested_fields, "person_id": ["person_id"]}
@@ -45,6 +45,7 @@ def join_with_person_distinct_ids_table(
     from_table: str,
     to_table: str,
     requested_fields: Dict[str, List[str]],
+    join_constraint_overrides: Dict[str, List[str | int]],
     context: HogQLContext,
     node: SelectQuery,
 ):
@@ -82,7 +83,7 @@ class RawPersonDistinctIdsTable(Table):
 class PersonDistinctIdsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = PERSON_DISTINCT_IDS_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
         return select_from_person_distinct_ids_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

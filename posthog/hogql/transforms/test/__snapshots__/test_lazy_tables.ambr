@@ -1,4 +1,47 @@
 # serializer version: 1
+# name: TestLazyJoins.test_lazy_join_on_lazy_table
+  '''
+  
+  SELECT cohort_people__new_person.id AS id 
+  FROM (
+  SELECT cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id 
+  FROM cohortpeople 
+  WHERE equals(cohortpeople.team_id, 420) 
+  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id 
+  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS cohort_people LEFT JOIN person AS cohort_people__new_person ON equals(cohort_people.person_id, cohort_people__new_person.id) 
+  WHERE equals(cohort_people__new_person.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_lazy_join_on_lazy_table_with_person_properties
+  '''
+  
+  SELECT persons__events.event AS event 
+  FROM (
+  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS persons___properties___email, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS persons LEFT JOIN events AS persons__events ON equals(persons.persons___properties___email, persons__events.event) 
+  WHERE equals(persons__events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_lazy_join_on_lazy_table_with_properties
+  '''
+  
+  SELECT cohort_people__new_person.id AS id 
+  FROM (
+  SELECT cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id 
+  FROM cohortpeople 
+  WHERE equals(cohortpeople.team_id, 420) 
+  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id 
+  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS cohort_people LEFT JOIN person AS cohort_people__new_person ON equals(cohort_people.person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(cohort_people__new_person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')) 
+  WHERE equals(cohort_people__new_person.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
 # name: TestLazyJoins.test_resolve_lazy_table_as_select_table
   '''
   

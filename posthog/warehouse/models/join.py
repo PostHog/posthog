@@ -48,7 +48,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             from_table: str,
             to_table: str,
             requested_fields: Dict[str, Any],
-            join_constraint_overrides: Dict[str, List[str]],
+            join_constraint_overrides: Dict[str, List[str | int]],
             context: HogQLContext,
             node: SelectQuery,
         ):
@@ -61,6 +61,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 left = parse_expr(self.source_table_key_hogql)
                 if not isinstance(left, ast.Field):
                     raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+                left.chain = [from_table, *left.chain]
             else:
                 left = ast.Field(chain=[from_table, self.source_table_key])
 
@@ -68,6 +69,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 right = parse_expr(self.joining_table_key_hogql)
                 if not isinstance(right, ast.Field):
                     raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+                right.chain = [to_table, *right.chain]
             else:
                 right = ast.Field(chain=[to_table, self.joining_table_key])
 

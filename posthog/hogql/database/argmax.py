@@ -3,7 +3,7 @@ from typing import Callable, List, Optional, Dict
 
 def argmax_select(
     table_name: str,
-    select_fields: Dict[str, List[str]],
+    select_fields: Dict[str, List[str | int]],
     group_fields: List[str],
     argmax_field: str,
     deleted_field: Optional[str] = None,

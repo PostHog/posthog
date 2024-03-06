@@ -167,6 +167,7 @@ def join_with_events_table_session_duration(
     from_table: str,
     to_table: str,
     requested_fields: Dict[str, Any],
+    join_constraint_overrides: Dict[str, List[str | int]],
     context: HogQLContext,
     node: ast.SelectQuery,
 ):
