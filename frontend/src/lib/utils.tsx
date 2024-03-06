@@ -1758,3 +1758,12 @@ export const base64ToUint8Array = (encodedString: string): Uint8Array => {
     }
     return data
 }
+
+export function hasFormErrors(object: any): boolean {
+    if (Array.isArray(object)) {
+        return object.some(hasFormErrors)
+    } else if (typeof object === 'object' && object !== null) {
+        return Object.values(object).some(hasFormErrors)
+    }
+    return !!object
+}
