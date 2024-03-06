@@ -110,6 +110,11 @@ class ClickhouseTrendExperimentResult:
                     }
                 ],
                 # :TRICKY: We don't use properties set on filters, instead using experiment variant options
+                # :TRICKY: We don't use properties set on filters, as these
+                # correspond to feature flag properties, not the trend properties.
+                # This is also why we simplify only right now so new properties (from test account filters)
+                # are added appropriately.
+                "is_simplified": False,
             }
         )
 
@@ -163,6 +168,11 @@ class ClickhouseTrendExperimentResult:
                                 "type": "event",
                             }
                         ],
+                        # :TRICKY: We don't use properties set on filters, as these
+                        # correspond to feature flag properties, not the trend-exposure properties.
+                        # This is also why we simplify only right now so new properties (from test account filters)
+                        # are added appropriately.
+                        "is_simplified": False,
                     }
                 )
             else:
@@ -198,6 +208,11 @@ class ClickhouseTrendExperimentResult:
                                 "type": "event",
                             },
                         ],
+                        # :TRICKY: We don't use properties set on filters, as these
+                        # correspond to feature flag properties, not the trend-exposure properties.
+                        # This is also why we simplify only right now so new properties (from test account filters)
+                        # are added appropriately.
+                        "is_simplified": False,
                     }
                 )
 

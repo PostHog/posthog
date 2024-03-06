@@ -2369,7 +2369,7 @@ export interface Survey {
     linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
-    targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
+    targeting_flag_filters?: FeatureFlagFilters
     conditions: {
         url: string
         selector: string
