@@ -1,7 +1,9 @@
 import { Meta } from '@storybook/react'
+import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -43,7 +45,8 @@ const meta: Meta = {
 }
 export default meta
 
-export const ErrorProjectUnavailableAccessRevoked = (): JSX.Element => {
+export const AccessRevoked = (): JSX.Element => {
+    const { loadCurrentTeamSuccess } = useActions(teamLogic)
     useStorybookMocks({
         get: {
             '/api/users/@me/': () => [
@@ -72,11 +75,13 @@ export const ErrorProjectUnavailableAccessRevoked = (): JSX.Element => {
         },
     })
     useEffect(() => {
+        loadCurrentTeamSuccess(null)
         router.actions.push(urls.projectHomepage())
     }, [])
     return <App />
 }
-export const ErrorProjectUnavailableNoProjects = (): JSX.Element => {
+export const NoSelectableProjects = (): JSX.Element => {
+    const { loadCurrentTeamSuccess } = useActions(teamLogic)
     useStorybookMocks({
         get: {
             '/api/users/@me/': () => [
@@ -102,6 +107,7 @@ export const ErrorProjectUnavailableNoProjects = (): JSX.Element => {
         },
     })
     useEffect(() => {
+        loadCurrentTeamSuccess(null)
         router.actions.push(urls.projectHomepage())
     }, [])
     return <App />
