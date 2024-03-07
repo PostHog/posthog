@@ -34,6 +34,7 @@ class AvailableFeature(str, Enum):
     SURVEYS_STYLING = "surveys_styling"
     SURVEYS_TEXT_HTML = "surveys_text_html"
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
+    AUTOMATIC_PROVISIONING = "automatic_provisioning"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
