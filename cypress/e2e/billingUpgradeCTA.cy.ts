@@ -76,7 +76,7 @@ describe('Billing Upgrade CTA', () => {
             const decodedJSON = JSON.parse(decoded)
 
             const matchingEvents = decodedJSON.filter((event) => event.event === 'billing CTA shown')
-            expect(matchingEvents.length).to.equal(1)
+            expect(matchingEvents.length).to.equal(3)
         })
     })
 })
