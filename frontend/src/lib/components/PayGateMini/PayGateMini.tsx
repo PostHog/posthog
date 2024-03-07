@@ -133,6 +133,7 @@ export function PayGateMini({
                 </div>
             )}
             <BillingUpgradeCTA
+                data-attr="paygate-mini-cta"
                 to={
                     gateVariant === 'add-card'
                         ? `/organization/billing?products=${product.type}`

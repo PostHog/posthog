@@ -697,6 +697,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     ) : (
                                         upgradePlan.included_if !== 'has_subscription' && (
                                             <BillingUpgradeCTA
+                                                data-attr={`${product.type}-upgrade-cta`}
                                                 to={getUpgradeProductLink(
                                                     product,
                                                     upgradeToPlanKey || '',

@@ -6,8 +6,6 @@ describe('Billing', () => {
     beforeEach(() => {
         cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2.json' })
 
-        cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture')
-
         cy.visit('/organization/billing')
     })
 
@@ -22,6 +20,7 @@ describe('Billing', () => {
         cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Product analytics')
         cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
 
+        cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture')
         cy.wait('@capture').then(({ request }) => {
             const data = new Uint8Array(request.body)
             const decoded = fflate.strFromU8(fflate.decompressSync(data))
