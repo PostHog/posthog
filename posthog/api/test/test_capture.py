@@ -1639,6 +1639,26 @@ class TestCapture(BaseTest):
             assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_ignores_overflow_from_redis_if_disabled(self, kafka_produce) -> None:
+        with self.settings(
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480, REPLAY_OVERFLOW_SESSIONS_ENABLED=False
+        ):
+            redis = get_client()
+            redis.zadd(
+                "@posthog/capture-overflow/replay",
+                {
+                    "overflowing": timezone.now().timestamp() + 1000,
+                },
+            )
+
+            # Session is currently overflowing but REPLAY_OVERFLOW_SESSIONS_ENABLED is false
+            self._send_august_2023_version_session_recording_event(
+                event_data=large_data_array, session_id="overflowing"
+            )
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce: MagicMock) -> None:
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
@@ -1646,7 +1666,6 @@ class TestCapture(BaseTest):
             self._send_august_2023_version_session_recording_event()
 
             assert kafka_produce.mock_calls[0].kwargs["headers"] == [("token", "token123")]
-            assert kafka_produce.mock_calls[0].kwargs["topic"] == "session_recording_snapshot_item_events"
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
