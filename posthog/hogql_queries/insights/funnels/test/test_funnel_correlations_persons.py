@@ -40,6 +40,7 @@ def get_actors(
     filters: Dict[str, Any],
     team: Team,
     funnelCorrelationType: Optional[FunnelCorrelationResultsType] = FunnelCorrelationResultsType.events,
+    funnelCorrelationNames=None,
     funnelCorrelationPersonConverted: Optional[bool] = None,
     funnelCorrelationPersonEntity: Optional[EventsNode] = None,
     funnelCorrelationPropertyValues=None,
@@ -50,7 +51,7 @@ def get_actors(
     correlation_query = FunnelCorrelationQuery(
         source=actors_query,
         funnelCorrelationType=(funnelCorrelationType or FunnelCorrelationResultsType.events),
-        # funnelCorrelationNames=funnelCorrelationNames,
+        funnelCorrelationNames=funnelCorrelationNames,
         # funnelCorrelationExcludeNames=funnelCorrelationExcludeNames,
         # funnelCorrelationExcludeEventNames=funnelCorrelationExcludeEventNames,
         # funnelCorrelationEventNames=funnelCorrelationEventNames,

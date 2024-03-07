@@ -3,9 +3,6 @@ import unittest
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
-    FunnelCorrelationActors,
-)
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import (
     EventContingencyTable,
@@ -17,7 +14,6 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
-from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
@@ -28,6 +24,8 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsQuery,
     FunnelCorrelationResultsType,
+    GroupPropertyFilter,
+    PersonPropertyFilter,
     PropertyOperator,
 )
 from posthog.test.base import (
@@ -88,23 +86,27 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         return [str(row[1]["id"]) for row in serialized_actors]
 
-    def _get_actors_for_property(self, filter: Filter, property_values: list, success=True):
-        actor_filter = filter.shallow_clone(
-            {
-                "funnel_correlation_property_values": [
-                    {
-                        "key": prop,
-                        "value": value,
-                        "type": type,
-                        "group_type_index": group_type_index,
-                    }
-                    for prop, value, type, group_type_index in property_values
-                ],
-                "funnel_correlation_person_converted": "TrUe" if success else "falSE",
-            }
+    def _get_actors_for_property(self, filters: Dict[str, Any], property_values: list, success=True):
+        funnelCorrelationPropertyValues = [
+            (
+                PersonPropertyFilter(key=prop, value=value, operator=PropertyOperator.exact)
+                if type == "person"
+                else GroupPropertyFilter(
+                    key=prop, value=value, group_type_index=group_type_index, operator=PropertyOperator.exact
+                )
+            )
+            for prop, value, type, group_type_index in property_values
+        ]
+
+        serialized_actors = get_actors(
+            filters,
+            self.team,
+            funnelCorrelationType=FunnelCorrelationResultsType.properties,
+            funnelCorrelationNames=["$browser"],
+            funnelCorrelationPersonConverted=success,
+            funnelCorrelationPropertyValues=funnelCorrelationPropertyValues,
         )
-        _, serialized_actors, _ = FunnelCorrelationActors(actor_filter, self.team).get_actors()
-        return [str(row["id"]) for row in serialized_actors]
+        return [str(row[1]["id"]) for row in serialized_actors]
 
     def test_basic_funnel_correlation_with_events(self):
         filters = {
@@ -624,22 +626,22 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("$browser", "Positive", "person", None)])),
-        #     10,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("$browser", "Positive", "person", None)], False)),
-        #     1,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("$browser", "Negative", "person", None)])),
-        #     1,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("$browser", "Negative", "person", None)], False)),
-        #     10,
-        # )
+        self.assertEqual(
+            len(self._get_actors_for_property(filters, [("$browser", "Positive", "person", None)])),
+            10,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filters, [("$browser", "Positive", "person", None)], False)),
+            1,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filters, [("$browser", "Negative", "person", None)])),
+            1,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filters, [("$browser", "Negative", "person", None)], False)),
+            10,
+        )
 
     # TODO: Delete this test when moved to person-on-events
     @also_test_with_materialized_columns(

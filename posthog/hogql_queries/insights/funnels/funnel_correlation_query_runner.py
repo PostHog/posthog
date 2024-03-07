@@ -339,15 +339,18 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         return self.get_event_query()
 
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        assert self.correlation_actors_query is not None
+
         if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
-            # # Filtering on persons / groups properties can be pushed down to funnel_actors CTE
-            # new_correlation_filter = filter.shallow_clone(
-            #     {
-            #         "properties": filter.property_groups.combine_properties(
-            #             PropertyOperatorType.AND, filter.correlation_property_values or []
-            #         ).to_dict()
-            #     }
-            # )
+            # Filtering on persons / groups properties can be pushed down to funnel events query
+            if (
+                self.correlation_actors_query.funnelCorrelationPropertyValues
+                and len(self.correlation_actors_query.funnelCorrelationPropertyValues) > 0
+            ):
+                self.context.query.properties = [
+                    *(self.context.query.properties or []),
+                    *self.correlation_actors_query.funnelCorrelationPropertyValues,
+                ]
             return self.properties_actor_query()
         else:
             return self.events_actor_query()
