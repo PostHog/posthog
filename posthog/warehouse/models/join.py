@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict
 from warnings import warn
 
 from django.db import models
@@ -48,7 +48,6 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             from_table: str,
             to_table: str,
             requested_fields: Dict[str, Any],
-            join_constraint_overrides: Dict[str, List[str | int]],
             context: HogQLContext,
             node: SelectQuery,
         ):
@@ -73,15 +72,13 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 right = ast.Field(chain=[to_table, self.joining_table_key])
 
-            for new_alias, chain in join_constraint_overrides.items():
-                if left.chain == chain:
-                    left.chain = [from_table, new_alias]
-
-                if right.chain == chain:
-                    right.chain = [to_table, new_alias]
-
             join_expr = ast.JoinExpr(
-                table=ast.Field(chain=[self.joining_table_name]),
+                table=ast.SelectQuery(
+                    select=[
+                        ast.Alias(alias=alias, expr=ast.Field(chain=chain)) for alias, chain in requested_fields.items()
+                    ],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=[self.joining_table_name])),
+                ),
                 join_type="LEFT JOIN",
                 alias=to_table,
                 constraint=ast.JoinConstraint(

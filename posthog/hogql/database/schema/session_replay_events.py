@@ -37,7 +37,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
     "event_count": IntegerDatabaseField(name="event_count"),
     "message_count": IntegerDatabaseField(name="message_count"),
     "pdi": LazyJoin(
-        from_field="distinct_id",
+        from_field=["distinct_id"],
         join_table=PersonDistinctIdsTable(),
         join_function=join_with_person_distinct_ids_table,
     ),

@@ -21,7 +21,7 @@ PERSON_DISTINCT_IDS_FIELDS = {
     "distinct_id": StringDatabaseField(name="distinct_id"),
     "person_id": StringDatabaseField(name="person_id"),
     "person": LazyJoin(
-        from_field="person_id",
+        from_field=["person_id"],
         join_table="persons",
         join_function=join_with_persons_table,
     ),
@@ -45,7 +45,6 @@ def join_with_person_distinct_ids_table(
     from_table: str,
     to_table: str,
     requested_fields: Dict[str, List[str]],
-    join_constraint_overrides: Dict[str, List[str | int]],
     context: HogQLContext,
     node: SelectQuery,
 ):

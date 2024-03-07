@@ -34,7 +34,6 @@ def persons_pdi_join(
     from_table: str,
     to_table: str,
     requested_fields: Dict[str, List[str | int]],
-    join_constraint_overrides: Dict[str, List[str | int]],
     context: HogQLContext,
     node: SelectQuery,
 ):

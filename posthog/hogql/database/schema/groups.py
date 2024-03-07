@@ -39,7 +39,6 @@ def join_with_group_n_table(group_index: int):
         from_table: str,
         to_table: str,
         requested_fields: Dict[str, Any],
-        join_constraint_overrides: Dict[str, List[str | int]],
         context: HogQLContext,
         node: SelectQuery,
     ):
