@@ -77,7 +77,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
     })
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: props.dashboardId }}>
+        <div>
             <div className="bg-default p-2">
                 <SharingModal
                     {...(props as SharingModalProps)}
@@ -97,16 +97,24 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
             </div>
 
             <SharingModal {...(props as SharingModalProps)} closeModal={() => setModalOpen(false)} isOpen={modalOpen} />
-        </BindLogic>
+        </div>
     )
 }
 
 export const DashboardSharing = (): JSX.Element => {
-    return <Template title="Dashboard permissions" dashboardId={123} />
+    return (
+        <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
+            <Template title="Dashboard permissions" dashboardId={123} />
+        </BindLogic>
+    )
 }
 
 export const DashboardSharingLicensed = (): JSX.Element => {
-    return <Template title="Dashboard permissions" licensed dashboardId={123} />
+    return (
+        <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
+            <Template title="Dashboard permissions" licensed dashboardId={123} />
+        </BindLogic>
+    )
 }
 
 export const InsightSharing = (): JSX.Element => {
