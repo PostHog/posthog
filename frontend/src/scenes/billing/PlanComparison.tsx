@@ -8,6 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { getProductIcon } from 'scenes/products/Products'
+import { urls } from 'scenes/urls'
 import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
@@ -130,6 +131,10 @@ export const PlanComparison = ({
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
                             : !plan.included_if
                             ? getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
+                            : plan.included_if == 'has_subscription' &&
+                              i >= currentPlanIndex &&
+                              !billing?.has_active_subscription
+                            ? urls.organizationBilling()
                             : undefined
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
@@ -141,7 +146,7 @@ export const PlanComparison = ({
                         plan.included_if == 'has_subscription' && i >= currentPlanIndex
                             ? billing?.has_active_subscription
                                 ? 'Unsubscribe from all products to remove'
-                                : 'Subscribe to any product for access'
+                                : null
                             : plan.current_plan
                             ? 'Current plan'
                             : undefined
@@ -163,6 +168,10 @@ export const PlanComparison = ({
                         ? 'Downgrade'
                         : plan.contact_support
                         ? 'Get in touch'
+                        : plan.included_if == 'has_subscription' &&
+                          i >= currentPlanIndex &&
+                          !billing?.has_active_subscription
+                        ? 'View products'
                         : 'Subscribe'}
                 </LemonButton>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
