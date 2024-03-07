@@ -108,7 +108,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonConverted=success,
             funnelCorrelationPropertyValues=funnelCorrelationPropertyValues,
         )
-        return [str(row[0][0]) for row in serialized_actors]
+        return [str(row[0]) for row in serialized_actors]
 
     def test_basic_funnel_correlation_with_events(self):
         filters = {
