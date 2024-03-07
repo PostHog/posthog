@@ -1,3 +1,4 @@
+import { captureException } from '@sentry/react'
 import api, { getJSONOrNull } from 'lib/api'
 import posthog from 'posthog-js'
 import { getResponseBytes } from 'scenes/insights/utils'
@@ -28,11 +29,17 @@ export function currentSessionId(): string | undefined {
 
 export async function captureTimeToSeeData(teamId: number | null, payload: TimeToSeeDataPayload): Promise<void> {
     if (window.JS_CAPTURE_TIME_TO_SEE_DATA && teamId) {
-        await api.create(`api/projects/${teamId}/insights/timing`, {
-            session_id: currentSessionId(),
-            current_url: window.location.href,
-            ...payload,
-        })
+        try {
+            await api.create(`api/projects/${teamId}/insights/timing`, {
+                session_id: currentSessionId(),
+                current_url: window.location.href,
+                ...payload,
+            })
+        } catch (e) {
+            // NOTE: As this is only telemetry, we don't want to block the user if it fails
+            console.warn('Failed to capture time to see data', e)
+            captureException(e)
+        }
     }
 }
 
