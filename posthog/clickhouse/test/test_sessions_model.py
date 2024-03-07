@@ -46,6 +46,7 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": "/", "$session_id": session_id},
+            timestamp="2024-03-08",
         )
 
         response = sync_execute(
@@ -75,12 +76,14 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
             event="$pageview",
             distinct_id=distinct_id1,
             properties={"$session_id": session_id},
+            timestamp="2024-03-08",
         )
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id2,
             properties={"$session_id": session_id},
+            timestamp="2024-03-08",
         )
 
         responses = self.select_by_session_id(session_id)
@@ -97,24 +100,28 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": "/entry", "$session_id": session_id},
+            timestamp="2024-03-08:01",
         )
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": "/middle", "$session_id": session_id},
+            timestamp="2024-03-08:02",
         )
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": "/middle", "$session_id": session_id},
+            timestamp="2024-03-08:03",
         )
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": "/exit", "$session_id": session_id},
+            timestamp="2024-03-08:04",
         )
 
         responses = self.select_by_session_id(session_id)
@@ -133,12 +140,14 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id, "utm_source": "source"},
+            timestamp="2024-03-08",
         )
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id, "utm_source": "other_source"},
+            timestamp="2024-03-08",
         )
 
         responses = self.select_by_session_id(session_id)
@@ -154,30 +163,35 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
+            timestamp="2024-03-08",
         )
         _create_event(
             team=self.team,
             event="$autocapture",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
+            timestamp="2024-03-08",
         )
         _create_event(
             team=self.team,
             event="$autocapture",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
+            timestamp="2024-03-08",
         )
         _create_event(
             team=self.team,
             event="other event",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
+            timestamp="2024-03-08",
         )
         _create_event(
             team=self.team,
             event="$pageleave",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
+            timestamp="2024-03-08",
         )
 
         responses = self.select_by_session_id(session_id)
@@ -199,12 +213,14 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id1},
+            timestamp="2024-03-08",
         )
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id2},
+            timestamp="2024-03-08",
         )
 
         responses = self.select_by_session_id(session_id1)
@@ -223,6 +239,7 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
+            timestamp="2024-03-08",
         )
 
         # we can't include all the columns as this clickhouse driver doesn't support selecting states
@@ -239,6 +256,41 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
             pageview_count,
             autocapture_count
         FROM sessions
+        WHERE session_id = %(session_id)s AND team_id = %(team_id)s
+        """,
+            {
+                "session_id": session_id,
+                "team_id": self.team.id,
+            },
+        )
+        self.assertEqual(len(responses), 1)
+
+    def test_select_from_sessions_mv(self):
+        # just make sure that we can select from the sessions mv without error
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+
+        # we can't include all the columns as this clickhouse driver doesn't support selecting states
+        responses = sync_execute(
+            """
+        SELECT
+            session_id,
+            team_id,
+            distinct_id,
+            min_timestamp,
+            max_timestamp,
+            urls,
+            event_count_map,
+            pageview_count,
+            autocapture_count
+        FROM sessions_mv
         WHERE session_id = %(session_id)s AND team_id = %(team_id)s
         """,
             {
