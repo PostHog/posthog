@@ -125,7 +125,7 @@ const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined =>
     return (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
 }
 
-export const prepareRecordingSnapshots = (
+export const deduplicateSnapshots = (
     newSnapshots?: RecordingSnapshot[],
     existingSnapshots?: RecordingSnapshot[]
 ): RecordingSnapshot[] => {
@@ -210,7 +210,7 @@ async function processEncodedResponse(
 ): Promise<{ transformed: RecordingSnapshot[]; untransformed: RecordingSnapshot[] | null }> {
     let untransformed: RecordingSnapshot[] | null = null
 
-    const transformed = prepareRecordingSnapshots(
+    const transformed = deduplicateSnapshots(
         await parseEncodedSnapshots(
             encodedResponse,
             props.sessionRecordingId,
@@ -220,7 +220,7 @@ async function processEncodedResponse(
     )
 
     if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_EXPORT_MOBILE_DATA]) {
-        untransformed = prepareRecordingSnapshots(
+        untransformed = deduplicateSnapshots(
             await parseEncodedSnapshots(
                 encodedResponse,
                 props.sessionRecordingId,
