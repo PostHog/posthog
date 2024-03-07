@@ -76,6 +76,8 @@ logger = get_logger(__name__)
 
 
 class EmbeddingPreparation(ABC):
+    source_type: str
+
     @staticmethod
     @abstractmethod
     def prepare(item, team) -> Tuple[str, str]:
@@ -84,13 +86,12 @@ class EmbeddingPreparation(ABC):
 
 class SessionEmbeddingsRunner(ABC):
     team: Team
-    source_type: str
     client: Any = OpenAI(api_key="123456")
 
     def __init__(self, team: Team):
         self.team = team
 
-    def run(self, items: List[any], embeddings_preparation: EmbeddingPreparation) -> None:
+    def run(self, items: List[Any], embeddings_preparation: type[EmbeddingPreparation]) -> None:
         source_type = embeddings_preparation.source_type
 
         try:
@@ -149,7 +150,7 @@ class SessionEmbeddingsRunner(ABC):
                     # so we swallow errors here
 
             if len(batched_embeddings) > 0:
-                self._flush_embeddings_to_clickhouse(embeddings=batched_embeddings, source_input=source_type)
+                self._flush_embeddings_to_clickhouse(embeddings=batched_embeddings, source_type=source_type)
         except Exception as e:
             # but we don't swallow errors within the wider task itself
             # if something is failing here then we're most likely having trouble with ClickHouse
@@ -263,7 +264,7 @@ class SessionEventsEmbeddingsPreparation(EmbeddingPreparation):
             str(session_metadata)
             + "\n"
             + "\n".join(
-                SessionEventsEmbeddingsPreparation.compact_result(
+                SessionEventsEmbeddingsPreparation._compact_result(
                     event_name=result[processed_sessions_index] if processed_sessions_index is not None else "",
                     current_url=result[current_url_index] if current_url_index is not None else "",
                     elements_chain=result[elements_chain_index] if elements_chain_index is not None else "",

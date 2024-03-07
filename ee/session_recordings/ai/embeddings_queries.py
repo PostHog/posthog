@@ -47,9 +47,8 @@ def fetch_errors_by_session_without_embeddings(team_id: int, offset=0) -> List[s
     )
 
 
-def fetch_recordings_without_embeddings(team: int, offset=0) -> List[str]:
-    if isinstance(team, int):
-        team = Team.objects.get(id=team)
+def fetch_recordings_without_embeddings(team_id: int, offset=0) -> List[str]:
+    team = Team.objects.get(id=team_id)
 
     query = """
             WITH embedding_ids AS
