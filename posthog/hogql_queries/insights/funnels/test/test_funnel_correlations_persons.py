@@ -47,9 +47,9 @@ def get_actors(
     includeRecordings: Optional[bool] = True,
 ):
     funnels_query = cast(FunnelsQuery, filter_to_query(filters))
-    actors_query = FunnelsActorsQuery(source=funnels_query, includeRecordings=includeRecordings)
+    funnel_actors_query = FunnelsActorsQuery(source=funnels_query, includeRecordings=includeRecordings)
     correlation_query = FunnelCorrelationQuery(
-        source=actors_query,
+        source=funnel_actors_query,
         funnelCorrelationType=(funnelCorrelationType or FunnelCorrelationResultsType.events),
         funnelCorrelationNames=funnelCorrelationNames,
         # funnelCorrelationExcludeNames=funnelCorrelationExcludeNames,

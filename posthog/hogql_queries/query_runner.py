@@ -17,6 +17,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
+    FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
     TrendsQuery,
@@ -95,6 +96,7 @@ RunnableQueryNode = Union[
     InsightActorsQuery,
     FunnelsActorsQuery,
     FunnelCorrelationQuery,
+    FunnelCorrelationActorsQuery,
     InsightActorsQueryOptions,
     SessionsTimelineQuery,
     WebOverviewQuery,

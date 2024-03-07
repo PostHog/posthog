@@ -416,6 +416,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         )
 
         if prop_query:
+            assert isinstance(query, ast.SelectQuery)
+            assert isinstance(query.where, ast.And)
             query.where.exprs = [*query.where.exprs, prop_query]
 
         return query

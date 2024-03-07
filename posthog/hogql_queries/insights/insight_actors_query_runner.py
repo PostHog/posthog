@@ -12,7 +12,15 @@ from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQue
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import FunnelsActorsQuery, InsightActorsQuery, HogQLQueryResponse, StickinessQuery, TrendsQuery
+from posthog.schema import (
+    FunnelCorrelationActorsQuery,
+    FunnelCorrelationQuery,
+    FunnelsActorsQuery,
+    InsightActorsQuery,
+    HogQLQueryResponse,
+    StickinessQuery,
+    TrendsQuery,
+)
 from posthog.types import InsightActorsQueryNode
 
 
@@ -40,6 +48,7 @@ class InsightActorsQueryRunner(QueryRunner):
             return funnels_runner.to_actors_query()
         elif isinstance(self.source_runner, FunnelCorrelationQueryRunner):
             funnel_correlation_runner = cast(FunnelCorrelationQueryRunner, self.source_runner)
+            assert isinstance(self.query, FunnelCorrelationActorsQuery)
             funnel_correlation_runner.correlation_actors_query = self.query
             return funnel_correlation_runner.to_actors_query()
         elif isinstance(self.source_runner, RetentionQueryRunner):
@@ -71,6 +80,8 @@ class InsightActorsQueryRunner(QueryRunner):
             return cast(RetentionQueryRunner, self.source_runner).group_type_index
 
         if isinstance(self.source_runner, FunnelCorrelationQueryRunner):
+            assert isinstance(self.query, FunnelCorrelationActorsQuery)
+            assert isinstance(self.query.source, FunnelCorrelationQuery)
             return self.query.source.source.source.aggregation_group_type_index
 
         if (
