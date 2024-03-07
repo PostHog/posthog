@@ -12,7 +12,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     FieldOrTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.hogql.errors import HogQLException
 from posthog.schema import HogQLQueryModifiers
 
@@ -22,7 +22,7 @@ PERSON_DISTINCT_IDS_FIELDS = {
     "person_id": StringDatabaseField(name="person_id"),
     "person": LazyJoin(
         from_field="person_id",
-        join_table=PersonsTable(),
+        join_table="persons",
         join_function=join_with_persons_table,
     ),
 }

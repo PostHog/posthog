@@ -8,7 +8,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     FieldOrTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.schema import HogQLQueryModifiers
 
 COHORT_PEOPLE_FIELDS = {
@@ -17,7 +17,7 @@ COHORT_PEOPLE_FIELDS = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "person": LazyJoin(
         from_field="person_id",
-        join_table=PersonsTable(),
+        join_table="persons",
         join_function=join_with_persons_table,
     ),
 }
