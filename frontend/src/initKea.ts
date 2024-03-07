@@ -91,17 +91,18 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 // Toast if it's a fetch error or a specific API update error
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
-                    error?.status !== undefined &&
-                    ![200, 201, 204, 401].includes(error.status)
-                    // 401 is handled by api.ts and the userLogic
+                    (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
+                        (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
                 ) {
-                    let errorMessage = error.detail || error.statusText
-                    if (!errorMessage && error.status === 404) {
-                        errorMessage = 'URL not found'
+                    let errorMessageFallback = 'PostHog may be offline'
+                    if (error.status === 404) {
+                        errorMessageFallback = 'URL not found'
                     }
-                    if (errorMessage) {
-                        lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
-                    }
+                    lemonToast.error(
+                        `${identifierToHuman(actionKey)} failed: ${
+                            error.detail || error.statusText || errorMessageFallback
+                        }`
+                    )
                 }
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })

@@ -2,7 +2,6 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -19,7 +18,6 @@ export type ProjectNoticeVariant =
     | 'invite_teammates'
     | 'unverified_email'
     | 'is_impersonated'
-    | 'internet_connection_issue'
 
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
@@ -99,7 +97,6 @@ export const navigationLogic = kea<navigationLogicType>([
                 teamLogic.selectors.currentTeam,
                 preflightLogic.selectors.preflight,
                 userLogic.selectors.user,
-                apiStatusLogic.selectors.internetConnectionIssue,
                 s.members,
                 s.membersLoading,
                 s.projectNoticesAcknowledged,
@@ -109,7 +106,6 @@ export const navigationLogic = kea<navigationLogicType>([
                 currentTeam,
                 preflight,
                 user,
-                internetConnectionIssue,
                 members,
                 membersLoading,
                 projectNoticesAcknowledged
@@ -117,10 +113,7 @@ export const navigationLogic = kea<navigationLogicType>([
                 if (!organization) {
                     return null
                 }
-
-                if (internetConnectionIssue) {
-                    return ['internet_connection_issue', false]
-                } else if (user?.is_impersonated) {
+                if (user?.is_impersonated) {
                     return ['is_impersonated', false]
                 } else if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
