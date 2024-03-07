@@ -869,7 +869,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
 
 export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
-export type FilterableLogLevel = 'log' | 'warn' | 'error'
+export type FilterableLogLevel = 'info' | 'warn' | 'error'
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null

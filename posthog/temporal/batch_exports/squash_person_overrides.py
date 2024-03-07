@@ -32,6 +32,8 @@ AS
         max(version) AS latest_version
     FROM
         {database}.person_distinct_id_overrides
+    WHERE
+        ((length(%(team_ids)s) = 0) OR (team_id IN %(team_ids)s))
     GROUP BY
         team_id, distinct_id
 SETTINGS
@@ -100,13 +102,20 @@ CREATE_TABLE_PERSON_DISTINCT_ID_OVERRIDES_JOIN_TO_DELETE = """
 CREATE OR REPLACE TABLE {database}.person_distinct_id_overrides_join_to_delete ON CLUSTER {cluster}
 ENGINE = Join(ANY, LEFT, team_id, distinct_id) AS
 SELECT
-    team_id, distinct_id, groupUniqArray(_partition_id) AS partitions
+    team_id,
+    distinct_id,
+    sum(person_id != joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)) AS total_not_override_person_id,
+    sum(person_id = joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id)) AS total_override_person_id
 FROM
     {database}.sharded_events
 WHERE
     (joinGet('{database}.person_distinct_id_overrides_join', 'person_id', team_id, distinct_id) != defaultValueOfTypeName('UUID'))
+    AND ((length(%(team_ids)s) = 0) OR (team_id IN %(team_ids)s))
 GROUP BY
     team_id, distinct_id
+HAVING
+    total_not_override_person_id = 0
+    AND total_override_person_id > 0
 SETTINGS
     max_execution_time = 0,
     max_memory_usage = 0,
@@ -119,13 +128,16 @@ SETTINGS
     distributed_ddl_task_timeout = 0
 """
 
+# The two first where predicates are redundant as the join table already excludes any rows that don't match.
+# However, there is no 'joinHas', and with 'joinGet' we are forced to grab a value.
 SUBMIT_DELETE_PERSON_OVERRIDES = """
 ALTER TABLE
     {database}.person_distinct_id_overrides
 ON CLUSTER
     {cluster}
 DELETE WHERE
-    hasAll(joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'partitions', team_id, distinct_id), %(partition_ids)s)
+    (joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'total_not_override_person_id', team_id, distinct_id) = 0)
+    AND (joinGet('{database}.person_distinct_id_overrides_join_to_delete', 'total_override_person_id', team_id, distinct_id) > 0)
     AND ((now() - _timestamp) > %(grace_period)s)
     AND (joinGet('{database}.person_distinct_id_overrides_join', 'latest_version', team_id, distinct_id) >= version)
 SETTINGS
@@ -269,6 +281,9 @@ async def optimize_person_distinct_id_overrides(dry_run: bool) -> None:
     activity.logger.info("Optimized person_distinct_id_overrides")
 
 
+QueryParameters = dict[str, typing.Any]
+
+
 @dataclass
 class TableActivityInputs:
     """Inputs for activities that work with tables.
@@ -280,6 +295,7 @@ class TableActivityInputs:
     """
 
     name: str
+    query_parameters: QueryParameters
     exists: bool = True
     dry_run: bool = True
 
@@ -308,7 +324,7 @@ async def create_table(inputs: TableActivityInputs) -> None:
 
     async with heartbeat_every():
         async with get_client() as clickhouse_client:
-            await clickhouse_client.execute_query(create_table_query)
+            await clickhouse_client.execute_query(create_table_query, query_parameters=inputs.query_parameters)
 
     activity.logger.info("Created JOIN table person_distinct_id_overrides_join_table")
 
@@ -434,10 +450,13 @@ async def wait_for_table(inputs: TableActivityInputs) -> None:
 
 
 @contextlib.asynccontextmanager
-async def manage_table(table_name: str, dry_run: bool) -> collections.abc.AsyncGenerator[None, None]:
+async def manage_table(
+    table_name: str, dry_run: bool, query_parameters: QueryParameters
+) -> collections.abc.AsyncGenerator[None, None]:
     """A context manager to create ans subsequently drop a table."""
     table_activity_inputs = TableActivityInputs(
         name=table_name,
+        query_parameters=query_parameters,
         dry_run=dry_run,
         exists=True,
     )
@@ -452,8 +471,8 @@ async def manage_table(table_name: str, dry_run: bool) -> collections.abc.AsyncG
     await workflow.execute_activity(
         wait_for_table,
         table_activity_inputs,
-        start_to_close_timeout=timedelta(hours=4),
-        retry_policy=RetryPolicy(maximum_attempts=6, initial_interval=timedelta(seconds=20)),
+        start_to_close_timeout=timedelta(hours=6),
+        retry_policy=RetryPolicy(maximum_attempts=20, initial_interval=timedelta(seconds=20)),
         heartbeat_timeout=timedelta(minutes=2),
     )
 
@@ -477,9 +496,6 @@ async def manage_table(table_name: str, dry_run: bool) -> collections.abc.AsyncG
             retry_policy=RetryPolicy(maximum_attempts=1),
             heartbeat_timeout=timedelta(seconds=20),
         )
-
-
-QueryParameters = dict[str, typing.Any]
 
 
 @dataclass
@@ -629,8 +645,8 @@ async def submit_and_wait_for_mutation(
     await workflow.execute_activity(
         wait_for_mutation,
         mutation_activity_inputs,
-        start_to_close_timeout=timedelta(hours=4),
-        retry_policy=RetryPolicy(maximum_attempts=6, initial_interval=timedelta(seconds=20)),
+        start_to_close_timeout=timedelta(hours=6),
+        retry_policy=RetryPolicy(maximum_attempts=20, initial_interval=timedelta(seconds=20)),
         heartbeat_timeout=timedelta(minutes=2),
     )
 
@@ -710,7 +726,7 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
     1. Build a JOIN table from person_distinct_id_overrides.
     2. For each partition issue an ALTER TABLE UPDATE. This query uses joinGet
         to efficiently find the override for each (team_id, distinct_id) pair
-        in the dictionary we built in 1.
+        in the JOIN table we built in 1.
     3. Delete from person_distinct_id_overrides any overrides that were squashed
         and are past the grace period. We construct an auxiliary JOIN table to
         identify the persons that can be deleted.
@@ -742,7 +758,10 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=1),
         )
 
-        async with manage_table("person_distinct_id_overrides_join", inputs.dry_run):
+        table_query_parameters = {
+            "team_ids": list(inputs.team_ids),
+        }
+        async with manage_table("person_distinct_id_overrides_join", inputs.dry_run, table_query_parameters):
             for partition_id in inputs.iter_partition_ids():
                 mutation_parameters: QueryParameters = {
                     "partition_id": partition_id,
@@ -755,7 +774,9 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
                 )
                 workflow.logger.info("Squash finished for all requested partitions, now deleting person overrides")
 
-            async with manage_table("person_distinct_id_overrides_join_to_delete", inputs.dry_run):
+            async with manage_table(
+                "person_distinct_id_overrides_join_to_delete", inputs.dry_run, table_query_parameters
+            ):
                 delete_mutation_parameters: QueryParameters = {
                     "partition_ids": list(inputs.iter_partition_ids()),
                     "grace_period": inputs.delete_grace_period_seconds,
