@@ -1870,16 +1870,28 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "positively_related", {"blah": "value_bleh"})),
-        #     3,
-        # )
+        self.assertEqual(
+            len(
+                self._get_actors_for_event(
+                    filters,
+                    "positively_related",
+                    [EventPropertyFilter(operator=PropertyOperator.exact, key="blah", value="value_bleh")],
+                )
+            ),
+            3,
+        )
 
-        # # If you search for persons with a specific property, even if excluded earlier, you should get them
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"})),
-        #     3,
-        # )
+        # If you search for persons with a specific property, even if excluded earlier, you should get them
+        self.assertEqual(
+            len(
+                self._get_actors_for_event(
+                    filters,
+                    "positively_related",
+                    [EventPropertyFilter(operator=PropertyOperator.exact, key="signup_source", value="facebook")],
+                )
+            ),
+            3,
+        )
 
     # :FIXME: This should also work with materialized columns
     # @also_test_with_materialized_columns(["$event_type", "signup_source"])
