@@ -196,7 +196,11 @@ export function EventDefinitionsTable(): JSX.Element {
                 }
                 expandable={{
                     expandedRowRender: function RenderPropertiesTable(definition) {
-                        return <EventDefinitionProperties definition={definition} />
+                        return (
+                            <div className="p-4">
+                                <EventDefinitionProperties definition={definition} />
+                            </div>
+                        )
                     },
                     rowExpandable: () => true,
                     noIndent: true,

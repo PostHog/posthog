@@ -69,8 +69,8 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
     ]
 
     return (
-        <div className="p-4">
-            <h5>Top properties</h5>
+        <div>
+            <h3>Top properties</h3>
             <p>
                 Please note that description and tags are shared across events. PostHog properties are excluded from
                 this list.
