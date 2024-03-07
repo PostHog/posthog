@@ -33,6 +33,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
+    SnowflakeHeartbeatDetails,
     SnowflakeInsertInputs,
     insert_into_snowflake_activity,
     snowflake_default_fields,
@@ -1342,3 +1343,19 @@ async def test_insert_into_snowflake_activity_heartbeats(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
     )
+
+
+@pytest.mark.parametrize("details", [(str(dt.datetime.now()), 1)])
+def test_snowflake_heartbeat_details_parses_from_tuple(details):
+    class FakeActivity:
+        def info(self):
+            return FakeInfo()
+
+    class FakeInfo:
+        def __init__(self):
+            self.heartbeat_details = details
+
+    snowflake_details = SnowflakeHeartbeatDetails.from_activity(FakeActivity())
+
+    assert snowflake_details.last_inserted_at == dt.datetime.fromisoformat(details[0])
+    assert snowflake_details.file_no == details[1]

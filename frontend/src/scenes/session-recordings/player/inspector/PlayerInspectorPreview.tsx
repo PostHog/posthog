@@ -1,7 +1,7 @@
-import { IconDashboard, IconTerminal } from '@posthog/icons'
+import { IconDashboard, IconSearch, IconTerminal } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { IconMagnifier, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 
 import { SessionRecordingPlayerTab } from '~/types'
 
@@ -9,7 +9,7 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
 const TabToIcon = {
-    [SessionRecordingPlayerTab.ALL]: IconMagnifier,
+    [SessionRecordingPlayerTab.ALL]: IconSearch,
     [SessionRecordingPlayerTab.EVENTS]: IconUnverifiedEvent,
     [SessionRecordingPlayerTab.CONSOLE]: IconTerminal,
     [SessionRecordingPlayerTab.NETWORK]: IconDashboard,

@@ -288,7 +288,7 @@ export function ExperimentPreview({
                                     </LemonButton>
                                 </div>
                                 {experimentInsightType === InsightType.TRENDS &&
-                                    !experimentMathAggregationForTrends && (
+                                    !experimentMathAggregationForTrends(experiment.filters) && (
                                         <>
                                             <div className="card-secondary mb-2 mt-4">
                                                 Exposure metric

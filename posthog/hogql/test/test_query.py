@@ -26,7 +26,6 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
-from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -1326,33 +1325,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(HogQLException) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table 'events' does not accept arguments")
-
-    def test_view_link(self):
-        self._create_random_events()
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": f"select distinct_id AS fake from events LIMIT 100",
-                },
-            },
-        )
-        saved_query_response = response.json()
-        saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
-
-        DataWarehouseViewLink.objects.create(
-            saved_query=saved_query,
-            table="events",
-            to_join_key="fake",
-            from_join_key="distinct_id",
-            team=self.team,
-        )
-
-        response = execute_hogql_query("SELECT event_view.fake FROM events", team=self.team)
-
-        self.assertEqual(response.results, [("bla",), ("bla",), ("bla",), ("bla",)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):

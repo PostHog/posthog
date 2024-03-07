@@ -56,7 +56,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.organization.available_features = [
             AvailableFeature.TAGGING,
             AvailableFeature.PROJECT_BASED_PERMISSIONING,
-            AvailableFeature.DASHBOARD_PERMISSIONING,
+            AvailableFeature.ADVANCED_PERMISSIONS,
         ]
         self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
         self.organization.save()
@@ -261,7 +261,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_listing_dashboards_is_not_nplus1(self) -> None:
         self.client.logout()
 
-        self.organization.available_features = [AvailableFeature.DASHBOARD_COLLABORATION]
+        self.organization.available_features = [AvailableFeature.TEAM_COLLABORATION]
         self.organization.save()
         self.team.access_control = True
         self.team.save()

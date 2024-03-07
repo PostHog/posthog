@@ -46,13 +46,14 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 export function queryExportContext<N extends DataNode = DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean
+    refresh?: boolean,
+    maintainLegacy: boolean = true
 ): OnlineExportContext | QueryExportContext {
     if (isInsightVizNode(query) || isDataTableNode(query) || isDataVisualizationNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh)
+        return queryExportContext(query.source, methodOptions, refresh, maintainLegacy)
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
-    } else if (isInsightQueryNode(query)) {
+    } else if (isInsightQueryNode(query) && maintainLegacy) {
         return legacyInsightQueryExportContext({
             filters: queryNodeToFilter(query),
             currentTeamId: getCurrentTeamId(),

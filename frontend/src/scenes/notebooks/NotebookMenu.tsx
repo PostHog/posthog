@@ -1,10 +1,9 @@
 import './NotebookScene.scss'
 
-import { IconClock, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
+import { IconClock, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconExport } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
@@ -22,7 +21,7 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
             items={[
                 {
                     label: 'Export JSON',
-                    icon: <IconExport />,
+                    icon: <IconDownload />,
                     onClick: () => exportJSON(),
                 },
                 {

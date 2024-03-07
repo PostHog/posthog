@@ -1,14 +1,13 @@
-import { LemonButton, LemonButtonWithDropdown, LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { IconDownload } from '@posthog/icons'
+import { LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { IconExport } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
-import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 import {
     defaultDataTableColumns,
     extractExpressionComment,
@@ -52,6 +51,7 @@ export async function startDownload(
                 removeExpressionComment(c) === 'person' ? 'email' : c
             )
         }
+        exportContext['columns'] = exportContext['columns'].filter((n: string) => !columnDisallowList.includes(n))
     }
     exportCall({
         export_format: format,
@@ -200,136 +200,92 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
     const showExportClipboardButtons = isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source)
 
     return (
-        <LemonButtonWithDropdown
-            dropdown={{
-                sameWidth: false,
-                closeOnClickInside: false,
-                overlay: [
-                    <ExportWithConfirmation
-                        key={1}
-                        placement="topRight"
-                        onConfirm={() => {
-                            void startDownload(query, true, startExport)
-                        }}
-                        actor={isPersonsNode(query.source) ? 'persons' : 'events'}
-                        limit={EXPORT_MAX_LIMIT}
-                    >
-                        <LemonButton fullWidth>Export current columns</LemonButton>
-                    </ExportWithConfirmation>,
-                ]
-                    .concat(
-                        canExportAllColumns
-                            ? [
-                                  <ExportWithConfirmation
-                                      key={0}
-                                      placement="topRight"
-                                      onConfirm={() => void startDownload(query, false, startExport)}
-                                      actor={isPersonsNode(query.source) ? 'persons' : 'events'}
-                                      limit={EXPORT_MAX_LIMIT}
-                                  >
-                                      <LemonButton fullWidth>Export all columns (CSV)</LemonButton>
-                                  </ExportWithConfirmation>,
-                                  <ExportWithConfirmation
-                                      key={0}
-                                      placement="topRight"
-                                      onConfirm={() =>
-                                          void startDownload(query, false, startExport, ExporterFormat.XLSX)
-                                      }
-                                      actor={isPersonsNode(query.source) ? 'persons' : 'events'}
-                                      limit={EXPORT_MAX_LIMIT}
-                                  >
-                                      <LemonButton fullWidth>Export all columns (XLS)</LemonButton>
-                                  </ExportWithConfirmation>,
-                              ]
-                            : []
-                    )
-                    .concat(
-                        showExportClipboardButtons
-                            ? [
-                                  <LemonDivider key={2} />,
-                                  <LemonButton
-                                      key={3}
-                                      fullWidth
-                                      data-attr="copy-csv-to-clipboard"
-                                      onClick={() => {
-                                          if (dataTableRows) {
-                                              copyTableToCsv(
-                                                  dataTableRows,
-                                                  columnsInResponse ?? columnsInQuery,
-                                                  queryWithDefaults
-                                              )
-                                          }
-                                      }}
-                                  >
-                                      Copy CSV to clipboard
-                                  </LemonButton>,
-                                  <LemonButton
-                                      key={4}
-                                      fullWidth
-                                      data-attr="copy-json-to-clipboard"
-                                      onClick={() => {
-                                          if (dataTableRows) {
-                                              copyTableToJson(
-                                                  dataTableRows,
-                                                  columnsInResponse ?? columnsInQuery,
-                                                  queryWithDefaults
-                                              )
-                                          }
-                                      }}
-                                  >
-                                      Copy JSON to clipboard
-                                  </LemonButton>,
-                              ]
-                            : []
-                    )
-                    .concat(
-                        queryWithDefaults.showOpenEditorButton
-                            ? [
-                                  <LemonDivider key={5} />,
-                                  <LemonButton
-                                      key={6}
-                                      fullWidth
-                                      data-attr="open-json-editor-button"
-                                      to={
-                                          query
-                                              ? urls.insightNew(undefined, undefined, JSON.stringify(query))
-                                              : undefined
-                                      }
-                                  >
-                                      Open table as a new insight
-                                  </LemonButton>,
-                              ]
-                            : []
-                    )
-                    .concat(
-                        response?.hogql
-                            ? [
-                                  <LemonDivider key={7} />,
-                                  <LemonButton
-                                      key={8}
-                                      fullWidth
-                                      data-attr="open-sql-editor-button"
-                                      to={urls.insightNew(
-                                          undefined,
-                                          undefined,
-                                          JSON.stringify({
-                                              kind: NodeKind.DataTableNode,
-                                              full: true,
-                                              source: { kind: NodeKind.HogQLQuery, query: response.hogql },
-                                          })
-                                      )}
-                                  >
-                                      Edit SQL directly
-                                  </LemonButton>,
-                              ]
-                            : []
+        <LemonMenu
+            items={[
+                {
+                    label: 'Export current columns',
+                    items: [
+                        {
+                            label: 'CSV',
+                            onClick: () => {
+                                void startDownload(query, true, startExport)
+                            },
+                        },
+                        {
+                            label: 'XLSX',
+                            onClick: () => {
+                                void startDownload(query, true, startExport, ExporterFormat.XLSX)
+                            },
+                        },
+                    ],
+                },
+                canExportAllColumns && {
+                    label: 'Export all columns',
+                    items: [
+                        {
+                            label: 'CSV',
+                            onClick: () => void startDownload(query, false, startExport),
+                        },
+                        {
+                            label: 'XLSX',
+                            onClick: () => void startDownload(query, false, startExport, ExporterFormat.XLSX),
+                        },
+                    ],
+                },
+                showExportClipboardButtons && {
+                    label: 'Copy to clipboard',
+                    items: [
+                        {
+                            label: 'CSV',
+                            onClick: () => {
+                                if (dataTableRows) {
+                                    copyTableToCsv(
+                                        dataTableRows,
+                                        columnsInResponse ?? columnsInQuery,
+                                        queryWithDefaults
+                                    )
+                                }
+                            },
+                            'data-attr': 'copy-csv-to-clipboard',
+                        },
+                        {
+                            label: 'JSON',
+                            onClick: () => {
+                                if (dataTableRows) {
+                                    copyTableToJson(
+                                        dataTableRows,
+                                        columnsInResponse ?? columnsInQuery,
+                                        queryWithDefaults
+                                    )
+                                }
+                            },
+                            'data-attr': 'copy-json-to-clipboard',
+                        },
+                    ],
+                },
+                queryWithDefaults.showOpenEditorButton && {
+                    label: 'Open table as a new insight',
+                    to: query ? urls.insightNew(undefined, undefined, JSON.stringify(query)) : undefined,
+                    'data-attr': 'open-json-editor-button',
+                },
+                response?.hogql && {
+                    label: 'Edit SQL directly',
+                    to: urls.insightNew(
+                        undefined,
+                        undefined,
+                        JSON.stringify({
+                            kind: NodeKind.DataTableNode,
+                            full: true,
+                            source: { kind: NodeKind.HogQLQuery, query: response.hogql },
+                        })
                     ),
-            }}
-            type="secondary"
-            icon={<IconExport />}
-            data-attr="data-table-export-menu"
+                    'data-attr': 'open-sql-editor-button',
+                },
+            ].filter(Boolean)}
         >
-            Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}
-        </LemonButtonWithDropdown>
+            <LemonButton type="secondary" icon={<IconDownload />} data-attr="data-table-export-menu">
+                Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}
+            </LemonButton>
+        </LemonMenu>
     )
 }

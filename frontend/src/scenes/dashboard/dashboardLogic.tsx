@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
     DashboardPrivilegeLevel,
@@ -214,7 +214,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // :TODO: Send dashboardQueryId forward as well if refreshing
                         const apiUrl = values.apiUrl(refresh)
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
-                        const dashboard: DashboardType = await getJSONOrThrow(dashboardResponse)
+                        const dashboard: DashboardType = await getJSONOrNull(dashboardResponse)
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
@@ -981,7 +981,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     breakpoint()
 
                     const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-                    const refreshedInsight: InsightModel = await getJSONOrThrow(refreshedInsightResponse)
+                    const refreshedInsight: InsightModel = await getJSONOrNull(refreshedInsightResponse)
                     breakpoint()
                     updateExistingInsightState({ cachedInsight: insight, dashboardId, refreshedInsight })
                     dashboardsModel.actions.updateDashboardInsight(

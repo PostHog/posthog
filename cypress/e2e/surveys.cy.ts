@@ -20,7 +20,8 @@ describe('Surveys', () => {
         cy.get('[data-attr="survey-name"]').type(name)
 
         // save
-        cy.get('[data-attr="save-survey"]').click()
+        //get 2nd element matching the selector
+        cy.get('[data-attr="save-survey"]').eq(1).click()
         cy.get('[data-attr=success-toast]').contains('created').should('exist')
 
         // back to surveys
@@ -99,7 +100,8 @@ describe('Surveys', () => {
         cy.get('[data-attr="rollout-percentage"]').type('100')
 
         // save
-        cy.get('[data-attr="save-survey"]').click()
+        cy.get('[data-attr="save-survey"]').eq(0).click()
+
         cy.get('[data-attr=success-toast]').contains('created').should('exist')
 
         // check preview release conditions
@@ -134,7 +136,7 @@ describe('Surveys', () => {
         cy.contains('Remove all user properties').click()
 
         // save
-        cy.get('[data-attr="save-survey"]').click()
+        cy.get('[data-attr="save-survey"]').eq(1).click()
 
         // check preview release conditions
         cy.get('.LemonTabs').contains('Overview').click()

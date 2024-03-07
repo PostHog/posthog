@@ -1,3 +1,4 @@
+from itertools import product
 from typing import Dict
 from unittest import mock
 from uuid import uuid4
@@ -167,36 +168,65 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 **expected_query_params,
             }
 
-            # the unmaterialized person column
-            assert (
+            json_extract_fragment = (
                 "has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s)"
-                in generated_query
-            ) is unmaterialized_person_column_used
+            )
+            materialized_column_fragment = 'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))'
+
+            # it will always have one of these fragments
+            assert (json_extract_fragment in generated_query) or (materialized_column_fragment in generated_query)
+
+            # the unmaterialized person column
+            assert (json_extract_fragment in generated_query) is unmaterialized_person_column_used
             # materialized event column
-            assert (
-                'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))' in generated_query
-            ) is materialized_event_column_used
+            assert (materialized_column_fragment in generated_query) is materialized_event_column_used
             self.assertQueryMatchesSnapshot(generated_query)
 
-    @parameterized.expand(
-        [
-            ["poe and materialized columns allowed", True, True],
-            ["poe and materialized columns off", True, False],
-            ["poe off and materialized columns allowed", False, True],
-            ["neither poe nor materialized columns", False, False],
-        ]
-    )
+    settings_combinations = [
+        ["poe v2 and materialized columns allowed", False, True, True],
+        ["poe v2 and materialized columns off", False, True, False],
+        ["poe off and materialized columns allowed", False, False, True],
+        ["poe off and materialized columns not allowed", False, False, False],
+        ["poe v1 and materialized columns allowed", True, False, True],
+        ["poe v1 and not materialized columns not allowed", True, False, False],
+    ]
+
+    # Options for "materialize person columns"
+    materialization_options = [
+        [" with materialization", True],
+        [" without materialization", False],
+    ]
+
+    # Expand the parameter list to the product of all combinations with "materialize person columns"
+    # e.g. [a, b] x [c, d] = [a, c], [a, d], [b, c], [b, d]
+    test_case_combinations = [
+        [f"{name}{mat_option}", poe_v1, poe, mat_columns, mat_person]
+        for (name, poe_v1, poe, mat_columns), (mat_option, mat_person) in product(
+            settings_combinations, materialization_options
+        )
+    ]
+
+    @parameterized.expand(test_case_combinations)
     @snapshot_clickhouse_queries
     def test_event_filter_with_person_properties_materialized(
-        self, _name: str, poe2_enabled: bool, allow_denormalised_props: bool
+        self,
+        _name: str,
+        poe1_enabled: bool,
+        poe2_enabled: bool,
+        allow_denormalised_props: bool,
+        materialize_person_props: bool,
     ) -> None:
         # KLUDGE: I couldn't figure out how to use @also_test_with_materialized_columns(person_properties=["email"])
-        # KLUDGE: and the parameterized.expand decorator at the same time, so I'm manually materializing here
-        materialize("events", "email", table_column="person_properties")
-        materialize("person", "email")
+        # KLUDGE: and the parameterized.expand decorator at the same time, so we generate test case combos
+        # KLUDGE: for materialization on and off to test both sides the way the decorator would have
+        if materialize_person_props:
+            materialize("events", "email", table_column="person_properties")
+            materialize("person", "email")
 
         with self.settings(
-            PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled, ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props
+            PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
+            PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
+            ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
         ):
             user_one = "test_event_filter_with_person_properties-user"
             user_two = "test_event_filter_with_person_properties-user2"
@@ -206,34 +236,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
             Person.objects.create(team=self.team, distinct_ids=[user_two], properties={"email": "bla2"})
 
-            self.create_event(
-                user_one,
-                self.base_time,
-                properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
-            )
-            produce_replay_summary(
-                distinct_id=user_one,
-                session_id=session_id_one,
-                first_timestamp=self.base_time,
-                team_id=self.team.id,
-            )
+            self._add_replay_with_pageview(session_id_one, user_one)
             produce_replay_summary(
                 distinct_id=user_one,
                 session_id=session_id_one,
                 first_timestamp=(self.base_time + relativedelta(seconds=30)),
                 team_id=self.team.id,
             )
-            self.create_event(
-                user_two,
-                self.base_time,
-                properties={"$session_id": session_id_two, "$window_id": str(uuid4())},
-            )
-            produce_replay_summary(
-                distinct_id=user_two,
-                session_id=session_id_two,
-                first_timestamp=self.base_time,
-                team_id=self.team.id,
-            )
+            self._add_replay_with_pageview(session_id_two, user_two)
             produce_replay_summary(
                 distinct_id=user_two,
                 session_id=session_id_two,
@@ -275,98 +285,64 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == session_id_one
 
-    @parameterized.expand(
-        [
-            ["poe and materialized columns allowed", True, True],
-            ["poe and materialized columns off", True, False],
-            ["poe off and materialized columns allowed", False, True],
-            ["neither poe nor materialized columns", False, False],
-        ]
-    )
+    def _add_replay_with_pageview(self, session_id: str, user_one):
+        self.create_event(
+            user_one,
+            self.base_time,
+            properties={"$session_id": session_id, "$window_id": str(uuid4())},
+        )
+        produce_replay_summary(
+            distinct_id=user_one,
+            session_id=session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+
+    @parameterized.expand(test_case_combinations)
     @snapshot_clickhouse_queries
-    def test_event_filter_with_person_properties_not_materialized(
-        self, _name: str, poe2_enabled: bool, allow_denormalised_props: bool
+    def test_person_id_filter(
+        self,
+        _name: str,
+        poe2_enabled: bool,
+        poe1_enabled: bool,
+        allow_denormalised_props: bool,
+        materialize_person_props: bool,
     ) -> None:
         # KLUDGE: I couldn't figure out how to use @also_test_with_materialized_columns(person_properties=["email"])
-        # KLUDGE: and the parameterized.expand decorator at the same time,
-        # KLUDGE: so I'm manually duplicating and not materializing here
+        # KLUDGE: and the parameterized.expand decorator at the same time, so we generate test case combos
+        # KLUDGE: for materialization on and off to test both sides the way the decorator would have
+        if materialize_person_props:
+            # it shouldn't matter to this test whether any column is materialized
+            # but let's keep the tests in this file similar so we flush out any unexpected interactions
+            materialize("events", "email", table_column="person_properties")
+            materialize("person", "email")
 
         with self.settings(
-            PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled, ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props
+            PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,
+            PERSON_ON_EVENTS_V2_OVERRIDE=poe2_enabled,
+            ALLOW_DENORMALIZED_PROPS_IN_LISTING=allow_denormalised_props,
         ):
-            user_one = "test_event_filter_with_person_properties-user"
-            user_two = "test_event_filter_with_person_properties-user2"
-            session_id_one = f"test_event_filter_with_person_properties-1-{str(uuid4())}"
-            session_id_two = f"test_event_filter_with_person_properties-2-{str(uuid4())}"
+            three_user_ids = ["person-1-distinct-1", "person-1-distinct-2", "person-2"]
+            session_id_one = f"test_person_id_filter-session-one"
+            session_id_two = f"test_person_id_filter-session-two"
+            session_id_three = f"test_person_id_filter-session-three"
 
-            Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
-            Person.objects.create(team=self.team, distinct_ids=[user_two], properties={"email": "bla2"})
-
-            self.create_event(
-                user_one,
-                self.base_time,
-                properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
-            )
-            produce_replay_summary(
-                distinct_id=user_one,
-                session_id=session_id_one,
-                first_timestamp=self.base_time,
-                team_id=self.team.id,
-            )
-            produce_replay_summary(
-                distinct_id=user_one,
-                session_id=session_id_one,
-                first_timestamp=(self.base_time + relativedelta(seconds=30)),
-                team_id=self.team.id,
-            )
-            self.create_event(
-                user_two,
-                self.base_time,
-                properties={"$session_id": session_id_two, "$window_id": str(uuid4())},
-            )
-            produce_replay_summary(
-                distinct_id=user_two,
-                session_id=session_id_two,
-                first_timestamp=self.base_time,
-                team_id=self.team.id,
-            )
-            produce_replay_summary(
-                distinct_id=user_two,
-                session_id=session_id_two,
-                first_timestamp=(self.base_time + relativedelta(seconds=30)),
-                team_id=self.team.id,
-            )
-
-            match_everyone_filter = SessionRecordingsFilter(
+            p = Person.objects.create(
                 team=self.team,
-                data={"properties": []},
+                distinct_ids=[three_user_ids[0], three_user_ids[1]],
+                properties={"email": "bla"},
             )
-
-            session_recording_list_instance = SessionRecordingListFromReplaySummary(
-                filter=match_everyone_filter, team=self.team
-            )
-            (session_recordings, _) = session_recording_list_instance.run()
-
-            assert sorted([x["session_id"] for x in session_recordings]) == sorted([session_id_one, session_id_two])
-
-            match_bla_filter = SessionRecordingsFilter(
+            Person.objects.create(
                 team=self.team,
-                data={
-                    "properties": [
-                        {
-                            "key": "email",
-                            "value": ["bla"],
-                            "operator": "exact",
-                            "type": "person",
-                        }
-                    ]
-                },
+                distinct_ids=[three_user_ids[2]],
+                properties={"email": "bla2"},
             )
 
-            session_recording_list_instance = SessionRecordingListFromReplaySummary(
-                filter=match_bla_filter, team=self.team
-            )
+            self._add_replay_with_pageview(session_id_one, three_user_ids[0])
+            self._add_replay_with_pageview(session_id_two, three_user_ids[1])
+            self._add_replay_with_pageview(session_id_three, three_user_ids[2])
+
+            filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
-
-            assert len(session_recordings) == 1
-            assert session_recordings[0]["session_id"] == session_id_one
+            assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])

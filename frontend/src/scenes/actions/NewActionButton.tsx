@@ -1,9 +1,8 @@
-import { IconPencil } from '@posthog/icons'
+import { IconPencil, IconSearch } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { IconMagnifier } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -48,7 +47,7 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
                     <div className="space-y-2">
                         <LemonButton
                             type="secondary"
-                            icon={<IconMagnifier />}
+                            icon={<IconSearch />}
                             onClick={() => setAppUrlsVisible(true)}
                             size="large"
                             fullWidth

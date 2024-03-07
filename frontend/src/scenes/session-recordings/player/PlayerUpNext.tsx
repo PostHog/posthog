@@ -1,8 +1,8 @@
 import './PlayerUpNext.scss'
 
+import { IconPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { IconPlay } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useRef, useState } from 'react'
 import { CSSTransition } from 'react-transition-group'

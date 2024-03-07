@@ -402,6 +402,7 @@ def test_unpause_can_trigger_a_backfill(client: HttpClient):
         mock_backfill.assert_called_once_with(
             ANY,
             batch_export["id"],
+            team.pk,
             start_at,
             end_at,
         )

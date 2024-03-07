@@ -217,6 +217,18 @@ export const userLogic = kea<userLogicType>([
                 }
             },
         ],
+        availableFeature: [
+            (s) => [s.user],
+            (user) => {
+                return (feature: AvailableFeature) => {
+                    const availableProductFeatures = user?.organization?.available_product_features
+                    if (availableProductFeatures && availableProductFeatures.length > 0) {
+                        return availableProductFeatures.find((obj) => obj.key === feature)
+                    }
+                    return null
+                }
+            },
+        ],
         otherOrganizations: [
             (s) => [s.user],
             (user): OrganizationBasicType[] =>

@@ -6,7 +6,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/T
 import React, { useEffect, useState } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
@@ -24,6 +24,7 @@ interface PropertyFiltersProps {
     metadataSource?: AnyDataNode
     showNestedArrow?: boolean
     eventNames?: string[]
+    schemaColumns?: DatabaseSchemaQueryResponseField[]
     logicalRowDivider?: boolean
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
@@ -49,6 +50,7 @@ export function PropertyFilters({
     metadataSource,
     showNestedArrow = false,
     eventNames = [],
+    schemaColumns = [],
     orFiltering = false,
     logicalRowDivider = false,
     propertyGroupType = null,
@@ -114,6 +116,7 @@ export function PropertyFilters({
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             metadataSource={metadataSource}
                                             eventNames={eventNames}
+                                            schemaColumns={schemaColumns}
                                             propertyGroupType={propertyGroupType}
                                             disablePopover={disablePopover || orFiltering}
                                             addText={addText}

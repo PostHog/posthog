@@ -11,7 +11,7 @@ import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagRe
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Survey, SurveyUrlMatchType } from '~/types'
+import { FeatureFlagFilters, Survey, SurveyUrlMatchType } from '~/types'
 
 import { NewSurvey, SurveyUrlMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
@@ -48,11 +48,11 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
+    const { survey, surveyLoading, isEditingSurvey, targetingFlagFilters } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
 
     return (
-        <Form id="survey" formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
+        <Form id="survey" formKey="survey" logic={surveyLogic} props={{ id }} className="space-y-4" enableFormOnSubmit>
             <PageHeader
                 buttons={
                     <div className="flex items-center gap-2">
@@ -73,7 +73,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         </LemonButton>
                         <LemonButton
                             type="primary"
-                            data-attr="save-feature-flag"
+                            data-attr="save-survey"
                             htmlType="submit"
                             loading={surveyLoading}
                             form="survey"
@@ -86,7 +86,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             <LemonDivider />
             <SurveyEdit />
             <LemonDivider />
-            <SurveyReleaseSummary id={id} survey={survey} hasTargetingFlag={hasTargetingFlag} />
+            <SurveyReleaseSummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             <LemonDivider />
             <div className="flex items-center gap-2 justify-end">
                 <LemonButton
@@ -115,11 +115,11 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
 export function SurveyReleaseSummary({
     id,
     survey,
-    hasTargetingFlag,
+    targetingFlagFilters,
 }: {
     id: string
     survey: Survey | NewSurvey
-    hasTargetingFlag: boolean
+    targetingFlagFilters?: FeatureFlagFilters
 }): JSX.Element {
     return (
         <div className="flex flex-col mt-2 gap-2">
@@ -161,14 +161,12 @@ export function SurveyReleaseSummary({
                     )}
                 </div>
             )}
-            <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
-                {hasTargetingFlag && (
-                    <>
-                        <span className="font-medium">User properties:</span>{' '}
-                        <FeatureFlagReleaseConditions readOnly excludeTitle />
-                    </>
-                )}
-            </BindLogic>
+            {targetingFlagFilters && (
+                <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
+                    <span className="font-medium">User properties:</span>{' '}
+                    <FeatureFlagReleaseConditions readOnly excludeTitle filters={targetingFlagFilters} />
+                </BindLogic>
+            )}
         </div>
     )
 }

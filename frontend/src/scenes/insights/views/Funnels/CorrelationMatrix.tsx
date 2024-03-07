@@ -1,16 +1,11 @@
 import './CorrelationMatrix.scss'
 
+import { IconCheckCircle } from '@posthog/icons'
 import { Button, Modal } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import {
-    IconCancel,
-    IconCheckCircleOutline,
-    IconErrorOutline,
-    IconTrendingFlat,
-    IconTrendingFlatDown,
-} from 'lib/lemon-ui/icons'
+import { IconCancel, IconErrorOutline, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -61,7 +56,7 @@ export function CorrelationMatrix(): JSX.Element {
 
     const scoreIcon =
         correlationScoreStrength === 'strong' ? (
-            <IconCheckCircleOutline className="text-success" />
+            <IconCheckCircle className="text-success" />
         ) : correlationScoreStrength === 'moderate' ? (
             <IconCancel className="text-warning" />
         ) : (

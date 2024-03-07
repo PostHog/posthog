@@ -53,6 +53,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'trendsFilter',
                 'lifecycleFilter',
                 'isTrends',
+                'isDataWarehouseSeries',
                 'isLifecycle',
                 'isStickiness',
                 'isNonTimeSeriesDisplay',

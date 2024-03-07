@@ -2,6 +2,7 @@ import './SavedInsights.scss'
 
 import {
     IconBrackets,
+    IconCoffee,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -22,15 +23,7 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import {
-    IconAction,
-    IconCoffee,
-    IconEvent,
-    IconGridView,
-    IconListView,
-    IconSelectEvents,
-    IconTableChart,
-} from 'lib/lemon-ui/icons'
+import { IconAction, IconEvent, IconGridView, IconListView, IconSelectEvents, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'

@@ -46,12 +46,14 @@ function Tags({
     highlight,
     editable,
     onChange,
+    selectedText,
 }: {
     elements: ElementType[]
     parsedCSSSelectors: Record<number, ParsedCSSSelector>
     highlight: boolean
     editable: boolean
     onChange: (i: number, s: ParsedCSSSelector) => void
+    selectedText?: string
 }): JSX.Element {
     return (
         <>
@@ -75,6 +77,7 @@ function Tags({
                             indent={indent(index)}
                             highlight={highlight}
                             parsedCSSSelector={parsedCSSSelectors[index]}
+                            selectedText={selectedText}
                         />
                     </Fade>
                 )
@@ -88,6 +91,7 @@ let uniqueNode = 0
 interface HTMLElementsDisplayPropsBase {
     elements: ElementType[]
     highlight?: boolean
+    selectedText?: string
 }
 
 type HTMLElementsDisplayProps =
@@ -97,23 +101,29 @@ type HTMLElementsDisplayProps =
           startingSelector?: string
           checkUniqueness?: boolean
           onChange?: (selector: string, isUnique?: boolean) => void
+          selectedText?: never
       })
     | (HTMLElementsDisplayPropsBase & {
           editable?: false
           startingSelector?: never
           checkUniqueness?: never
           onChange?: never
+          selectedText?: string
       })
 
 export function HTMLElementsDisplay({
     startingSelector,
     elements: providedElements,
     onChange,
+    selectedText,
     highlight = true,
     editable = false,
     checkUniqueness = false,
 }: HTMLElementsDisplayProps): JSX.Element {
     const [key] = useState(() => `HtmlElementsDisplay.${uniqueNode++}`)
+
+    // can't have highlight and selectedText at the same time
+    highlight = selectedText?.length ? false : highlight
 
     const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange, key, startingSelector, providedElements })
     const {
@@ -166,6 +176,7 @@ export function HTMLElementsDisplay({
                             editable={editable}
                             parsedCSSSelectors={parsedSelectors}
                             onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
+                            selectedText={selectedText}
                         />
                         <CloseAllTags elements={parsedElements} />
                     </>
