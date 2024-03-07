@@ -776,8 +776,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 const start = meta?.start_time ? dayjs(meta.start_time) : undefined
                 const snapshots = sessionPlayerSnapshotData?.snapshots || []
                 const firstEventTimestamp = getSnapshotSortingTimestamp(snapshots[0])
-                // eslint-disable-next-line no-console
-                console.log('[wat] picking start', start?.valueOf(), firstEventTimestamp, snapshots)
                 return firstEventTimestamp && firstEventTimestamp < (start?.valueOf() ?? 0)
                     ? dayjs(firstEventTimestamp)
                     : start

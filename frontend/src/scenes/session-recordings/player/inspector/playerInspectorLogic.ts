@@ -143,10 +143,6 @@ function timeRelativeToStart(
 } {
     const timestamp = dayjs(thingWithTime.timestamp)
     const timeInRecording = timestamp.valueOf() - (start?.valueOf() ?? 0)
-    if (timeInRecording < 0) {
-        // eslint-disable-next-line no-console
-        console.log('[wat] Negative time in recording', { timeInRecording, timestamp, start, thingWithTime })
-    }
     return { timestamp, timeInRecording }
 }
 
