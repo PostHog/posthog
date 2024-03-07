@@ -108,7 +108,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 
 EVENTS_TABLE_INSERTED_AT_INDEX_SQL = """
 ALTER TABLE {table_name} ON CLUSTER {cluster}
-ADD INDEX `minmax_inserted_at` `inserted_at`
+ADD INDEX `minmax_inserted_at` COALESCE(`inserted_at`, `_timestamp`)
 TYPE minmax
 GRANULARITY 1
 """.format(table_name=EVENTS_DATA_TABLE(), cluster=settings.CLICKHOUSE_CLUSTER)
