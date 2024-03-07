@@ -53,6 +53,16 @@ class FieldChainReplacer(TraversingVisitor):
                 node.chain = [constraint.table_name, constraint.alias]
 
 
+class LazyFinder(TraversingVisitor):
+    found_lazy: bool = False
+
+    def visit_lazy_join_type(self, node: ast.LazyJoinType):
+        self.found_lazy = True
+
+    def visit_lazy_table_type(self, node: ast.TableType):
+        self.found_lazy = True
+
+
 class LazyTableResolver(TraversingVisitor):
     def __init__(
         self,
@@ -382,3 +392,10 @@ class LazyTableResolver(TraversingVisitor):
                 field_or_property.joined_subquery = table_type
 
         self.stack_of_fields.pop()
+
+        # When joining a lazy table to another lazy table, the joined table doesn't get resolved
+        # Doing another pass solves this for us
+        lazy_finder = LazyFinder()
+        lazy_finder.visit(node)
+        if lazy_finder.found_lazy:
+            self.visit_select_query(node)

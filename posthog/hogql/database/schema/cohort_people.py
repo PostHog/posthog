@@ -34,12 +34,14 @@ def select_from_cohort_people_table(requested_fields: Dict[str, List[str | int]]
         "cohort_id": ["cohort_id"],
         **requested_fields,
     }
-    fields: List[ast.Expr] = [ast.Field(chain=[table_name] + chain) for name, chain in requested_fields.items()]
+    fields: List[ast.Expr] = [
+        ast.Alias(alias=name, expr=ast.Field(chain=[table_name] + chain)) for name, chain in requested_fields.items()
+    ]
 
     return ast.SelectQuery(
         select=fields,
         select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
-        group_by=fields,
+        group_by=[ast.Field(chain=[name]) for name, chain in requested_fields.items()],
         having=ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
             left=ast.Call(name="sum", args=[ast.Field(chain=[table_name, "sign"])]),
