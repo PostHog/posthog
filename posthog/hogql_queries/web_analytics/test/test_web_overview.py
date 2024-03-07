@@ -163,3 +163,25 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bounce = results[4]
         self.assertEqual("bounce rate", bounce.key)
         self.assertEqual(None, bounce.value)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_correctly_counts_pageviews_in_long_running_session(self, use_sessions_table):
+        # this test is important when using the sessions table as the raw sessions table will have 3 entries, one per day
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", "s1"), ("2023-12-02", "s1"), ("2023-12-03", "s1")]),
+            ]
+        )
+
+        results = self._run_web_overview_query(
+            "2023-12-01", "2023-12-03", use_sessions_table=use_sessions_table
+        ).results
+
+        visitors = results[0]
+        self.assertEqual(1, visitors.value)
+
+        views = results[1]
+        self.assertEqual(3, views.value)
+
+        sessions = results[2]
+        self.assertEqual(1, sessions.value)
