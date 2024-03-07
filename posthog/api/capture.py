@@ -12,7 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from enum import Enum
 from kafka.errors import KafkaError, MessageSizeTooLargeError
 from kafka.producer.future import FutureRecordMetadata
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
@@ -86,6 +86,12 @@ TOKEN_SHAPE_INVALID_COUNTER = Counter(
     "capture_token_shape_invalid_total",
     "Events dropped due to an invalid token shape, per reason.",
     labelnames=["reason"],
+)
+
+OVERFLOWING_KEYS_LOADED_GAUGE = Gauge(
+    "capture_overflowing_keys_loaded",
+    "Number of keys loaded for the overflow redirection, per resource_type.",
+    labelnames=[LABEL_RESOURCE_TYPE],
 )
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
@@ -669,4 +675,5 @@ def _list_overflowing_keys(input_type: InputType) -> Set[str]:
     now = timezone.now()
     redis_client = get_client()
     results = redis_client.zrangebyscore(f"{OVERFLOWING_REDIS_KEY}{input_type.value}", min=now.timestamp(), max="+inf")
+    OVERFLOWING_KEYS_LOADED_GAUGE.labels(input_type.value).set(len(results))
     return {x.decode("utf-8") for x in results}
