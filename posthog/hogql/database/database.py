@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
+from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.models import (
     FieldTraverser,
@@ -234,24 +235,27 @@ class SerializedField(_SerializedFieldBase, total=False):
     chain: List[str]
 
 
-def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
+def serialize_database(context: HogQLContext) -> Dict[str, List[SerializedField]]:
     tables: Dict[str, List[SerializedField]] = {}
 
-    for table_key in database.model_fields.keys():
+    if context.database is None:
+        raise HogQLException("Must provide database to serialize_database")
+
+    for table_key in context.database.model_fields.keys():
         field_input: Dict[str, Any] = {}
-        table = getattr(database, table_key, None)
+        table = getattr(context.database, table_key, None)
         if isinstance(table, FunctionCallTable):
             field_input = table.get_asterisk()
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: List[SerializedField] = serialize_fields(field_input)
+        field_output: List[SerializedField] = serialize_fields(field_input, context)
         tables[table_key] = field_output
 
     return tables
 
 
-def serialize_fields(field_input) -> List[SerializedField]:
+def serialize_fields(field_input, context: HogQLContext) -> List[SerializedField]:
     from posthog.hogql.database.models import SavedQuery
 
     field_output: List[SerializedField] = []
@@ -276,13 +280,13 @@ def serialize_fields(field_input) -> List[SerializedField]:
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append({"key": field_key, "type": "array"})
         elif isinstance(field, LazyJoin):
-            is_view = isinstance(field.join_table, SavedQuery)
+            is_view = isinstance(field.resolve_table(context), SavedQuery)
             field_output.append(
                 {
                     "key": field_key,
                     "type": "view" if is_view else "lazy_table",
-                    "table": field.join_table.to_printed_hogql(),
-                    "fields": list(field.join_table.fields.keys()),
+                    "table": field.resolve_table(context).to_printed_hogql(),
+                    "fields": list(field.resolve_table(context).fields.keys()),
                 }
             )
         elif isinstance(field, VirtualTable):
