@@ -2,9 +2,10 @@ import { connect, kea, path, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { SidePanelTab } from '~/types'
+import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
@@ -78,7 +79,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                         return true
                     }
 
-                    if (tab === SidePanelTab.Activity && unreadCount) {
+                    if (
+                        tab === SidePanelTab.Activity &&
+                        unreadCount &&
+                        userLogic.values.hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
+                    ) {
                         return true
                     }
 
