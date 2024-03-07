@@ -1,6 +1,8 @@
 import { Meta } from '@storybook/react'
+import { BindLogic } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -75,7 +77,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
     })
 
     return (
-        <div>
+        <BindLogic logic={dashboardLogic} props={{ id: props.dashboardId }}>
             <div className="bg-default p-2">
                 <SharingModal
                     {...(props as SharingModalProps)}
@@ -95,7 +97,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
             </div>
 
             <SharingModal {...(props as SharingModalProps)} closeModal={() => setModalOpen(false)} isOpen={modalOpen} />
-        </div>
+        </BindLogic>
     )
 }
 
