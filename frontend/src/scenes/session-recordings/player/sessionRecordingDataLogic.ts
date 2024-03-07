@@ -162,7 +162,10 @@ export const prepareRecordingSnapshots = (
             // we have to stringify the snapshot to compare it to other snapshots.
             // so we can filter by storing them all in a set
 
-            const key = JSON.stringify(snapshot)
+            // we can see duplicates that only differ by delay - these still count as duplicates
+            // even though the delay would hide that
+            const { delay: _delay, ...delayFreeSnapshot } = snapshot
+            const key = JSON.stringify(delayFreeSnapshot)
             if (seenHashes.has(key)) {
                 return false
             } else {
