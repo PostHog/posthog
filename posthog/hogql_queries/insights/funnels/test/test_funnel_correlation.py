@@ -108,7 +108,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonConverted=success,
             funnelCorrelationPropertyValues=funnelCorrelationPropertyValues,
         )
-        return [str(row[1]["id"]) for row in serialized_actors]
+        return [str(row[0][0]) for row in serialized_actors]
 
     def test_basic_funnel_correlation_with_events(self):
         filters = {
@@ -835,18 +835,18 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ),
             10,
         )
-        # self.assertEqual(
-        #     len(self._get_actors_for_property(filters, [("industry", "positive", "group", 0)], False)),
-        #     1,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_property(filters, [("industry", "negative", "group", 0)])),
-        #     1,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_property(filters, [("industry", "negative", "group", 0)], False)),
-        #     10,
-        # )
+        self.assertEqual(
+            len(self._get_actors_for_property(filters, [("industry", "positive", "group", 0)], False)),
+            1,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filters, [("industry", "negative", "group", 0)])),
+            1,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filters, [("industry", "negative", "group", 0)], False)),
+            10,
+        )
 
         # test with `$all` as property
         # _run property correlation with filter on all properties
