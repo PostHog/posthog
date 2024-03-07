@@ -47,9 +47,9 @@ class BackfillQuery:
         gclid_property = source_column("gclid")
         gad_source_property = source_column("gad_source")
 
-        def select_query(date: Optional[datetime] = None) -> str:
-            if date:
-                where = f"toStartOfDay(timestamp) = '{date.strftime('%Y-%m-%d')}'"
+        def select_query(select_date: Optional[datetime] = None) -> str:
+            if select_date:
+                where = f"toStartOfDay(timestamp) = '{select_date.strftime('%Y-%m-%d')}'"
             else:
                 where = "true"
 
@@ -99,7 +99,7 @@ WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND {where}
         for i in range(num_days):
             date = self.start_date + timedelta(days=i)
             logging.info("Writing the sessions for day %s", date.strftime("%Y-%m-%d"))
-            sync_execute(f"""INSERT INTO writable_sessions {select_query(date=date)}""")
+            sync_execute(f"""INSERT INTO writable_sessions {select_query(select_date=date)}""")
 
         # print the count of entries in the main sessions table
         count_query = f"SELECT count(), uniq(session_id) FROM {TARGET_TABLE}"
@@ -124,7 +124,7 @@ class Command(BaseCommand):
     def handle(self, *, live_run: bool, start_date: str, end_date: str, **options):
         logger.setLevel(logging.INFO)
 
-        start_date = datetime.strptime(start_date, "%Y-%m-%d")
-        end_date = datetime.strptime(end_date, "%Y-%m-%d")
+        start_datetime = datetime.strptime(start_date, "%Y-%m-%d")
+        end_datetime = datetime.strptime(end_date, "%Y-%m-%d")
 
-        BackfillQuery(start_date, end_date).execute(dry_run=not live_run)
+        BackfillQuery(start_datetime, end_datetime).execute(dry_run=not live_run)
