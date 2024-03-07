@@ -2,12 +2,12 @@
     padding: 0;
     line-height: inherit;
     color: var(--link);
+    text-align: left;
     cursor: pointer;
     background: none;
     border: none;
     outline: none;
     transition: none;
-    text-align: left;
 
     &:not(:disabled) {
         &:hover {
