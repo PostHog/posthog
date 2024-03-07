@@ -146,11 +146,14 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-export async function getJSONOrNull(response: Response): Promise<any> {
+export async function getJSONOrThrow(response: Response): Promise<any> {
+    if (response.status === 204) {
+        return null
+    }
     try {
         return await response.json()
     } catch (e) {
-        return null
+        throw new ApiError('Failed to parse response JSON', response.status, response.statusText)
     }
 }
 
@@ -2047,7 +2050,7 @@ const api = {
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
-        return await getJSONOrNull(res)
+        return await getJSONOrThrow(res)
     },
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
@@ -2083,12 +2086,12 @@ const api = {
             })
         })
 
-        return await getJSONOrNull(response)
+        return await getJSONOrThrow(response)
     },
 
     async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
         const res = await api.createResponse(url, data, options)
-        return await getJSONOrNull(res)
+        return await getJSONOrThrow(res)
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
@@ -2169,7 +2172,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         const pathname = new URL(url, location.origin).pathname
         posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
 
-        const data = await getJSONOrNull(response)
+        const data = await getJSONOrThrow(response)
         throw new ApiError('Non-OK response', response.status, data)
     }
 
