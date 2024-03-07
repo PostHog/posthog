@@ -22,10 +22,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
     props({} as DefinitionLogicProps),
     key((props) => props.id || 'new'),
     connect(({ id }: DefinitionLogicProps) => ({
-        values: [
-            definitionLogic({ id }),
-            ['definition', 'definitionLoading', 'isEvent', 'isProperty', 'singular', 'hasTaxonomyFeatures'],
-        ],
+        values: [definitionLogic({ id }), ['definition', 'isEvent', 'singular']],
         actions: [
             definitionLogic({ id }),
             ['setDefinition'],

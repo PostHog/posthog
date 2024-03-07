@@ -2,6 +2,7 @@ import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { VerifiedDefinitionCheckbox } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -27,13 +28,17 @@ export const scene: SceneExport = {
 
 export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionEditLogic(props)
-    const { editDefinition, definitionLoading, hasTaxonomyFeatures, isProperty } = useValues(logic)
+    const { definitionLoading, definitionMissing, hasTaxonomyFeatures, isProperty } = useValues(definitionLogic(props))
+    const { editDefinition } = useValues(logic)
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
 
     const showVerifiedCheckbox =
         hasTaxonomyFeatures && !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
 
+    if (definitionMissing) {
+        return <NotFound object="event" />
+    }
     return (
         <Form logic={definitionEditLogic} props={props} formKey="editDefinition">
             <PageHeader
