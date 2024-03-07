@@ -2802,6 +2802,7 @@ export interface PersonProperty {
     id: number
     name: string
     count: number
+    table?: string
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4

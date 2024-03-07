@@ -330,7 +330,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         logic: personPropertiesModel({ propertyAllowList }),
                         value: 'combinedPersonProperties',
                         getName: (personProperty: PersonProperty) => personProperty.name,
-                        getValue: (personProperty: PersonProperty) => personProperty.name,
+                        getValue: (personProperty: PersonProperty) => {
+                            if (personProperty.table) {
+                                return personProperty.id
+                            }
+                            return personProperty.name
+                        },
                         propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties],
                         ...propertyTaxonomicGroupProps(true),
                     },
