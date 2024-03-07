@@ -42,67 +42,6 @@
             }
         }
 
-        .event-properties-wrapper {
-            .event-properties-header {
-                font-weight: 600;
-            }
-
-            .definition-pill-value {
-                display: flex;
-                align-items: center;
-                width: fit-content;
-                max-width: 300px;
-                padding: 0.125rem 0.25rem;
-                font-size: 0.625rem;
-                font-weight: 500;
-                color: var(--muted-alt);
-                letter-spacing: 0.25px;
-                word-break: break-all;
-                cursor: text;
-                background: var(--mid);
-                border: 1px solid var(--border-light);
-                border-radius: var(--radius);
-            }
-
-            td.definition-column-name {
-                display: flex;
-                flex-direction: row;
-                align-items: center;
-
-                .definition-column-name-content {
-                    position: relative;
-                    display: flex;
-                    flex-direction: column;
-
-                    .definition-column-name-content-title {
-                        position: relative;
-                        overflow: visible;
-                        font-weight: 600;
-                        cursor: pointer;
-
-                        &::before {
-                            position: absolute;
-                            inset: -5px -50px -5px -10px;
-                            height: 22px;
-                            content: '';
-                        }
-                    }
-
-                    .definition-column-name-content-description {
-                        font-size: 13px;
-                        color: var(--muted);
-                        text-overflow: ellipsis;
-                    }
-                }
-            }
-
-            td.definition-example-type {
-                .definition-pill-value {
-                    float: right;
-                }
-            }
-        }
-
         .definition-matching-events {
             .definition-matching-events-header {
                 font-weight: 600;
