@@ -43,6 +43,7 @@ export interface LemonModalProps {
      * A modal launched from a popover can appear behind the popover. This allows you to force the modal to appear above the popover.
      * */
     forceAbovePopovers?: boolean
+    closeIconSize?: string
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
     'data-attr'?: string
@@ -76,6 +77,7 @@ export function LemonModal({
     footer,
     inline,
     simple,
+    closeIconSize = 'small',
     closable = true,
     hasUnsavedInput,
     fullScreen = false,
@@ -120,7 +122,7 @@ export function LemonModal({
                     >
                         <LemonButton
                             icon={<IconX />}
-                            size="small"
+                            size={closeIconSize}
                             onClick={onClose}
                             aria-label="close"
                             onMouseEnter={() => setIgnoredOverlayClickCount(0)}

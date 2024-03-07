@@ -10,7 +10,7 @@ export function UpgradeModal(): JSX.Element {
     const { hideUpgradeModal } = useActions(upgradeModalLogic)
 
     return upgradeModalFeatureKey ? (
-        <LemonModal onClose={hideUpgradeModal} isOpen={!!upgradeModalFeatureKey}>
+        <LemonModal onClose={hideUpgradeModal} closeIconSize="xsmall" isOpen={!!upgradeModalFeatureKey}>
             <div className="max-w-2xl">
                 <PayGateMini
                     feature={upgradeModalFeatureKey}
@@ -18,7 +18,7 @@ export function UpgradeModal(): JSX.Element {
                     isGrandfathered={upgradeModalIsGrandfathered ?? undefined}
                     background={false}
                 >
-                    <div className="pr-7">
+                    <div className="mt-6 px-2">
                         You should have access to this feature already. If you are still seeing this modal, please let
                         us know 🙂
                     </div>
