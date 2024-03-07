@@ -1033,22 +1033,22 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
-            # self.assertEqual(
-            #     len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)])),
-            #     10,
-            # )
-            # self.assertEqual(
-            #     len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)], False)),
-            #     1,
-            # )
-            # self.assertEqual(
-            #     len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)])),
-            #     1,
-            # )
-            # self.assertEqual(
-            #     len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)], False)),
-            #     10,
-            # )
+            self.assertEqual(
+                len(self._get_actors_for_property(filters, [("industry", "positive", "group", 0)])),
+                10,
+            )
+            self.assertEqual(
+                len(self._get_actors_for_property(filters, [("industry", "positive", "group", 0)], False)),
+                1,
+            )
+            self.assertEqual(
+                len(self._get_actors_for_property(filters, [("industry", "negative", "group", 0)])),
+                1,
+            )
+            self.assertEqual(
+                len(self._get_actors_for_property(filters, [("industry", "negative", "group", 0)], False)),
+                10,
+            )
 
             # test with `$all` as property
             # _run property correlation with filter on all properties
