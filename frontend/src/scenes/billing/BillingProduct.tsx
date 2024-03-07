@@ -341,7 +341,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             ref={ref}
         >
             <div className="border border-border rounded w-full bg-bg-light" ref={productRef}>
-                <div className="border-b border-border bg-mid p-4">
+                <div className="border-b border-border rounded-t bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {getProductIcon(product.name, product.icon_key, 'text-2xl')}
                         <div>
@@ -416,12 +416,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 </div>
                 <div className="px-8">
-                    {product.percentage_usage > 1 ? (
-                        <LemonBanner type="error">
+                    {product.percentage_usage > 1 && (
+                        <LemonBanner className="mt-6" type="error">
                             You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
-                    ) : null}
+                    )}
                     <div className="flex w-full items-center gap-x-8">
                         {product.contact_support && (!product.subscribed || isUnlicensedDebug) ? (
                             <div className="py-8">

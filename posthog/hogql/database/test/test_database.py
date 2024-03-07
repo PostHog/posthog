@@ -24,19 +24,25 @@ class TestDatabase(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
-            serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
+            serialized_database = serialize_database(
+                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+            )
             assert json.dumps(serialized_database, indent=4) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_with_person_on_events_enabled(self):
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
-            serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
+            serialized_database = serialize_database(
+                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+            )
             assert json.dumps(serialized_database, indent=4) == self.snapshot
 
     @parameterized.expand([False, True])
     def test_can_select_from_each_table_at_all(self, poe_enabled: bool) -> None:
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=poe_enabled):
-            serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
+            serialized_database = serialize_database(
+                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+            )
             for table, possible_columns in serialized_database.items():
                 if table == "numbers":
                     execute_hogql_query(
