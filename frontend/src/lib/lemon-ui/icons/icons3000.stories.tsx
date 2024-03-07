@@ -52,7 +52,7 @@ const CATEGORIES = {
         'IconRewindPlay',
         'IconVideoCamera',
     ],
-    'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTest', 'IconSplitTesting'],
+    'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting'],
     Actions: [
         'IconCopy',
         'IconTrash',
@@ -70,6 +70,7 @@ const CATEGORIES = {
         'IconOpenSidebar',
         'IconFilter',
         'IconArchive',
+        'IconSort',
     ],
     Mathematics: [
         'IconPlus',
@@ -92,7 +93,7 @@ const CATEGORIES = {
         'IconChat',
         'IconThoughtBubble',
     ],
-    Devices: [
+    Technology: [
         'IconLaptop',
         'IconPhone',
         'IconWebcam',
@@ -101,6 +102,10 @@ const CATEGORIES = {
         'IconServer',
         'IconDatabase',
         'IconHardDrive',
+        'IconBrowser',
+        'IconCode',
+        'IconCodeInsert',
+        'IconTerminal',
     ],
     Objects: [
         'IconPalette',
@@ -128,6 +133,9 @@ const CATEGORIES = {
         'IconMagic',
         'IconHelmet',
         'IconSpotlight',
+        'IconReceipt',
+        'IconGraduationCap',
+        'IconLightBulb',
     ],
     UI: [
         'IconPassword',
@@ -140,6 +148,7 @@ const CATEGORIES = {
         'IconCursorClick',
         'IconToolbar',
         'IconToolbarFilled',
+        'IconCheckbox',
     ],
 }
 
