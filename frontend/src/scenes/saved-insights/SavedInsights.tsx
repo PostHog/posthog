@@ -31,6 +31,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
@@ -404,10 +405,13 @@ export function SavedInsights(): JSX.Element {
     const columns: LemonTableColumns<InsightModel> = [
         {
             key: 'id',
-            className: 'icon-column',
             width: 32,
             render: function renderType(_, insight) {
-                return <InsightIcon insight={insight} />
+                return (
+                    <span className="text-muted text-2xl">
+                        <InsightIcon insight={insight} />
+                    </span>
+                )
             },
         },
         {
@@ -417,7 +421,42 @@ export function SavedInsights(): JSX.Element {
             render: function renderName(name: string, insight) {
                 return (
                     <>
-                        <span className="row-name">
+                        <LemonTableLink
+                            to={urls.insightView(insight.short_id)}
+                            title={
+                                <>
+                                    {name || (
+                                        <i>
+                                            {summarizeInsight(insight.query, insight.filters, {
+                                                aggregationLabel,
+                                                cohortsById,
+                                                mathDefinitions,
+                                            })}
+                                        </i>
+                                    )}
+
+                                    <LemonButton
+                                        className="ml-1"
+                                        size="xsmall"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            updateFavoritedInsight(insight, !insight.favorited)
+                                        }}
+                                        icon={
+                                            insight.favorited ? (
+                                                <IconStarFilled className="text-warning" />
+                                            ) : (
+                                                <IconStar className="text-muted" />
+                                            )
+                                        }
+                                        tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
+                                    />
+                                </>
+                            }
+                            description={hasDashboardCollaboration ? insight.description : undefined}
+                        />
+
+                        {/* <span className="row-name">
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
                                     <i>
@@ -447,7 +486,7 @@ export function SavedInsights(): JSX.Element {
                             <LemonMarkdown className="row-description" lowKeyHeadings>
                                 {insight.description}
                             </LemonMarkdown>
-                        )}
+                        )} */}
                     </>
                 )
             },

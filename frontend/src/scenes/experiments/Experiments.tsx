@@ -9,9 +9,9 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -62,16 +62,11 @@ export function Experiments(): JSX.Element {
             width: '40%',
             render: function Render(_, experiment: Experiment) {
                 return (
-                    <>
-                        <Link to={experiment.id ? urls.experiment(experiment.id) : undefined}>
-                            <span className="row-name">{stringWithWBR(experiment.name, 17)}</span>
-                        </Link>
-                        {experiment.description && (
-                            <LemonMarkdown className="row-description" lowKeyHeadings>
-                                {experiment.description}
-                            </LemonMarkdown>
-                        )}
-                    </>
+                    <LemonTableLink
+                        to={experiment.id ? urls.experiment(experiment.id) : undefined}
+                        title={stringWithWBR(experiment.name, 17)}
+                        description={experiment.description}
+                    />
                 )
             },
         },
