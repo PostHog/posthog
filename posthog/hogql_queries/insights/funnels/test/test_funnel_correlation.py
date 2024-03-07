@@ -84,7 +84,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationPersonConverted=success,
             funnelCorrelationPersonEntity=EventsNode(event=event_name, properties=properties),
         )
-        return [str(row[1]["id"]) for row in serialized_actors]
+        return [str(row[0][0]) for row in serialized_actors]
 
     def _get_actors_for_property(
         self, filters: Dict[str, Any], property_values: list, success=True, funnelCorrelationNames=None
@@ -446,16 +446,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        # self.assertEqual(len(self._get_actors_for_event(filter, "positively_related")), 5)
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "positively_related", success=False)),
-        #     0,
-        # )
-        # self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 1)
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "negatively_related", success=False)),
-        #     1,
-        # )
+        self.assertEqual(len(self._get_actors_for_event(filters, "positively_related")), 5)
+        self.assertEqual(
+            len(self._get_actors_for_event(filters, "positively_related", success=False)),
+            0,
+        )
+        self.assertEqual(len(self._get_actors_for_event(filters, "negatively_related")), 1)
+        self.assertEqual(
+            len(self._get_actors_for_event(filters, "negatively_related", success=False)),
+            1,
+        )
 
         # Now exclude all groups in positive
         excludes = {
@@ -471,30 +471,30 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, _ = self._get_events_for_filters({**filters, **excludes})  # TODO destructure
 
-        # odds_ratio = result[0].pop("odds_ratio")
-        # expected_odds_ratio = 1
-        # # success total and failure totals remove other groups too
+        odds_ratio = result[0].pop("odds_ratio")
+        expected_odds_ratio = 1
+        # success total and failure totals remove other groups too
 
-        # self.assertAlmostEqual(odds_ratio, expected_odds_ratio)
+        self.assertAlmostEqual(odds_ratio, expected_odds_ratio)
 
-        # self.assertEqual(
-        #     result,
-        #     [
-        #         {
-        #             "event": "negatively_related",
-        #             "success_count": 1,
-        #             "failure_count": 1,
-        #             # "odds_ratio": 1,
-        #             "correlation_type": "failure",
-        #         }
-        #     ],
-        # )
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "negatively_related",
+                    "success_count": 1,
+                    "failure_count": 1,
+                    # "odds_ratio": 1,
+                    "correlation_type": "failure",
+                }
+            ],
+        )
 
-        # self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 1)
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "negatively_related", success=False)),
-        #     1,
-        # )
+        self.assertEqual(len(self._get_actors_for_event(filters, "negatively_related")), 1)
+        self.assertEqual(
+            len(self._get_actors_for_event(filters, "negatively_related", success=False)),
+            1,
+        )
 
     # :FIXME: This should also work with materialized columns
     # @also_test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
@@ -827,20 +827,24 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+        self.assertEqual(
+            len(
+                self._get_actors_for_property(
+                    filters, [("industry", "positive", "group", 0)], funnelCorrelationNames=["industry"]
+                )
+            ),
+            10,
+        )
         # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)])),
-        #     10,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)], False)),
+        #     len(self._get_actors_for_property(filters, [("industry", "positive", "group", 0)], False)),
         #     1,
         # )
         # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)])),
+        #     len(self._get_actors_for_property(filters, [("industry", "negative", "group", 0)])),
         #     1,
         # )
         # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)], False)),
+        #     len(self._get_actors_for_property(filters, [("industry", "negative", "group", 0)], False)),
         #     10,
         # )
 

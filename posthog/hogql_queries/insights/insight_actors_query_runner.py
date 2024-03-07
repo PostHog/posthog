@@ -70,6 +70,9 @@ class InsightActorsQueryRunner(QueryRunner):
         if isinstance(self.source_runner, RetentionQueryRunner):
             return cast(RetentionQueryRunner, self.source_runner).group_type_index
 
+        if isinstance(self.source_runner, FunnelCorrelationQueryRunner):
+            return self.query.source.source.source.aggregation_group_type_index
+
         if (
             isinstance(self.source_runner, StickinessQueryRunner) and isinstance(self.query.source, StickinessQuery)
         ) or (isinstance(self.source_runner, TrendsQueryRunner) and isinstance(self.query.source, TrendsQuery)):

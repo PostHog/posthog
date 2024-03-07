@@ -63,9 +63,11 @@ def get_actors(
         funnelCorrelationPersonEntity=funnelCorrelationPersonEntity,
         funnelCorrelationPropertyValues=funnelCorrelationPropertyValues,
     )
+    persons_select = ["id", "person", *(["matched_recordings"] if includeRecordings else [])]
+    groups_select = ["actor_id"]
     actors_query = ActorsQuery(
         source=correlation_actors_query,
-        select=["id", "person", *(["matched_recordings"] if includeRecordings else [])],
+        select=persons_select if funnels_query.aggregation_group_type_index is None else groups_select,
     )
     response = ActorsQueryRunner(query=actors_query, team=team).calculate()
     return response.results
