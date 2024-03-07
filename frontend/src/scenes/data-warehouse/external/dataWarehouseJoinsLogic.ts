@@ -33,20 +33,23 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
                 return personTableJoins.map((join: DataWarehouseViewLink) => {
                     // valid join should have a joining table name
                     const table = externalTablesMap[join.joining_table_name as string]
-                    return table
+                    return {
+                        table,
+                        join,
+                    }
                 })
             },
         ],
         columnsJoinedToPersons: [
             (s) => [s.tablesJoinedToPersons],
             (tablesJoinedToPersons) => {
-                return tablesJoinedToPersons.reduce((acc, table) => {
+                return tablesJoinedToPersons.reduce((acc, { table, join }) => {
                     if (table) {
                         acc.push(
                             ...table.columns.map((column: DatabaseSchemaQueryResponseField) => ({
                                 id: column.key,
                                 name: column.key,
-                                table: table.name,
+                                table: join.field_name,
                                 property_type: capitalizeFirstLetter(column.type) as PropertyType,
                             }))
                         )
