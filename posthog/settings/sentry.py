@@ -1,18 +1,18 @@
 import logging
 import os
+from datetime import timedelta
+from random import random
 
 import sentry_sdk
+from dateutil import parser
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
+from posthog.git import get_git_commit_full
 
 from posthog.settings import get_from_env
 from posthog.settings.base_variables import TEST
-
-from dateutil import parser
-from random import random
-from datetime import timedelta
 
 
 def before_send(event, hint):
@@ -107,13 +107,15 @@ def traces_sampler(sampling_context: dict) -> float:
 
     elif op == "celery.task":
         task = sampling_context.get("celery_job", {}).get("task")
-        if task == "posthog.celery.redis_heartbeat":
+
+        if task in (
+            "posthog.celery.redis_heartbeat",
+            "posthog.celery.redis_celery_queue_depth",
+        ):
             return 0.0001  # 0.01%
-        if task == "posthog.celery.redis_celery_queue_depth":
-            return 0.0001  # 0.01%
-        else:
-            # Default sample rate for Celery tasks
-            return 0.001  # 0.1%
+
+        # Default sample rate for Celery tasks
+        return 0.001  # 0.1%
     elif op == "queue.task.celery":
         task = sampling_context.get("celery_job", {}).get("task")
         if task == "posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag":
@@ -142,15 +144,7 @@ def sentry_init() -> None:
         sentry_logging = LoggingIntegration(level=sentry_logging_level, event_level=None)
         profiles_sample_rate = get_from_env("SENTRY_PROFILES_SAMPLE_RATE", type_cast=float, default=0.0)
 
-        release = None
-        try:
-            # Docker containers should have a commit.txt file in the base directory with the git
-            # commit hash used to generate them.
-            with open("commit.txt") as f:
-                release = f.read()
-        except:
-            # The release isn't required, it's just nice to have.
-            pass
+        release = get_git_commit_full()
 
         sentry_sdk.init(
             send_default_pii=send_pii,

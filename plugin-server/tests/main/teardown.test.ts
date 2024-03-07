@@ -4,7 +4,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { waitForExpect } from '../../functional_tests/expectations'
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { Hub, LogLevel, PluginLogEntry, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
-import { runEventPipeline } from '../../src/worker/ingestion/event-pipeline/runner'
+import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { makePiscina } from '../../src/worker/piscina'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
@@ -36,7 +36,7 @@ async function getLogEntriesForPluginConfig(hub: Hub, pluginConfigId: number) {
 
 describe('teardown', () => {
     const processEvent = async (hub: Hub, event: PluginEvent) => {
-        const result = await runEventPipeline(hub, event)
+        const result = await new EventPipelineRunner(hub, event).runEventPipeline(event)
         const resultEvent = result.args[0]
         return resultEvent
     }

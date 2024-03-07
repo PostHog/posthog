@@ -1,8 +1,9 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconDelete, IconSlack } from 'lib/lemon-ui/icons'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -68,7 +69,7 @@ export function SlackIntegration(): JSX.Element {
                             </div>
                         </div>
 
-                        <LemonButton type="secondary" status="danger" onClick={onDeleteClick} icon={<IconDelete />}>
+                        <LemonButton type="secondary" status="danger" onClick={onDeleteClick} icon={<IconTrash />}>
                             Disconnect
                         </LemonButton>
                     </div>

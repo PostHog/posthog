@@ -8,7 +8,7 @@ import { buildPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { TrendsFilter } from '~/queries/schema'
+import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '~/queries/schema'
 import { isInsightQueryNode } from '~/queries/utils'
 import { ChartParams, GraphDataset, GraphType } from '~/types'
 
@@ -28,8 +28,15 @@ export function FunnelLineGraph({
     showPersonsModal = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
-        useValues(funnelDataLogic(insightProps))
+    const {
+        hogQLInsightsFunnelsFlagEnabled,
+        indexedSteps,
+        aggregationTargetLabel,
+        incompletenessOffsetFromEnd,
+        interval,
+        querySource,
+        insightData,
+    } = useValues(funnelDataLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
         return null
@@ -78,19 +85,31 @@ export function FunnelLineGraph({
                               const day = dataset?.days?.[index] ?? ''
                               const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
-                              const filters = queryNodeToFilter(querySource) // for persons modal
-                              const personsUrl = buildPeopleUrl({
-                                  filters,
-                                  date_from: day ?? '',
-                                  response: insightData,
-                              })
-                              if (personsUrl) {
+                              const title = `${capitalizeFirstLetter(
+                                  aggregationTargetLabel.plural
+                              )} converted on ${dayjs(label).format('MMMM Do YYYY')}`
+
+                              if (hogQLInsightsFunnelsFlagEnabled) {
+                                  const query: FunnelsActorsQuery = {
+                                      kind: NodeKind.InsightActorsQuery,
+                                      source: querySource,
+                                      funnelTrendsDropOff: false,
+                                      funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
+                                  }
                                   openPersonsModal({
-                                      url: personsUrl,
-                                      title: `${capitalizeFirstLetter(
-                                          aggregationTargetLabel.plural
-                                      )} converted on ${dayjs(label).format('MMMM Do YYYY')}`,
+                                      title,
+                                      query,
                                   })
+                              } else {
+                                  const filters = queryNodeToFilter(querySource) // for persons modal
+                                  const personsUrl = buildPeopleUrl({
+                                      filters,
+                                      date_from: day ?? '',
+                                      response: insightData,
+                                  })
+                                  if (personsUrl) {
+                                      openPersonsModal({ title, url: personsUrl })
+                                  }
                               }
                           }
                 }

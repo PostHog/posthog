@@ -5,8 +5,6 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { useAvailableFeatures } from '~/mocks/features'
-import { AvailableFeature } from '~/types'
 
 import featureFlags from './__mocks__/feature_flags.json'
 
@@ -41,6 +39,11 @@ const meta: Meta = {
             },
             post: {
                 '/api/projects/:team_id/query': {},
+                // flag targeting has loaders, make sure they don't keep loading
+                '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [
+                    200,
+                    { users_affected: 120, total_users: 2000 },
+                ],
             },
         }),
     ],
@@ -69,7 +72,6 @@ export function EditFeatureFlag(): JSX.Element {
 
 export function EditMultiVariateFeatureFlag(): JSX.Element {
     useEffect(() => {
-        useAvailableFeatures([AvailableFeature.MULTIVARIATE_FLAGS])
         router.actions.push(urls.featureFlag(1502))
     }, [])
     return <App />

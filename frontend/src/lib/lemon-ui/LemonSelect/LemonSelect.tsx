@@ -1,7 +1,7 @@
+import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
-import { IconClose } from '../icons'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import {
     isLemonMenuSection,
@@ -132,7 +132,6 @@ export function LemonSelect<T extends string | number | boolean | null>({
             tooltipPlacement={optionTooltipPlacement}
             sameWidth={dropdownMatchSelectWidth}
             placement={dropdownPlacement}
-            actionable
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
             activeItemIndex={items
@@ -147,7 +146,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 sideAction={
                     isClearButtonShown
                         ? {
-                              icon: <IconClose />,
+                              icon: <IconX />,
                               divider: false,
                               onClick: () => {
                                   onChange?.(null as T)

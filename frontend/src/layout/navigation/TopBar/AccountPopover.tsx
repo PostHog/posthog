@@ -1,31 +1,39 @@
 import './AccountPopover.scss'
 
-import { IconCheckCircle, IconFeatures, IconGear, IconLive, IconPlusSmall, IconServer } from '@posthog/icons'
+import {
+    IconCheckCircle,
+    IconConfetti,
+    IconFeatures,
+    IconGear,
+    IconLeave,
+    IconLive,
+    IconPlusSmall,
+    IconReceipt,
+    IconServer,
+} from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconBill, IconLogout } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import {
     AccessLevelIndicator,
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
 import { urls } from '../../../scenes/urls'
 import { userLogic } from '../../../scenes/userLogic'
-import { OrganizationBasicType } from '../../../types'
+import { OrganizationBasicType, SidePanelTab } from '../../../types'
 import { navigationLogic } from '../navigationLogic'
 
 function AccountPopoverSection({
@@ -153,13 +161,13 @@ function InstanceSettings(): JSX.Element | null {
 
 function FeaturePreviewsButton(): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
-    const { showFeaturePreviewsModal } = useActions(featurePreviewsLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
         <LemonButton
             onClick={() => {
                 closeAccountPopover()
-                showFeaturePreviewsModal()
+                openSidePanel(SidePanelTab.FeaturePreviews)
             }}
             icon={<IconFeatures />}
             fullWidth
@@ -173,7 +181,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconLogout />} fullWidth data-attr="top-menu-item-logout">
+        <LemonButton onClick={logout} icon={<IconLeave />} fullWidth data-attr="top-menu-item-logout">
             Sign out
         </LemonButton>
     )
@@ -182,9 +190,10 @@ function SignOutButton(): JSX.Element {
 export function AccountPopoverOverlay(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { mobileLayout } = useValues(navigationLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { preflight, isCloudOrDev, isCloud } = useValues(preflightLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
-    const { billing } = useValues(billingLogic)
 
     return (
         <>
@@ -193,11 +202,11 @@ export function AccountPopoverOverlay(): JSX.Element {
             </AccountPopoverSection>
             <AccountPopoverSection title="Current organization">
                 {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                {preflight?.cloud || !!billing ? (
+                {isCloudOrDev ? (
                     <LemonButton
                         onClick={closeAccountPopover}
                         to={urls.organizationBilling()}
-                        icon={<IconBill />}
+                        icon={<IconReceipt />}
                         fullWidth
                         data-attr="top-menu-item-billing"
                     >
@@ -221,8 +230,14 @@ export function AccountPopoverOverlay(): JSX.Element {
             <AccountPopoverSection>
                 <ThemeSwitcher fullWidth type="tertiary" />
                 <LemonButton
-                    onClick={closeAccountPopover}
                     to="https://posthog.com/changelog"
+                    onClick={(e) => {
+                        closeAccountPopover()
+                        if (!mobileLayout) {
+                            e.preventDefault()
+                            openSidePanel(SidePanelTab.Docs, '/changelog')
+                        }
+                    }}
                     icon={<IconLive />}
                     fullWidth
                     data-attr="whats-new-button"
@@ -233,6 +248,19 @@ export function AccountPopoverOverlay(): JSX.Element {
                 <FeaturePreviewsButton />
                 {user?.is_staff && <InstanceSettings />}
             </AccountPopoverSection>
+            {!isCloud && (
+                <AccountPopoverSection>
+                    <LemonButton
+                        onClick={closeAccountPopover}
+                        to={urls.moveToPostHogCloud()}
+                        icon={<IconConfetti />}
+                        fullWidth
+                        data-attr="top-menu-item-upgrade-to-cloud"
+                    >
+                        Try PostHog Cloud
+                    </LemonButton>
+                </AccountPopoverSection>
+            )}
             <AccountPopoverSection>
                 <SignOutButton />
             </AccountPopoverSection>

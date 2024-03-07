@@ -1,6 +1,6 @@
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { objectsEqual } from 'lib/utils'
 import { CSSProperties, useEffect } from 'react'
 
@@ -62,7 +62,7 @@ export function PathItemFilters({
                                     className="new-prop-filter"
                                     data-attr={'new-prop-filter-' + pageKey}
                                     type="secondary"
-                                    icon={<IconPlusMini />}
+                                    icon={<IconPlusSmall />}
                                     sideIcon={null}
                                 >
                                     Add exclusion

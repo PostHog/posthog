@@ -5,7 +5,7 @@ from django.conf import settings
 from infi.clickhouse_orm import Database
 
 from posthog.client import sync_execute
-from posthog.test.base import TestMixin, run_clickhouse_statement_in_parallel
+from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
 
 def create_clickhouse_tables(num_tables: int):
@@ -96,6 +96,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         password=settings.CLICKHOUSE_PASSWORD,
         cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
+        randomize_replica_paths=True,
     )
 
     if not django_db_keepdb:
@@ -124,7 +125,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
 
 @pytest.fixture
 def base_test_mixin_fixture():
-    kls = TestMixin()
+    kls = PostHogTestCase()
     kls.setUp()
     kls.setUpTestData()
 

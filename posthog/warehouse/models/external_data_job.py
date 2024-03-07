@@ -4,6 +4,7 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 from posthog.warehouse.s3 import get_s3_client
 from uuid import UUID
+from posthog.warehouse.util import database_sync_to_async
 
 
 class ExternalDataJob(CreatedMetaFields, UUIDModel):
@@ -37,11 +38,18 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
         s3.delete(f"{settings.BUCKET_URL}/{self.folder_path}", recursive=True)
 
 
+@database_sync_to_async
+def get_external_data_job(job_id: UUID) -> ExternalDataJob:
+    return ExternalDataJob.objects.prefetch_related("pipeline").get(pk=job_id)
+
+
+@database_sync_to_async
 def get_latest_run_if_exists(team_id: int, pipeline_id: UUID) -> ExternalDataJob | None:
     job = (
         ExternalDataJob.objects.filter(
             team_id=team_id, pipeline_id=pipeline_id, status=ExternalDataJob.Status.COMPLETED
         )
+        .prefetch_related("pipeline")
         .order_by("-created_at")
         .first()
     )

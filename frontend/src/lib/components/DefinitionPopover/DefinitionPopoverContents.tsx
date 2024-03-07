@@ -1,5 +1,6 @@
 import { hide } from '@floating-ui/react'
-import { LemonButton, LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
+import { IconInfo, IconLock } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -13,16 +14,18 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { IconInfo, IconLock, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isPostHogProp, KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { useEffect } from 'react'
+import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
+import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TZLabel } from '../TZLabel'
 
 function TaxonomyIntroductionSection(): JSX.Element {
@@ -95,8 +98,20 @@ export function VerifiedDefinitionCheckbox({
 }
 
 function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element {
-    const { definition, type, hasTaxonomyFeatures, isAction, isEvent, isCohort, isElement, isProperty } =
-        useValues(definitionPopoverLogic)
+    const {
+        definition,
+        localDefinition,
+        type,
+        hasTaxonomyFeatures,
+        isAction,
+        isEvent,
+        isCohort,
+        isDataWarehouse,
+        isProperty,
+    } = useValues(definitionPopoverLogic)
+
+    const { setLocalDefinition } = useActions(definitionPopoverLogic)
+    const { selectItem } = useActions(taxonomicFilterLogic)
 
     if (!definition) {
         return <></>
@@ -104,8 +119,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
 
     const description: string | JSX.Element | undefined | null =
         (definition && 'description' in definition && definition?.description) ||
-        (definition?.name &&
-            (KEY_MAPPING.element[definition.name]?.description || KEY_MAPPING.event[definition.name]?.description))
+        (definition?.name && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.name]?.description)
 
     const sharedComponents = (
         <>
@@ -245,7 +259,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             </>
         )
     }
-    if (isElement) {
+    if (group.type === TaxonomicFilterGroupType.Elements) {
         const _definition = definition as SimpleOption
         return (
             <>
@@ -257,6 +271,59 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     />
                 </DefinitionPopover.Section>
             </>
+        )
+    }
+    if (isDataWarehouse) {
+        const _definition = definition as DataWarehouseTableType
+        const columnOptions = _definition.columns.map((column) => ({
+            label: column.key + ' (' + column.type + ')',
+            value: column.key,
+        }))
+        const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
+        return (
+            <form className="definition-popover-data-warehouse-schema-form">
+                <div className="flex flex-col justify-between gap-4">
+                    <DefinitionPopover.Section>
+                        <label className="definition-popover-edit-form-label" htmlFor="ID Field">
+                            <span className="label-text">ID field</span>
+                        </label>
+                        <LemonSelect
+                            value={'id_field' in localDefinition ? localDefinition.id_field : undefined}
+                            options={columnOptions}
+                            onChange={(value) => setLocalDefinition({ id_field: value })}
+                        />
+
+                        <label className="definition-popover-edit-form-label" htmlFor="ID Field">
+                            <span className="label-text">Timestamp field</span>
+                        </label>
+                        <LemonSelect
+                            value={
+                                ('timestamp_field' in localDefinition && localDefinition.timestamp_field) || undefined
+                            }
+                            options={columnOptions}
+                            onChange={(value) => setLocalDefinition({ timestamp_field: value })}
+                        />
+                    </DefinitionPopover.Section>
+                    <div className="flex justify-end">
+                        <LemonButton
+                            onClick={() => {
+                                selectItem(group, itemValue ?? null, localDefinition)
+                            }}
+                            disabledReason={
+                                'id_field' in localDefinition &&
+                                localDefinition.id_field &&
+                                'timestamp_field' in localDefinition &&
+                                localDefinition.timestamp_field
+                                    ? null
+                                    : 'Field mappings must be specified'
+                            }
+                            type="primary"
+                        >
+                            Select
+                        </LemonButton>
+                    </div>
+                </div>
+            </form>
         )
     }
     return <></>
@@ -321,7 +388,7 @@ function DefinitionEdit(): JSX.Element {
                         </div>
                     </>
                 )}
-                {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (
+                {definition && definition.name && !isCoreFilter(definition.name) && 'verified' in localDefinition && (
                     <VerifiedDefinitionCheckbox
                         verified={!!localDefinition.verified}
                         isProperty={isProperty}
@@ -393,7 +460,7 @@ export function ControlledDefinitionPopover({
         return null
     }
 
-    const { state, singularType, isElement, definition } = useValues(definitionPopoverLogic)
+    const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
 
     const icon = group.getIcon?.(definition || item)
@@ -415,7 +482,7 @@ export function ControlledDefinitionPopover({
                         title={
                             <PropertyKeyInfo
                                 value={item.name ?? ''}
-                                type={isElement ? 'element' : undefined}
+                                type={group.type}
                                 disablePopover
                                 disableIcon={!!icon}
                                 ellipsis={false}

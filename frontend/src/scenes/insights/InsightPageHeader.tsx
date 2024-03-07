@@ -12,6 +12,7 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -45,22 +46,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // insightLogic
     const logic = insightLogic(insightLogicProps)
-    const {
-        insightProps,
-        canEditInsight,
-        insight,
-        insightChanged,
-        insightSaving,
-        hasDashboardItemId,
-        exporterResourceParams,
-    } = useValues(logic)
+    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } =
+        useValues(logic)
     const { setInsightMetadata } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { queryChanged, showQueryEditor, hogQL } = useValues(insightDataLogic(insightProps))
+    const { queryChanged, showQueryEditor, hogQL, exportContext } = useValues(insightDataLogic(insightProps))
     const { saveInsight, saveAs, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
@@ -83,7 +77,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
-                        title="Insight Sharing"
+                        title="Insight sharing"
                         isOpen={insightMode === ItemMode.Sharing}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
@@ -142,12 +136,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 Share or embed
                                             </LemonButton>
-                                        </>
-                                    )}
-                                    {insight.short_id && (
-                                        <>
                                             <SubscribeButton insightShortId={insight.short_id} />
-                                            {exporterResourceParams ? (
+                                            {exportContext ? (
                                                 <ExportButton
                                                     fullWidth
                                                     items={[
@@ -157,55 +147,64 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                         },
                                                         {
                                                             export_format: ExporterFormat.CSV,
-                                                            export_context: exporterResourceParams,
+                                                            export_context: exportContext,
+                                                        },
+                                                        {
+                                                            export_format: ExporterFormat.XLSX,
+                                                            export_context: exportContext,
                                                         },
                                                     ]}
                                                 />
                                             ) : null}
+                                            <LemonDivider />
                                         </>
                                     )}
-                                    <LemonButton
+                                    <LemonSwitch
                                         data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
-                                        onClick={() => {
+                                        className="px-2 py-1"
+                                        checked={showQueryEditor}
+                                        onChange={() => {
                                             // for an existing insight in view mode
                                             if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
                                                 // enter edit mode
                                                 setInsightMode(ItemMode.Edit, null)
 
                                                 // exit early if query editor doesn't need to be toggled
-                                                if (showQueryEditor !== false) {
+                                                if (showQueryEditor) {
                                                     return
                                                 }
                                             }
                                             toggleQueryEditorPanel()
                                         }}
                                         fullWidth
-                                    >
-                                        {showQueryEditor ? 'Hide source' : 'View source'}
-                                    </LemonButton>
+                                        label="View source"
+                                    />
                                     {hogQL && (
-                                        <LemonButton
-                                            data-attr="edit-insight-sql"
-                                            onClick={() => {
-                                                router.actions.push(
-                                                    urls.insightNew(
-                                                        undefined,
-                                                        undefined,
-                                                        JSON.stringify({
-                                                            kind: NodeKind.DataTableNode,
-                                                            source: {
-                                                                kind: NodeKind.HogQLQuery,
-                                                                query: hogQL,
-                                                            },
-                                                            full: true,
-                                                        } as DataTableNode)
+                                        <>
+                                            <LemonDivider />
+                                            <LemonButton
+                                                data-attr="edit-insight-sql"
+                                                onClick={() => {
+                                                    router.actions.push(
+                                                        urls.insightNew(
+                                                            undefined,
+                                                            undefined,
+                                                            JSON.stringify({
+                                                                kind: NodeKind.DataTableNode,
+                                                                source: {
+                                                                    kind: NodeKind.HogQLQuery,
+                                                                    query: hogQL,
+                                                                },
+                                                                full: true,
+                                                            } as DataTableNode)
+                                                        )
                                                     )
-                                                )
-                                            }}
-                                            fullWidth
-                                        >
-                                            Edit SQL directly
-                                        </LemonButton>
+                                                }}
+                                                fullWidth
+                                            >
+                                                Edit SQL directly
+                                            </LemonButton>
+                                        </>
                                     )}
                                     {hasDashboardItemId && (
                                         <>
@@ -293,7 +292,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"
                                 compactButtons
-                                paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                paywall={!hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION)}
                             />
                         )}
                         {canEditInsight ? (

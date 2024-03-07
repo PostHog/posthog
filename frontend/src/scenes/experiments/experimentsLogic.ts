@@ -2,7 +2,6 @@ import { LemonTagType } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -10,7 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
+import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 
@@ -77,9 +76,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             [] as Experiment[],
             {
                 loadExperiments: async () => {
-                    if (!values.hasExperimentAvailableFeature) {
-                        return []
-                    }
                     const response = await api.get(`api/projects/${values.currentTeamId}/experiments?limit=1000`)
                     return response.results as Experiment[]
                 },
@@ -141,10 +137,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 return filteredExperiments
             },
         ],
-        hasExperimentAvailableFeature: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.EXPERIMENTATION),
-        ],
         shouldShowEmptyState: [
             (s) => [s.experimentsLoading, s.experiments],
             (experimentsLoading, experiments): boolean => {
@@ -164,13 +156,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadExperiments()
-        },
-    })),
-    subscriptions(({ actions }) => ({
-        hasExperimentAvailableFeature: (hasExperimentAvailableFeature, prevValue) => {
-            if (hasExperimentAvailableFeature && prevValue === false) {
-                actions.loadExperiments()
-            }
         },
     })),
 ])

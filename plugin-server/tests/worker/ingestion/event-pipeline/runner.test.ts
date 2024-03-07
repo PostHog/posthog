@@ -222,7 +222,7 @@ describe('EventPipelineRunner', () => {
                 expect(JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].messages[0].value)).toMatchObject({
                     team_id: 2,
                     distinct_id: 'my_id',
-                    error: 'ingestEvent failed. Error: testError',
+                    error: 'Event ingestion failed. Error: testError',
                     error_location: 'plugin_server_ingest_event:prepareEventStep',
                 })
                 expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('prepareEventStep')

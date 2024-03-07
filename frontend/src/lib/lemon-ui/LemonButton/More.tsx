@@ -1,4 +1,4 @@
-import { IconEllipsis } from 'lib/lemon-ui/icons'
+import { IconEllipsis } from '@posthog/icons'
 
 import { PopoverProps } from '../Popover/Popover'
 import { LemonButtonWithDropdown } from '.'

@@ -121,7 +121,11 @@ def property_to_expr(
     if property.type == "hogql":
         return parse_expr(property.key)
     elif (
-        property.type == "event" or property.type == "feature" or property.type == "person" or property.type == "group"
+        property.type == "event"
+        or property.type == "feature"
+        or property.type == "person"
+        or property.type == "group"
+        or property.type == "data_warehouse"
     ):
         if scope == "person" and property.type != "person":
             raise NotImplementedException(
@@ -134,6 +138,8 @@ def property_to_expr(
             chain = ["person", "properties"]
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
+        elif property.type == "data_warehouse":
+            chain = []
         else:
             chain = ["properties"]
         field = ast.Field(chain=chain + [property.key])
@@ -151,6 +157,7 @@ def property_to_expr(
                             type=property.type,
                             key=property.key,
                             operator=property.operator,
+                            group_type_index=property.group_type_index,
                             value=v,
                         ),
                         team,
@@ -203,11 +210,20 @@ def property_to_expr(
                 right=ast.Constant(value=f"%{value}%"),
             )
         elif operator == PropertyOperator.regex:
-            return ast.Call(name="match", args=[field, ast.Constant(value=value)])
+            return ast.Call(
+                name="ifNull",
+                args=[ast.Call(name="match", args=[field, ast.Constant(value=value)]), ast.Constant(value=False)],
+            )
         elif operator == PropertyOperator.not_regex:
             return ast.Call(
-                name="not",
-                args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])],
+                name="ifNull",
+                args=[
+                    ast.Call(
+                        name="not",
+                        args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])],
+                    ),
+                    ast.Constant(value=True),
+                ],
             )
         elif operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
             op = ast.CompareOperationOp.Eq
@@ -263,6 +279,7 @@ def property_to_expr(
                             type=property.type,
                             key=property.key,
                             operator=property.operator,
+                            group_type_index=property.group_type_index,
                             value=v,
                         ),
                         team,

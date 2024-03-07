@@ -1,7 +1,7 @@
+import { IconPencil, IconPlus, IconSearch, IconTrash, IconX } from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
-import { IconClose, IconDelete, IconEdit, IconMagnifier, IconMinusOutlined, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
@@ -89,7 +89,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                     actionForm.steps?.filter((_, i) => i !== index)
                                                 )
                                             }
-                                            sideIcon={<IconMinusOutlined />}
+                                            sideIcon={<IconTrash />}
                                         >
                                             Remove
                                         </LemonButton>
@@ -103,7 +103,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                 e.stopPropagation()
                                                 inspectForElementWithIndex(inspectingElement === index ? null : index)
                                             }}
-                                            icon={<IconMagnifier />}
+                                            icon={<IconSearch />}
                                         >
                                             {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
                                         </LemonButton>
@@ -121,7 +121,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                 <LemonButton
                                                     size="small"
                                                     type="secondary"
-                                                    icon={<IconEdit />}
+                                                    icon={<IconPencil />}
                                                     onClick={(e) => {
                                                         e.stopPropagation()
                                                         posthog.capture('toolbar_manual_selector_modal_opened', {
@@ -202,7 +202,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                             type="secondary"
                             size="small"
                             onClick={() => selectAction(null)}
-                            sideIcon={<IconClose />}
+                            sideIcon={<IconX />}
                         >
                             Cancel
                         </LemonButton>
@@ -212,7 +212,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                         action
                     </LemonButton>
                     {selectedActionId !== 'new' ? (
-                        <LemonButton type="secondary" status="danger" onClick={deleteAction} icon={<IconDelete />} />
+                        <LemonButton type="secondary" status="danger" onClick={deleteAction} icon={<IconTrash />} />
                     ) : null}
                 </ToolbarMenu.Footer>
             </Form>

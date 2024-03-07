@@ -35,7 +35,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                 checked={user?.notification_settings.plugin_disabled || false}
                 disabled={userLoading}
                 bordered
-                label="Get notified when plugins are disabled due to errors."
+                label="Get notified of data pipeline errors."
             />
         </div>
     )

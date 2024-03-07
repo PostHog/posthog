@@ -20,7 +20,7 @@ from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
-from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers
+from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers, HogQLMetadata, HogQLMetadataResponse
 
 INCREASED_MAX_EXECUTION_TIME = 600
 
@@ -162,13 +162,14 @@ def execute_hogql_query(
         except Exception as e:
             if explain:
                 results, types = None, None
-                if isinstance(e, ExposedCHQueryError) or isinstance(e, HogQLException):
+                if isinstance(e, (ExposedCHQueryError, HogQLException)):
                     error = str(e)
                 else:
                     error = "Unknown error"
             else:
                 raise e
 
+    metadata: Optional[HogQLMetadataResponse] = None
     if explain and error is None:  # If the query errored, explain will fail as well.
         with timings.measure("explain"):
             explain_results = sync_execute(
@@ -180,6 +181,10 @@ def execute_hogql_query(
                 readonly=True,
             )
             explain_output = [str(r[0]) for r in explain_results[0]]
+        with timings.measure("metadata"):
+            from posthog.hogql.metadata import get_hogql_metadata
+
+            metadata = get_hogql_metadata(HogQLMetadata(select=hogql, debug=True), team)
     else:
         explain_output = None
 
@@ -194,4 +199,5 @@ def execute_hogql_query(
         types=types,
         modifiers=query_modifiers,
         explain=explain_output,
+        metadata=metadata,
     )

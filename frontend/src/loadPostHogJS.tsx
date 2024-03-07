@@ -38,6 +38,9 @@ export function loadPostHogJS(): void {
                     }
                 },
                 scroll_root_selector: ['main', 'html'],
+                autocapture: {
+                    capture_copied_text: true,
+                },
             })
         )
 

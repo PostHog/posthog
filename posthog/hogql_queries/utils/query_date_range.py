@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
@@ -75,6 +74,8 @@ class QueryDateRange:
                 self._date_range.date_from,
                 self._team.timezone_info,
                 now=self.now_with_timezone,
+                # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
+                always_truncate=True,
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -236,6 +237,12 @@ class QueryDateRange:
     def date_to_to_start_of_interval_hogql(self) -> ast.Call:
         return self.date_to_start_of_interval_hogql(self.date_to_as_hogql())
 
+    def date_to_with_extra_interval_hogql(self) -> ast.Call:
+        return ast.Call(
+            name="plus",
+            args=[self.date_to_start_of_interval_hogql(self.date_to_as_hogql()), self.one_interval_period()],
+        )
+
     def to_placeholders(self) -> Dict[str, ast.Expr]:
         return {
             "interval": self.interval_period_string_as_hogql_constant(),
@@ -249,22 +256,6 @@ class QueryDateRange:
             if self.use_start_of_interval()
             else self.date_from_as_hogql(),
         }
-
-    def to_properties(self, field: Optional[List[str]] = None) -> List[ast.Expr]:
-        if not field:
-            field = ["timestamp"]
-        return [
-            ast.CompareOperation(
-                left=ast.Field(chain=field),
-                op=CompareOperationOp.LtEq,
-                right=self.date_to_as_hogql(),
-            ),
-            ast.CompareOperation(
-                left=ast.Field(chain=field),
-                op=CompareOperationOp.Gt,
-                right=self.date_to_as_hogql(),
-            ),
-        ]
 
 
 class QueryDateRangeWithIntervals(QueryDateRange):
@@ -304,6 +295,8 @@ class QueryDateRangeWithIntervals(QueryDateRange):
             if self._team.week_start_day == WeekStartDay.MONDAY:
                 week_start_alignment_days = date_from.weekday()
             return date_from - timedelta(days=week_start_alignment_days)
+        elif self._interval == IntervalType.month:
+            return self.date_to().replace(day=1, hour=0, minute=0, second=0, microsecond=0) - delta
         else:
             date_to = self.date_to().replace(hour=0, minute=0, second=0, microsecond=0)
             return date_to - delta

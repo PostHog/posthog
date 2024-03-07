@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
@@ -49,7 +48,6 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
         <OnboardingStep
             title={`${titlePrefix()} better with friends.`}
             stepKey={stepKey}
-            hedgehog={<PhonePairHogs height={120} width={288} />}
             continueAction={() =>
                 preflight?.email_service_available &&
                 invitesToSend[0]?.target_email &&

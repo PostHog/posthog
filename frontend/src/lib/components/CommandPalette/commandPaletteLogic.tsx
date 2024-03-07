@@ -38,6 +38,7 @@ import {
     IconTrends,
     IconUnlock,
     IconUserPaths,
+    IconX,
 } from '@posthog/icons'
 import { Parser } from 'expr-eval'
 import Fuse from 'fuse.js'
@@ -45,7 +46,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconClose, IconFlare } from 'lib/lemon-ui/icons'
+import { IconFlare } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile, isURL, uniqueBy } from 'lib/utils'
@@ -63,7 +64,6 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { InsightType } from '~/types'
 
-import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
 import { hedgehogBuddyLogic } from '../HedgehogBuddy/hedgehogBuddyLogic'
@@ -139,8 +139,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
         actions: [
-            personalAPIKeysLogic,
-            ['createKey'],
             router,
             ['push'],
             userLogic,
@@ -662,6 +660,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                             userLogic.actions.logout()
                         },
                     },
+                    {
+                        icon: IconUnlock,
+                        display: 'Go to Personal API Keys',
+                        executor: () => {
+                            push(urls.settings('user-api-keys'))
+                        },
+                    },
                 ],
             }
 
@@ -757,33 +762,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 },
             }
 
-            const createPersonalApiKey: Command = {
-                key: 'create-personal-api-key',
-                scope: GLOBAL_COMMAND_SCOPE,
-                resolver: {
-                    icon: IconUnlock,
-                    display: 'Create Personal API Key',
-                    executor: () => ({
-                        instruction: 'Give your key a label',
-                        icon: IconKeyboard,
-                        scope: 'Creating Personal API Key',
-                        resolver: (argument) => {
-                            if (argument?.length) {
-                                return {
-                                    icon: IconUnlock,
-                                    display: `Create Key "${argument}"`,
-                                    executor: () => {
-                                        personalAPIKeysLogic.actions.createKey(argument)
-                                        push(urls.settings('user'), {}, 'personal-api-keys')
-                                    },
-                                }
-                            }
-                            return null
-                        },
-                    }),
-                },
-            }
-
             const createDashboard: Command = {
                 key: 'create-dashboard',
                 scope: GLOBAL_COMMAND_SCOPE,
@@ -861,10 +839,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
                     icon: IconEye,
-                    display: 'Switch theme',
+                    display: 'Change theme',
                     synonyms: ['toggle theme', 'dark mode', 'light mode'],
                     executor: () => ({
-                        scope: 'Switch theme',
+                        scope: 'Change theme',
                         resolver: [
                             {
                                 icon: IconDay,
@@ -946,7 +924,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     ...(values.sidePanelOpen
                         ? [
                               {
-                                  icon: IconClose,
+                                  icon: IconX,
                                   display: 'Close side panel',
                                   executor: () => {
                                       actions.closeSidePanel()
@@ -961,7 +939,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(openUrls)
             actions.registerCommand(debugClickhouseQueries)
             actions.registerCommand(calculator)
-            actions.registerCommand(createPersonalApiKey)
             actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
             actions.registerCommand(debugCopySessionRecordingURL)

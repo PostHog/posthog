@@ -21,8 +21,9 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
+import { IconComment } from 'lib/lemon-ui/icons'
 import { NotFound } from 'lib/components/NotFound'
+import { IconPerson } from '@posthog/icons'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
@@ -157,7 +158,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         },
     },
     pasteOptions: {
-        find: urls.replaySingle('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'),
+        find: urls.replaySingle('([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'),
         getAttributes: async (match) => {
             return { id: match[1], noInspector: false }
         },

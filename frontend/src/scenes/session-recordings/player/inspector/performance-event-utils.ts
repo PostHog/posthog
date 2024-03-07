@@ -150,9 +150,6 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
     const events: PerformanceEvent[] = []
     const rrwebEvents: PerformanceEvent[] = []
 
-    // we could do this in one pass, but it's easier to log missing events
-    // when we have all the posthog/network@1 events first
-
     Object.entries(snapshotsByWindowId).forEach(([windowId, snapshots]) => {
         snapshots.forEach((snapshot: eventWithTime) => {
             if (
@@ -185,8 +182,33 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
                     return
                 }
 
-                payload.requests.forEach((capturedRequest: any) => {
-                    const data: PerformanceEvent = mapRRWebNetworkRequest(capturedRequest, windowId, snapshot.timestamp)
+                const serverTimings: Record<string, PerformanceEvent[]> = {}
+
+                const perfEvents = payload.requests.map((capturedRequest: CapturedNetworkRequest) => {
+                    return mapRRWebNetworkRequest(capturedRequest, windowId, snapshot.timestamp)
+                })
+
+                // first find all server timings and store them by timestamp
+                perfEvents.forEach((perfEvent: PerformanceEvent) => {
+                    if (perfEvent.entry_type === 'serverTiming') {
+                        if (perfEvent.timestamp in serverTimings) {
+                            serverTimings[perfEvent.timestamp].push(perfEvent)
+                        } else {
+                            serverTimings[perfEvent.timestamp] = [perfEvent]
+                        }
+                    }
+                })
+
+                // so we can match them to their parent events
+                perfEvents.forEach((data: PerformanceEvent) => {
+                    if (data.entry_type === 'serverTiming') {
+                        return
+                    }
+
+                    if (data.timestamp in serverTimings) {
+                        data.server_timings = serverTimings[data.timestamp]
+                        delete serverTimings[data.timestamp]
+                    }
 
                     rrwebEvents.push(data)
                 })

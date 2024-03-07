@@ -20,6 +20,9 @@ class FindPlaceholders(TraversingVisitor):
         super().__init__()
         self.found: set[str] = set()
 
+    def visit_cte(self, node: ast.CTE):
+        super().visit(node.expr)
+
     def visit_placeholder(self, node: ast.Placeholder):
         self.found.add(node.field)
 

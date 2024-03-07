@@ -20,13 +20,11 @@
                 }
             }
 
-            .posthog-3000 & {
-                a {
-                    color: var(--default);
+            a {
+                color: var(--default);
 
-                    &:hover {
-                        color: var(--primary-3000);
-                    }
+                &:hover {
+                    color: var(--primary-3000);
                 }
             }
         }

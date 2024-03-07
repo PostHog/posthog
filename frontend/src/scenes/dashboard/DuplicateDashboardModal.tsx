@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
@@ -55,14 +55,14 @@ export function DuplicateDashboardModal(): JSX.Element {
                 enableFormOnSubmit
                 className="space-y-2"
             >
-                <Field
+                <LemonField
                     name="duplicateTiles"
                     help="Choose whether to duplicate this dashboard's insights and text or attach them to the new dashboard."
                 >
                     {({ value, onChange }) => (
                         <LemonCheckbox checked={value} label="Duplicate this dashboard's tiles" onChange={onChange} />
                     )}
-                </Field>
+                </LemonField>
             </Form>
         </LemonModal>
     )

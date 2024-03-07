@@ -1,5 +1,6 @@
 import './Spinner.scss'
 
+import { IconClock } from '@posthog/icons'
 import clsx from 'clsx'
 
 export interface SpinnerProps {
@@ -29,16 +30,23 @@ export function SpinnerOverlay({
     sceneLevel,
     visible = true,
     className,
+    mode = 'spinning',
     ...spinnerProps
 }: SpinnerProps & {
     /** @default false */
     sceneLevel?: boolean
     /** @default true */
     visible?: boolean
+    /** @default "spinning" */
+    mode?: 'spinning' | 'waiting'
 }): JSX.Element {
     return (
         <div className={clsx('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
-            <Spinner className={clsx('text-5xl', className)} {...spinnerProps} />
+            {mode === 'waiting' ? (
+                <IconClock className="text-5xl text-primary z-10 animate-pulse drop-shadow-xl" />
+            ) : (
+                <Spinner className={clsx('text-5xl', className)} {...spinnerProps} />
+            )}
         </div>
     )
 }

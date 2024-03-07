@@ -73,7 +73,7 @@ def parse_order_expr(
     timings: Optional[HogQLTimings] = None,
     *,
     backend: Optional[Literal["python", "cpp"]] = None,
-) -> ast.Expr:
+) -> ast.OrderExpr:
     if not backend:
         backend = "cpp"
     if timings is None:

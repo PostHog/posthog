@@ -2,39 +2,23 @@ import { DndContext, DragEndEvent } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import {
-    LemonBadge,
-    LemonButton,
-    LemonDivider,
-    LemonModal,
-    LemonTable,
-    LemonTableColumn,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonModal, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { statusColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
-import { urls } from 'scenes/urls'
 
-import {
-    PipelineAppKind,
-    PipelineAppTab,
-    PluginConfigTypeNew,
-    PluginConfigWithPluginInfoNew,
-    ProductKey,
-} from '~/types'
+import { PipelineStage, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
+import { pipelineLogic } from './pipelineLogic'
 import { pipelineTransformationsLogic } from './transformationsLogic'
-import { RenderApp } from './utils'
+import { Transformation } from './types'
+import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function Transformations(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -43,15 +27,14 @@ export function Transformations(): JSX.Element {
     }
     const {
         loading,
-        sortedEnabledPluginConfigs,
-        disabledPluginConfigs,
-        displayablePluginConfigs,
+        sortedTransformations,
+        sortedEnabledTransformations,
         canConfigurePlugins,
         shouldShowProductIntroduction,
     } = useValues(pipelineTransformationsLogic)
     const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
-    const shouldShowEmptyState = sortedEnabledPluginConfigs.length === 0 && disabledPluginConfigs.length === 0
+    const shouldShowEmptyState = sortedEnabledTransformations.length === 0
 
     return (
         <>
@@ -62,13 +45,13 @@ export function Transformations(): JSX.Element {
                     productKey={ProductKey.PIPELINE_TRANSFORMATIONS}
                     description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
                     docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton kind={PipelineAppKind.Transformation} />}
+                    actionElementOverride={<NewButton stage={PipelineStage.Transformation} />}
                     isEmpty={true}
                 />
             )}
             {!shouldShowEmptyState && (
                 <>
-                    {sortedEnabledPluginConfigs.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
+                    {sortedEnabledTransformations.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
                         <>
                             <ReorderModal />
                             <div className="flex items-center gap-2">
@@ -89,78 +72,35 @@ export function Transformations(): JSX.Element {
                         </>
                     )}
                     <LemonTable
-                        dataSource={displayablePluginConfigs}
-                        size="xs"
+                        dataSource={sortedTransformations}
+                        size="small"
                         loading={loading}
                         columns={[
                             {
                                 title: 'Order',
                                 key: 'order',
                                 sticky: true,
-                                render: function RenderOrdering(_, pluginConfig) {
-                                    if (!pluginConfig.enabled) {
+                                render: function RenderOrdering(_, transformation) {
+                                    if (!transformation.enabled) {
                                         return null
                                     }
                                     // We can't use pluginConfig.order directly as it's not nicely set for everything,
                                     // e.g. geoIP, disabled plugins, especially if we disable them via django admin
-                                    return sortedEnabledPluginConfigs.findIndex((pc) => pc.id === pluginConfig.id) + 1
+                                    return sortedEnabledTransformations.findIndex((t) => t.id === transformation.id) + 1
                                 },
                             },
-                            {
-                                title: 'Name',
-                                sticky: true,
-                                render: function RenderPluginName(_, pluginConfig) {
-                                    return (
-                                        <>
-                                            <Tooltip title="Click to update configuration, view metrics, and more">
-                                                <Link
-                                                    to={urls.pipelineApp(
-                                                        PipelineAppKind.Transformation,
-                                                        pluginConfig.id,
-                                                        PipelineAppTab.Configuration
-                                                    )}
-                                                >
-                                                    <span className="row-name">{pluginConfig.name}</span>
-                                                </Link>
-                                            </Tooltip>
-                                            {pluginConfig.description && (
-                                                <LemonMarkdown className="row-description" lowKeyHeadings>
-                                                    {pluginConfig.description}
-                                                </LemonMarkdown>
-                                            )}
-                                        </>
-                                    )
-                                },
-                            },
-                            {
-                                title: 'App',
-                                render: function RenderAppInfo(_, pluginConfig) {
-                                    return <RenderApp plugin={pluginConfig.plugin_info} />
-                                },
-                            },
-                            updatedAtColumn() as LemonTableColumn<PluginConfigWithPluginInfoNew, any>,
-                            {
-                                title: 'Status',
-                                render: function RenderStatus(_, pluginConfig) {
-                                    return (
-                                        <>
-                                            {pluginConfig.enabled ? (
-                                                <LemonTag type="success" className="uppercase">
-                                                    Enabled
-                                                </LemonTag>
-                                            ) : (
-                                                <LemonTag type="default" className="uppercase">
-                                                    Disabled
-                                                </LemonTag>
-                                            )}
-                                        </>
-                                    )
-                                },
-                            },
+                            nameColumn() as LemonTableColumn<Transformation, any>,
+                            appColumn() as LemonTableColumn<Transformation, any>,
+                            updatedAtColumn() as LemonTableColumn<Transformation, any>,
+                            statusColumn() as LemonTableColumn<Transformation, any>,
                             {
                                 width: 0,
-                                render: function Render(_, pluginConfig) {
-                                    return <More overlay={<TransformationsMoreOverlay pluginConfig={pluginConfig} />} />
+                                render: function Render(_, transformation) {
+                                    return (
+                                        <More
+                                            overlay={<TransformationsMoreOverlay transformation={transformation} />}
+                                        />
+                                    )
                                 },
                             },
                         ]}
@@ -172,115 +112,55 @@ export function Transformations(): JSX.Element {
 }
 
 export const TransformationsMoreOverlay = ({
-    pluginConfig,
+    transformation,
     inOverview = false,
 }: {
-    pluginConfig: PluginConfigWithPluginInfoNew
+    transformation: Transformation
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
-    const { openReorderModal, toggleEnabled, loadPluginConfigs } = useActions(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { toggleEnabled, loadPluginConfigs, openReorderModal } = useActions(pipelineTransformationsLogic)
+    const { sortedEnabledTransformations } = useValues(pipelineTransformationsLogic)
 
     return (
-        <>
-            {!inOverview && (
-                <LemonButton
-                    onClick={() => {
-                        toggleEnabled({
-                            enabled: !pluginConfig.enabled,
-                            id: pluginConfig.id,
-                        })
-                    }}
-                    id={`app-${pluginConfig.id}-enable-switch`}
-                    disabledReason={
-                        canConfigurePlugins ? undefined : 'You do not have permission to enable/disable apps.'
-                    }
-                    fullWidth
-                >
-                    {pluginConfig.enabled ? 'Disable' : 'Enable'} app
-                </LemonButton>
-            )}
-            {!inOverview && pluginConfig.enabled && (
-                <LemonButton
-                    onClick={openReorderModal}
-                    id="app-reorder"
-                    disabledReason={canConfigurePlugins ? undefined : 'You do not have permission to reorder apps.'}
-                    fullWidth
-                >
-                    Reorder apps
-                </LemonButton>
-            )}
-            <LemonButton
-                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Configuration)}
-                id={`app-${pluginConfig.id}-configuration`}
-                fullWidth
-            >
-                {canConfigurePlugins ? 'Edit' : 'View'} app configuration
-            </LemonButton>
-            <LemonButton
-                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Metrics)}
-                id={`app-${pluginConfig.id}-metrics`}
-                fullWidth
-            >
-                View app metrics
-            </LemonButton>
-            <LemonButton
-                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Logs)}
-                id={`app-${pluginConfig.id}-logs`}
-                fullWidth
-            >
-                View app logs
-            </LemonButton>
-            <LemonButton
-                to={pluginConfig.plugin_info?.url}
-                targetBlank={true}
-                loading={!pluginConfig.plugin_info?.url}
-                id={`app-${pluginConfig.id}-source-code`}
-                fullWidth
-            >
-                View app source code
-            </LemonButton>
-            {!inOverview && (
-                <>
-                    <LemonDivider />
-                    <LemonButton
-                        status="danger"
-                        onClick={() => {
-                            void deleteWithUndo({
-                                endpoint: `plugin_config`,
-                                object: {
-                                    id: pluginConfig.id,
-                                    name: pluginConfig.name,
-                                },
-                                callback: loadPluginConfigs,
-                            })
-                        }}
-                        id="app-delete"
-                        disabledReason={canConfigurePlugins ? undefined : 'You do not have permission to delete apps.'}
-                        fullWidth
-                    >
-                        Delete app
-                    </LemonButton>
-                </>
-            )}
-        </>
+        <LemonMenuOverlay
+            items={[
+                ...(!inOverview && transformation.enabled && sortedEnabledTransformations.length > 1
+                    ? [
+                          {
+                              label: 'Reorder apps',
+                              onClick: openReorderModal,
+                              disabledReason: canConfigurePlugins
+                                  ? undefined
+                                  : 'You do not have permission to reorder apps.',
+                          },
+                      ]
+                    : []),
+                ...pipelinePluginBackedNodeMenuCommonItems(
+                    transformation,
+                    toggleEnabled,
+                    loadPluginConfigs,
+                    inOverview
+                ),
+            ]}
+        />
     )
 }
 
 function ReorderModal(): JSX.Element {
-    const { reorderModalOpen, sortedEnabledPluginConfigs, temporaryOrder, pluginConfigsLoading } =
+    const { reorderModalOpen, sortedEnabledTransformations, temporaryOrder, pluginConfigsLoading } =
         useValues(pipelineTransformationsLogic)
     const { closeReorderModal, setTemporaryOrder, savePluginConfigsOrder } = useActions(pipelineTransformationsLogic)
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (active.id && over && active.id !== over.id) {
             // Create new sortedEnabledPluginConfigs in the order after the move
-            const from = sortedEnabledPluginConfigs.findIndex((config) => config.id === active.id)
-            const to = sortedEnabledPluginConfigs.findIndex((config) => config.id === over.id)
-            const newSortedEnabledPluginConfigs = arrayMove(sortedEnabledPluginConfigs, from, to)
+            const from = sortedEnabledTransformations.findIndex((t) => t.id === active.id)
+            const to = sortedEnabledTransformations.findIndex((t) => t.id === over.id)
+            const newSortedEnabledTransformations = arrayMove(sortedEnabledTransformations, from, to)
             // Create new temporaryOrder by assinging pluginConfigIds to the index in the map of newSortedEnabledPluginConfigs
             // See comment in savePluginConfigsOrder about races
-            const newTemporaryOrder = newSortedEnabledPluginConfigs.reduce((acc, pluginConfig, index) => {
+            const newTemporaryOrder = newSortedEnabledTransformations.reduce((acc, pluginConfig, index) => {
                 return {
                     ...acc,
                     [pluginConfig.id]: index + 1,
@@ -319,9 +199,9 @@ function ReorderModal(): JSX.Element {
         >
             <div className="flex flex-col gap-2">
                 <DndContext modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={handleDragEnd}>
-                    <SortableContext items={sortedEnabledPluginConfigs} strategy={verticalListSortingStrategy}>
-                        {sortedEnabledPluginConfigs.map((item, index) => (
-                            <MinimalAppView key={item.id} pluginConfig={item} order={index} />
+                    <SortableContext items={sortedEnabledTransformations} strategy={verticalListSortingStrategy}>
+                        {sortedEnabledTransformations.map((t, index) => (
+                            <MinimalAppView key={t.id} transformation={t} order={index} />
                         ))}
                     </SortableContext>
                 </DndContext>
@@ -330,13 +210,11 @@ function ReorderModal(): JSX.Element {
     )
 }
 
-const MinimalAppView = ({ pluginConfig, order }: { pluginConfig: PluginConfigTypeNew; order: number }): JSX.Element => {
-    const { plugins } = useValues(pipelineTransformationsLogic)
+const MinimalAppView = ({ transformation, order }: { transformation: Transformation; order: number }): JSX.Element => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-        id: pluginConfig.id,
+        id: transformation.id,
     })
 
-    const plugin = plugins[pluginConfig.plugin]
     return (
         <div
             ref={setNodeRef}
@@ -352,8 +230,8 @@ const MinimalAppView = ({ pluginConfig, order }: { pluginConfig: PluginConfigTyp
             {...listeners}
         >
             <LemonBadge.Number count={order + 1} maxDigits={3} />
-            <PluginImage plugin={plugin} size="small" />
-            <span className="font-semibold">{pluginConfig.name}</span>
+            <PluginImage plugin={transformation.plugin} size="small" />
+            <span className="font-semibold">{transformation.name}</span>
         </div>
     )
 }

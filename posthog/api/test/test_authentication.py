@@ -257,7 +257,7 @@ class TestLoginAPI(APIBaseTest):
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
             self.assertEqual(
                 response.json(),
                 {
@@ -282,7 +282,7 @@ class TestLoginAPI(APIBaseTest):
             )
 
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
 
     def test_2fa_throttling(self):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore

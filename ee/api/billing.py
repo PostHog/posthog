@@ -7,7 +7,6 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from rest_framework import serializers, status, viewsets
-from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -16,7 +15,7 @@ from rest_framework.response import Response
 from ee.billing.billing_manager import BillingManager, build_billing_token
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
 
@@ -34,14 +33,11 @@ class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
 
 
-class BillingViewset(viewsets.GenericViewSet):
+class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
+    derive_current_team_from_user_only = True
 
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        SessionAuthentication,
-        BasicAuthentication,
-    ]
+    scope_object = "INTERNAL"
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()

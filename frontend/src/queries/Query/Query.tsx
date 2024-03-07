@@ -105,7 +105,7 @@ export function Query(props: QueryProps): JSX.Element | null {
     } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     } else if (isWebOverviewQuery(query)) {
-        component = <WebOverview query={query} cachedResults={props.cachedResults} />
+        component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
     }
 
     if (component) {

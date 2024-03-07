@@ -5,6 +5,7 @@ import { Animation } from 'lib/components/Animation/Animation'
 import { useCallback, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
@@ -51,6 +52,8 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
         query: props.query.source,
         key,
         cachedResults: props.cachedResults,
+        loadPriority: insightLogicProps.loadPriority,
+        dataNodeCollectionId: insightVizDataCollectionId(insightLogicProps, key),
     }
 
     return (
@@ -74,7 +77,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     )
 
     let component: JSX.Element | null = null
-    if (!response && responseLoading) {
+    if (!response && responseLoading && !showEditingUI) {
         return (
             <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
                 <Animation type={AnimationType.LaptopHog} />

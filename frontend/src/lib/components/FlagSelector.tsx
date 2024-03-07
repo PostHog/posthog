@@ -6,9 +6,11 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
+import { FeatureFlagBasicType } from '~/types'
+
 interface FlagSelectorProps {
     value: number | undefined
-    onChange: (id: number, key: string) => void
+    onChange: (id: number, key: string, flag: FeatureFlagBasicType) => void
     readOnly?: boolean
     disabledReason?: string
 }
@@ -22,7 +24,7 @@ export function FlagSelector({ value, onChange, readOnly, disabledReason }: Flag
         groupType: TaxonomicFilterGroupType.FeatureFlags,
         value: value,
         onChange: (_, __, item) => {
-            'id' in item && item.id && onChange(item.id, item.key)
+            'id' in item && item.id && onChange(item.id, item.key, item)
             setVisible(false)
         },
         taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],

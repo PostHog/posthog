@@ -24,6 +24,10 @@ export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' |
      * the text to display to the user, a sensible default is used if not provided
      */
     callToAction?: string | JSX.Element
+    /**
+     * whether to show the uploaded files beneath the upload input
+     */
+    showUploadedFiles?: boolean
 }
 
 export const LemonFileInput = ({
@@ -35,6 +39,7 @@ export const LemonFileInput = ({
     accept,
     alternativeDropTargetRef,
     callToAction,
+    showUploadedFiles = true,
 }: LemonFileInputProps): JSX.Element => {
     const [files, setFiles] = useState(value || value || ([] as File[]))
 
@@ -148,7 +153,7 @@ export const LemonFileInput = ({
                         </>
                     )}
                 </label>
-                {files.length > 0 && (
+                {files.length > 0 && showUploadedFiles && (
                     <div className="flex flex-row gap-2">
                         {files.map((x, i) => (
                             <LemonTag key={i} icon={loading ? <Spinner /> : undefined}>

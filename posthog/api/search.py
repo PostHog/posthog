@@ -6,12 +6,10 @@ from django.db.models import Model, Value, CharField, F, QuerySet
 from django.db.models.functions import Cast, JSONObject  # type: ignore
 from django.http import HttpResponse
 from rest_framework import viewsets, serializers
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team, EventDefinition, Survey
 from posthog.models.notebook.notebook import Notebook
 
@@ -78,8 +76,8 @@ class QuerySerializer(serializers.Serializer):
         return process_query(value)
 
 
-class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "INTERNAL"
 
     def list(self, request: Request, **kw) -> HttpResponse:
         # parse query params

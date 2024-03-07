@@ -21,7 +21,7 @@ let uniqueNode = 0
 /** Default renderer for data nodes. Display the JSON in a Monaco editor.  */
 export function DataNode(props: DataNodeProps): JSX.Element {
     const [key] = useState(() => `DataNode.${uniqueNode++}`)
-    const logic = dataNodeLogic({ ...props, key, cachedResults: props.cachedResults })
+    const logic = dataNodeLogic({ ...props, key, cachedResults: props.cachedResults, dataNodeCollectionId: key })
     const { response, responseLoading, responseErrorObject } = useValues(logic)
 
     return (

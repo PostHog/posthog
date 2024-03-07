@@ -1,3 +1,4 @@
+import { IconDashboard } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -6,7 +7,7 @@ import * as React from 'react'
 
 import * as icons from './icons'
 
-const { IconGauge, IconWithCount } = icons
+const { IconWithCount } = icons
 
 const meta: Meta = {
     title: 'Lemon UI/Icons',
@@ -195,7 +196,7 @@ export function IconWithCountBubble(): JSX.Element {
     return (
         <span className="inline-flex text-2xl border border-primary p-1">
             <IconWithCount count={7}>
-                <IconGauge />
+                <IconDashboard />
             </IconWithCount>
         </span>
     )
@@ -205,7 +206,7 @@ export function IconWithCountHidingZero(): JSX.Element {
     return (
         <span className="inline-flex text-2xl border border-primary p-1">
             <IconWithCount count={0} showZero={false}>
-                <IconGauge />
+                <IconDashboard />
             </IconWithCount>
         </span>
     )
@@ -215,7 +216,7 @@ export function IconWithCountShowingZero(): JSX.Element {
     return (
         <span className="inline-flex text-2xl border border-primary p-1">
             <IconWithCount count={0} showZero={true}>
-                <IconGauge />
+                <IconDashboard />
             </IconWithCount>
         </span>
     )
@@ -225,7 +226,7 @@ export function IconWithCountOverflowing(): JSX.Element {
     return (
         <span className="inline-flex text-2xl border border-primary p-1">
             <IconWithCount count={11} showZero={true}>
-                <IconGauge />
+                <IconDashboard />
             </IconWithCount>
         </span>
     )

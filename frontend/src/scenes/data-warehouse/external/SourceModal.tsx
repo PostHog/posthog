@@ -1,100 +1,36 @@
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonModalProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Field } from 'lib/forms/Field'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import hubspotLogo from 'public/hubspot-logo.svg'
+import postgresLogo from 'public/postgres-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 
-import { ExternalDataSourceType } from '~/types'
-
 import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
-import { SOURCE_DETAILS, SourceConfig, sourceFormLogic } from './sourceFormLogic'
+import PostgresSchemaForm from './forms/PostgresSchemaForm'
+import SourceForm from './forms/SourceForm'
+import { SourceConfig } from './sourceModalLogic'
 import { sourceModalLogic } from './sourceModalLogic'
 
 interface SourceModalProps extends LemonModalProps {}
 
 export default function SourceModal(props: SourceModalProps): JSX.Element {
-    const { tableLoading, selectedConnector, isManualLinkFormVisible, connectors, addToHubspotButtonUrl } =
-        useValues(sourceModalLogic)
-    const { selectConnector, toggleManualLinkFormVisible, onClear } = useActions(sourceModalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { modalTitle, modalCaption } = useValues(sourceModalLogic)
+    const { onClear, onBack, onSubmit } = useActions(sourceModalLogic)
+    const { currentStep } = useValues(sourceModalLogic)
 
-    const MenuButton = (config: SourceConfig): JSX.Element => {
-        const onClick = (): void => {
-            selectConnector(config)
-        }
-
-        if (config.name === 'Stripe') {
-            return (
-                <LemonButton onClick={onClick} className="w-100" center type="secondary">
-                    <img src={stripeLogo} alt="stripe logo" height={50} />
-                </LemonButton>
-            )
-        }
-        if (config.name === 'Hubspot' && featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_HUBSPOT_IMPORT]) {
-            return (
-                <Link to={addToHubspotButtonUrl() || ''}>
-                    <LemonButton className="w-100" center type="secondary">
-                        <img src={hubspotLogo} alt="hubspot logo" height={45} />
-                    </LemonButton>
-                </Link>
-            )
-        }
-
-        return <></>
-    }
-
-    const onManualLinkClick = (): void => {
-        toggleManualLinkFormVisible(true)
-    }
-
-    const formToShow = (): JSX.Element => {
-        if (selectedConnector) {
-            return <SourceForm sourceType={selectedConnector.name} />
-        }
-
-        if (isManualLinkFormVisible) {
-            return (
-                <div>
-                    <DatawarehouseTableForm
-                        footer={
-                            <>
-                                <LemonDivider className="mt-4" />
-                                <div className="mt-2 flex flex-row justify-end gap-2">
-                                    <LemonButton
-                                        type="secondary"
-                                        center
-                                        data-attr="source-modal-back-button"
-                                        onClick={onClear}
-                                    >
-                                        Back
-                                    </LemonButton>
-                                    <LemonButton
-                                        type="primary"
-                                        center
-                                        htmlType="submit"
-                                        data-attr="source-link"
-                                        loading={tableLoading}
-                                    >
-                                        Link
-                                    </LemonButton>
-                                </div>
-                            </>
-                        }
-                    />
-                </div>
-            )
+    const footer = (): JSX.Element | null => {
+        if (currentStep === 1) {
+            return null
         }
 
         return (
-            <div className="flex flex-col gap-2">
-                {connectors.map((config, index) => (
-                    <MenuButton key={config.name + '_' + index} {...config} />
-                ))}
-                <LemonButton onClick={onManualLinkClick} className="w-100" center type="secondary">
-                    Manual Link
+            <div className="mt-2 flex flex-row justify-end gap-2">
+                <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onBack}>
+                    Back
+                </LemonButton>
+                <LemonButton type="primary" center onClick={() => onSubmit()} data-attr="source-link">
+                    Link
                 </LemonButton>
             </div>
         )
@@ -103,55 +39,107 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
     return (
         <LemonModal
             {...props}
+            width={600}
             onAfterClose={() => onClear()}
-            title={selectedConnector ? 'Link ' + selectedConnector.name : 'Select source to link'}
-            description={selectedConnector ? selectedConnector.caption : null}
+            title={modalTitle}
+            description={modalCaption}
+            footer={footer()}
         >
-            {formToShow()}
+            <FirstStep />
+            <SecondStep />
+            <ThirdStep />
         </LemonModal>
     )
 }
 
-interface SourceFormProps {
-    sourceType: ExternalDataSourceType
+interface ModalPageProps {
+    page: number
+    children?: React.ReactNode
 }
 
-function SourceForm({ sourceType }: SourceFormProps): JSX.Element {
-    const logic = sourceFormLogic({ sourceType })
-    const { isExternalDataSourceSubmitting } = useValues(logic)
-    const { onBack } = useActions(logic)
+function ModalPage({ children, page }: ModalPageProps): JSX.Element {
+    const { currentStep } = useValues(sourceModalLogic)
+
+    if (currentStep !== page) {
+        return <></>
+    }
+
+    return <div>{children}</div>
+}
+
+function FirstStep(): JSX.Element {
+    const { connectors, addToHubspotButtonUrl } = useValues(sourceModalLogic)
+    const { selectConnector, toggleManualLinkFormVisible, onNext } = useActions(sourceModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const MenuButton = (config: SourceConfig): JSX.Element => {
+        const onClick = (): void => {
+            selectConnector(config)
+            onNext()
+        }
+
+        if (config.name === 'Stripe') {
+            return (
+                <LemonButton onClick={onClick} fullWidth center type="secondary">
+                    <img src={stripeLogo} alt="stripe logo" height={50} />
+                </LemonButton>
+            )
+        }
+        if (config.name === 'Hubspot') {
+            return (
+                <LemonButton fullWidth center type="secondary" to={addToHubspotButtonUrl() || ''}>
+                    <img src={hubspotLogo} alt="hubspot logo" height={45} />
+                </LemonButton>
+            )
+        }
+
+        if (config.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_POSTGRES_IMPORT]) {
+            return (
+                <LemonButton onClick={onClick} fullWidth center type="secondary">
+                    <div className="flex flex-row gap-2 justify-center items-center">
+                        <img src={postgresLogo} alt="postgres logo" height={45} />
+                        <div className="text-base">Postgres</div>
+                    </div>
+                </LemonButton>
+            )
+        }
+
+        return <></>
+    }
+
+    const onManualLinkClick = (): void => {
+        toggleManualLinkFormVisible(true)
+        onNext()
+    }
 
     return (
-        <Form
-            logic={sourceFormLogic}
-            props={{ sourceType }}
-            formKey="externalDataSource"
-            className="space-y-4"
-            enableFormOnSubmit
-        >
-            {SOURCE_DETAILS[sourceType].fields.map((field) => (
-                <Field key={field.name} name={['payload', field.name]} label={field.label}>
-                    <LemonInput className="ph-ignore-input" data-attr={field.name} />
-                </Field>
-            ))}
-            <Field name="prefix" label="Table Prefix (optional)">
-                <LemonInput className="ph-ignore-input" data-attr="prefix" placeholder="internal_" />
-            </Field>
-            <LemonDivider className="mt-4" />
-            <div className="mt-2 flex flex-row justify-end gap-2">
-                <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onBack}>
-                    Back
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    center
-                    htmlType="submit"
-                    data-attr="source-link"
-                    loading={isExternalDataSourceSubmitting}
-                >
-                    Link
+        <ModalPage page={1}>
+            <div className="flex flex-col gap-2 items-center">
+                {connectors.map((config, index) => (
+                    <MenuButton key={config.name + '_' + index} {...config} />
+                ))}
+                <LemonButton onClick={onManualLinkClick} className="w-full" center type="secondary">
+                    Manual Link
                 </LemonButton>
             </div>
-        </Form>
+        </ModalPage>
+    )
+}
+
+function SecondStep(): JSX.Element {
+    const { selectedConnector } = useValues(sourceModalLogic)
+
+    return (
+        <ModalPage page={2}>
+            {selectedConnector ? <SourceForm sourceType={selectedConnector.name} /> : <DatawarehouseTableForm />}
+        </ModalPage>
+    )
+}
+
+function ThirdStep(): JSX.Element {
+    return (
+        <ModalPage page={3}>
+            <PostgresSchemaForm />
+        </ModalPage>
     )
 }

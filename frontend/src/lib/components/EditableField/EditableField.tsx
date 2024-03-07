@@ -1,9 +1,10 @@
 import './EditableField.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
+import { IconPencil } from '@posthog/icons'
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconEdit, IconMarkdown } from 'lib/lemon-ui/icons'
+import { IconMarkdown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -203,7 +204,9 @@ export function EditableField({
                                 <div className="EditableField__actions">
                                     {markdown && (
                                         <Tooltip title="Markdown formatting support">
-                                            <IconMarkdown className="text-muted text-2xl" />
+                                            <span className="flex items-center">
+                                                <IconMarkdown className="text-muted text-2xl" />
+                                            </span>
                                         </Tooltip>
                                     )}
                                     <LemonButton
@@ -242,7 +245,7 @@ export function EditableField({
                             ) : (
                                 <Tooltip
                                     title={isDisplayTooltipNeeded ? localTentativeValue : undefined}
-                                    placement="bottomLeft"
+                                    placement="bottom-start"
                                     delayMs={0}
                                 >
                                     <span className="EditableField__display" ref={displayRef}>
@@ -254,7 +257,7 @@ export function EditableField({
                                 <div className="EditableField__actions">
                                     <LemonButton
                                         title="Edit"
-                                        icon={<IconEdit />}
+                                        icon={<IconPencil />}
                                         size={compactButtons ? 'small' : undefined}
                                         onClick={() => {
                                             setLocalIsEditing(true)
@@ -272,10 +275,12 @@ export function EditableField({
             </Tooltip>
             {!isEditing && notice && (
                 <Tooltip title={notice.tooltip} placement="right">
-                    {React.cloneElement(notice.icon, {
-                        ...notice.icon.props,
-                        className: clsx(notice.icon.props.className, 'EditableField__notice'),
-                    })}
+                    <span className="flex items-center">
+                        {React.cloneElement(notice.icon, {
+                            ...notice.icon.props,
+                            className: clsx(notice.icon.props.className, 'EditableField__notice'),
+                        })}
+                    </span>
                 </Tooltip>
             )}
         </div>

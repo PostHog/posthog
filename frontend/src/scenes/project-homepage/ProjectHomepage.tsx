@@ -16,7 +16,6 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -44,6 +43,14 @@ export function ProjectHomepage(): JSX.Element {
                 <YearInHogButton url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`} />
             )}
             <LemonButton
+                type="secondary"
+                size="small"
+                data-attr="project-home-customize-homepage"
+                onClick={showSceneDashboardChoiceModal}
+            >
+                Customize homepage
+            </LemonButton>
+            <LemonButton
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
                     showInviteModal()
@@ -58,7 +65,6 @@ export function ProjectHomepage(): JSX.Element {
     return (
         <div className="ProjectHomepage">
             <PageHeader delimited buttons={headerButtons} />
-            <AndroidRecordingsPromptBanner context="home" />
             <div className="ProjectHomepage__lists">
                 <RecentInsights />
                 <RecentPersons />
@@ -80,16 +86,6 @@ export function ProjectHomepage(): JSX.Element {
                                     </Link>
                                 </>
                             )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                data-attr="project-home-change-dashboard"
-                                onClick={showSceneDashboardChoiceModal}
-                            >
-                                Change dashboard
-                            </LemonButton>
                         </div>
                     </div>
                     <LemonDivider className="mt-3 mb-4" />

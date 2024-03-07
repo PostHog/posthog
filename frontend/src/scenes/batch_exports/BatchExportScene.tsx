@@ -1,4 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
+import { IconEllipsis } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -12,7 +13,7 @@ import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -23,18 +24,17 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
 import { pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
-import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
+import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, BatchExportLogEntry } from '~/types'
+import { BatchExportLogEntry } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportLogic, BatchExportLogicProps, BatchExportTab } from './batchExportLogic'
 import { batchExportLogsLogic, BatchExportLogsProps, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
-import { humanizeDestination, intervalToFrequency, isRunInProgress } from './utils'
+import { humanizeDestination, intervalToFrequency, isRunInProgress, showBatchExports } from './utils'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -45,7 +45,6 @@ export const scene: SceneExport = {
 }
 
 export function RunsTab(): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
     const {
         batchExportRunsResponse,
         batchExportConfig,
@@ -58,7 +57,7 @@ export function RunsTab(): JSX.Element {
 
     const [dateRangeVisible, setDateRangeVisible] = useState(false)
 
-    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+    const hasDataPipelines = showBatchExports()
     if (!batchExportConfig && !batchExportConfigLoading) {
         return <NotFound object="Batch Export" />
     }
@@ -125,7 +124,6 @@ export function RunsTab(): JSX.Element {
                                         <LemonTable
                                             dataSource={groupedRuns.runs}
                                             embedded={true}
-                                            size="small"
                                             columns={[
                                                 {
                                                     title: 'Status',
@@ -258,22 +256,22 @@ export function RunsTab(): JSX.Element {
     )
 }
 
-function BatchExportLogEntryLevelDisplay(type: PipelineAppLogLevel): JSX.Element {
+function BatchExportLogEntryLevelDisplay(type: PipelineLogLevel): JSX.Element {
     let color: string | undefined
     switch (type) {
-        case PipelineAppLogLevel.Debug:
+        case PipelineLogLevel.Debug:
             color = 'var(--muted)'
             break
-        case PipelineAppLogLevel.Log:
+        case PipelineLogLevel.Log:
             color = 'var(--default)'
             break
-        case PipelineAppLogLevel.Info:
+        case PipelineLogLevel.Info:
             color = 'var(--blue)'
             break
-        case PipelineAppLogLevel.Warning:
+        case PipelineLogLevel.Warning:
             color = 'var(--warning)'
             break
-        case PipelineAppLogLevel.Error:
+        case PipelineLogLevel.Error:
             color = 'var(--danger)'
             break
         default:
@@ -341,7 +339,7 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
             />
             <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                {Object.values(PipelineAppLogLevel).map((type) => {
+                {Object.values(PipelineLogLevel).map((type) => {
                     return (
                         <LemonCheckbox
                             key={type}
@@ -373,7 +371,6 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
                 dataSource={batchExportLogs}
                 columns={columns}
                 loading={batchExportLogsLoading}
-                size="small"
                 className="ph-no-capture"
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
@@ -397,8 +394,7 @@ export function BatchExportScene(): JSX.Element {
     const { batchExportConfig, batchExportConfigLoading, activeTab } = useValues(batchExportLogic)
     const { loadBatchExportConfig, loadBatchExportRuns, openBackfillModal, pause, unpause, archive, setActiveTab } =
         useActions(batchExportLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
-    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+    const hasDataPipelines = showBatchExports()
 
     useEffect(() => {
         loadBatchExportConfig()

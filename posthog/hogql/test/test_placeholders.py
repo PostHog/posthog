@@ -1,6 +1,7 @@
+from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.errors import HogQLException
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders
 from posthog.test.base import BaseTest
 
@@ -69,3 +70,16 @@ class TestParser(BaseTest):
             "Placeholders, such as {foo}, are not supported in this context",
             str(context.exception),
         )
+
+    def test_replace_placeholders_with_cte(self):
+        expr = cast(ast.SelectQuery, parse_select("with test as (select {foo}) select * from test"))
+
+        assert expr.ctes is not None and expr.ctes["test"] is not None
+        assert isinstance(expr.ctes["test"].expr, ast.SelectQuery)
+        assert isinstance(expr.ctes["test"].expr.select[0], ast.Placeholder)
+
+        expr2 = cast(ast.SelectQuery, replace_placeholders(expr, {"foo": ast.Constant(value=1)}))
+
+        assert expr2.ctes is not None and expr2.ctes["test"] is not None
+        assert isinstance(expr2.ctes["test"].expr, ast.SelectQuery)
+        assert isinstance(expr2.ctes["test"].expr.select[0], ast.Constant)

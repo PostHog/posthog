@@ -17,6 +17,7 @@ import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookAct
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { teamActivityDescriber } from 'scenes/teamActivityDescriber'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
@@ -44,6 +45,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dataManagementActivityDescriber
         case ActivityScope.NOTEBOOK:
             return notebookActivityDescriber
+        case ActivityScope.TEAM:
+            return teamActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

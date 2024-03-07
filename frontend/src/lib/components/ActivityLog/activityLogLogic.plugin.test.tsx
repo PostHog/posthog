@@ -1,13 +1,22 @@
 import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
+import { ApiConfig } from 'lib/api'
+import { MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
 import { ActivityScope } from '~/types'
 
 describe('the activity log logic', () => {
+    beforeAll(() => {
+        ApiConfig.setCurrentOrganizationId(MOCK_ORGANIZATION_ID)
+    })
+    afterAll(() => {
+        ApiConfig.setCurrentOrganizationId(null)
+    })
+
     describe('humanizing plugins', () => {
-        const pluginTestSetup = makeTestSetup(ActivityScope.PLUGIN, '/api/organizations/@current/plugins/activity')
+        const pluginTestSetup = makeTestSetup(ActivityScope.PLUGIN, '/api/organizations/:id/plugins/activity')
         it('can handle installation of a plugin', async () => {
             const logic = await pluginTestSetup('the installed plugin', 'installed', null)
             const actual = logic.values.humanizedActivity

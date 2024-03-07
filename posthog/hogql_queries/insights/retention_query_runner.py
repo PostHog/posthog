@@ -173,7 +173,7 @@ class RetentionQueryRunner(QueryRunner):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=field_to_compare,
-                    right=ast.Constant(value=self.query_date_range.date_from()),
+                    right=self.query_date_range.get_start_of_interval_hogql(),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,

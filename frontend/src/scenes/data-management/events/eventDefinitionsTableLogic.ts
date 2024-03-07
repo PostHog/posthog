@@ -4,7 +4,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { keyMappingKeys } from 'lib/taxonomy'
+import { PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -200,7 +200,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     if (!url) {
                         url = api.propertyDefinitions.determineListEndpoint({
                             event_names: [definition.name],
-                            excluded_properties: keyMappingKeys,
+                            excluded_properties: PROPERTY_KEYS,
                             filter_by_event_names: true,
                             is_feature_flag: false,
                             limit: PROPERTY_DEFINITIONS_PER_EVENT,

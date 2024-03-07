@@ -47,9 +47,7 @@
         }
     }
 
-    .posthog-3000 & {
-        .LemonCalendar__range--boundary {
-            background-color: var(--glass-border-3000);
-        }
+    .LemonCalendar__range--boundary {
+        background-color: var(--glass-border-3000);
     }
 }

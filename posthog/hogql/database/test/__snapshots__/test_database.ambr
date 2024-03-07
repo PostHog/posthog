@@ -36,6 +36,10 @@
               "type": "string"
           },
           {
+              "key": "$window_id",
+              "type": "string"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -799,6 +803,10 @@
           },
           {
               "key": "$session_id",
+              "type": "string"
+          },
+          {
+              "key": "$window_id",
               "type": "string"
           },
           {

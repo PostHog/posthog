@@ -4,7 +4,7 @@ import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalL
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, DashboardType } from '~/types'
@@ -46,7 +46,7 @@ export function TextCardModal({
                     >
                         Cancel
                     </LemonButton>
-                    {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                    {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && (
                         <LemonButton
                             disabledReason={textTileValidationErrors.body as string | null}
                             loading={isTextTileSubmitting}
@@ -70,7 +70,7 @@ export function TextCardModal({
                 className=""
                 enableFormOnSubmit
             >
-                <PayGateMini feature={AvailableFeature.DASHBOARD_COLLABORATION}>
+                <PayGateMini feature={AvailableFeature.TEAM_COLLABORATION}>
                     <Field name="body" label="">
                         <LemonTextAreaMarkdown data-attr="text-card-edit-area" />
                     </Field>

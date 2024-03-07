@@ -5,6 +5,10 @@ from unittest.mock import patch
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from django.test import override_settings
+from django.conf import settings
+from posthog.models import Team
+import psycopg
 
 
 class TestSavedQuery(APIBaseTest):
@@ -135,3 +139,120 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(mock_trigger.call_count, 1)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
+
+    def test_database_schema(self):
+        postgres_connection = psycopg.connect(
+            host=settings.PG_HOST,
+            port=settings.PG_PORT,
+            dbname=settings.PG_DATABASE,
+            user=settings.PG_USER,
+            password=settings.PG_PASSWORD,
+        )
+
+        with postgres_connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS posthog_test (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(50)
+                );
+                """
+            )
+
+            postgres_connection.commit()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/external_data_sources/database_schema/",
+            data={
+                "host": settings.PG_HOST,
+                "port": int(settings.PG_PORT),
+                "dbname": settings.PG_DATABASE,
+                "user": settings.PG_USER,
+                "password": settings.PG_PASSWORD,
+                "schema": "public",
+            },
+        )
+        results = response.json()
+
+        self.assertEqual(response.status_code, 200)
+
+        table_names = [table["table"] for table in results]
+        self.assertTrue("posthog_test" in table_names)
+
+        with postgres_connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DROP TABLE posthog_test;
+                """
+            )
+            postgres_connection.commit()
+
+        postgres_connection.close()
+
+    @patch("posthog.warehouse.api.external_data_source.get_postgres_schemas")
+    def test_internal_postgres(self, patch_get_postgres_schemas):
+        patch_get_postgres_schemas.return_value = ["table_1"]
+
+        with override_settings(CLOUD_DEPLOYMENT="US"):
+            team_2, _ = Team.objects.get_or_create(id=2, organization=self.team.organization)
+            response = self.client.get(
+                f"/api/projects/{team_2.id}/external_data_sources/database_schema/",
+                data={
+                    "host": "172.16.0.0",
+                    "port": int(settings.PG_PORT),
+                    "dbname": settings.PG_DATABASE,
+                    "user": settings.PG_USER,
+                    "password": settings.PG_PASSWORD,
+                    "schema": "public",
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), [{"should_sync": False, "table": "table_1"}])
+
+            new_team = Team.objects.create(name="new_team", organization=self.team.organization)
+
+            response = self.client.get(
+                f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
+                data={
+                    "host": "172.16.0.0",
+                    "port": int(settings.PG_PORT),
+                    "dbname": settings.PG_DATABASE,
+                    "user": settings.PG_USER,
+                    "password": settings.PG_PASSWORD,
+                    "schema": "public",
+                },
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})
+
+        with override_settings(CLOUD_DEPLOYMENT="EU"):
+            team_1, _ = Team.objects.get_or_create(id=1, organization=self.team.organization)
+            response = self.client.get(
+                f"/api/projects/{team_1.id}/external_data_sources/database_schema/",
+                data={
+                    "host": "172.16.0.0",
+                    "port": int(settings.PG_PORT),
+                    "dbname": settings.PG_DATABASE,
+                    "user": settings.PG_USER,
+                    "password": settings.PG_PASSWORD,
+                    "schema": "public",
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), [{"should_sync": False, "table": "table_1"}])
+
+            new_team = Team.objects.create(name="new_team", organization=self.team.organization)
+
+            response = self.client.get(
+                f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
+                data={
+                    "host": "172.16.0.0",
+                    "port": int(settings.PG_PORT),
+                    "dbname": settings.PG_DATABASE,
+                    "user": settings.PG_USER,
+                    "password": settings.PG_PASSWORD,
+                    "schema": "public",
+                },
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json(), {"message": "Cannot use internal Postgres database"})

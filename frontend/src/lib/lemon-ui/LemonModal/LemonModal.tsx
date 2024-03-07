@@ -1,8 +1,8 @@
 import './LemonModal.scss'
 
+import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
-import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
-import { IconClose } from 'lib/lemon-ui/icons'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
@@ -33,6 +33,7 @@ export interface LemonModalProps {
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    hideCloseButton?: boolean
     /** If there is unsaved input that's not persisted, the modal can't be closed closed on overlay click. */
     hasUnsavedInput?: boolean
     /** Expands the modal to fill the entire screen */
@@ -78,6 +79,7 @@ export function LemonModal({
     forceAbovePopovers = false,
     contentRef,
     overlayRef,
+    hideCloseButton = false,
 }: LemonModalProps): JSX.Element {
     const nodeRef = useRef(null)
     const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
@@ -86,7 +88,7 @@ export function LemonModal({
 
     const modalContent = (
         <div ref={nodeRef} className="LemonModal__container">
-            {closable && (
+            {closable && !hideCloseButton && (
                 // The key causes the div to be re-rendered, which restarts the animation,
                 // providing immediate visual feedback on click
                 <div
@@ -103,7 +105,7 @@ export function LemonModal({
                                 <>
                                     You have unsaved input that will be discarded.
                                     <br />
-                                    Use the <IconClose /> button to close explicitly.
+                                    Use the <IconX /> button to close explicitly.
                                 </>
                             ) : (
                                 <>
@@ -113,7 +115,7 @@ export function LemonModal({
                         }
                     >
                         <LemonButton
-                            icon={<IconClose />}
+                            icon={<IconX />}
                             size="small"
                             onClick={onClose}
                             aria-label="close"
@@ -151,7 +153,7 @@ export function LemonModal({
 
     width = !fullScreen ? width : undefined
 
-    const floatingContainer = useFloatingContainerContext()?.current
+    const floatingContainer = useFloatingContainer()
 
     return inline ? (
         // eslint-disable-next-line react/forbid-dom-props
@@ -159,6 +161,7 @@ export function LemonModal({
             {modalContent}
         </div>
     ) : (
+        // eslint-disable-next-line posthog/warn-elements
         <Modal
             isOpen={isOpen}
             onRequestClose={(e) => {

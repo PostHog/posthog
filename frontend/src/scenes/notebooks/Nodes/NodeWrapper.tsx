@@ -8,15 +8,7 @@ import {
 } from '@tiptap/react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import {
-    IconClose,
-    IconDragHandle,
-    IconFilter,
-    IconLink,
-    IconPlus,
-    IconUnfoldLess,
-    IconUnfoldMore,
-} from 'lib/lemon-ui/icons'
+import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -40,7 +32,7 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCopy, IconEllipsis, IconGear } from '@posthog/icons'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
@@ -180,7 +172,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                 ? { label: 'Show comment', onClick: () => selectComment(nodeId) }
                 : { label: 'Comment', onClick: () => insertComment({ type: 'node', id: nodeId }) }
             : null,
-        isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconClose />, status: 'danger' } : null,
+        isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconX />, status: 'danger' } : null,
     ]
 
     const hasMenu = menuItems.some((x) => !!x)
@@ -230,7 +222,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     <LemonButton
                                                         onClick={() => setExpanded(!expanded)}
                                                         size="small"
-                                                        icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                                        icon={expanded ? <IconCollapse /> : <IconExpand />}
                                                     />
                                                 )}
 

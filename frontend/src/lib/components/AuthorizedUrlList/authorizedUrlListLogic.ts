@@ -18,6 +18,7 @@ import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isDomain, isURL } from 'lib/utils'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -70,7 +71,7 @@ export function appEditorUrl(appUrl: string, actionId?: number | null, defaultIn
         // the toolbar, which isn't correct when used behind a reverse proxy as
         // we require e.g. SSO login to the app, which will not work when placed
         // behind a proxy unless we register each domain with the OAuth2 client.
-        apiURL: window.location.origin,
+        apiURL: apiHostOrigin(),
         appUrl,
         ...(actionId ? { actionId } : {}),
     }

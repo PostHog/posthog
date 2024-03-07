@@ -1,8 +1,10 @@
-import { IconNotebook } from '@posthog/icons'
+import { IconNotebook, IconPin, IconPinFilled, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconComment, IconDelete, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconComment, IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import {
@@ -22,6 +24,15 @@ function PinToPlaylistButton(): JSX.Element {
     const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
 
+    let tooltip = logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'
+    let description = 'Pin'
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
+    if (isTestingSaved) {
+        tooltip = logicProps.pinned ? 'Remove from this list' : 'Save to this list (for one year)'
+        description = 'Save'
+    }
+
     return logicProps.setPinned ? (
         <LemonButton
             onClick={() => {
@@ -33,20 +44,20 @@ function PinToPlaylistButton(): JSX.Element {
                 logicProps.setPinned?.(!logicProps.pinned)
             }}
             size="small"
-            tooltip={logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'}
+            tooltip={tooltip}
             data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
-            icon={logicProps.pinned ? <IconPinFilled /> : <IconPinOutline />}
+            icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
         />
     ) : (
         <PlaylistPopoverButton size="small">
-            <span>Pin</span>
+            <span>{description}</span>
         </PlaylistPopoverButton>
     )
 }
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
+    const { setPause, deleteRecording, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
@@ -58,6 +69,7 @@ export function PlayerMetaLinks(): JSX.Element {
 
     const onShare = (): void => {
         setPause()
+        setIsFullScreen(false)
         openPlayerShareDialog({
             seconds: getCurrentPlayerTime(),
             id: sessionRecordingId,
@@ -65,6 +77,7 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const onDelete = (): void => {
+        setIsFullScreen(false)
         LemonDialog.open({
             title: 'Delete recording',
             description: 'Are you sure you want to delete this recording? This cannot be undone.',
@@ -140,7 +153,7 @@ export function PlayerMetaLinks(): JSX.Element {
                     {logicProps.playerKey !== 'modal' && (
                         <LemonButton
                             tooltip="Delete"
-                            icon={<IconDelete />}
+                            icon={<IconTrash />}
                             onClick={onDelete}
                             {...commonProps}
                             status="danger"

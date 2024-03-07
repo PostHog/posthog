@@ -7,13 +7,14 @@ import {
     IconLogomark,
     IconNight,
     IconQuestion,
+    IconTarget,
     IconToggle,
     IconX,
 } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { IconFlare, IconMenu, IconTarget } from 'lib/lemon-ui/icons'
+import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { useEffect, useRef } from 'react'
 

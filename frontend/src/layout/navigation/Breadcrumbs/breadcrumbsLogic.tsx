@@ -137,7 +137,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                             otherOrganizations?.length || preflight?.can_create_org
                                 ? {
                                       overlay: <OrganizationSwitcherOverlay />,
-                                      actionable: true,
                                   }
                                 : undefined,
                     })
@@ -152,7 +151,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         name: currentTeam.name,
                         popover: {
                             overlay: <ProjectSwitcherOverlay />,
-                            actionable: true,
                         },
                     })
                 }

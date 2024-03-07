@@ -11,9 +11,8 @@ import {
     LoaderOptions,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
-    TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { getKeyMapping } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
@@ -100,7 +99,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
                     // avoid the 150ms delay on first load
                     if (!values.remoteItems.first) {
-                        await breakpoint(150)
+                        await breakpoint(500)
                     } else {
                         // These connected values below might be read before they are available due to circular logic mounting.
                         // Adding a slight delay (breakpoint) fixes this.
@@ -265,16 +264,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     group: TaxonomicFilterGroup,
                     item: EventDefinition | CohortType
                 ): string | undefined {
-                    const keyTypes = {
-                        [TaxonomicFilterGroupType.Events]: 'event',
-                        [TaxonomicFilterGroupType.EventProperties]: 'event',
-                        [TaxonomicFilterGroupType.PersonProperties]: 'event',
-                        [TaxonomicFilterGroupType.Metadata]: 'event',
-                        [TaxonomicFilterGroupType.Elements]: 'element',
-                    }
-
-                    const propertyKeyType = keyTypes[group.type]
-                    return propertyKeyType ? getKeyMapping(group?.getName?.(item), propertyKeyType)?.label : undefined
+                    return group ? getCoreFilterDefinition(group.getName?.(item), group.type)?.label : undefined
                 }
 
                 const haystack = (rawLocalItems || []).map((item) => ({
@@ -357,7 +347,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             }
         },
-        setSearchQuery: () => {
+        setSearchQuery: async () => {
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else {

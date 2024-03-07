@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 function AndroidInstallSnippet(): JSX.Element {
@@ -21,7 +22,7 @@ function AndroidSetupSnippet(): JSX.Element {
 
     companion object {
         const val POSTHOG_API_KEY = "${currentTeam?.api_token}"
-        const val POSTHOG_HOST = "${window.location.origin}"
+        const val POSTHOG_HOST = "${apiHostOrigin()}"
     }
 
     override fun onCreate() {

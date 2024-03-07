@@ -13,7 +13,6 @@ interface DatabaseTableProps {
 export function DatabaseTable({ table, tables }: DatabaseTableProps): JSX.Element {
     return (
         <LemonTable
-            size="small"
             dataSource={tables.find(({ name }) => name === table)?.columns ?? []}
             columns={[
                 {

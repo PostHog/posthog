@@ -71,7 +71,7 @@ const stickinessQueryDefault: StickinessQuery = {
             kind: NodeKind.EventsNode,
             name: '$pageview',
             event: '$pageview',
-            math: BaseMathType.TotalCount,
+            math: BaseMathType.UniqueUsers,
         },
     ],
     stickinessFilter: {},
@@ -84,7 +84,6 @@ const lifecycleQueryDefault: LifecycleQuery = {
             kind: NodeKind.EventsNode,
             name: '$pageview',
             event: '$pageview',
-            math: BaseMathType.TotalCount,
         },
     ],
 }

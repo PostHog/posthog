@@ -19,7 +19,7 @@ const TABS_TO_CONTENT = {
 }
 
 const ContentWrapper = ({ children }: { children: JSX.Element }): JSX.Element => {
-    return <div className="SideBar bg-bg-light border p-4">{children}</div>
+    return <div className="SideBar bg-bg-light border p-4 rounded-t-none border-t-0">{children}</div>
 }
 
 export const SideBar = (): JSX.Element => {

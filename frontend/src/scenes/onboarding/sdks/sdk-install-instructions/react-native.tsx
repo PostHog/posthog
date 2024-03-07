@@ -1,11 +1,12 @@
 import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function SDKInstallRNInstructions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const url = window.location.origin
+    const url = apiHostOrigin()
 
     return (
         <>

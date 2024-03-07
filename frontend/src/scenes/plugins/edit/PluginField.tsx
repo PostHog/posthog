@@ -1,14 +1,14 @@
+import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { CodeEditor } from 'lib/components/CodeEditors'
-import { IconEdit } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
 import { UploadField } from 'scenes/plugins/edit/UploadField'
 
 function JsonConfigField(props: {
-    onChange: (value: any) => void
+    onChange?: (value: any) => void
     className: string
     autoFocus: boolean
     value: any
@@ -20,7 +20,7 @@ function JsonConfigField(props: {
                     className="border"
                     language="json"
                     value={props.value}
-                    onChange={(v) => props.onChange(v ?? '')}
+                    onChange={(v) => props.onChange?.(v ?? '')}
                     height={height}
                     options={{
                         minimap: {
@@ -39,7 +39,7 @@ export function PluginField({
     fieldConfig,
 }: {
     value?: any
-    onChange: (value: any) => void
+    onChange?: (value: any) => void
     fieldConfig: PluginConfigSchema
 }): JSX.Element {
     const [editingSecret, setEditingSecret] = useState(false)
@@ -52,9 +52,9 @@ export function PluginField({
         return (
             <LemonButton
                 type="secondary"
-                icon={<IconEdit />}
+                icon={<IconPencil />}
                 onClick={() => {
-                    onChange(fieldConfig.default || '')
+                    onChange?.(fieldConfig.default || '')
                     setEditingSecret(true)
                 }}
             >

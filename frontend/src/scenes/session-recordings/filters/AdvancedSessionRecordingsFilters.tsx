@@ -7,35 +7,81 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, FilterableLogLevel, FilterType, RecordingDurationFilter, RecordingFilters } from '~/types'
+import { EntityTypes, FilterableLogLevel, RecordingFilters } from '~/types'
 
 import { DurationFilter } from './DurationFilter'
 
 export const AdvancedSessionRecordingsFilters = ({
     filters,
     setFilters,
-    localFilters,
-    setLocalFilters,
     showPropertyFilters,
 }: {
     filters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
-    localFilters: FilterType
-    setLocalFilters: (localFilters: FilterType) => void
     showPropertyFilters?: boolean
 }): JSX.Element => {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-2 bg-light p-3">
+            <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
+                Events and actions
+            </LemonLabel>
+
+            <ActionFilter
+                filters={{ events: filters.events || [], actions: filters.actions || [] }}
+                setFilters={(payload) => {
+                    setFilters({
+                        events: payload.events || [],
+                        actions: payload.actions || [],
+                    })
+                }}
+                typeKey="session-recordings"
+                mathAvailability={MathAvailability.None}
+                hideRename
+                hideDuplicate
+                showNestedArrow={false}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events]}
+                propertiesTaxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                    ...groupsTaxonomicTypes,
+                ]}
+                propertyFiltersPopover
+                addFilterDefaultOptions={{
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: EntityTypes.EVENTS,
+                }}
+                buttonProps={{ type: 'secondary', size: 'small' }}
+            />
+
+            <LemonLabel info="Show recordings by persons who match the set criteria">Persons and cohorts</LemonLabel>
+
             <TestAccountFilter
                 filters={filters}
                 onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
             />
 
+            {showPropertyFilters && (
+                <PropertyFilters
+                    pageKey="session-recordings"
+                    buttonText="Person or cohort"
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    propertyFilters={filters.properties}
+                    onChange={(properties) => {
+                        setFilters({ properties })
+                    }}
+                />
+            )}
+
             <LemonLabel>Time and duration</LemonLabel>
+
             <div className="flex flex-wrap gap-2">
                 <DateFilter
                     dateFrom={filters.date_from ?? '-7d'}
@@ -62,62 +108,11 @@ export const AdvancedSessionRecordingsFilters = ({
                             duration_type_filter: newDurationType,
                         })
                     }}
-                    recordingDurationFilter={filters.session_recording_duration as RecordingDurationFilter}
+                    recordingDurationFilter={filters.session_recording_duration || defaultRecordingDurationFilter}
                     durationTypeFilter={filters.duration_type_filter || 'duration'}
                     pageKey="session-recordings"
                 />
             </div>
-
-            <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
-                Filter by events and actions
-            </LemonLabel>
-
-            <ActionFilter
-                filters={localFilters}
-                setFilters={(payload) => {
-                    setLocalFilters(payload)
-                }}
-                typeKey="session-recordings"
-                mathAvailability={MathAvailability.None}
-                buttonCopy="Filter for events or actions"
-                hideRename
-                hideDuplicate
-                showNestedArrow={false}
-                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events]}
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                    ...groupsTaxonomicTypes,
-                ]}
-                propertyFiltersPopover
-                addFilterDefaultOptions={{
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: EntityTypes.EVENTS,
-                }}
-            />
-
-            {showPropertyFilters && (
-                <>
-                    <LemonLabel info="Show recordings by persons who match the set criteria">
-                        Filter by persons and cohorts
-                    </LemonLabel>
-
-                    <PropertyFilters
-                        pageKey="session-recordings"
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.Cohorts,
-                        ]}
-                        propertyFilters={filters.properties}
-                        onChange={(properties) => {
-                            setFilters({ properties })
-                        }}
-                    />
-                </>
-            )}
 
             <ConsoleFilters filters={filters} setFilters={setFilters} />
         </div>
@@ -146,7 +141,7 @@ function ConsoleFilters({
 
     return (
         <>
-            <LemonLabel>Filter by console logs</LemonLabel>
+            <LemonLabel>Console logs</LemonLabel>
             <div className="flex flex-row space-x-2">
                 <LemonInput
                     className="grow"

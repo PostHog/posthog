@@ -1,10 +1,8 @@
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
 
 from ee.api.role import RolePermissions
 from ee.models.organization_resource_access import OrganizationResourceAccess
-from posthog.api.routing import StructuredViewSetMixin
-from posthog.permissions import OrganizationMemberPermissions
+from posthog.api.routing import TeamAndOrgViewSetMixin
 
 
 class OrganizationResourceAccessSerializer(serializers.ModelSerializer):
@@ -35,7 +33,7 @@ class OrganizationResourceAccessSerializer(serializers.ModelSerializer):
 
 
 class OrganizationResourceAccessViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
@@ -43,10 +41,7 @@ class OrganizationResourceAccessViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
-        RolePermissions,
-    ]
+    scope_object = "INTERNAL"
+    permission_classes = [RolePermissions]
     serializer_class = OrganizationResourceAccessSerializer
     queryset = OrganizationResourceAccess.objects.all()

@@ -1,9 +1,10 @@
-import { LemonButton, LemonLabel, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { InsightLogicProps } from '~/types'
 
+import { insightVizDataLogic } from '../insightVizDataLogic'
 import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 
 const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
@@ -15,6 +16,7 @@ interface SamplingFilterProps {
 }
 
 export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element {
+    const { isDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
 
@@ -39,28 +41,26 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                         posthog.capture('sampling_disabled_on_insight')
                     }}
                     checked={!!samplingPercentage}
+                    disabledReason={
+                        isDataWarehouseSeries ? 'Sampling is not available for data warehouse series' : undefined
+                    }
                 />
             </div>
             {samplingPercentage ? (
                 <div className="SamplingFilter">
                     <div className="flex items-center gap-2">
-                        {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (
-                            <LemonButton
-                                key={key}
-                                type="secondary"
-                                size="small"
-                                active={samplingPercentage === percentage}
-                                onClick={() => {
-                                    setSamplingPercentage(percentage)
+                        <LemonSegmentedButton
+                            options={AVAILABLE_SAMPLING_PERCENTAGES.map((percentage) => ({
+                                value: percentage,
+                                label: `${percentage}%`,
+                            }))}
+                            value={samplingPercentage}
+                            onChange={(newValue) => {
+                                setSamplingPercentage(newValue)
 
-                                    if (samplingPercentage === percentage) {
-                                        posthog.capture('sampling_disabled_on_insight')
-                                    } else {
-                                        posthog.capture('sampling_percentage_updated', { samplingPercentage })
-                                    }
-                                }}
-                            >{`${percentage}%`}</LemonButton>
-                        ))}
+                                posthog.capture('sampling_percentage_updated', { samplingPercentage })
+                            }}
+                        />
                     </div>
                 </div>
             ) : null}

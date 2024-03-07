@@ -1,7 +1,7 @@
+import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { useValues } from 'kea'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
@@ -53,10 +53,8 @@ export function PathNodeCardButton({
                 <span className="text-xs">{pageUrl(node, true)}</span>
             </div>
             <div className="flex flex-nowrap">
-                <LemonButton size="small">
-                    <span className="text-link text-xs pr-1 font-medium" onClick={openModal}>
-                        {count}
-                    </span>
+                <LemonButton size="small" onClick={openModal}>
+                    <span className="text-link text-xs px-1 font-medium">{count}</span>
                 </LemonButton>
                 <LemonButtonWithDropdown
                     size="small"

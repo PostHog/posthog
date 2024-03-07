@@ -4,6 +4,7 @@
     --breadcrumbs-height-full: 3.75rem;
     --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
     --scene-padding: 1rem;
+    --scene-padding-bottom: var(--scene-padding);
 
     display: flex;
     width: 100%;
@@ -23,6 +24,12 @@
         background: none;
     }
 
+    @media screen and (max-width: $sm) {
+        // handle notched devices and mobile safari's bottom nav bar
+        // provide a fallback of 80px as Safari's approach to safe-area-inset-bottom is not consistent across versions
+        --scene-padding-bottom: calc(var(--scene-padding) + max(env(safe-area-inset-bottom), 80px));
+    }
+
     @media screen and (max-width: $lg) {
         --scene-padding: 0.5rem;
     }
@@ -31,8 +38,9 @@
 .Navigation3000__scene {
     // `relative` is for positioning of the scene-level spinner
     position: relative;
-    min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) * 2);
+    min-height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom));
     margin: var(--scene-padding);
+    margin-bottom: var(--scene-padding-bottom);
 
     &.Navigation3000__scene--raw {
         --scene-padding: 0px;
@@ -118,10 +126,6 @@
 
 .NavbarButton {
     position: relative;
-
-    .LemonButton__icon {
-        transition: color 100ms ease, transform 100ms ease;
-    }
 
     &.NavbarButton--here {
         &::after {

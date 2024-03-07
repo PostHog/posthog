@@ -110,7 +110,13 @@ const renderItemContents = ({
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
                 {icon}
-                <PropertyKeyInfo value={item.name ?? ''} disablePopover disableIcon className="w-full" />
+                <PropertyKeyInfo
+                    value={item.name ?? ''}
+                    disablePopover
+                    disableIcon
+                    className="w-full"
+                    type={listGroupType}
+                />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}
@@ -118,7 +124,7 @@ const renderItemContents = ({
     ) : (
         <div className="taxonomic-list-row-contents">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
-                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover className="w-full" />
+                <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
             ) : (
                 <>
                     {group.getIcon ? icon : null}
@@ -145,6 +151,7 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Actions,
             TaxonomicFilterGroupType.Elements,
             TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.DataWarehouse,
             TaxonomicFilterGroupType.CustomEvents,
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
@@ -156,6 +163,10 @@ const selectedItemHasPopover = (
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
+}
+
+const canSelectItem = (listGroupType?: TaxonomicFilterGroupType): boolean => {
+    return !!listGroupType && ![TaxonomicFilterGroupType.DataWarehouse].includes(listGroupType)
 }
 
 export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
@@ -212,7 +223,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             <div
                 {...commonDivProps}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                onClick={() => selectItem(group, itemValue ?? null, item)}
+                onClick={() => canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)}
             >
                 {renderItemContents({
                     item,
@@ -229,7 +240,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 onClick={expand}
             >
                 {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
-                    `Click here to see ${expandedCount - totalResultCount} more ${pluralize(
+                    `See ${expandedCount - totalResultCount} more ${pluralize(
                         expandedCount - totalResultCount,
                         'row',
                         'rows',

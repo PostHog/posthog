@@ -86,7 +86,7 @@ class Database(BaseModel):
     _table_names: ClassVar[List[str]] = [
         "events",
         "groups",
-        "person",
+        "persons",
         "person_distinct_id2",
         "person_overrides",
         "session_replay_events",
@@ -94,6 +94,8 @@ class Database(BaseModel):
         "person_static_cohort",
         "log_entries",
     ]
+
+    _warehouse_table_names: List[str] = []
 
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
@@ -120,9 +122,13 @@ class Database(BaseModel):
             return getattr(self, table_name)
         raise HogQLException(f'Table "{table_name}" not found in database')
 
+    def get_all_tables(self) -> List[str]:
+        return self._table_names + self._warehouse_table_names
+
     def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
             setattr(self, f_name, f_def)
+            self._warehouse_table_names.append(f_name)
 
 
 def create_hogql_database(
@@ -133,7 +139,7 @@ def create_hogql_database(
     from posthog.warehouse.models import (
         DataWarehouseTable,
         DataWarehouseSavedQuery,
-        DataWarehouseViewLink,
+        DataWarehouseJoin,
     )
 
     team = team_arg or Team.objects.get(pk=team_id)
@@ -183,24 +189,24 @@ def create_hogql_database(
         if database.events.fields.get(mapping.group_type) is None:
             database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
-    for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
-        table = database.get_table(view.table)
-
-        # Saved query names are unique to team
-        table.fields[view.saved_query.name] = LazyJoin(
-            from_field=view.from_join_key,
-            join_table=view.saved_query.hogql_definition(),
-            join_function=view.join_function,
-        )
-
-    tables = {}
+    tables: Dict[str, Table] = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
 
-    for table in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
-        tables[table.name] = table.hogql_definition()
+    for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
+        tables[saved_query.name] = saved_query.hogql_definition()
 
     database.add_warehouse_tables(**tables)
+
+    for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
+        source_table = database.get_table(join.source_table_name)
+        joining_table = database.get_table(join.joining_table_name)
+
+        source_table.fields[join.joining_table_name] = LazyJoin(
+            from_field=join.joining_table_key,
+            join_table=joining_table,
+            join_function=join.join_function,
+        )
 
     return database
 

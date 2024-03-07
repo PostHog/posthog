@@ -3,10 +3,10 @@ import './PropertyFilters.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
@@ -24,13 +24,16 @@ interface PropertyFiltersProps {
     metadataSource?: AnyDataNode
     showNestedArrow?: boolean
     eventNames?: string[]
+    schemaColumns?: DatabaseSchemaQueryResponseField[]
     logicalRowDivider?: boolean
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     addText?: string | null
+    buttonText?: string
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
     allowNew?: boolean
+    openOnInsert?: boolean
     errorMessages?: JSX.Element[] | null
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
     allowRelativeDateOptions?: boolean
@@ -47,13 +50,16 @@ export function PropertyFilters({
     metadataSource,
     showNestedArrow = false,
     eventNames = [],
+    schemaColumns = [],
     orFiltering = false,
     logicalRowDivider = false,
     propertyGroupType = null,
     addText = null,
+    buttonText = 'Add filter',
     hasRowOperator = true,
     sendAllKeyUpdates = false,
     allowNew = true,
+    openOnInsert = false,
     errorMessages = null,
     propertyAllowList,
     allowRelativeDateOptions,
@@ -61,11 +67,17 @@ export function PropertyFilters({
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
+    const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
     // Update the logic's internal filters when the props change
     useEffect(() => {
         setFilters(propertyFilters ?? [])
     }, [propertyFilters])
+
+    // do not open on initial render, only open if newly inserted
+    useEffect(() => {
+        setAllowOpenOnInsert(true)
+    }, [])
 
     return (
         <div className="PropertyFilters">
@@ -91,7 +103,7 @@ export function PropertyFilters({
                                     pageKey={pageKey}
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
-                                    label="Add filter"
+                                    label={buttonText}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
                                     filterComponent={(onComplete) => (
@@ -104,6 +116,7 @@ export function PropertyFilters({
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             metadataSource={metadataSource}
                                             eventNames={eventNames}
+                                            schemaColumns={schemaColumns}
                                             propertyGroupType={propertyGroupType}
                                             disablePopover={disablePopover || orFiltering}
                                             addText={addText}
@@ -118,6 +131,7 @@ export function PropertyFilters({
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}
+                                    openOnInsert={allowOpenOnInsert && openOnInsert}
                                 />
                             </React.Fragment>
                         )

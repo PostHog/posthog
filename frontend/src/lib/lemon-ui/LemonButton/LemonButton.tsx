@@ -1,5 +1,4 @@
 import './LemonButton.scss'
-import './LemonButton3000.scss'
 
 import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
@@ -139,7 +138,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             ref
         ): JSX.Element => {
             const [popoverVisibility, popoverPlacement] = useContext(PopoverReferenceContext) || [false, null]
-            const within3000PageHeader = useContext(Within3000PageHeaderContext)
+            const within3000PageHeader = useContext(WithinPageHeaderContext)
 
             if (!active && popoverVisibility) {
                 active = true
@@ -260,12 +259,12 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         {workingButton}
                         <div className="LemonButtonWithSideAction__side-button">
                             <SideComponent
-                                // We don't want secondary style as it creates double borders
-                                type={type !== 'secondary' ? type : undefined}
+                                type={type}
                                 size={size}
                                 status={status}
                                 dropdown={sideDropdown as LemonButtonDropdown}
                                 noPadding
+                                active={active}
                                 {...sideActionRest}
                             />
                         </div>
@@ -278,7 +277,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
     )
 LemonButton.displayName = 'LemonButton'
 
-export const Within3000PageHeaderContext = React.createContext<boolean>(false)
+export const WithinPageHeaderContext = React.createContext<boolean>(false)
 
 export interface LemonButtonWithDropdownProps extends LemonButtonPropsBase {
     dropdown: LemonButtonDropdown

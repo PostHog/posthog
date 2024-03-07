@@ -1,5 +1,4 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { IconGlobeLock } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 
 import { LemonSwitch as RawLemonSwitch, LemonSwitchProps } from './LemonSwitch'
@@ -37,7 +36,6 @@ export const Overview = (): JSX.Element => {
             <LemonSwitch label="Bordered Checked" checked bordered />
 
             <LemonSwitch label="Bordered FullWidth" fullWidth bordered />
-            <LemonSwitch label="Bordered FullWidth icon" fullWidth bordered icon={<IconGlobeLock />} />
             <LemonSwitch label="Bordered disabled" bordered disabled />
 
             <div className="w-20">

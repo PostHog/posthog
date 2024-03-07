@@ -245,7 +245,7 @@
   WHERE and(equals(events.team_id, 420), ifNull(in(events__pdi.person_id, (
   SELECT cohortpeople.person_id AS person_id 
   FROM cohortpeople 
-  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, 13)) 
+  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, XX)) 
   GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
   HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)) 
   GROUP BY events.event 
@@ -259,7 +259,7 @@
   WHERE in(person_id, (
   SELECT person_id 
   FROM raw_cohort_people 
-  WHERE equals(cohort_id, 13) 
+  WHERE equals(cohort_id, XX) 
   GROUP BY person_id, cohort_id, version 
   HAVING greater(sum(sign), 0))) 
   GROUP BY event 
@@ -275,7 +275,7 @@
   WHERE and(equals(events.team_id, 420), in(events.person_id, (
   SELECT cohortpeople.person_id AS person_id 
   FROM cohortpeople 
-  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, 13)) 
+  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, XX)) 
   GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
   HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))) 
   GROUP BY events.event 
@@ -289,7 +289,7 @@
   WHERE in(person_id, (
   SELECT person_id 
   FROM raw_cohort_people 
-  WHERE equals(cohort_id, 13) 
+  WHERE equals(cohort_id, XX) 
   GROUP BY person_id, cohort_id, version 
   HAVING greater(sum(sign), 0))) 
   GROUP BY event 
@@ -310,7 +310,7 @@
   WHERE and(equals(events.team_id, 420), ifNull(in(events__pdi.person_id, (
   SELECT person_static_cohort.person_id AS person_id 
   FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 14)))), 0)) 
+  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, XX)))), 0)) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
@@ -322,7 +322,7 @@
   WHERE in(person_id, (
   SELECT person_id 
   FROM static_cohort_people 
-  WHERE equals(cohort_id, 14))) 
+  WHERE equals(cohort_id, XX))) 
   GROUP BY event 
   LIMIT 100
   '''
@@ -336,7 +336,7 @@
   WHERE and(equals(events.team_id, 420), in(events.person_id, (
   SELECT person_static_cohort.person_id AS person_id 
   FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 14))))) 
+  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, XX))))) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
@@ -348,7 +348,7 @@
   WHERE in(person_id, (
   SELECT person_id 
   FROM static_cohort_people 
-  WHERE equals(cohort_id, 14))) 
+  WHERE equals(cohort_id, XX))) 
   GROUP BY event 
   LIMIT 100
   '''

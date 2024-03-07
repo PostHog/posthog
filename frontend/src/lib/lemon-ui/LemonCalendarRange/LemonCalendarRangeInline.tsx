@@ -25,9 +25,9 @@ export function LemonCalendarRangeInline({
     ])
 
     function setRange([rangeStart, rangeEnd, lastChanged]: RangeState): void {
-        _setRange([rangeStart, rangeEnd, lastChanged])
+        _setRange([rangeStart, rangeEnd ? rangeEnd.endOf('day') : null, lastChanged])
         if (rangeStart && rangeEnd) {
-            onChange([rangeStart, rangeEnd])
+            onChange([rangeStart, rangeEnd.endOf('day')])
         }
     }
 

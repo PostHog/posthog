@@ -1,7 +1,7 @@
+import { IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -73,7 +73,7 @@ export function NotebooksTable(): JSX.Element {
                         items={[
                             {
                                 label: 'Delete',
-                                icon: <IconDelete />,
+                                icon: <IconTrash />,
                                 status: 'danger',
 
                                 onClick: () => {
@@ -81,7 +81,6 @@ export function NotebooksTable(): JSX.Element {
                                 },
                             },
                         ]}
-                        actionable
                     >
                         <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />
                     </LemonMenu>

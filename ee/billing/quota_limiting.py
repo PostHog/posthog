@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
 
 import dateutil.parser
+import posthoganalytics
 from django.db.models import Q
 from django.utils import timezone
 from sentry_sdk import capture_exception
@@ -22,6 +23,8 @@ from posthog.tasks.usage_report import (
 from posthog.utils import get_current_day
 
 QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
+
+QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
 
 class QuotaResource(Enum):
@@ -87,6 +90,19 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
 
     if is_quota_limited and organization.never_drop_data:
+        return None
+
+    if is_quota_limited and posthoganalytics.feature_enabled(
+        QUOTA_LIMIT_DATA_RETENTION_FLAG,
+        organization.id,
+        groups={"organization": str(organization.id)},
+        group_properties={"organization": {"id": str(organization.id)}},
+    ):
+        # Don't drop data for this org but record that they __would have__ been
+        # limited.
+        report_organization_action(
+            organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}
+        )
         return None
 
     if is_quota_limited and billing_period_end:
@@ -184,8 +200,15 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
     )
 
     teams: Sequence[Team] = list(
-        Team.objects.select_related("organization").exclude(
-            Q(organization__for_internal_metrics=True) | Q(is_demo=True)
+        Team.objects.select_related("organization")
+        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        .only(
+            "id",
+            "api_token",
+            "organization__id",
+            "organization__usage",
+            "organization__created_at",
+            "organization__never_drop_data",
         )
     )
 

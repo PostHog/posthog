@@ -195,7 +195,20 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             data,
             [
-                1200.0,  # starting at 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1200.0,  # 2020-01-02 13:00 - 24 h before run_at (rounded to start of interval, i.e. hour)
                 0.0,
                 0.0,
                 0.0,

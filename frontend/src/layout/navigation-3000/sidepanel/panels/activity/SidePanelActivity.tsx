@@ -117,7 +117,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
     return (
         <div className="flex flex-col overflow-hidden flex-1">
-            <SidePanelPaneHeader title="Activity" />
+            <SidePanelPaneHeader title="Team activity" />
             <div className="flex flex-col overflow-hidden flex-1">
                 <div className="shrink-0 mx-2">
                     <LemonTabs

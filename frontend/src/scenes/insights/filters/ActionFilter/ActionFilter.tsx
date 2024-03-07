@@ -3,17 +3,17 @@ import './ActionFilter.scss'
 import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { IconPlusSmall } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useEffect } from 'react'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 
-import { ActionFilter as ActionFilterType, FilterType, FunnelExclusion, InsightType, Optional } from '~/types'
+import { ActionFilter as ActionFilterType, FilterType, FunnelExclusionLegacy, InsightType, Optional } from '~/types'
 
 import { teamLogic } from '../../../teamLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
@@ -26,8 +26,9 @@ export interface ActionFilterProps {
     addFilterDefaultOptions?: Record<string, any>
     mathAvailability?: MathAvailability
     /** Text copy for the action button to add more events/actions (graph series) */
-    buttonCopy: string
+    buttonCopy?: string
     buttonType?: LemonButtonProps['type']
+    buttonProps?: LemonButtonProps
     /** Whether the full control is enabled or not */
     disabled?: boolean
     /** Bordered view */
@@ -52,7 +53,11 @@ export interface ActionFilterProps {
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((props: { filter: ActionFilterType | FunnelExclusion; index: number; onClose: () => void }) => JSX.Element)
+        | ((props: {
+              filter: ActionFilterType | FunnelExclusionLegacy
+              index: number
+              onClose: () => void
+          }) => JSX.Element)
     /** Show nested arrows to the left of property filter buttons */
     showNestedArrow?: boolean
     /** Which tabs to show for actions selector */
@@ -80,6 +85,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         addFilterDefaultOptions = {},
         mathAvailability = MathAvailability.All,
         buttonCopy = '',
+        buttonProps = { fullWidth: true },
         disabled = false,
         sortable = false,
         showSeriesIndicator = false,
@@ -212,9 +218,9 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             type={buttonType}
                             onClick={() => addFilter()}
                             data-attr="add-action-event-button"
-                            icon={<IconPlusMini />}
+                            icon={<IconPlusSmall />}
                             disabled={reachedLimit || disabled || readOnly}
-                            fullWidth
+                            {...buttonProps}
                         >
                             {!reachedLimit
                                 ? buttonCopy || 'Action or event'

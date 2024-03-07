@@ -126,17 +126,18 @@ export function EventDefinitionsTable(): JSX.Element {
                     to={urls.insightNewHogQL(
                         'SELECT event, count()\n' +
                             'FROM events\n' +
-                            'WHERE timestamp > now() - interval 1 month\n' +
+                            'WHERE {filters}\n' +
                             (filters.event_type === 'event_custom'
                                 ? "AND event NOT LIKE '$%'\n"
                                 : filters.event_type === 'event_posthog'
                                 ? "AND event LIKE '$%'\n"
                                 : '') +
                             'GROUP BY event\n' +
-                            'ORDER BY count() DESC'
+                            'ORDER BY count() DESC',
+                        { dateRange: { date_from: '-24h' } }
                     )}
                 >
-                    Click here!
+                    Query with SQL
                 </Link>
             </LemonBanner>
 

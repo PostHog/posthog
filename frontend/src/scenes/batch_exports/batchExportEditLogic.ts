@@ -10,6 +10,7 @@ import {
     BatchExportConfiguration,
     BatchExportDestination,
     BatchExportDestinationBigQuery,
+    BatchExportDestinationHTTP,
     BatchExportDestinationPostgres,
     BatchExportDestinationRedshift,
     BatchExportDestinationS3,
@@ -32,22 +33,23 @@ export type BatchExportConfigurationForm = Omit<
     Partial<BatchExportDestinationRedshift['config']> &
     Partial<BatchExportDestinationBigQuery['config']> &
     Partial<BatchExportDestinationS3['config']> &
-    Partial<BatchExportDestinationSnowflake['config']> & {
-        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift'
+    Partial<BatchExportDestinationSnowflake['config']> &
+    Partial<BatchExportDestinationHTTP['config']> & {
+        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift' | 'HTTP'
         start_at: Dayjs | null
         end_at: Dayjs | null
         json_config_file?: File[] | null
     }
 
-const formFields = (
-    props: BatchExportsEditLogicProps,
-    { name, destination, interval, start_at, end_at, paused, ...config }: BatchExportConfigurationForm
+export const batchExportFormFields = (
+    isNew: boolean,
+    { name, destination, interval, start_at, end_at, paused, ...config }: BatchExportConfigurationForm,
+    { isPipeline }: { isPipeline?: boolean } = {}
 ): Record<string, any> => {
     // Important! All fields that are required must be checked here as it is used also to sanitise the existing
-    const isNew = props.id === 'new'
 
     return {
-        name: !name ? 'Please enter a name' : '',
+        name: !name && !isPipeline ? 'Please enter a name' : '', // In pipeline UI the name is in the top bar
         destination: !destination ? 'Please select a destination' : '',
         interval: !interval ? 'Please select a frequency' : '',
         paused: '',
@@ -111,6 +113,13 @@ const formFields = (
                   include_events: '',
                   use_json_type: '',
               }
+            : destination === 'HTTP'
+            ? {
+                  url: !config.url ? 'This field is required' : '',
+                  token: !config.token ? 'This field is required' : '',
+                  exclude_events: '',
+                  include_events: '',
+              }
             : destination === 'Snowflake'
             ? {
                   account: !config.account ? 'This field is required' : '',
@@ -146,7 +155,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             defaults: {
                 name: '',
             } as BatchExportConfigurationForm,
-            errors: (form) => formFields(props, form),
+            errors: (form) => batchExportFormFields(props.id === 'new', form),
             submit: async ({ name, destination, interval, start_at, end_at, paused, ...config }) => {
                 const destinationObject: BatchExportDestination =
                     destination === 'Postgres'
@@ -169,6 +178,11 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               type: 'BigQuery',
                               config: config,
                           } as unknown as BatchExportDestinationBigQuery)
+                        : destination === 'HTTP'
+                        ? ({
+                              type: 'HTTP',
+                              config: config,
+                          } as unknown as BatchExportDestinationHTTP)
                         : ({
                               type: 'Snowflake',
                               config: config,
@@ -250,7 +264,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
 
             // Filter out any values that aren't part of our from
 
-            const validFormFields = Object.keys(formFields(props, transformedConfig))
+            const validFormFields = Object.keys(batchExportFormFields(props.id === 'new', transformedConfig))
 
             Object.keys(transformedConfig).forEach((key) => {
                 if (!validFormFields.includes(key)) {

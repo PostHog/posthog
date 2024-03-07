@@ -21,20 +21,16 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
     const nodeLogic = useNotebookNode()
 
     return (
-        <div className="NotFoundComponent space-y-2">
+        <div className="NotFoundComponent">
             {!nodeLogic ? <div className="NotFoundComponent__graphic" /> : null}
-            <h1>{capitalizeFirstLetter(object)} not found</h1>
-            {!nodeLogic ? (
-                <p>
-                    <b>It seems this {object} may have been lost in space.</b>
-                </p>
-            ) : null}
-
-            <p>
+            <h1 className="text-3xl font-bold mt-4 mb-0">{capitalizeFirstLetter(object)} not found</h1>
+            {!nodeLogic ? <p className="text-sm font-semibold italic mt-3 mb-0">It might be lost in space.</p> : null}
+            <p className="text-sm mt-3 mb-0">
                 {caption || (
                     <>
-                        It's possible this {object} may have been deleted or its sharing settings changed. Please check
-                        with the person who sent you here
+                        It's possible this {object} has been deleted or its sharing settings have changed.
+                        <br />
+                        Please check with the person who sent you here
                         {preflight?.cloud ? (
                             <>
                                 , or <Link onClick={() => openSupportForm({ kind: 'support' })}>contact support</Link>{' '}
@@ -45,13 +41,13 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
                     </>
                 )}
             </p>
-            <div className="flex justify-center">
-                {nodeLogic && (
+            {nodeLogic && (
+                <div className="flex justify-center mt-4">
                     <LemonButton type="secondary" status="danger" onClick={nodeLogic.actions.deleteNode}>
                         Remove from Notebook
                     </LemonButton>
-                )}
-            </div>
+                </div>
+            )}
         </div>
     )
 }

@@ -1,9 +1,10 @@
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import { JSWebInstructions, NextJSInstructions, ReactInstructions } from '.'
+import { HTMLSnippetInstructions, JSWebInstructions, NextJSInstructions, ReactInstructions } from '.'
 
 export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
+    [SDKKey.HTML_SNIPPET]: HTMLSnippetInstructions,
     [SDKKey.NEXT_JS]: NextJSInstructions,
     [SDKKey.REACT]: ReactInstructions,
 }

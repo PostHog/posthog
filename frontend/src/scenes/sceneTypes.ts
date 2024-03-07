@@ -24,7 +24,7 @@ export enum Scene {
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
     Pipeline = 'Pipeline',
-    PipelineApp = 'PipelineApp',
+    PipelineNode = 'PipelineNode',
     Group = 'Group',
     Action = 'Action',
     Experiments = 'Experiments',
@@ -76,6 +76,7 @@ export enum Scene {
     Products = 'Products',
     Onboarding = 'Onboarding',
     Settings = 'Settings',
+    MoveToPostHogCloud = 'MoveToPostHogCloud',
 }
 
 export type SceneProps = Record<string, any>
@@ -125,6 +126,8 @@ export interface SceneConfig {
     layout?: 'app' | 'app-raw' | 'app-container' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
+    /** Hides billing notice (BillingAlertsV2.tsx). */
+    hideBillingNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */
     personal?: boolean
     /** Instance management (used e.g. by breadcrumbs) */

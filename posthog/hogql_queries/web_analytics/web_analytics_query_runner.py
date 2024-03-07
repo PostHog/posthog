@@ -1,3 +1,4 @@
+import typing
 from abc import ABC
 from datetime import timedelta
 from math import ceil
@@ -228,6 +229,10 @@ WHERE
             else n / self._sample_rate.numerator
         )
 
+    def _cache_key(self) -> str:
+        original = super()._cache_key()
+        return f"{original}_{self.team.path_cleaning_filters}"
+
 
 def _sample_rate_from_count(count: int) -> SamplingRate:
     # Change the sample rate so that the query will sample about 100_000 to 1_000_000 events, but use defined steps of
@@ -239,3 +244,7 @@ def _sample_rate_from_count(count: int) -> SamplingRate:
         if count / sample_target >= step:
             return SamplingRate(numerator=1, denominator=step)
     return SamplingRate(numerator=1)
+
+
+def map_columns(results, mapper: dict[int, typing.Callable]):
+    return [[mapper[i](data) if i in mapper else data for i, data in enumerate(row)] for row in results]

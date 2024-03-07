@@ -1,6 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
+import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect, useState } from 'react'
@@ -27,7 +28,8 @@ export function PersonDisplayNameProperties(): JSX.Element {
                 property to be found on the Person will be used. Drag the items to re-order the priority.
             </p>
             <div className="space-y-4">
-                <PersonPropertySelect
+                <PropertySelect
+                    taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
                     onChange={(properties) => setValue(properties)}
                     selectedProperties={value || []}
                     addText="Add"

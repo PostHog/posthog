@@ -11,8 +11,9 @@ function NodeCaptureSnippet(): JSX.Element {
 })
 
 // Send queued events immediately. Use for example in a serverless environment
-// where the program may terminate before everything is sent
-client.flush()`}
+// where the program may terminate before everything is sent.
+// Use \`client.flush()\` instead if you still need to send more events or fetch feature flags.
+client.shutdownAsync()`}
         </CodeSnippet>
     )
 }

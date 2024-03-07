@@ -1,10 +1,10 @@
 import { Link } from '@posthog/lemon-ui'
-import { Progress } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconPlayCircle, IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -87,7 +87,7 @@ export function AsyncMigrations(): JSX.Element {
             const progress = asyncMigration.progress
             return (
                 <div>
-                    <Progress percent={progress} />
+                    <LemonProgress percent={progress} />
                 </div>
             )
         },

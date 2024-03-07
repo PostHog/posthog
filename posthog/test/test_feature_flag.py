@@ -763,6 +763,40 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
+    @snapshot_postgres_queries
+    def test_invalid_regex_match_flag(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "email": '"neil@x.com"',
+            },
+        )
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": '["neil@x.com"]',
+                                "operator": "regex",
+                                "type": "person",
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "307").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
     def test_coercion_of_strings_and_numbers(self):
         Person.objects.create(
             team=self.team,
@@ -4925,7 +4959,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             {
                                 "key": "date_1",
                                 "value": "6h",
-                                "operator": "is_relative_date_before",
+                                "operator": "is_date_before",
                                 "type": "person",
                             },
                         ]
@@ -4943,7 +4977,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             {
                                 "key": "date_3",
                                 "value": "2d",
-                                "operator": "is_relative_date_after",
+                                "operator": "is_date_after",
                                 "type": "person",
                             },
                         ]
@@ -4961,7 +4995,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             {
                                 "key": "date_3",
                                 "value": "2h",
-                                "operator": "is_relative_date_after",
+                                "operator": "is_date_after",
                                 "type": "person",
                             },
                         ]
@@ -4979,7 +5013,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             {
                                 "key": "date_invalid",
                                 "value": "2h",
-                                "operator": "is_relative_date_after",
+                                "operator": "is_date_after",
                                 "type": "person",
                             },
                         ]
@@ -4997,7 +5031,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             {
                                 "key": "date_1",
                                 "value": "bazinga",
-                                "operator": "is_relative_date_after",
+                                "operator": "is_date_after",
                                 "type": "person",
                             },
                         ]

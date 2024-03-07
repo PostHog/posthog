@@ -24,7 +24,6 @@ import {
     isActorsQuery,
     isDataTableNode,
     isDataVisualizationNode,
-    isEventsQuery,
     isFunnelsQuery,
     isHogQLQuery,
     isInsightQueryNode,
@@ -47,23 +46,14 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 export function queryExportContext<N extends DataNode = DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean
+    refresh?: boolean,
+    maintainLegacy: boolean = true
 ): OnlineExportContext | QueryExportContext {
-    if (isInsightVizNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isDataTableNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isDataVisualizationNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isEventsQuery(query) || isActorsQuery(query)) {
-        return {
-            source: query,
-        }
-    } else if (isHogQLQuery(query)) {
-        return { source: query }
+    if (isInsightVizNode(query) || isDataTableNode(query) || isDataVisualizationNode(query)) {
+        return queryExportContext(query.source, methodOptions, refresh, maintainLegacy)
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
-    } else if (isInsightQueryNode(query)) {
+    } else if (isInsightQueryNode(query) && maintainLegacy) {
         return legacyInsightQueryExportContext({
             filters: queryNodeToFilter(query),
             currentTeamId: getCurrentTeamId(),
@@ -99,22 +89,29 @@ export function queryExportContext<N extends DataNode = DataNode>(
                 session_end: query.source.sessionEnd ?? now().toISOString(),
             },
         }
+    } else {
+        return { source: query }
     }
-    throw new Error(`Unsupported query: ${query.kind}`)
 }
 
+const SYNC_ONLY_QUERY_KINDS = ['HogQLMetadata', 'EventsQuery', 'HogQLAutocomplete'] satisfies NodeKind[keyof NodeKind][]
+
+/**
+ * Execute a query node and return the response, use async query if enabled
+ */
 async function executeQuery<N extends DataNode = DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string
 ): Promise<NonNullable<N['response']>> {
-    const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
-    const excludedKinds = ['HogQLMetadata', 'EventsQuery']
-    const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
-    const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
+    const isAsyncQuery =
+        !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
+        !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
-    if (!queryAsync || !response.query_async) {
+    const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
+
+    if (!isAsyncQuery || !response.query_async) {
         return response
     }
 
@@ -139,7 +136,8 @@ export async function query<N extends DataNode = DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
-    queryId?: string
+    queryId?: string,
+    legacyUrl?: string
 ): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
         return query(queryNode.source)
@@ -170,6 +168,11 @@ export async function query<N extends DataNode = DataNode>(
     const hogQLInsightsLiveCompareEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
     )
+
+    async function fetchLegacyUrl(): Promise<Record<string, any>> {
+        const response = await api.getResponse(legacyUrl!)
+        return response.json()
+    }
 
     async function fetchLegacyInsights(): Promise<Record<string, any>> {
         if (!isInsightQueryNode(queryNode)) {
@@ -206,20 +209,22 @@ export async function query<N extends DataNode = DataNode>(
                 },
                 methodOptions
             )
-        } else if (isInsightQueryNode(queryNode)) {
+        } else if (isInsightQueryNode(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl)) {
             if (
                 (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
-                (hogQLInsightsPathsFlagEnabled && isPathsQuery(queryNode)) ||
+                (hogQLInsightsPathsFlagEnabled &&
+                    (isPathsQuery(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl))) ||
                 (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
                 (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode)) ||
                 (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode)) ||
                 (hogQLInsightsFunnelsFlagEnabled && isFunnelsQuery(queryNode))
             ) {
                 if (hogQLInsightsLiveCompareEnabled) {
+                    const legacyFunction = legacyUrl ? fetchLegacyUrl : fetchLegacyInsights
                     let legacyResponse: any
                     ;[response, legacyResponse] = await Promise.all([
-                        api.query(queryNode, methodOptions, queryId, refresh),
-                        fetchLegacyInsights(),
+                        executeQuery(queryNode, methodOptions, refresh, queryId),
+                        legacyFunction(),
                     ])
 
                     let res1 = response?.result || response?.results
@@ -243,6 +248,12 @@ export async function query<N extends DataNode = DataNode>(
                             action: undefined,
                             persons: undefined,
                         }))
+                    } else if (res2.length > 0 && res2[0].people) {
+                        res2 = res2[0]?.people.map((n: any) => n.id)
+                        res1 = res1.map((n: any) => n[0].id)
+                        // Sort, since the order of the results is not guaranteed
+                        res1.sort()
+                        res2.sort()
                     }
 
                     const getTimingDiff = (): undefined | { diff: number; legacy: number; hogql: number } => {
@@ -265,6 +276,9 @@ export async function query<N extends DataNode = DataNode>(
                         }
                     }
 
+                    const almostEqual = (n1: number, n2: number, epsilon: number = 1.0): boolean =>
+                        Math.abs(n1 - n2) < epsilon
+
                     const timingDiff = getTimingDiff()
 
                     const results = flattenObject(res1)
@@ -276,17 +290,21 @@ export async function query<N extends DataNode = DataNode>(
                     let matchCount = 0
                     let mismatchCount = 0
                     for (const key of sortedKeys) {
-                        if (results[key] === legacyResults[key]) {
+                        let isMatch = false
+                        if (
+                            results[key] === legacyResults[key] ||
+                            (key.includes('average_conversion_time') && almostEqual(results[key], legacyResults[key]))
+                        ) {
+                            isMatch = true
+                        }
+
+                        if (isMatch) {
                             matchCount++
                         } else {
                             mismatchCount++
                         }
-                        tableData.push([
-                            results[key] === legacyResults[key] ? '✅' : '🚨',
-                            key,
-                            results[key],
-                            legacyResults[key],
-                        ])
+
+                        tableData.push([isMatch ? '✅' : '🚨', key, results[key], legacyResults[key]])
                     }
 
                     if (timingDiff) {
@@ -310,12 +328,10 @@ export async function query<N extends DataNode = DataNode>(
                         legacyResponse,
                         timingDiff,
                     })
+                    const resultsLabel = mismatchCount === 0 ? '👏' : '⚠️'
+                    const alertLabel = mismatchCount > 0 ? `🚨${mismatchCount}` : ''
                     // eslint-disable-next-line no-console
-                    console.groupCollapsed(
-                        `Results: ${mismatchCount === 0 ? '✅✅✅' : '✅'} ${matchCount}${
-                            mismatchCount > 0 ? ` 🚨🚨🚨${mismatchCount}` : ''
-                        }`
-                    )
+                    console.groupCollapsed(`Results: ${resultsLabel} ✅${matchCount} ${alertLabel} ${queryNode.kind}`)
                     // eslint-disable-next-line no-console
                     console.table(tableData)
                     // eslint-disable-next-line no-console
@@ -334,7 +350,7 @@ export async function query<N extends DataNode = DataNode>(
                             : {}),
                     })
                 } else {
-                    response = await api.query(queryNode, methodOptions, queryId, refresh)
+                    response = await executeQuery(queryNode, methodOptions, refresh, queryId)
                 }
             } else {
                 response = await fetchLegacyInsights()
@@ -390,6 +406,25 @@ export function legacyInsightQueryURL({ filters, currentTeamId, refresh }: Legac
     }
 }
 
+export function legacyInsightQueryData({
+    filters,
+    currentTeamId,
+    refresh,
+}: LegacyInsightQueryParams): [string, Record<string, any>] {
+    const baseUrl = `api/projects/${currentTeamId}/insights`
+
+    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
+        return [`${baseUrl}/trend/`, { ...filterTrendsClientSideParams(filters), refresh }]
+    } else if (isRetentionFilter(filters)) {
+        return [`${baseUrl}/retention/`, { ...filters, refresh }]
+    } else if (isFunnelsFilter(filters)) {
+        return [`${baseUrl}/funnel/`, { ...filters, refresh }]
+    } else if (isPathsFilter(filters)) {
+        return [`${baseUrl}/path/`, { ...filters, refresh }]
+    }
+    throw new Error(`Unsupported insight type: ${filters.insight}`)
+}
+
 export function legacyInsightQueryExportContext({
     filters,
     currentTeamId,
@@ -430,16 +465,17 @@ export async function legacyInsightQuery({
     methodOptions,
     refresh,
 }: LegacyInsightQueryParams): Promise<[Response, string]> {
-    const apiUrl = legacyInsightQueryURL({ filters, currentTeamId, refresh })
+    const [apiUrl, data] = legacyInsightQueryData({ filters, currentTeamId, refresh })
     let fetchResponse: Response
-    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-        fetchResponse = await api.getResponse(apiUrl, methodOptions)
-    } else if (isRetentionFilter(filters)) {
-        fetchResponse = await api.getResponse(apiUrl, methodOptions)
-    } else if (isFunnelsFilter(filters)) {
-        fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
-    } else if (isPathsFilter(filters)) {
-        fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
+    if (
+        isTrendsFilter(filters) ||
+        isStickinessFilter(filters) ||
+        isLifecycleFilter(filters) ||
+        isRetentionFilter(filters) ||
+        isFunnelsFilter(filters) ||
+        isPathsFilter(filters)
+    ) {
+        fetchResponse = await api.createResponse(apiUrl, data, methodOptions)
     } else {
         throw new Error(`Unsupported insight type: ${filters.insight}`)
     }

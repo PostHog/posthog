@@ -1,4 +1,4 @@
-import { Progress } from 'antd'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import zxcvbn from 'zxcvbn'
 
@@ -15,14 +15,12 @@ export default function PasswordStrength({
 
     return (
         <Tooltip title="Password strength">
-            <Progress
+            <LemonProgress
                 percent={passwordScore}
-                size="small"
                 strokeColor={
                     passwordScore <= 50 ? 'var(--danger)' : passwordScore <= 75 ? 'var(--warning)' : 'var(--success)'
                 }
                 className={className}
-                showInfo={false}
             />
         </Tooltip>
     )

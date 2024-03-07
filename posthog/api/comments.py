@@ -9,7 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.comment import Comment
 
@@ -64,10 +64,12 @@ class CommentPagination(pagination.CursorPagination):
     page_size = 100
 
 
-class CommentViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
     pagination_class = CommentPagination
+    # TODO: Update when fully released
+    scope_object = "INTERNAL"
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

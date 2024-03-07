@@ -17,6 +17,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
+    FunnelsActorsQuery,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -91,6 +92,7 @@ RunnableQueryNode = Union[
     EventsQuery,
     HogQLQuery,
     InsightActorsQuery,
+    FunnelsActorsQuery,
     InsightActorsQueryOptions,
     SessionsTimelineQuery,
     WebOverviewQuery,
@@ -198,7 +200,7 @@ def get_query_runner(
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
-            query=cast(InsightActorsQuery | Dict[str, Any], query),
+            query=cast(InsightActorsQuery | FunnelsActorsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

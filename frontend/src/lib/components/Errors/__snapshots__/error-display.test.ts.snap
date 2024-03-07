@@ -1,0 +1,20 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Error Display can read sentry stack trace when $exception_stack_trace_raw is not present 1`] = `
+{
+  "$active_feature_flags": [
+    "feature1,feature2",
+  ],
+  "$browser": "Chrome",
+  "$browser_version": "92.0.4515",
+  "$exception_message": "There was an error creating the support ticket with zendesk.",
+  "$exception_stack_trace_raw": "[{"colno":220,"filename":"https://app-static-prod.posthog.com/static/chunk-UFQKIDIH.js","function":"submitZendeskTicket","in_app":true,"lineno":25}]",
+  "$exception_synthetic": undefined,
+  "$exception_type": "Error",
+  "$lib": "posthog-js",
+  "$lib_version": "1.0.0",
+  "$os": "Windows",
+  "$os_version": "10",
+  "$sentry_url": "https://sentry.io/organizations/posthog/issues/?project=1899813&query=40e442d79c22473391aeeeba54c82163",
+}
+`;

@@ -1,8 +1,9 @@
 import { TZLabel } from '@posthog/apps-common'
+import { IconDashboard, IconGear, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconGauge, IconOffline, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect } from 'react'
@@ -16,6 +17,7 @@ import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './ItemConsoleLog'
+import { ItemDoctor } from './ItemDoctor'
 import { ItemEvent } from './ItemEvent'
 import { ItemPerformanceEvent } from './ItemPerformanceEvent'
 
@@ -33,12 +35,20 @@ const typeToIconAndDescription = {
         tooltip: 'Console log',
     },
     [SessionRecordingPlayerTab.NETWORK]: {
-        Icon: IconGauge,
+        Icon: IconDashboard,
         tooltip: 'Network event',
     },
     ['offline-status']: {
         Icon: IconOffline,
         tooltip: 'browser went offline or returned online',
+    },
+    ['$session_config']: {
+        Icon: IconGear,
+        tooltip: 'Session recording config',
+    },
+    ['doctor']: {
+        Icon: undefined,
+        tooltip: 'Doctor event',
     },
 }
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
@@ -165,6 +175,8 @@ export function PlayerInspectorListItem({
                     <div className="flex items-start p-2 text-xs">
                         {item.offline ? 'Browser went offline' : 'Browser returned online'}
                     </div>
+                ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
+                    <ItemDoctor item={item} {...itemProps} />
                 ) : null}
 
                 {isExpanded ? (
@@ -192,7 +204,7 @@ export function PlayerInspectorListItem({
                                         title="This event occured before the recording started, likely as the page was loading."
                                         placement="left"
                                     >
-                                        {colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
+                                        <span>{colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}</span>
                                     </Tooltip>
                                 ) : (
                                     colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)

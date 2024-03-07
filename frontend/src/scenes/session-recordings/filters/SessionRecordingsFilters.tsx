@@ -1,117 +1,106 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
+import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
 
-import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
+import { RecordingFilters } from '~/types'
 
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { getDefaultFilters } from '../playlist/sessionRecordingsPlaylistLogic'
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
+import { OrderingFilters } from './OrderingFilters'
 import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 
 interface SessionRecordingsFiltersProps {
-    filters: RecordingFilters
-    setFilters: (filters: RecordingFilters) => void
+    advancedFilters: RecordingFilters
+    simpleFilters: RecordingFilters
+    setAdvancedFilters: (filters: RecordingFilters) => void
+    setSimpleFilters: (filters: RecordingFilters) => void
     showPropertyFilters?: boolean
+    hideSimpleFilters?: boolean
     onReset?: () => void
-    hasAdvancedFilters: boolean
-    showAdvancedFilters: boolean
-    setShowAdvancedFilters: (showAdvancedFilters: boolean) => void
-}
-
-const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
-    if (filters.actions?.length || filters.events?.length) {
-        return {
-            actions: filters.actions,
-            events: filters.events,
-        }
-    }
-
-    return {
-        actions: [],
-        events: [],
-        new_entity: [
-            {
-                id: 'empty',
-                type: EntityTypes.EVENTS,
-                order: 0,
-                name: 'empty',
-            },
-        ],
-    }
 }
 
 export function SessionRecordingsFilters({
-    filters,
-    setFilters,
+    advancedFilters,
+    simpleFilters,
+    setAdvancedFilters,
+    setSimpleFilters,
     showPropertyFilters,
+    hideSimpleFilters,
     onReset,
-    hasAdvancedFilters,
-    showAdvancedFilters,
-    setShowAdvancedFilters,
 }: SessionRecordingsFiltersProps): JSX.Element {
-    const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
+    const { prefersAdvancedFilters } = useValues(playerSettingsLogic)
+    const { setPrefersAdvancedFilters } = useActions(playerSettingsLogic)
 
-    // We have a copy of the filters as local state as it stores more properties than we want for playlists
-    useEffect(() => {
-        if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
-            setFilters({
-                actions: localFilters.actions,
-                events: localFilters.events,
-            })
+    const initiallyOpen = useMemo(() => {
+        // advanced always open if not showing simple filters, saves computation
+        if (hideSimpleFilters) {
+            return true
         }
-    }, [localFilters])
+        const defaultFilters = getDefaultFilters()
+        return prefersAdvancedFilters || !equal(advancedFilters, defaultFilters)
+    }, [])
+    const hasFilterOrdering = useFeatureFlag('SESSION_REPLAY_FILTER_ORDERING')
 
-    useEffect(() => {
-        // We have a copy of the filters as local state as it stores more properties than we want for playlists
-        // if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
-        if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
-            setLocalFilters(filtersToLocalFilters(filters))
-        }
-    }, [filters])
+    const AdvancedFilters = (
+        <AdvancedSessionRecordingsFilters
+            filters={advancedFilters}
+            setFilters={setAdvancedFilters}
+            showPropertyFilters={showPropertyFilters}
+        />
+    )
+
+    const panels = [
+        !hideSimpleFilters && {
+            key: 'advanced-filters',
+            header: 'Advanced filters',
+            className: 'p-0',
+            content: AdvancedFilters,
+        },
+        hasFilterOrdering && {
+            key: 'ordering',
+            header: 'Ordering',
+            content: <OrderingFilters />,
+        },
+    ].filter(Boolean)
 
     return (
-        <div className="relative flex flex-col gap-2 p-3">
-            {onReset && (
-                <span className="absolute top-2 right-2">
-                    <LemonButton size="small" onClick={onReset}>
-                        Reset
-                    </LemonButton>
-                </span>
-            )}
+        <div className="relative flex flex-col">
+            <div className="space-y-1 p-3">
+                <div className="flex justify-between">
+                    <LemonLabel>Find sessions:</LemonLabel>
 
-            <LemonLabel info="Show recordings where all of below filters match.">Find sessions by:</LemonLabel>
+                    {onReset && (
+                        <span className="absolute top-2 right-2">
+                            <LemonButton size="small" onClick={onReset}>
+                                Reset
+                            </LemonButton>
+                        </span>
+                    )}
+                </div>
 
-            {showAdvancedFilters ? (
-                <AdvancedSessionRecordingsFilters
-                    filters={filters}
-                    setFilters={setFilters}
-                    localFilters={localFilters}
-                    setLocalFilters={setLocalFilters}
-                    showPropertyFilters={showPropertyFilters}
-                />
-            ) : (
-                <SimpleSessionRecordingsFilters
-                    filters={filters}
-                    setFilters={setFilters}
-                    localFilters={localFilters}
-                    setLocalFilters={setLocalFilters}
-                />
-            )}
-
-            <div>
-                <LemonButton
-                    size="small"
-                    onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                    disabledReason={
-                        hasAdvancedFilters
-                            ? 'You are only allowed person filters and a single pageview event (filtered by current url) to switch back to simple filters'
-                            : undefined
-                    }
-                    data-attr={`session-recordings-show-${showAdvancedFilters ? 'simple' : 'advanced'}-filters`}
-                >
-                    Show {showAdvancedFilters ? 'simple filters' : 'advanced filters'}
-                </LemonButton>
+                {!hideSimpleFilters && (
+                    <SimpleSessionRecordingsFilters filters={simpleFilters} setFilters={setSimpleFilters} />
+                )}
             </div>
+
+            {hideSimpleFilters && AdvancedFilters}
+
+            {panels.length > 0 && (
+                <LemonCollapse
+                    className="w-full rounded-none border-0 border-t"
+                    multiple
+                    defaultActiveKeys={initiallyOpen ? ['advanced-filters'] : []}
+                    size="small"
+                    panels={panels}
+                    onChange={(activeKeys) => {
+                        setPrefersAdvancedFilters(activeKeys.includes('advanced-filters'))
+                    }}
+                />
+            )}
         </div>
     )
 }

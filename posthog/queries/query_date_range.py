@@ -73,7 +73,7 @@ class QueryDateRange:
     def get_earliest_timestamp(self):
         return get_earliest_timestamp(self._team.pk)
 
-    @cached_property
+    @property
     def date_from_param(self) -> datetime:
         date_from: datetime
         if self._filter._date_from == "all":
@@ -88,6 +88,15 @@ class QueryDateRange:
             )
 
         if not self.is_hourly(self._filter._date_from) and not self._filter.use_explicit_dates:
+            date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # For legacy insights, if filtering by days (e.g. -7d), clamp to the start of the day
+        elif (
+            hasattr(self._filter, "interval")
+            and self._filter.interval == "hour"
+            and isinstance(self._filter._date_from, str)
+            and "d" in self._filter._date_from
+        ):
             date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
         return date_from

@@ -72,14 +72,9 @@ export function ObjectTags({
     }
 
     const onGuardClick = (callback: () => void): void => {
-        guardAvailableFeature(
-            AvailableFeature.TAGGING,
-            'tags',
-            'Tagging is an easy way to categorize events, properties, actions, insights, and more into custom groups.',
-            () => {
-                callback()
-            }
-        )
+        guardAvailableFeature(AvailableFeature.TAGGING, () => {
+            callback()
+        })
     }
 
     return (

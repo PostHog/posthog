@@ -176,9 +176,6 @@ WithExpandableRows.args = {
 export const Small: Story = BasicTemplate.bind({})
 Small.args = { size: 'small' }
 
-export const XSmall: Story = BasicTemplate.bind({})
-XSmall.args = { size: 'xs' }
-
 export const Embedded: Story = BasicTemplate.bind({})
 Embedded.args = { embedded: true }
 

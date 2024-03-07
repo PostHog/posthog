@@ -1,6 +1,6 @@
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
@@ -11,8 +11,8 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
-import { ActionsNode, BreakdownFilter, EventsNode, PathsFilter } from '~/queries/schema'
-import { isEventsNode } from '~/queries/utils'
+import { ActionsNode, BreakdownFilter, DataWarehouseNode, EventsNode, PathsFilter } from '~/queries/schema'
+import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
     AnyPartialFilterType,
@@ -48,8 +48,8 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in KEY_MAPPING.event) {
-        name = KEY_MAPPING.event[name].label
+    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
@@ -59,18 +59,21 @@ export const getDisplayNameFromEntityFilter = (
     return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
 }
 
-export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isCustom = true): string | null => {
+export const getDisplayNameFromEntityNode = (
+    node: EventsNode | ActionsNode | DataWarehouseNode,
+    isCustom = true
+): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in KEY_MAPPING.event) {
-        name = KEY_MAPPING.event[name].label
+    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'
     }
 
-    const id = isEventsNode(node) ? node.event : node.id
+    const id = isDataWarehouseNode(node) ? node.table_name : isEventsNode(node) ? node.event : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
@@ -263,7 +266,7 @@ export function formatBreakdownLabel(
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
         return isOtherBreakdown(breakdown_value)
-            ? 'Other'
+            ? 'Other (Groups all remaining values)'
             : isNullBreakdown(breakdown_value)
             ? 'None'
             : formatPropertyValueForDisplay
@@ -271,7 +274,7 @@ export function formatBreakdownLabel(
             : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
-            ? 'Other'
+            ? 'Other (Groups all remaining values)'
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
             ? 'None'
             : breakdown_value
@@ -296,6 +299,10 @@ export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
 
 export function sortDates(dates: Array<string | null>): Array<string | null> {
     return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
+}
+
+export function sortDayJsDates(dates: Array<dayjs.Dayjs>): Array<dayjs.Dayjs> {
+    return dates.sort((a, b) => (a.isAfter(b) ? 1 : -1))
 }
 
 // Gets content-length header from a fetch Response

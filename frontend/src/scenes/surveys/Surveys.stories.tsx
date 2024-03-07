@@ -68,7 +68,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
                 {
                     variant: null,
                     properties: [],
-                    rollout_percentage: null,
+                    rollout_percentage: undefined,
                 },
             ],
             payloads: {},
@@ -175,6 +175,11 @@ const meta: Meta = {
                         return res(ctx.json(MOCK_SURVEY_SHOWN))
                     }
                 },
+                // flag targeting has loaders, make sure they don't keep loading
+                '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [
+                    200,
+                    { users_affected: 120, total_users: 2000 },
+                ],
             },
         }),
     ],

@@ -1,6 +1,5 @@
-import { IconOpenSidebar } from '@posthog/icons'
+import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 import { useActions } from 'kea'
-import { IconClose, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { userLogic } from 'scenes/userLogic'
 
@@ -8,6 +7,12 @@ import { ProductKey } from '~/types'
 
 import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 
+/**
+ * A component to introduce new users to a product, and to show something
+ * other than an empty table when there are no items.
+ * Not to be confused with the `OnboardingProductIntroduction` scene,
+ * which is shown when a team has yet to go through onboarding for the product.
+ */
 export const ProductIntroduction = ({
     productName,
     productKey,
@@ -45,7 +50,7 @@ export const ProductIntroduction = ({
                 <div className="flex justify-end -mb-6 -mt-2 -mr-2">
                     <div>
                         <LemonButton
-                            icon={<IconClose />}
+                            icon={<IconX />}
                             onClick={() => {
                                 updateHasSeenProductIntroFor(productKey, true)
                             }}

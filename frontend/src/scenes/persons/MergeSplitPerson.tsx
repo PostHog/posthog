@@ -1,6 +1,4 @@
-import './MergeSplitPerson.scss'
-
-import { Modal, Select } from 'antd'
+import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { pluralize } from 'lib/utils'
@@ -15,36 +13,45 @@ export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Elemen
     const { execute, cancel } = useActions(mergeSplitPersonLogic(logicProps))
 
     return (
-        <Modal
-            visible
+        <LemonModal
+            isOpen
+            width="40rem"
             title="Split persons"
-            onCancel={cancel}
-            className="merge-split-person"
-            okText="Split persons"
-            onOk={execute}
-            okButtonProps={{ loading: executedLoading }}
-            cancelButtonProps={{ disabled: executedLoading }}
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton onClick={cancel} disabledReason={executedLoading && 'Splitting the user'}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={execute} loading={executedLoading}>
+                        Split persons
+                    </LemonButton>
+                </div>
+            }
+            onClose={cancel}
         >
             {person.distinct_ids.length < 2 ? (
                 'Only persons with more than two distinct IDs can be split.'
             ) : (
                 <BindLogic logic={mergeSplitPersonLogic} props={logicProps}>
-                    <>
-                        <SplitPerson />
-                    </>
+                    <SplitPerson />
                 </BindLogic>
             )}
-        </Modal>
+        </LemonModal>
     )
 }
 
 function SplitPerson(): JSX.Element | null {
-    const { person, executedLoading } = useValues(mergeSplitPersonLogic)
+    const { person, selectedPersonToAssignSplit, executedLoading } = useValues(mergeSplitPersonLogic)
     const { setSelectedPersonToAssignSplit } = useActions(mergeSplitPersonLogic)
 
     if (!person) {
         return null
     }
+
+    const options = person.distinct_ids.map((distinctId: string) => ({
+        label: distinctId,
+        value: distinctId,
+    }))
 
     return (
         <>
@@ -53,21 +60,14 @@ function SplitPerson(): JSX.Element | null {
                 You can select a distinct ID for which all the current properties will be assigned (<i>optional</i>).
                 All other new users will start without any properties.
             </p>
-            <Select
-                allowClear
-                showSearch
-                style={{ width: '100%' }}
+            <LemonSelect
+                fullWidth
+                options={options}
                 placeholder="Select a distinct ID to which to assign all properties (optional)"
+                disabledReason={executedLoading && 'Splitting user'}
+                value={selectedPersonToAssignSplit}
                 onChange={(value) => setSelectedPersonToAssignSplit(value as string)}
-                filterOption={false}
-                disabled={executedLoading}
-            >
-                {person?.distinct_ids.map((distinct_id) => (
-                    <Select.Option value={distinct_id} key={distinct_id}>
-                        {distinct_id}
-                    </Select.Option>
-                ))}
-            </Select>
+            />
             <LemonBanner type="warning" className="mt-4">
                 This will create <strong>{person.distinct_ids.length - 1}</strong>{' '}
                 {pluralize(person.distinct_ids.length - 1, 'new person', undefined, false)}. This might change the

@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import {
@@ -64,9 +65,16 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
                 breakdown_type !== 'group'
                     ? breakdown_type
                     : context.aggregationLabel(breakdown_group_type_index, true).singular
-            return `${noun}'s ${
-                (breakdown as string) in KEY_MAPPING.event ? KEY_MAPPING.event[breakdown as string].label : breakdown
-            }`
+            const propertyLabel =
+                typeof breakdown === 'string' &&
+                breakdown_type &&
+                breakdown_type in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
+                    ? getCoreFilterDefinition(
+                          breakdown,
+                          PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdown_type]
+                      )?.label || breakdown
+                    : breakdown
+            return `${noun}'s ${propertyLabel}`
         }
     }
     return null
@@ -144,7 +152,8 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
                     series = `${getDisplayNameFromEntityFilter(localFilter)} count per user ${mathDefinition.shortName}`
                 } else if (mathDefinition?.category === MathCategory.PropertyValue) {
                     series = `${getDisplayNameFromEntityFilter(localFilter)}'s ${
-                        KEY_MAPPING.event[localFilter.math_property as string]?.label || localFilter.math_property
+                        CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[localFilter.math_property as string]?.label ||
+                        localFilter.math_property
                     } ${
                         mathDefinition
                             ? mathDefinition.shortName
@@ -193,7 +202,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                     series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`
                 } else if (mathDefinition?.category === MathCategory.PropertyValue) {
                     series = `${getDisplayNameFromEntityNode(s)}'s ${
-                        KEY_MAPPING.event[s.math_property as string]?.label || s.math_property
+                        CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[s.math_property as string]?.label ||
+                        s.math_property
                     } ${
                         mathDefinition
                             ? mathDefinition.shortName

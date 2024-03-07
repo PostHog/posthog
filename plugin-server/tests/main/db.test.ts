@@ -367,15 +367,9 @@ describe('DB', () => {
             expect(updatedPerson.properties).toEqual({ c: 'aaa' })
 
             // verify correct Kafka message was sent
-            const expected_message = generateKafkaPersonUpdateMessage(
-                updateTs,
-                { c: 'aaa' },
-                personDbBefore.team_id,
-                personDbBefore.is_identified,
-                personDbBefore.uuid,
-                1
+            expect(db.kafkaProducer!.queueMessage).toHaveBeenLastCalledWith(
+                generateKafkaPersonUpdateMessage(updatedPerson)
             )
-            expect(db.kafkaProducer!.queueMessage).toHaveBeenLastCalledWith(expected_message)
         })
     })
 

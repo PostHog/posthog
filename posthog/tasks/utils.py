@@ -22,7 +22,10 @@
 
 
 # NOTE: Keep in sync with bin/celery-queues.env
-class CeleryQueue:
+from enum import Enum
+
+
+class CeleryQueue(Enum):
     DEFAULT = "celery"
     STATS = "stats"
     EMAIL = "email"
@@ -31,3 +34,5 @@ class CeleryQueue:
     ANALYTICS_QUERIES = "analytics_queries"
     EXPORTS = "exports"
     SUBSCRIPTION_DELIVERY = "subscription_delivery"
+    USAGE_REPORTS = "usage_reports"
+    SESSION_REPLAY_EMBEDDINGS = "session_replay_embeddings"

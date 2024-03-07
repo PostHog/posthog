@@ -1,8 +1,8 @@
+import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { appMetricsSceneLogic } from 'scenes/apps/appMetricsSceneLogic'
@@ -43,7 +43,7 @@ export function AppMetrics(): JSX.Element {
                             pluginConfig?.plugin ? (
                                 <LemonButton
                                     type="primary"
-                                    icon={<IconSettings />}
+                                    icon={<IconGear />}
                                     onClick={() => editPlugin(pluginConfig?.plugin)}
                                 >
                                     Configure

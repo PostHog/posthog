@@ -29,7 +29,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
 
     const actionFilters = queryNodeToFilter(querySource)
     const setActionFilters = (payload: Partial<FilterType>): void => {
-        updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as FunnelsQuery)
+        updateQuerySource({
+            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.None),
+        } as FunnelsQuery)
     }
 
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)

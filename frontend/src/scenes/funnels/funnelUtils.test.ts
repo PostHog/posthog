@@ -1,18 +1,17 @@
 import { dayjs } from 'lib/dayjs'
 
-import { EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema'
+import { EventsNode, FunnelExclusionSteps, FunnelsQuery, NodeKind } from '~/queries/schema'
 import {
     FunnelConversionWindowTimeUnit,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
-    FunnelExclusion,
 } from '~/types'
 
 import {
     EMPTY_BREAKDOWN_VALUES,
     getBreakdownStepValues,
-    getClampedStepRange,
+    getClampedExclusionStepRange,
     getIncompleteConversionWindowStartDate,
     getMeanAndStandardDeviation,
     getVisibilityKey,
@@ -172,9 +171,9 @@ describe('getIncompleteConversionWindowStartDate()', () => {
     })
 })
 
-describe('getClampedStepRange', () => {
+describe('getClampedExclusionStepRange', () => {
     it('prefers step range to existing filters', () => {
-        const stepRange: FunnelExclusion = {
+        const stepRange: FunnelExclusionSteps = {
             funnelFromStep: 0,
             funnelToStep: 1,
         }
@@ -186,7 +185,7 @@ describe('getClampedStepRange', () => {
             },
             series: [{}, {}] as EventsNode[],
         }
-        const clampedStepRange = getClampedStepRange({
+        const clampedStepRange = getClampedExclusionStepRange({
             stepRange,
             query,
         })
@@ -197,43 +196,22 @@ describe('getClampedStepRange', () => {
     })
 
     it('ensures step range is clamped to step range', () => {
-        const stepRange: FunnelExclusion = {}
+        const stepRange = {} as FunnelExclusionSteps
         const query: FunnelsQuery = {
             kind: NodeKind.FunnelsQuery,
             funnelsFilter: {
                 funnelFromStep: -1,
-
                 funnelToStep: 12,
             },
             series: [{}, {}, {}] as EventsNode[],
         }
-        const clampedStepRange = getClampedStepRange({
+        const clampedStepRange = getClampedExclusionStepRange({
             stepRange,
             query,
         })
         expect(clampedStepRange).toEqual({
             funnelFromStep: 0,
             funnelToStep: 2,
-        })
-    })
-
-    it('returns undefined if the incoming filters are undefined', () => {
-        const stepRange: FunnelExclusion = {}
-        const query: FunnelsQuery = {
-            kind: NodeKind.FunnelsQuery,
-            funnelsFilter: {
-                funnelFromStep: undefined,
-                funnelToStep: undefined,
-            },
-            series: [{}, {}] as EventsNode[],
-        }
-        const clampedStepRange = getClampedStepRange({
-            stepRange,
-            query,
-        })
-        expect(clampedStepRange).toEqual({
-            funnelFromStep: undefined,
-            funnelToStep: undefined,
         })
     })
 })

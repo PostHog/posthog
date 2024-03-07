@@ -1,8 +1,9 @@
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getKeyMapping } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { genericOperatorMap } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
@@ -43,9 +44,10 @@ export function summarizePlaylistFilters(
         const propertiesSummary = properties
             .map((property) => {
                 if (property.type === 'person') {
-                    return `${getKeyMapping(property.key, 'event')?.label || property.key} ${getOperatorSymbol(
-                        property.operator
-                    )} ${property.value}`
+                    return `${
+                        getCoreFilterDefinition(property.key, TaxonomicFilterGroupType.PersonProperties)?.label ||
+                        property.key
+                    } ${getOperatorSymbol(property.operator)} ${property.value}`
                 }
                 if (property.type === 'cohort') {
                     const cohortId = Number(property.value)

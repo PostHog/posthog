@@ -45,7 +45,7 @@ We're constantly adding new features, with web analytics and data warehouse now 
 
 ### PostHog Cloud (Recommended)
 
-The fastest and most reliable way to get started with PostHog is signing up for free to [PostHog Cloud](https://app.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup). Your first 1 million events (and 15k replays) are free every month, after which you pay based on usage.
+The fastest and most reliable way to get started with PostHog is signing up for free to [PostHog Cloud](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup). Your first 1 million events (and 15k replays) are free every month, after which you pay based on usage.
 
 ### Open-source hobby deploy (Advanced)
 

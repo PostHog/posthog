@@ -12,7 +12,7 @@ from posthog.schema import HogQLFilters
 from posthog.utils import relative_date_parse
 
 
-def replace_filters(node: ast.Expr, filters: HogQLFilters, team: Team) -> ast.Expr:
+def replace_filters(node: ast.Expr, filters: Optional[HogQLFilters], team: Team) -> ast.Expr:
     return ReplaceFilters(filters, team).visit(node)
 
 
@@ -81,6 +81,10 @@ class ReplaceFilters(CloningVisitor):
                         start=None,  # do not add location information for "timestamp" to the metadata
                     )
                 )
+
+            if self.filters.filterTestAccounts:
+                for prop in self.team.test_account_filters or []:
+                    exprs.append(property_to_expr(prop, self.team))
 
             if len(exprs) == 0:
                 return ast.Constant(value=True)

@@ -1,10 +1,9 @@
-// eslint-disable-next-line no-restricted-imports
-import { CloseCircleOutlined, CrownFilled, LogoutOutlined } from '@ant-design/icons'
-import { LemonButton, LemonSelect, LemonSelectOption, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { IconCrown, IconLeave, IconLock, IconUnlock } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
-import { IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -51,11 +50,13 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
         ? `This user is a member of the project implicitly due to being an organization ${levelName}.`
         : getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
-    const levelButton = disallowedReason ? (
-        <div className="border rounded px-3 py-2 flex inline-flex items-center">
-            {member.level === OrganizationMembershipLevel.Owner && <CrownFilled className="mr-2" />}
-            {levelName}
-        </div>
+    return disallowedReason ? (
+        <Tooltip title={disallowedReason}>
+            <LemonSnack className="capitalize">
+                {member.level === OrganizationMembershipLevel.Owner && <IconCrown className="mr-2" />}
+                {levelName}
+            </LemonSnack>
+        </Tooltip>
     ) : (
         <LemonSelect
             dropdownMatchSelectWidth={false}
@@ -78,8 +79,6 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
             value={member.explicit_team_level}
         />
     )
-
-    return disallowedReason ? <Tooltip title={disallowedReason}>{levelButton}</Tooltip> : levelButton
 }
 
 function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
@@ -117,13 +116,16 @@ function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
         // Only members without implicit access can leave or be removed
         member.organization_level < MINIMUM_IMPLICIT_ACCESS_LEVEL
 
+    const isSelf = member.user.uuid === user.uuid
+
     return allowDeletion ? (
-        <LemonButton status="danger" onClick={handleClick} data-attr="delete-team-membership">
-            {member.user.uuid !== user.uuid ? (
-                <CloseCircleOutlined title="Remove from project" />
-            ) : (
-                <LogoutOutlined title="Leave project" />
-            )}
+        <LemonButton
+            status="danger"
+            onClick={handleClick}
+            data-attr="delete-team-membership"
+            tooltip={isSelf ? 'Leave project' : 'Remove from project'}
+        >
+            {isSelf ? <IconLeave /> : <IconCancel />}
         </LemonButton>
     ) : null
 }
@@ -207,10 +209,7 @@ export function ProjectAccessControl(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
 
-    const projectPermissioningEnabled =
-        hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && currentTeam?.access_control
     const isRestricted = !!useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
@@ -218,7 +217,7 @@ export function ProjectAccessControl(): JSX.Element {
     return (
         <>
             <p>
-                {projectPermissioningEnabled ? (
+                {currentTeam?.access_control ? (
                     <>
                         This project is{' '}
                         <b>
@@ -231,7 +230,7 @@ export function ProjectAccessControl(): JSX.Element {
                     <>
                         This project is{' '}
                         <b>
-                            <IconLockOpen style={{ marginRight: 5 }} />
+                            <IconUnlock style={{ marginRight: 5 }} />
                             open
                         </b>
                         . Any member of the organization can access it. To enable granular access control, make it
@@ -241,14 +240,14 @@ export function ProjectAccessControl(): JSX.Element {
             </p>
             <LemonSwitch
                 onChange={(checked) => {
-                    guardAvailableFeature(
-                        AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                        'project-based permissioning',
-                        'Set permissions granularly for each project. Make sure only the right people have access to protected data.',
-                        () => updateCurrentTeam({ access_control: checked })
-                    )
+                    // Let them uncheck it if it's already checked, but don't let them check it if they don't have the feature
+                    checked
+                        ? guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () =>
+                              updateCurrentTeam({ access_control: checked })
+                          )
+                        : updateCurrentTeam({ access_control: checked })
                 }}
-                checked={!!projectPermissioningEnabled}
+                checked={!!currentTeam?.access_control}
                 disabled={
                     isRestricted ||
                     !currentOrganization ||
@@ -260,9 +259,7 @@ export function ProjectAccessControl(): JSX.Element {
                 label="Make project private"
             />
 
-            {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
-                <ProjectTeamMembers />
-            )}
+            {currentTeam?.access_control && <ProjectTeamMembers />}
         </>
     )
 }

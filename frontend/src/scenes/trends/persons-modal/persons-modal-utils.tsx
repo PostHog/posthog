@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/react'
 import { getBarColorFromStatus, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import md5 from 'md5'
@@ -44,7 +45,7 @@ export const funnelTitle = (props: {
             ) : (
                 <>
                     {props.converted ? 'Completed' : 'Dropped off at'} step {props.step} •{' '}
-                    <PropertyKeyInfo value={props.label || ''} disablePopover />{' '}
+                    <PropertyKeyInfo value={props.label || ''} disablePopover type={TaxonomicFilterGroupType.Events} />{' '}
                 </>
             )}
             {props?.breakdown_value ? `• ${props.breakdown_value}` : ''}
@@ -52,10 +53,16 @@ export const funnelTitle = (props: {
     )
 }
 
-export const pathsTitle = (props: { isDropOff: boolean; label: string }): React.ReactNode => {
+type pathModes = 'completion' | 'dropOff' | 'continue'
+export const pathsTitle = (props: { mode: pathModes; label: string }): React.ReactNode => {
+    const modeMap: Record<pathModes, string> = {
+        completion: 'Completed',
+        dropOff: 'Dropped off after',
+        continue: 'Continued after',
+    }
     return (
         <>
-            {props.isDropOff ? 'Dropped off after' : 'Completed'} step{' '}
+            {modeMap[props.mode]} step{' '}
             <PropertyKeyInfo value={props.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
         </>
     )

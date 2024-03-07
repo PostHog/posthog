@@ -51,7 +51,7 @@ describe('dataTableLogic', () => {
         logic.mount()
         const builtDataNodeLogic = dataNodeLogic({ key: testUniqueKey, query: dataTableQuery.source })
         await expectLogic(logic).toMount([builtDataNodeLogic])
-        await expectLogic(logic).toMatchValues({
+        await expectLogic(logic).delay(0).toMatchValues({
             responseLoading: false,
             response: randomResponse,
         })
@@ -96,10 +96,12 @@ describe('dataTableLogic', () => {
             query: getDataTableQuery({ orderBy: ['event'] }),
         })
 
-        await expectLogic(logic).toMatchValues({
-            sourceKind: NodeKind.EventsQuery,
-            orderBy: ['event'],
-        })
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({
+                sourceKind: NodeKind.EventsQuery,
+                orderBy: ['event'],
+            })
 
         // change props
         dataTableLogic({
@@ -236,7 +238,7 @@ describe('dataTableLogic', () => {
             query: getDataTableQuery({ allowSorting: true }),
         })
 
-        await expectLogic(logic).toMatchValues({
+        await expectLogic(logic).delay(0).toMatchValues({
             canSort: true,
         })
     })

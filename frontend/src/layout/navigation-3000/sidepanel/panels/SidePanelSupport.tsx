@@ -19,29 +19,34 @@ export const SidePanelSupport = (): JSX.Element => {
         <>
             <SidePanelPaneHeader title={title} />
 
-            <div className="p-3 max-w-160 w-full mx-auto">
-                <SupportForm />
-                <LemonButton
-                    form="support-modal-form"
-                    htmlType="submit"
-                    type="primary"
-                    data-attr="submit"
-                    fullWidth
-                    center
-                    className="mt-4"
-                >
-                    Submit
-                </LemonButton>
-                <LemonButton
-                    form="support-modal-form"
-                    type="secondary"
-                    onClick={closeSupportForm}
-                    fullWidth
-                    center
-                    className="mt-2"
-                >
-                    Cancel
-                </LemonButton>
+            <div className="overflow-y-auto" data-attr="side-panel-support-container">
+                <div className="p-3 max-w-160 w-full mx-auto">
+                    <SupportForm />
+
+                    <footer>
+                        <LemonButton
+                            form="support-modal-form"
+                            htmlType="submit"
+                            type="primary"
+                            data-attr="submit"
+                            fullWidth
+                            center
+                            className="mt-4"
+                        >
+                            Submit
+                        </LemonButton>
+                        <LemonButton
+                            form="support-modal-form"
+                            type="secondary"
+                            onClick={closeSupportForm}
+                            fullWidth
+                            center
+                            className="mt-2"
+                        >
+                            Cancel
+                        </LemonButton>
+                    </footer>
+                </div>
             </div>
         </>
     )

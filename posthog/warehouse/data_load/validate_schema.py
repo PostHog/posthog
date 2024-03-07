@@ -6,16 +6,22 @@ from posthog.warehouse.models import (
     get_table_by_url_pattern_and_source,
     DataWarehouseTable,
     DataWarehouseCredential,
-    get_schema_if_exists,
+    aget_schema_if_exists,
+    get_external_data_job,
+    asave_datawarehousetable,
+    acreate_datawarehousetable,
+    asave_external_data_schema,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
+from asgiref.sync import sync_to_async
 from typing import Dict
 
 
-def validate_schema(credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int) -> Dict:
+async def validate_schema(
+    credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int
+) -> Dict:
     params = {
         "credential": credential,
         "name": table_name,
@@ -25,7 +31,7 @@ def validate_schema(credential: DataWarehouseCredential, table_name: str, new_ur
     }
 
     table = DataWarehouseTable(**params)
-    table.columns = table.get_columns(safe_expose_ch_error=False)
+    table.columns = await sync_to_async(table.get_columns)(safe_expose_ch_error=False)
 
     return {
         "credential": credential,
@@ -36,8 +42,7 @@ def validate_schema(credential: DataWarehouseCredential, table_name: str, new_ur
     }
 
 
-# TODO: make async
-def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[str]) -> None:
+async def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[str]) -> None:
     """
 
     Validates the schemas of data that has been synced by external data job.
@@ -49,12 +54,12 @@ def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[st
         schemas: The list of schemas that have been synced by the external data job
     """
 
-    logger = async_to_sync(bind_temporal_worker_logger)(team_id=team_id)
+    logger = await bind_temporal_worker_logger(team_id=team_id)
 
-    job = ExternalDataJob.objects.get(pk=run_id)
-    last_successful_job = get_latest_run_if_exists(job.team_id, job.pipeline_id)
+    job: ExternalDataJob = await get_external_data_job(job_id=run_id)
+    last_successful_job: ExternalDataJob | None = await get_latest_run_if_exists(job.team_id, job.pipeline_id)
 
-    credential = get_or_create_datawarehouse_credential(
+    credential: DataWarehouseCredential = await get_or_create_datawarehouse_credential(
         team_id=job.team_id,
         access_key=settings.AIRBYTE_BUCKET_KEY,
         access_secret=settings.AIRBYTE_BUCKET_SECRET,
@@ -66,7 +71,7 @@ def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[st
 
         # Check
         try:
-            data = validate_schema(
+            data = await validate_schema(
                 credential=credential, table_name=table_name, new_url_pattern=new_url_pattern, team_id=team_id
             )
         except ServerException as err:
@@ -89,28 +94,31 @@ def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[st
         if last_successful_job:
             old_url_pattern = last_successful_job.url_pattern_by_schema(_schema_name)
             try:
-                table_created = get_table_by_url_pattern_and_source(
+                table_created = await get_table_by_url_pattern_and_source(
                     team_id=job.team_id, source_id=job.pipeline.id, url_pattern=old_url_pattern
                 )
             except Exception:
                 table_created = None
             else:
                 table_created.url_pattern = new_url_pattern
-                table_created.save()
+                await asave_datawarehousetable(table_created)
 
         if not table_created:
-            table_created = DataWarehouseTable.objects.create(external_data_source_id=job.pipeline.id, **data)
+            table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)
 
-        table_created.columns = table_created.get_columns()
-        table_created.save()
+        # TODO: this should be async too
+        table_created.columns = await sync_to_async(table_created.get_columns)()
+        await asave_datawarehousetable(table_created)
 
         # schema could have been deleted by this point
-        schema_model = get_schema_if_exists(schema_name=_schema_name, team_id=job.team_id, source_id=job.pipeline.id)
+        schema_model = await aget_schema_if_exists(
+            schema_name=_schema_name, team_id=job.team_id, source_id=job.pipeline.id
+        )
 
         if schema_model:
             schema_model.table = table_created
             schema_model.last_synced_at = job.created_at
-            schema_model.save()
+            await asave_external_data_schema(schema_model)
 
     if last_successful_job:
         try:

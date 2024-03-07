@@ -1,7 +1,7 @@
+import { IconDatabase } from '@posthog/icons'
 import { actions, afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { IconDatabase } from 'lib/lemon-ui/icons'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -54,7 +54,9 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
             {} as Record<BatchExportConfiguration['id'], BatchExportConfiguration>,
             {
                 loadBatchExportConfigs: async () => {
-                    const res = await api.loadPaginatedResults(`api/organizations/@current/batch_exports`)
+                    const res = await api.loadPaginatedResults<BatchExportConfiguration>(
+                        `api/organizations/@current/batch_exports`
+                    )
                     return Object.fromEntries(
                         res
                             .filter((batchExportConfig) => !batchExportConfig.paused)

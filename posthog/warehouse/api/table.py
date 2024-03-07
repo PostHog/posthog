@@ -2,13 +2,11 @@ from typing import Any, List
 
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated
-from rest_framework.permissions import IsAuthenticated
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.database.database import SerializedField, serialize_fields
 from posthog.models import User
-from posthog.permissions import OrganizationMemberPermissions
 from posthog.warehouse.models import (
     DataWarehouseCredential,
     DataWarehouseSavedQuery,
@@ -93,14 +91,14 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         return serialize_fields(table.hogql_definition().fields)
 
 
-class TableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
 
+    scope_object = "INTERNAL"
     queryset = DataWarehouseTable.objects.all()
     serializer_class = TableSerializer
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"

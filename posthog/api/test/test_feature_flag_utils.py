@@ -1,4 +1,5 @@
-from typing import Dict, Set
+from typing import Set
+from posthog.models.cohort.cohort import CohortOrEmpty
 from posthog.test.base import (
     APIBaseTest,
 )
@@ -68,6 +69,6 @@ class TestFeatureFlagUtils(APIBaseTest):
 
     def test_empty_cohorts_set(self):
         cohort_ids: Set[int] = set()
-        seen_cohorts_cache: Dict[int, Cohort] = {}
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
         topologically_sorted_cohort_ids = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
         self.assertEqual(topologically_sorted_cohort_ids, [])

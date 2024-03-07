@@ -2,7 +2,7 @@ import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 
 import { DashboardLayoutSize, DashboardTile, TileLayout } from '~/types'
 
-function tileWithLayout(layouts: Record<DashboardLayoutSize, TileLayout>, tileId: number = 1): DashboardTile {
+function textTileWithLayout(layouts: Record<DashboardLayoutSize, TileLayout>, tileId: number = 1): DashboardTile {
     return {
         id: tileId,
         text: 'test',
@@ -13,14 +13,14 @@ function tileWithLayout(layouts: Record<DashboardLayoutSize, TileLayout>, tileId
 describe('calculating tile layouts', () => {
     it('minimum width and height are added if missing', () => {
         const tiles: DashboardTile[] = [
-            tileWithLayout({
+            textTileWithLayout({
                 sm: { i: '1', x: 0, y: 0, w: 1, h: 1 },
                 xs: { i: '1', x: 0, y: 0, w: 1, h: 1 },
             }),
         ]
         expect(calculateLayouts(tiles)).toEqual({
-            sm: [{ i: '1', x: 0, y: 0, w: 1, h: 1, minW: 3, minH: 2 }],
-            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 1, minW: 1, minH: 2 }],
+            sm: [{ i: '1', x: 0, y: 0, w: 1, h: 1, minW: 1, minH: 1 }],
+            xs: [{ i: '1', x: 0, y: 0, w: 1, h: 1, minW: 1, minH: 1 }],
         })
     })
 
@@ -37,10 +37,10 @@ describe('calculating tile layouts', () => {
             { i: '4', x: 6, y: 0, w: 6, h: 6, minW: 3, minH: 2 },
         ]
         const tiles: DashboardTile[] = [
-            tileWithLayout({ sm: smLayouts[0] } as Record<DashboardLayoutSize, TileLayout>, 1),
-            tileWithLayout({ sm: smLayouts[2] } as Record<DashboardLayoutSize, TileLayout>, 2),
-            tileWithLayout({ sm: smLayouts[3] } as Record<DashboardLayoutSize, TileLayout>, 3),
-            tileWithLayout({ sm: smLayouts[1] } as Record<DashboardLayoutSize, TileLayout>, 4),
+            textTileWithLayout({ sm: smLayouts[0] } as Record<DashboardLayoutSize, TileLayout>, 1),
+            textTileWithLayout({ sm: smLayouts[2] } as Record<DashboardLayoutSize, TileLayout>, 2),
+            textTileWithLayout({ sm: smLayouts[3] } as Record<DashboardLayoutSize, TileLayout>, 3),
+            textTileWithLayout({ sm: smLayouts[1] } as Record<DashboardLayoutSize, TileLayout>, 4),
         ]
 
         const actual = calculateLayouts(tiles)
@@ -53,6 +53,6 @@ describe('calculating tile layouts', () => {
         // one col all start at x: 0
         expect(actual.xs?.map((layout) => layout.x)).toEqual([0, 0, 0, 0])
         // one col with equal height of 6 should be
-        expect(actual.xs?.map((layout) => layout.y)).toEqual([0, 6, 12, 18])
+        expect(actual.xs?.map((layout) => layout.y)).toEqual([0, 2, 4, 6])
     })
 })

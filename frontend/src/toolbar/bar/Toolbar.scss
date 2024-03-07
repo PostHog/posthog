@@ -33,16 +33,21 @@
         z-index: 2147483020;
     }
 
+    &[theme='dark'] {
+        // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
+        --mark: var(--secondary-3000-hover-dark);
+
+        @include dark-mode-3000-variables;
+    }
+
+    & .ReactModalPortal {
+        color: var(--text-3000);
+    }
+
+    @include common-variables;
+
     // default to light theme
     @include light-mode-3000-variables;
-    @include posthog-3000-variables;
-}
-
-#button-toolbar[theme='dark'] {
-    // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
-    --mark: var(--secondary-3000-hover-dark);
-
-    @include dark-mode-3000-variables;
 }
 
 .ToolbarMenu {

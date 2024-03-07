@@ -1,6 +1,6 @@
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { PureField } from 'lib/forms/Field'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -63,7 +63,7 @@ export function CreateOrganizationModal({
             isOpen={isVisible}
             inline={inline}
         >
-            <PureField label="Organization name">
+            <LemonField.Pure label="Organization name">
                 <LemonInput
                     placeholder="Acme Inc."
                     maxLength={64}
@@ -76,7 +76,7 @@ export function CreateOrganizationModal({
                         }
                     }}
                 />
-            </PureField>
+            </LemonField.Pure>
         </LemonModal>
     )
 }

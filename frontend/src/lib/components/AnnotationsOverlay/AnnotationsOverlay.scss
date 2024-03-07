@@ -39,17 +39,10 @@
     .LemonModal {
         min-width: var(--annotations-popover-width);
         max-width: var(--annotations-popover-width);
+        min-height: 100%;
         margin: 0;
         border: none;
         box-shadow: none;
-    }
-
-    .Popover__box {
-        padding: 0;
-    }
-
-    ul {
-        max-height: calc(4 * 6.75rem + 3 * 0.5rem); // Fit in 4 one-line annotations without scrolling
     }
 }
 

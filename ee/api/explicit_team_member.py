@@ -6,7 +6,7 @@ from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -101,8 +101,8 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
         return attrs
 
 
-class ExplicitTeamMemberViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, TeamMemberStrictManagementPermission]
+class ExplicitTeamMemberViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "project"
     pagination_class = None
     queryset = ExplicitTeamMembership.objects.filter(parent_membership__user__is_active=True).select_related(
         "team", "parent_membership", "parent_membership__user"
@@ -110,7 +110,8 @@ class ExplicitTeamMemberViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "parent_membership__user__uuid"
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
-    include_in_docs = True
+
+    permission_classes = [IsAuthenticated, TeamMemberStrictManagementPermission]
 
     def get_permissions(self):
         if (
@@ -120,7 +121,7 @@ class ExplicitTeamMemberViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         ):
             # Special case: allow already authenticated users to leave projects
             return []
-        return super().get_permissions()
+        return [permission() for permission in self.permission_classes]
 
     def get_object(self) -> ExplicitTeamMembership:
         queryset = self.filter_queryset(self.get_queryset())

@@ -44,6 +44,19 @@ async def truncate_events(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `sharded_events`")
 
 
+@pytest.fixture
+def batch_export_schema(request) -> dict | None:
+    """A parametrizable fixture to configure a batch export schema.
+
+    By decorating a test function with @pytest.mark.parametrize("batch_export_schema", ..., indirect=True)
+    it's possible to set the batch_export_schema that will be used to create a BatchExport.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return None
+
+
 @pytest_asyncio.fixture
 async def setup_postgres_test_db(postgres_config):
     """Fixture to manage a database for Redshift export testing.

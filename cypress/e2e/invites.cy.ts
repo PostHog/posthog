@@ -53,7 +53,7 @@ describe('Invite Signup', () => {
         cy.get('.BridgePage__left').should('contain', "You've been invited to join")
         cy.get('input[type="email"]').should('have.value', target_email)
         cy.get('[data-attr="password"]').type('12345678')
-        cy.get('.ant-progress-bg').should('not.have.css', 'width', '0px') // Password strength indicator is working
+        cy.get('.LemonProgress__track').should('not.have.css', 'width', '0px') // Password strength indicator is working
         cy.get('[data-attr="first_name"]').type(randomString('Bob'))
         cy.get('[data-attr=signup-role-at-organization]').click()
         cy.get('.Popover li:first-child').click()

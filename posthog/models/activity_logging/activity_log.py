@@ -1,6 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import structlog
@@ -8,6 +9,7 @@ from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
 from django.conf import settings
+
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.user import User
@@ -32,6 +34,7 @@ ActivityScope = Literal[
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
     "Comment",
+    "Team",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -73,6 +76,12 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return str(obj)
         if isinstance(obj, User):
             return {"first_name": obj.first_name, "email": obj.email}
+        if isinstance(obj, float):
+            # more precision than we'll need but avoids rounding too unnecessarily
+            return format(obj, ".6f").rstrip("0").rstrip(".")
+        if isinstance(obj, Decimal):
+            # more precision than we'll need but avoids rounding too unnecessarily
+            return format(obj, ".6f").rstrip("0").rstrip(".")
 
         return json.JSONEncoder.default(self, obj)
 
@@ -186,6 +195,7 @@ field_exclusions: Dict[ActivityScope, List[str]] = {
         "post_to_slack",
         "property_type_format",
     ],
+    "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
 }
 
 

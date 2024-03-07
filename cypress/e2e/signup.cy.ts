@@ -75,7 +75,7 @@ describe('Signup', () => {
     })
 
     it('Shows redirect notice if redirecting for maintenance', () => {
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
+        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
             req.reply(
                 decideResponse({
                     'redirect-signups-to-instance': 'us',
@@ -88,7 +88,7 @@ describe('Signup', () => {
 
         cy.visit('/signup?maintenanceRedirect=true', {
             onLoad(win: Cypress.AUTWindow) {
-                win.POSTHOG_APP_CONTEXT.preflight.cloud = true
+                ;(win as any).POSTHOG_APP_CONTEXT.preflight.cloud = true
             },
         })
 

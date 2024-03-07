@@ -1075,8 +1075,10 @@ class _Printer(Visitor):
             if len(node.partition_by) == 0:
                 raise HogQLException("PARTITION BY must have at least one argument")
             strings.append("PARTITION BY")
+            columns = []
             for expr in node.partition_by:
-                strings.append(self.visit(expr))
+                columns.append(self.visit(expr))
+            strings.append(", ".join(columns))
 
         if node.order_by is not None:
             if len(node.order_by) == 0:

@@ -121,7 +121,7 @@ def _deliver_subscription_report(
         subscription.save()
 
 
-@shared_task(queue=CeleryQueue.SUBSCRIPTION_DELIVERY)
+@shared_task(queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value)
 def schedule_all_subscriptions() -> None:
     """
     Schedule all past notifications (with a buffer) to be delivered
@@ -152,7 +152,7 @@ report_timeout_seconds = settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES 
 @shared_task(
     soft_time_limit=report_timeout_seconds,
     time_limit=report_timeout_seconds + 10,
-    queue=CeleryQueue.SUBSCRIPTION_DELIVERY,
+    queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value,
 )
 def deliver_subscription_report(subscription_id: int) -> None:
     return _deliver_subscription_report(subscription_id)
@@ -161,7 +161,7 @@ def deliver_subscription_report(subscription_id: int) -> None:
 @shared_task(
     soft_time_limit=report_timeout_seconds,
     time_limit=report_timeout_seconds + 10,
-    queue=CeleryQueue.SUBSCRIPTION_DELIVERY,
+    queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value,
 )
 def handle_subscription_value_change(
     subscription_id: int, previous_value: str, invite_message: Optional[str] = None

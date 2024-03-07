@@ -37,8 +37,8 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
             {
                 execute: async () => {
                     const splitAction = await api.create('api/person/' + values.person.id + '/split/', {
-                        ...(values.selectedPersonsToAssignSplit
-                            ? { main_distinct_id: values.selectedPersonsToAssignSplit }
+                        ...(values.selectedPersonToAssignSplit
+                            ? { main_distinct_id: values.selectedPersonToAssignSplit }
                             : {}),
                     })
                     if (splitAction.success) {
@@ -57,7 +57,7 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
     })),
     reducers(({ props }) => ({
         person: [props.person, {}],
-        selectedPersonsToAssignSplit: [
+        selectedPersonToAssignSplit: [
             null as null | string,
             {
                 setSelectedPersonToAssignSplit: (_, { id }) => id,

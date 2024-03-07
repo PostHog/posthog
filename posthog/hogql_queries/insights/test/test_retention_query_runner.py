@@ -74,13 +74,14 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
 
-    def run_actors_query(self, interval, query, select=None):
+    def run_actors_query(self, interval, query, select=None, search=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
         runner = ActorsQueryRunner(
             team=self.team,
             query={
+                "search": search,
                 "select": ["person", "appearances", *(select or [])],
                 "orderBy": ["length(appearances) DESC", "actor_id"],
                 "source": {
@@ -220,7 +221,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "dateRange": {"date_to": _date(0, month=5, hour=0)},
+                "dateRange": {"date_to": _date(15, month=5, hour=0)},
                 "retentionFilter": {
                     "period": "Month",
                     "totalIntervals": 11,
@@ -265,17 +266,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             pluck(result, "date"),
             [
-                datetime(2020, 1, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 2, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 3, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 4, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 5, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 8, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 9, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 10, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 11, 10, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 1, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 2, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 3, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 4, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 5, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 6, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 7, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 8, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 9, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 10, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 11, 1, 0, tzinfo=ZoneInfo("UTC")),
             ],
         )
 
@@ -440,17 +441,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             pluck(result, "date"),
             [
-                datetime(2020, 1, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 2, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 3, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 4, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 5, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 8, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 9, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 10, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 11, 10, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 1, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 2, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 3, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 4, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 5, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 6, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 7, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 8, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 9, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 10, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 11, 1, 0, tzinfo=ZoneInfo("UTC")),
             ],
         )
 
@@ -873,6 +874,44 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(result[1][0]["id"], person1.uuid)
         self.assertCountEqual(result[1][1], [0, 3, 4])
+
+    def test_retention_people_search(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1", "alias1"],
+            properties={"email": "person1@test.com"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"email": "person2@test.com"},
+        )
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+                ("person2", _date(7)),
+            ],
+        )
+
+        result = self.run_actors_query(
+            interval=2,
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+            },
+            search="test",
+        )
+        self.assertEqual(len(result), 2)
 
     def test_retention_people_in_period_first_time(self):
         p1, p2, p3, p4 = self._create_first_time_retention_events()

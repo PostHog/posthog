@@ -191,6 +191,10 @@ export function capitalizeFirstLetter(string: string): string {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
 
+export function lowercaseFirstLetter(string: string): string {
+    return string.charAt(0).toLowerCase() + string.slice(1)
+}
+
 export function fullName(props: { first_name?: string; last_name?: string }): string {
     return `${props.first_name || ''} ${props.last_name || ''}`.trim()
 }
@@ -1617,6 +1621,20 @@ export class UnexpectedNeverError extends Error {
     }
 }
 
+export function promiseResolveReject<T>(): {
+    resolve: (value: T) => void
+    reject: (reason?: any) => void
+    promise: Promise<T>
+} {
+    let resolve: (value: T) => void
+    let reject: (reason?: any) => void
+    const promise = new Promise<T>((innerResolve, innerReject) => {
+        resolve = innerResolve
+        reject = innerReject
+    })
+    return { resolve: resolve!, reject: reject!, promise }
+}
+
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
     if (timeUnit === TimeUnitType.Year) {
         return timeValue * 365
@@ -1739,4 +1757,13 @@ export const base64ToUint8Array = (encodedString: string): Uint8Array => {
         data[i] = binString.charCodeAt(i)
     }
     return data
+}
+
+export function hasFormErrors(object: any): boolean {
+    if (Array.isArray(object)) {
+        return object.some(hasFormErrors)
+    } else if (typeof object === 'object' && object !== null) {
+        return Object.values(object).some(hasFormErrors)
+    }
+    return !!object
 }

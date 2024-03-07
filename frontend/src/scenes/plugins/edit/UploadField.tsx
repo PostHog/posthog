@@ -1,29 +1,13 @@
-import { Button, Upload } from 'antd'
-import { UploadFile } from 'antd/lib/upload/interface'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { LemonFileInput } from '@posthog/lemon-ui'
 
-export function UploadField({
-    value,
-    onChange,
-}: {
-    value?: UploadFile | null
-    onChange?: (file?: UploadFile | null) => void
-}): JSX.Element {
+export function UploadField({ value, onChange }: { value?: File; onChange?: (file: File) => void }): JSX.Element {
     return (
-        <Upload
+        <LemonFileInput
+            accept="*"
             multiple={false}
-            fileList={value?.size ? [value] : []}
-            beforeUpload={(file) => {
-                onChange?.(file)
-                return false
-            }}
-            onRemove={() => {
-                onChange?.(null)
-                return false
-            }}
-            className="ph-ignore-input"
-        >
-            <Button icon={<IconUploadFile />}>Click to upload</Button>
-        </Upload>
+            onChange={(files) => onChange?.(files[0])}
+            value={value?.size ? [value] : []}
+            showUploadedFiles={false}
+        />
     )
 }

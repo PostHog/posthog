@@ -11,11 +11,10 @@ from django.test import override_settings
 from posthog.temporal.batch_exports.batch_exports import (
     BatchExportTemporaryFile,
     get_data_interval,
-    get_results_iterator,
     get_rows_count,
+    iter_records,
     json_dumps_bytes,
 )
-from posthog.temporal.tests.utils.datetimes import to_isoformat
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -170,9 +169,41 @@ async def test_get_rows_count_ignores_timestamp_predicates(clickhouse_client):
     assert row_count == 10
 
 
-@pytest.mark.parametrize("include_person_properties", (False, True))
-async def test_get_results_iterator(clickhouse_client, include_person_properties):
-    """Test the rows returned by get_results_iterator."""
+def assert_records_match_events(records, events):
+    """Compare records returned from ClickHouse to events inserted into ClickHouse.
+
+    Naturally, they should match, but with some transformations:
+    * We set UTC as a timezone for dates.
+    * We dump dict fields
+    """
+    all_expected = sorted(events, key=operator.itemgetter("event"))
+    all_record = sorted(records, key=operator.itemgetter("event"))
+
+    assert len(all_expected) == len(all_record)
+    assert len([record["uuid"] for record in all_record]) == len(
+        set(record["uuid"] for record in all_record)
+    ), "duplicate records found"
+
+    for expected, record in zip(all_expected, all_record):
+        for key, value in record.items():
+            value = value or None
+
+            msg = f"{key} value in {record} didn't match value in {expected}"
+            if (
+                key in ("timestamp", "_inserted_at", "created_at")
+                and expected.get(key.removeprefix("_"), None) is not None
+            ):
+                assert value == dt.datetime.fromisoformat(expected[key.removeprefix("_")]).replace(
+                    tzinfo=dt.timezone.utc
+                ), msg
+            elif isinstance(expected[key], dict):
+                assert value == json.dumps(expected[key]), msg
+            else:
+                assert value == expected[key]
+
+
+async def test_iter_records(clickhouse_client):
+    """Test the rows returned by iter_records."""
     team_id = randint(1, 1000000)
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
     data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
@@ -189,37 +220,22 @@ async def test_get_results_iterator(clickhouse_client, include_person_properties
         person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
     )
 
-    iter_ = get_results_iterator(
-        clickhouse_client,
-        team_id,
-        data_interval_start.isoformat(),
-        data_interval_end.isoformat(),
-        include_person_properties=include_person_properties,
-    )
-    rows = [row for row in iter_]
+    records = [
+        record
+        for record_batch in iter_records(
+            clickhouse_client,
+            team_id,
+            data_interval_start.isoformat(),
+            data_interval_end.isoformat(),
+        )
+        for record in record_batch.to_pylist()
+    ]
 
-    all_expected = sorted(events, key=operator.itemgetter("event"))
-    all_result = sorted(rows, key=operator.itemgetter("event"))
-
-    assert len(all_expected) == len(all_result)
-
-    for expected, result in zip(all_expected, all_result):
-        for key, value in result.items():
-            if key == "person_properties" and not include_person_properties:
-                continue
-
-            if key in ("timestamp", "inserted_at", "created_at"):
-                expected_value = to_isoformat(expected[key])
-            else:
-                expected_value = expected[key]
-
-            # Some keys will be missing from result, so let's only check the ones we have.
-            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
+    assert_records_match_events(records, events)
 
 
-@pytest.mark.parametrize("include_person_properties", (False, True))
-async def test_get_results_iterator_handles_duplicates(clickhouse_client, include_person_properties):
-    """Test the rows returned by get_results_iterator are de-duplicated."""
+async def test_iter_records_handles_duplicates(clickhouse_client):
+    """Test the rows returned by iter_records are de-duplicated."""
     team_id = randint(1, 1000000)
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
     data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
@@ -236,38 +252,22 @@ async def test_get_results_iterator_handles_duplicates(clickhouse_client, includ
         person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
     )
 
-    iter_ = get_results_iterator(
-        clickhouse_client,
-        team_id,
-        data_interval_start.isoformat(),
-        data_interval_end.isoformat(),
-        include_person_properties=include_person_properties,
-    )
-    rows = [row for row in iter_]
+    records = [
+        record
+        for record_batch in iter_records(
+            clickhouse_client,
+            team_id,
+            data_interval_start.isoformat(),
+            data_interval_end.isoformat(),
+        )
+        for record in record_batch.to_pylist()
+    ]
 
-    all_expected = sorted(events, key=operator.itemgetter("event"))
-    all_result = sorted(rows, key=operator.itemgetter("event"))
-
-    assert len(all_expected) == len(all_result)
-    assert len([row["uuid"] for row in all_result]) == len(set(row["uuid"] for row in all_result))
-
-    for expected, result in zip(all_expected, all_result):
-        for key, value in result.items():
-            if key == "person_properties" and not include_person_properties:
-                continue
-
-            if key in ("timestamp", "inserted_at", "created_at"):
-                expected_value = to_isoformat(expected[key])
-            else:
-                expected_value = expected[key]
-
-            # Some keys will be missing from result, so let's only check the ones we have.
-            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
+    assert_records_match_events(records, events)
 
 
-@pytest.mark.parametrize("include_person_properties", (False, True))
-async def test_get_results_iterator_can_exclude_events(clickhouse_client, include_person_properties):
-    """Test the rows returned by get_results_iterator can exclude events."""
+async def test_iter_records_can_exclude_events(clickhouse_client):
+    """Test the rows returned by iter_records can exclude events."""
     team_id = randint(1, 1000000)
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
     data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
@@ -286,39 +286,23 @@ async def test_get_results_iterator_can_exclude_events(clickhouse_client, includ
 
     # Exclude the latter half of events.
     exclude_events = (event["event"] for event in events[5000:])
-    iter_ = get_results_iterator(
-        clickhouse_client,
-        team_id,
-        data_interval_start.isoformat(),
-        data_interval_end.isoformat(),
-        exclude_events=exclude_events,
-        include_person_properties=include_person_properties,
-    )
-    rows = [row for row in iter_]
+    records = [
+        record
+        for record_batch in iter_records(
+            clickhouse_client,
+            team_id,
+            data_interval_start.isoformat(),
+            data_interval_end.isoformat(),
+            exclude_events=exclude_events,
+        )
+        for record in record_batch.to_pylist()
+    ]
 
-    all_expected = sorted(events[:5000], key=operator.itemgetter("event"))
-    all_result = sorted(rows, key=operator.itemgetter("event"))
-
-    assert len(all_expected) == len(all_result)
-    assert len([row["uuid"] for row in all_result]) == len(set(row["uuid"] for row in all_result))
-
-    for expected, result in zip(all_expected, all_result):
-        for key, value in result.items():
-            if key == "person_properties" and not include_person_properties:
-                continue
-
-            if key in ("timestamp", "inserted_at", "created_at"):
-                expected_value = to_isoformat(expected[key])
-            else:
-                expected_value = expected[key]
-
-            # Some keys will be missing from result, so let's only check the ones we have.
-            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
+    assert_records_match_events(records, events[:5000])
 
 
-@pytest.mark.parametrize("include_person_properties", (False, True))
-async def test_get_results_iterator_can_include_events(clickhouse_client, include_person_properties):
-    """Test the rows returned by get_results_iterator can include events."""
+async def test_iter_records_can_include_events(clickhouse_client):
+    """Test the rows returned by iter_records can include events."""
     team_id = randint(1, 1000000)
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
     data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
@@ -337,39 +321,23 @@ async def test_get_results_iterator_can_include_events(clickhouse_client, includ
 
     # Include the latter half of events.
     include_events = (event["event"] for event in events[5000:])
-    iter_ = get_results_iterator(
-        clickhouse_client,
-        team_id,
-        data_interval_start.isoformat(),
-        data_interval_end.isoformat(),
-        include_events=include_events,
-        include_person_properties=include_person_properties,
-    )
-    rows = [row for row in iter_]
+    records = [
+        record
+        for record_batch in iter_records(
+            clickhouse_client,
+            team_id,
+            data_interval_start.isoformat(),
+            data_interval_end.isoformat(),
+            include_events=include_events,
+        )
+        for record in record_batch.to_pylist()
+    ]
 
-    all_expected = sorted(events[5000:], key=operator.itemgetter("event"))
-    all_result = sorted(rows, key=operator.itemgetter("event"))
-
-    assert len(all_expected) == len(all_result)
-    assert len([row["uuid"] for row in all_result]) == len(set(row["uuid"] for row in all_result))
-
-    for expected, result in zip(all_expected, all_result):
-        for key, value in result.items():
-            if key == "person_properties" and not include_person_properties:
-                continue
-
-            if key in ("timestamp", "inserted_at", "created_at"):
-                expected_value = to_isoformat(expected[key])
-            else:
-                expected_value = expected[key]
-
-            # Some keys will be missing from result, so let's only check the ones we have.
-            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
+    assert_records_match_events(records, events[5000:])
 
 
-@pytest.mark.parametrize("include_person_properties", (False, True))
-async def test_get_results_iterator_ignores_timestamp_predicates(clickhouse_client, include_person_properties):
-    """Test the rows returned by get_results_iterator ignores timestamp predicates when configured."""
+async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
+    """Test the rows returned by iter_records ignores timestamp predicates when configured."""
     team_id = randint(1, 1000000)
 
     inserted_at = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
@@ -392,45 +360,177 @@ async def test_get_results_iterator_ignores_timestamp_predicates(clickhouse_clie
         inserted_at=inserted_at,
     )
 
-    iter_ = get_results_iterator(
-        clickhouse_client,
-        team_id,
-        inserted_at.isoformat(),
-        data_interval_end.isoformat(),
-        include_person_properties=include_person_properties,
-    )
-    rows = [row for row in iter_]
-
-    assert len(rows) == 0
-
-    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
-        iter_ = get_results_iterator(
+    records = [
+        record
+        for record_batch in iter_records(
             clickhouse_client,
             team_id,
             inserted_at.isoformat(),
             data_interval_end.isoformat(),
-            include_person_properties=include_person_properties,
         )
-        rows = [row for row in iter_]
+        for record in record_batch.to_pylist()
+    ]
+
+    assert len(records) == 0
+
+    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
+        records = [
+            record
+            for record_batch in iter_records(
+                clickhouse_client,
+                team_id,
+                inserted_at.isoformat(),
+                data_interval_end.isoformat(),
+            )
+            for record in record_batch.to_pylist()
+        ]
+
+    assert_records_match_events(records, events)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        {"expression": "event", "alias": "event_name"},
+        {"expression": "team_id", "alias": "team"},
+        {"expression": "timestamp", "alias": "time_the_stamp"},
+        {"expression": "inserted_at", "alias": "ingestion_time"},
+        {"expression": "created_at", "alias": "creation_time"},
+    ],
+)
+async def test_iter_records_with_single_field_and_alias(clickhouse_client, field):
+    """Test iter_records can return a single aliased field."""
+    team_id = randint(1, 1000000)
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+    )
+
+    records = [
+        record
+        for record_batch in iter_records(
+            clickhouse_client,
+            team_id,
+            data_interval_start.isoformat(),
+            data_interval_end.isoformat(),
+            fields=[field],
+        )
+        for record in record_batch.to_pylist()
+    ]
+
+    all_expected = sorted(events, key=operator.itemgetter(field["expression"]))
+    all_record = sorted(records, key=operator.itemgetter(field["alias"]))
+
+    for expected, record in zip(all_expected, all_record):
+        assert len(record) == 2
+        # Always set for progress tracking
+        assert record.get("_inserted_at", None) is not None
+
+        result = record[field["alias"]]
+        expected_value = expected[field["expression"]]
+
+        if isinstance(result, dt.datetime):
+            # Event generation function returns datetimes as strings.
+            expected_value = dt.datetime.fromisoformat(expected_value).replace(tzinfo=dt.timezone.utc)
+
+        assert result == expected_value
+
+
+async def test_iter_records_can_flatten_properties(clickhouse_client):
+    """Test iter_records can flatten properties as indicated by a field expression."""
+    team_id = randint(1, 1000000)
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties={"$browser": "Chrome", "$os": "Mac OS X", "custom-property": 3},
+    )
+
+    records = [
+        record
+        for record_batch in iter_records(
+            clickhouse_client,
+            team_id,
+            data_interval_start.isoformat(),
+            data_interval_end.isoformat(),
+            fields=[
+                {"expression": "event", "alias": "event"},
+                {"expression": "JSONExtractString(properties, '$browser')", "alias": "browser"},
+                {"expression": "JSONExtractString(properties, '$os')", "alias": "os"},
+                {"expression": "JSONExtractInt(properties, 'custom-property')", "alias": "custom_prop"},
+            ],
+        )
+        for record in record_batch.to_pylist()
+    ]
 
     all_expected = sorted(events, key=operator.itemgetter("event"))
-    all_result = sorted(rows, key=operator.itemgetter("event"))
+    all_record = sorted(records, key=operator.itemgetter("event"))
 
-    assert len(all_expected) == len(all_result)
-    assert len([row["uuid"] for row in all_result]) == len(set(row["uuid"] for row in all_result))
+    for expected, record in zip(all_expected, all_record):
+        if expected["properties"] is None:
+            raise ValueError("Empty properties")
 
-    for expected, result in zip(all_expected, all_result):
-        for key, value in result.items():
-            if key == "person_properties" and not include_person_properties:
-                continue
+        assert record["browser"] == expected["properties"]["$browser"]
+        assert record["os"] == expected["properties"]["$os"]
+        assert record["custom_prop"] == expected["properties"]["custom-property"]
 
-            if key in ("timestamp", "inserted_at", "created_at"):
-                expected_value = to_isoformat(expected[key])
-            else:
-                expected_value = expected[key]
 
-            # Some keys will be missing from result, so let's only check the ones we have.
-            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
+async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
+    """Test iter_records can flatten properties as indicated by a field expression."""
+    team_id = randint(1, 1000000)
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties={"$browser": "Chrome", "$os": "Mac OS X", "custom": 3},
+    )
+
+    records = [
+        record
+        for record_batch in iter_records(
+            clickhouse_client,
+            team_id,
+            data_interval_start.isoformat(),
+            data_interval_end.isoformat(),
+            fields=[
+                {"expression": "JSONExtractInt(properties, %(hogql_val_0)s)", "alias": "custom_prop"},
+            ],
+            extra_query_parameters={"hogql_val_0": "custom"},
+        )
+        for record in record_batch.to_pylist()
+    ]
+
+    for expected, record in zip(events, records):
+        if expected["properties"] is None:
+            raise ValueError("Empty properties")
+
+        assert record["custom_prop"] == expected["properties"]["custom"]
 
 
 @pytest.mark.parametrize(
@@ -545,6 +645,7 @@ def test_batch_export_temporary_file_write_records_to_csv(records):
         delimiter=",",
         quotechar='"',
         escapechar="\\",
+        lineterminator="\n",
         quoting=csv.QUOTE_NONE,
     )
     writer.writerows(records)
@@ -597,6 +698,7 @@ def test_batch_export_temporary_file_write_records_to_tsv(records):
         delimiter="\t",
         quotechar='"',
         escapechar="\\",
+        lineterminator="\n",
         quoting=csv.QUOTE_NONE,
     )
     writer.writerows(records)

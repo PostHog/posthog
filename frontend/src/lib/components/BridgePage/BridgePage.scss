@@ -5,9 +5,8 @@
     display: flex;
     flex: 1;
     flex-direction: column;
-    height: 100%;
-    min-height: 100vh;
-    overflow: hidden;
+    height: 100vh;
+    overflow: scroll;
     background-color: var(--bg-bridge);
     -ms-overflow-style: none;
 

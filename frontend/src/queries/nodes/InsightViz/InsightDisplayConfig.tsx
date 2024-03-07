@@ -48,6 +48,7 @@ export function InsightDisplayConfig(): JSX.Element {
         showLegend,
         supportsValueOnSeries,
         showPercentStackView,
+        supportsPercentStackView,
     } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
@@ -65,26 +66,22 @@ export function InsightDisplayConfig(): JSX.Element {
         (!display || display === ChartDisplayType.ActionsLineGraph) &&
         featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL]
 
-    const {
-        showPercentStackView: isPercentStackViewOn,
-        showValueOnSeries,
-        mightContainFractionalNumbers,
-    } = useValues(trendsDataLogic(insightProps))
+    const { showValueOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
     const advancedOptions: LemonMenuItems = [
-        ...(supportsValueOnSeries || showPercentStackView || hasLegend
+        ...(supportsValueOnSeries || supportsPercentStackView || hasLegend
             ? [
                   {
                       title: 'Display',
                       items: [
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
-                          ...(showPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                          ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
                       ],
                   },
               ]
             : []),
-        ...(!isPercentStackViewOn && isTrends
+        ...(!showPercentStackView && isTrends
             ? [
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
@@ -103,8 +100,8 @@ export function InsightDisplayConfig(): JSX.Element {
     ]
     const advancedOptionsCount: number =
         (supportsValueOnSeries && showValueOnSeries ? 1 : 0) +
-        (showPercentStackView && isPercentStackViewOn ? 1 : 0) +
-        (!isPercentStackViewOn &&
+        (showPercentStackView ? 1 : 0) +
+        (!showPercentStackView &&
         isTrends &&
         trendsFilter?.aggregationAxisFormat &&
         trendsFilter.aggregationAxisFormat !== 'numeric'

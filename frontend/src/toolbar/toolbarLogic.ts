@@ -2,7 +2,6 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { posthog } from '~/toolbar/posthog'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { ToolbarProps } from '~/types'
@@ -67,7 +66,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
         processUserIntent: () => {
             if (props.userIntent === 'add-action' || props.userIntent === 'edit-action') {
                 actionsTabLogic.actions.showButtonActions()
-                toolbarButtonLogic.actions.showActionsInfo()
                 // the right view will next be opened in `actionsTabLogic` on `getActionsSuccess`
             }
         },

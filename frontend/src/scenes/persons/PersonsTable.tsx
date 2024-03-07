@@ -1,9 +1,9 @@
+import { IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconDelete } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
@@ -80,7 +80,7 @@ export function PersonsTable({
                           return (
                               <LemonButton
                                   onClick={() => showPersonDeleteModal(person, () => loadPersons())}
-                                  icon={<IconDelete />}
+                                  icon={<IconTrash />}
                                   status="danger"
                                   size="small"
                               />

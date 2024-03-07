@@ -13,6 +13,8 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { ActionFilter, BreakdownKeyType } from '~/types'
 
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+
 export enum IconSize {
     Small = 'small',
     Medium = 'medium',
@@ -151,7 +153,13 @@ export function InsightLabel({
                                     showSingleName={showSingleName}
                                 />
                             ) : (
-                                <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
+                                <PropertyKeyInfo
+                                    disableIcon
+                                    disablePopover
+                                    value={eventName}
+                                    ellipsis={!allowWrap}
+                                    type={TaxonomicFilterGroupType.Events}
+                                />
                             )}
                         </>
                     )}

@@ -1,9 +1,9 @@
+import { IconLock } from '@posthog/icons'
 import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { IconLock } from 'lib/lemon-ui/icons'
 
 import { AvailableFeature } from '~/types'
 

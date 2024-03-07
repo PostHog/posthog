@@ -1,6 +1,5 @@
+import typing
 from abc import ABC, abstractmethod
-
-from posthog.batch_exports.service import BatchExportsInputsProtocol
 
 
 class PostHogWorkflow(ABC):
@@ -24,7 +23,7 @@ class PostHogWorkflow(ABC):
 
     @staticmethod
     @abstractmethod
-    def parse_inputs(inputs: list[str]) -> BatchExportsInputsProtocol:
+    def parse_inputs(inputs: list[str]) -> typing.Any:
         """Parse inputs from the management command CLI.
 
         If a workflow is to be executed via the CLI it must know how to parse its

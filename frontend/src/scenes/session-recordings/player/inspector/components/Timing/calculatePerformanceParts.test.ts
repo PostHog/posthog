@@ -2,6 +2,8 @@ import { InitiatorType } from 'posthog-js'
 import { calculatePerformanceParts } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 import { mapRRWebNetworkRequest } from 'scenes/session-recordings/player/inspector/performance-event-utils'
 
+import { PerformanceEvent } from '~/types'
+
 jest.mock('lib/colors', () => {
     return {
         getSeriesColor: jest.fn(() => '#000000'),
@@ -44,7 +46,9 @@ describe('calculatePerformanceParts', () => {
             current_url: 'http://localhost:8000/insights',
         }
 
-        expect(calculatePerformanceParts(perfEvent)).toEqual({
+        const performanceMeasures = calculatePerformanceParts(perfEvent)
+        expect(performanceMeasures.serverTimings).toEqual([])
+        expect(performanceMeasures.networkTimings).toEqual({
             'request queuing time': {
                 color: '#000000',
                 end: 9803.099999964237,
@@ -112,7 +116,9 @@ describe('calculatePerformanceParts', () => {
             responseBody: '�PNGblah',
         }
         const mappedToPerfEvent = mapRRWebNetworkRequest(gravatarReqRes, 'windowId', 1700296066652)
-        expect(calculatePerformanceParts(mappedToPerfEvent)).toEqual({
+        const performanceMeasures = calculatePerformanceParts(mappedToPerfEvent)
+        expect(performanceMeasures.serverTimings).toEqual([])
+        expect(performanceMeasures.networkTimings).toEqual({
             // 'app cache' not included - end would be before beginning
             // 'connection time' has 0 length
             // 'dns lookup' has 0 length
@@ -161,7 +167,82 @@ describe('calculatePerformanceParts', () => {
             isInitial: true,
         }
         const mappedToPerfEvent = mapRRWebNetworkRequest(tlsFreeReqRes, 'windowId', 1700319068449)
-        expect(calculatePerformanceParts(mappedToPerfEvent)).toEqual({
+        const performanceMeasures = calculatePerformanceParts(mappedToPerfEvent)
+        expect(performanceMeasures.serverTimings).toEqual([])
+        expect(performanceMeasures.networkTimings).toEqual({
+            'app cache': {
+                color: '#000000',
+                end: 6648.800000011921,
+                start: 6647.699999988079,
+            },
+            'connection time': {
+                color: '#000000',
+                end: 6649.300000011921,
+                start: 6648.800000011921,
+            },
+            'waiting for first byte': {
+                color: '#000000',
+                end: 6740.800000011921,
+                start: 6649.5,
+            },
+            'receiving response': {
+                color: '#000000',
+                end: 6741.100000023842,
+                start: 6740.800000011921,
+            },
+            'request queuing time': {
+                color: '#000000',
+                end: 6649.5,
+                start: 6649.300000011921,
+            },
+        })
+    })
+
+    it('can map server timings', () => {
+        const tlsFreeReqRes = {
+            name: 'http://localhost:8000/decide/?v=3&ip=1&_=1700319068450&ver=1.91.1',
+            entryType: 'resource',
+            startTime: 6648,
+            duration: 93.40000003576279,
+            initiatorType: 'xmlhttprequest' as InitiatorType,
+            deliveryType: '',
+            nextHopProtocol: 'http/1.1',
+            renderBlockingStatus: 'non-blocking',
+            workerStart: 0,
+            redirectStart: 0,
+            redirectEnd: 0,
+            fetchStart: 6647.699999988079,
+            domainLookupStart: 6648.800000011921,
+            domainLookupEnd: 6648.800000011921,
+            connectStart: 6648.800000011921,
+            secureConnectionStart: 0,
+            connectEnd: 6649.300000011921,
+            requestStart: 6649.5,
+            responseStart: 6740.800000011921,
+            firstInterimResponseStart: 0,
+            responseEnd: 6741.100000023842,
+            transferSize: 2383,
+            encodedBodySize: 2083,
+            decodedBodySize: 2083,
+            responseStatus: 200,
+            endTime: 6741,
+            timeOrigin: 1700319061802,
+            timestamp: 1700319068449,
+            isInitial: true,
+        }
+        const mappedToPerfEvent = mapRRWebNetworkRequest(tlsFreeReqRes, 'windowId', 1700319068449)
+        mappedToPerfEvent.server_timings = [
+            { name: 'cache', start_time: 123, duration: 0.1 } as unknown as PerformanceEvent,
+            { name: 'app', start_time: 123, duration: 0.2 } as unknown as PerformanceEvent,
+            { name: 'db', start_time: 123, duration: 0.3 } as unknown as PerformanceEvent,
+        ]
+        const performanceMeasures = calculatePerformanceParts(mappedToPerfEvent)
+        expect(performanceMeasures.serverTimings).toEqual([
+            { color: '#000000', end: 6648.1, label: 'cache', start: 6648 },
+            { color: '#000000', end: 6648.2, label: 'app', start: 6648 },
+            { color: '#000000', end: 6648.3, label: 'db', start: 6648 },
+        ])
+        expect(performanceMeasures.networkTimings).toEqual({
             'app cache': {
                 color: '#000000',
                 end: 6648.800000011921,

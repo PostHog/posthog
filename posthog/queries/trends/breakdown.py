@@ -100,6 +100,7 @@ class TrendsBreakdown:
         team: Team,
         column_optimizer: Optional[ColumnOptimizer] = None,
         person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+        add_person_urls: bool = False,
     ):
         self.entity = entity
         self.filter = filter
@@ -107,6 +108,7 @@ class TrendsBreakdown:
         self.team_id = team.pk
         self.params: Dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
+        self.add_person_urls = add_person_urls
         self.person_on_events_mode = person_on_events_mode
         if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
             self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
@@ -652,17 +654,18 @@ class TrendsBreakdown:
             for stats in result:
                 result_descriptors = self._breakdown_result_descriptors(stats[2], filter, entity)
                 parsed_result = parse_response(stats, filter, additional_values=result_descriptors, entity=entity)
-                parsed_result.update(
-                    {
-                        "persons_urls": self._get_persons_url(
-                            filter,
-                            entity,
-                            self.team,
-                            stats[0],
-                            result_descriptors["breakdown_value"],
-                        )
-                    }
-                )
+                if self.add_person_urls:
+                    parsed_result.update(
+                        {
+                            "persons_urls": self._get_persons_url(
+                                filter,
+                                entity,
+                                self.team,
+                                stats[0],
+                                result_descriptors["breakdown_value"],
+                            )
+                        }
+                    )
                 parsed_results.append(parsed_result)
                 parsed_result.update({"filter": filter.to_dict()})
 

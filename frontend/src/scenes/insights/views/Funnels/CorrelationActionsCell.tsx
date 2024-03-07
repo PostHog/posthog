@@ -1,5 +1,5 @@
+import { IconEllipsis } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useState } from 'react'
@@ -86,9 +86,7 @@ const CorrelationActionsCellComponent = ({ buttons }: CorrelationActionsCellComp
                 <LemonButton key={index} fullWidth {...props} />
             ))}
         >
-            <LemonButton onClick={() => setPopoverOpen(!popoverOpen)}>
-                <IconEllipsis />
-            </LemonButton>
+            <LemonButton icon={<IconEllipsis />} onClick={() => setPopoverOpen(!popoverOpen)} />
         </Popover>
     )
 }

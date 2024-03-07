@@ -3,19 +3,16 @@ from typing import Any, Dict, List, Optional, cast
 from dateutil.relativedelta import relativedelta
 from django.db.models import Count, Prefetch
 from django.utils.timezone import now
-from rest_framework import authentication, request, serializers, viewsets
+from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.auth import (
-    JwtAuthentication,
-    PersonalAPIKeyAuthentication,
     TemporaryTokenAuthentication,
 )
 from posthog.client import sync_execute
@@ -24,10 +21,6 @@ from posthog.event_usage import report_user_action
 from posthog.hogql.hogql import HogQLContext
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.queries.trends.trends_actors import TrendsActors
 
 from .forbid_destroy_model import ForbidDestroyModel
@@ -175,26 +168,16 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
 
 class ActionViewSet(
+    TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
-    StructuredViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
+    scope_object = "action"
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
-    authentication_classes = [
-        TemporaryTokenAuthentication,
-        JwtAuthentication,
-        PersonalAPIKeyAuthentication,
-        authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
-    ]
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    authentication_classes = [TemporaryTokenAuthentication]
     ordering = ["-last_calculated_at", "name"]
 
     def get_queryset(self):
@@ -284,7 +267,3 @@ class ActionViewSet(
             },
         )
         return Response({"count": results[0][0]})
-
-
-class LegacyActionViewSet(ActionViewSet):
-    legacy_team_compatibility = True

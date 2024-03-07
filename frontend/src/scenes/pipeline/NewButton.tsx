@@ -1,20 +1,20 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppKind, PipelineAppTab } from '~/types'
+import { PipelineNodeTab, PipelineStage } from '~/types'
 
 type NewButtonProps = {
-    kind: PipelineAppKind
+    stage: PipelineStage
 }
 
-export function NewButton({ kind }: NewButtonProps): JSX.Element {
+export function NewButton({ stage }: NewButtonProps): JSX.Element {
     return (
         <LemonButton
-            data-attr={`new-${kind}`}
-            to={urls.pipelineApp(kind, 'new', PipelineAppTab.Configuration)}
+            data-attr={`new-${stage}`}
+            to={urls.pipelineNode(stage, 'new', PipelineNodeTab.Configuration)}
             type="primary"
         >
-            New {kind}
+            New {stage}
         </LemonButton>
     )
 }

@@ -30,6 +30,7 @@ class BehavioralPropertyType(str, Enum):
 ValueT = Union[str, int, List[str]]
 PropertyType = Literal[
     "event",
+    "feature",
     "person",
     "cohort",
     "element",
@@ -40,6 +41,7 @@ PropertyType = Literal[
     "behavioral",
     "session",
     "hogql",
+    "data_warehouse",
 ]
 
 PropertyName = str
@@ -71,8 +73,6 @@ OperatorType = Literal[
     "is_date_exact",
     "is_date_after",
     "is_date_before",
-    "is_relative_date_after",
-    "is_relative_date_before",
 ]
 
 OperatorInterval = Literal["day", "week", "month", "year"]
@@ -90,6 +90,7 @@ CLICKHOUSE_ONLY_PROPERTY_TYPES = [
 VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
     "person": ["key", "value"],
+    "data_warehouse": ["key", "value"],
     "cohort": ["key", "value"],
     "element": ["key", "value"],
     "static-cohort": ["key", "value"],
@@ -253,14 +254,14 @@ class Property:
         if self.type not in VALIDATE_PROP_TYPES.keys():
             raise ValueError(f"Invalid property type: {self.type}")
 
-        for key in VALIDATE_PROP_TYPES[self.type]:
-            if getattr(self, key, None) is None:
-                raise ValueError(f"Missing required key {key} for property type {self.type} with name {self.key}")
+        for attr in VALIDATE_PROP_TYPES[self.type]:
+            if getattr(self, attr, None) is None:
+                raise ValueError(f"Missing required attr {attr} for property type {self.type} with key {self.key}")
 
         if self.type == "behavioral":
-            for key in VALIDATE_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]:
-                if getattr(self, key, None) is None:
-                    raise ValueError(f"Missing required key {key} for property type {self.type}::{self.value}")
+            for attr in VALIDATE_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]:
+                if getattr(self, attr, None) is None:
+                    raise ValueError(f"Missing required attr {attr} for property type {self.type}::{self.value}")
 
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())

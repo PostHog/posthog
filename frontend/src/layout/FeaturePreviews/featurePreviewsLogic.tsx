@@ -1,6 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -24,8 +23,6 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         actions: [supportLogic, ['submitZendeskTicket']],
     }),
     actions({
-        showFeaturePreviewsModal: true,
-        hideFeaturePreviewsModal: true,
         updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean) => ({ flagKey, enabled }),
         beginEarlyAccessFeatureFeedback: (flagKey: string) => ({ flagKey }),
         cancelEarlyAccessFeatureFeedback: true,
@@ -67,17 +64,9 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         ],
     })),
     reducers({
-        featurePreviewsModalVisible: [
-            false,
-            {
-                showFeaturePreviewsModal: () => true,
-                hideFeaturePreviewsModal: () => false,
-            },
-        ],
         activeFeedbackFlagKey: {
             beginEarlyAccessFeatureFeedback: (_, { flagKey }) => flagKey,
             cancelEarlyAccessFeatureFeedback: () => null,
-            hideFeaturePreviewsModal: () => null,
         },
     }),
     listeners(() => ({
@@ -110,26 +99,5 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                         }
                     }),
         ],
-    }),
-    urlToAction(({ actions }) => ({
-        '*': (_, _search, hashParams) => {
-            if (hashParams['panel'] === 'feature-previews') {
-                actions.showFeaturePreviewsModal()
-            }
-        },
-    })),
-    actionToUrl(() => {
-        return {
-            showFeaturePreviewsModal: () => {
-                const hashParams = router.values.hashParams
-                hashParams['panel'] = 'feature-previews'
-                return [router.values.location.pathname, router.values.searchParams, hashParams]
-            },
-            hideFeaturePreviewsModal: () => {
-                const hashParams = router.values.hashParams
-                delete hashParams['panel']
-                return [router.values.location.pathname, router.values.searchParams, hashParams]
-            },
-        }
     }),
 ])

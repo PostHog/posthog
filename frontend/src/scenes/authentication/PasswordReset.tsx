@@ -1,14 +1,15 @@
 /*
 Scene to request a password reset email.
 */
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { Field } from 'lib/forms/Field'
-import { IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -34,7 +35,7 @@ export function PasswordReset(): JSX.Element {
             ) : (
                 requestPasswordResetSucceeded && (
                     <div className="text-center">
-                        <IconCheckCircleOutline className="text-5xl text-success" />
+                        <IconCheckCircle className="text-5xl text-success" />
                     </div>
                 )
             )}
@@ -92,7 +93,7 @@ function ResetForm(): JSX.Element {
             <div className="text-center">
                 Enter your email address. If an account exists, you’ll receive an email with a password reset link soon.
             </div>
-            <Field name="email" label="Email">
+            <LemonField name="email" label="Email">
                 <LemonInput
                     className="ph-ignore-input"
                     autoFocus
@@ -101,7 +102,7 @@ function ResetForm(): JSX.Element {
                     type="email"
                     disabled={isRequestPasswordResetSubmitting}
                 />
-            </Field>
+            </LemonField>
             <LemonButton
                 fullWidth
                 type="primary"

@@ -22,6 +22,8 @@ export enum QueryFeature {
     resultIsArrayOfArrays,
     selectAndOrderByColumns,
     displayResponseError,
+    hideLoadNextButton,
+    testAccountFilters,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -33,6 +35,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.testAccountFilters)
     }
 
     if (isEventsQuery(query)) {
@@ -57,6 +60,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     if (isWebOverviewQuery(query) || isWebTopClicksQuery(query) || isWebStatsTableQuery(query)) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.hideLoadNextButton)
     }
 
     return features

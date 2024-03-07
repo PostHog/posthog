@@ -832,7 +832,9 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(
                     response.json(),
-                    self.validation_error_response("Exclusion event can't be the same as funnel step"),
+                    self.validation_error_response(
+                        "Exclusion steps cannot contain an event that's part of funnel steps."
+                    ),
                 )
             else:
                 self.assertEqual(response.status_code, 200)

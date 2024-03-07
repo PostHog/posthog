@@ -1,9 +1,10 @@
 import './LemonActionableTooltip.scss'
 
 import { Placement } from '@floating-ui/react'
+import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { IconChevronLeft, IconChevronRight, IconClose } from 'lib/lemon-ui/icons'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
 export type LemonActionableTooltipProps = {
@@ -78,7 +79,7 @@ export const LemonActionableTooltip = ({
                         </div>
                         <div>
                             <LemonButton size="small" onClick={close}>
-                                <IconClose />
+                                <IconX />
                             </LemonButton>
                         </div>
                     </div>

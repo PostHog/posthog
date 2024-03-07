@@ -2,7 +2,7 @@ from django.db.models import Prefetch, Q, QuerySet
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem, User
 from posthog.models.tag import tagify
@@ -107,7 +107,8 @@ class TaggedItemSerializer(serializers.Serializer):
         return obj.tag.name
 
 
-class TaggedItemViewSet(StructuredViewSetMixin, GenericViewSet):
+class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
+    scope_object = "INTERNAL"
     serializer_class = TaggedItemSerializer
     queryset = Tag.objects.none()
 

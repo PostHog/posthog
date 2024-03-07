@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
-import { EnqueuedPluginJob, JobName } from '../../types'
+import { EnqueuedPluginJob, JobName, PluginsServerConfig } from '../../types'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
 import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'
@@ -23,10 +23,12 @@ export const startJobsConsumer = async ({
     kafka,
     producer,
     graphileWorker,
+    serverConfig,
 }: {
     kafka: Kafka
     producer: KafkaProducerWrapper
     graphileWorker: GraphileWorker
+    serverConfig: PluginsServerConfig
 }) => {
     /*
         Consumes from the jobs buffer topic, and enqueues the jobs for execution
@@ -34,7 +36,11 @@ export const startJobsConsumer = async ({
     */
 
     const groupId = 'jobs-inserter'
-    const consumer = kafka.consumer({ groupId })
+    const consumer = kafka.consumer({
+        groupId,
+        sessionTimeout: serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+        rebalanceTimeout: serverConfig.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS ?? undefined,
+    })
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting jobs consumer')

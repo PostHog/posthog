@@ -1,10 +1,10 @@
 import './CodeSnippet.scss'
 
+import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 import { Popconfirm } from 'antd'
 import { PopconfirmProps } from 'antd/lib/popconfirm'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { IconCopy, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
@@ -162,7 +162,7 @@ export function CodeSnippet({
                     center
                     size="small"
                     type="secondary"
-                    icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    icon={expanded ? <IconCollapse /> : <IconExpand />}
                 >
                     {expanded ? 'Collapse' : 'Expand'} snippet
                 </LemonButton>

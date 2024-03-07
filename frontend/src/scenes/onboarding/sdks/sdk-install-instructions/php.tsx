@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 function PHPConfigSnippet(): JSX.Element {
@@ -24,7 +25,7 @@ function PHPSetupSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.PHP}>
             {`PostHog::init('${currentTeam?.api_token}',
-    array('host' => '${window.location.origin}')
+    array('host' => '${apiHostOrigin()}')
 );`}
         </CodeSnippet>
     )

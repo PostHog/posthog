@@ -8,13 +8,14 @@ from django.test import override_settings
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _expr(self, query: str, table: str = "events") -> HogQLMetadataResponse:
+    def _expr(self, query: str, table: str = "events", debug=True) -> HogQLMetadataResponse:
         return get_hogql_metadata(
             query=HogQLMetadata(
                 kind="HogQLMetadata",
                 expr=query,
                 exprSource=HogQLQuery(kind="HogQLQuery", query=f"select * from {table}"),
                 response=None,
+                debug=debug,
             ),
             team=self.team,
         )
@@ -190,7 +191,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    def test_metadata_property_type_notice(self):
+    def test_metadata_property_type_notice_debug(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
@@ -211,13 +212,49 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": None,
                 "notices": [
                     {
-                        "message": "Event property 'string' is of type 'String'",
+                        "message": "Event property 'string' is of type 'String'. This property is not materialized 🐢.",
                         "start": 11,
                         "end": 17,
                         "fix": None,
                     },
                     {
-                        "message": "⚡️Event property 'number' is of type 'Float'",
+                        "message": "Event property 'number' is of type 'Float'. This property is materialized ⚡️.",
+                        "start": 32,
+                        "end": 38,
+                        "fix": None,
+                    },
+                ],
+            },
+        )
+
+    def test_metadata_property_type_notice_no_debug(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "number")
+
+        PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
+        PropertyDefinition.objects.create(team=self.team, name="number", property_type="Numeric")
+        metadata = self._expr("properties.string || properties.number", debug=False)
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "inputExpr": "properties.string || properties.number",
+                "inputSelect": None,
+                "notices": [
+                    {
+                        "message": "Event property 'string' is of type 'String'.",
+                        "start": 11,
+                        "end": 17,
+                        "fix": None,
+                    },
+                    {
+                        "message": "Event property 'number' is of type 'Float'.",
                         "start": 32,
                         "end": 38,
                         "fix": None,

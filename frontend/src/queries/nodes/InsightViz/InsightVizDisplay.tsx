@@ -9,11 +9,11 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
-    FunnelInvalidExclusionState,
     FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
+    InsightValidationError,
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -59,7 +59,7 @@ export function InsightVizDisplay({
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
-    const { isFunnelWithEnoughSteps, areExclusionFiltersValid } = useValues(insightVizDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightProps))
     const {
         isTrends,
         isFunnels,
@@ -90,13 +90,14 @@ export function InsightVizDisplay({
             )
         }
 
+        if (validationError) {
+            return <InsightValidationError detail={validationError} />
+        }
+
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
             if (!isFunnelWithEnoughSteps) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
-            }
-            if (!areExclusionFiltersValid) {
-                return <FunnelInvalidExclusionState />
             }
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
@@ -176,12 +177,16 @@ export function InsightVizDisplay({
                     {exportContext && (
                         <div className="flex items-center justify-between my-4 mx-0">
                             <h2 className="font-semibold text-lg m-0">Detailed results</h2>
-                            <Tooltip title="Export this table in CSV format" placement="left">
+                            <Tooltip title="Export this table" placement="left">
                                 <ExportButton
                                     type="secondary"
                                     items={[
                                         {
                                             export_format: ExporterFormat.CSV,
+                                            export_context: exportContext,
+                                        },
+                                        {
+                                            export_format: ExporterFormat.XLSX,
                                             export_context: exportContext,
                                         },
                                     ]}

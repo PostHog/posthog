@@ -3,11 +3,12 @@ import './EditSurvey.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
-import { IconDelete, IconPlusMini, SortableDragIcon } from 'lib/lemon-ui/icons'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { Survey, SurveyQuestionType } from '~/types'
 
@@ -65,7 +66,7 @@ export function SurveyEditQuestionHeader({
             </div>
             {survey.questions.length > 1 && (
                 <LemonButton
-                    icon={<IconDelete />}
+                    icon={<IconTrash />}
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
                         e.stopPropagation()
@@ -75,7 +76,7 @@ export function SurveyEditQuestionHeader({
                             survey.questions.filter((_, i) => i !== index)
                         )
                     }}
-                    tooltipPlacement="topRight"
+                    tooltipPlacement="top-end"
                 />
             )}
         </div>
@@ -88,7 +89,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     return (
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
-                <Field name="type" label="Question type" className="max-w-60">
+                <LemonField name="type" label="Question type" className="max-w-60">
                     <LemonSelect
                         data-attr={`survey-question-type-${index}`}
                         onSelect={(newType) => {
@@ -216,11 +217,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             ],
                         ]}
                     />
-                </Field>
-                <Field name="question" label="Label">
+                </LemonField>
+                <LemonField name="question" label="Label">
                     <LemonInput value={question.question} />
-                </Field>
-                <Field name="description" label="Description (optional)">
+                </LemonField>
+                <LemonField name="description" label="Description (optional)">
                     {({ value, onChange }) => (
                         <HTMLEditor
                             value={value}
@@ -229,21 +230,21 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             setWritingHTMLDescription={setWritingHTMLDescription}
                         />
                     )}
-                </Field>
+                </LemonField>
                 {survey.questions.length > 1 && (
-                    <Field name="optional" className="my-2">
+                    <LemonField name="optional" className="my-2">
                         <LemonCheckbox label="Optional" checked={!!question.optional} />
-                    </Field>
+                    </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Link && (
-                    <Field name="link" label="Link" info="Make sure to include https:// in the url.">
+                    <LemonField name="link" label="Link" info="Make sure to include https:// in the url.">
                         <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
-                    </Field>
+                    </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Rating && (
                     <div className="flex flex-col gap-2">
                         <div className="flex flex-row gap-4">
-                            <Field name="display" label="Display type" className="w-1/2">
+                            <LemonField name="display" label="Display type" className="w-1/2">
                                 <LemonSelect
                                     options={[
                                         { label: 'Number', value: 'number' },
@@ -256,8 +257,8 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         setSurveyValue('questions', newQuestions)
                                     }}
                                 />
-                            </Field>
-                            <Field name="scale" label="Scale" className="w-1/2">
+                            </LemonField>
+                            <LemonField name="scale" label="Scale" className="w-1/2">
                                 <LemonSelect
                                     options={[
                                         ...(question.display === 'emoji' ? [{ label: '1 - 3', value: 3 }] : []),
@@ -268,24 +269,24 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         ...(question.display === 'number' ? [{ label: '0 - 10', value: 10 }] : []),
                                     ]}
                                 />
-                            </Field>
+                            </LemonField>
                         </div>
                         <div className="flex flex-row gap-4">
-                            <Field name="lowerBoundLabel" label="Lower bound label" className="w-1/2">
+                            <LemonField name="lowerBoundLabel" label="Lower bound label" className="w-1/2">
                                 <LemonInput value={question.lowerBoundLabel || ''} />
-                            </Field>
-                            <Field name="upperBoundLabel" label="Upper bound label" className="w-1/2">
+                            </LemonField>
+                            <LemonField name="upperBoundLabel" label="Upper bound label" className="w-1/2">
                                 <LemonInput value={question.upperBoundLabel || ''} />
-                            </Field>
+                            </LemonField>
                         </div>
                     </div>
                 )}
                 {(question.type === SurveyQuestionType.SingleChoice ||
                     question.type === SurveyQuestionType.MultipleChoice) && (
                     <div className="flex flex-col gap-2">
-                        <Field name="hasOpenChoice">
+                        <LemonField name="hasOpenChoice">
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
-                                <Field name="choices" label="Choices">
+                                <LemonField name="choices" label="Choices">
                                     {({ value, onChange }) => (
                                         <div className="flex flex-col gap-2">
                                             {(value || []).map((choice: string, index: number) => {
@@ -307,7 +308,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                             </span>
                                                         )}
                                                         <LemonButton
-                                                            icon={<IconDelete />}
+                                                            icon={<IconTrash />}
                                                             size="small"
                                                             noPadding
                                                             onClick={() => {
@@ -326,7 +327,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                 {(value || []).length < 6 && (
                                                     <>
                                                         <LemonButton
-                                                            icon={<IconPlusMini />}
+                                                            icon={<IconPlusSmall />}
                                                             type="secondary"
                                                             fullWidth={false}
                                                             onClick={() => {
@@ -346,7 +347,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                         </LemonButton>
                                                         {!hasOpenChoice && (
                                                             <LemonButton
-                                                                icon={<IconPlusMini />}
+                                                                icon={<IconPlusSmall />}
                                                                 type="secondary"
                                                                 fullWidth={false}
                                                                 onClick={() => {
@@ -366,18 +367,18 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             </div>
                                         </div>
                                     )}
-                                </Field>
+                                </LemonField>
                             )}
-                        </Field>
+                        </LemonField>
                     </div>
                 )}
-                <Field name="buttonText" label="Button text">
+                <LemonField name="buttonText" label="Button text">
                     <LemonInput
                         value={
                             question.buttonText === undefined ? survey.appearance.submitButtonText : question.buttonText
                         }
                     />
-                </Field>
+                </LemonField>
             </div>
         </Group>
     )

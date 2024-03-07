@@ -37,13 +37,15 @@ def test_csv_rendering(mock_settings, mock_request, filename):
         export_format=ExportedAsset.ExportFormat.CSV,
         export_context={"path": "/api/literally/anything"},
     )
+    if fixture["response"].get("columns"):
+        asset.export_context["columns"] = fixture["response"]["columns"]
     asset.save()
 
     mock = Mock()
     mock.status_code = 200
     mock.json.return_value = fixture["response"]
     mock_request.return_value = mock
-    csv_exporter.export_csv(asset)
+    csv_exporter.export_tabular(asset)
     csv_rows = asset.content.decode("utf-8").split("\r\n")
 
     assert csv_rows == fixture["csv_rows"]

@@ -3,6 +3,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -10,6 +11,7 @@ import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
+import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
@@ -109,7 +111,7 @@ export function renderColumn(
         if (value === '$autocapture' && eventRecord) {
             return autoCaptureEventToDescription(eventRecord)
         } else {
-            const content = <PropertyKeyInfo value={value} type="event" />
+            const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
             const $sentry_url = eventRecord?.properties?.$sentry_url
             return $sentry_url ? (
                 <Link to={$sentry_url} target="_blank">
@@ -239,6 +241,8 @@ export function renderColumn(
         }
 
         return <PersonDisplay {...displayProps} />
+    } else if (key === 'group' && typeof value === 'object') {
+        return <GroupActorDisplay actor={value} />
     } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         const personRecord = record as PersonType
         return <DeletePersonButton person={personRecord} />
@@ -262,6 +266,21 @@ export function renderColumn(
     } else {
         if (typeof value === 'object') {
             return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+        } else if (
+            typeof value === 'string' &&
+            ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']')))
+        ) {
+            try {
+                return (
+                    <JSONViewer
+                        src={JSON.parse(value)}
+                        name={null}
+                        collapsed={Object.keys(value).length > 10 ? 0 : 1}
+                    />
+                )
+            } catch (e) {
+                // do nothing
+            }
         }
         return String(value)
     }

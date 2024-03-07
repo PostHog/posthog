@@ -13,3 +13,13 @@ Cypress.Commands.add('login', () => {
 Cypress.Commands.add('clickNavMenu', (name) => {
     cy.get(`[data-attr="menu-item-${name}"]`).click()
 })
+
+Cypress.Commands.add('useSubscriptionStatus', (condition) => {
+    if (condition === 'unsubscribed') {
+        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-unsubscribed.json' })
+        cy.reload()
+    } else if (condition === 'subscribed') {
+        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-subscribed-all.json' })
+        cy.reload()
+    }
+})

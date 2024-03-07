@@ -1,4 +1,5 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { allOperatorsMapping, isOperatorFlag } from 'lib/utils'
 
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -8,6 +9,7 @@ import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     CohortType,
+    DataWarehousePropertyFilter,
     ElementPropertyFilter,
     EmptyPropertyFilter,
     EventDefinition,
@@ -16,7 +18,6 @@ import {
     FilterLogicalOperator,
     GroupPropertyFilter,
     HogQLPropertyFilter,
-    KeyMappingInterface,
     PersonPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -86,19 +87,37 @@ export function convertPropertyGroupToProperties(
     return properties
 }
 
+export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Omit<
+    Record<PropertyFilterType, TaxonomicFilterGroupType>,
+    PropertyFilterType.Recording // Recording filters are not part of the taxonomic filter, only Replay-specific UI
+> = {
+    [PropertyFilterType.Meta]: TaxonomicFilterGroupType.Metadata,
+    [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
+    [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
+    [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
+    [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
+    [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
+    [PropertyFilterType.Session]: TaxonomicFilterGroupType.Sessions,
+    [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
+    [PropertyFilterType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
+    [PropertyFilterType.DataWarehouse]: TaxonomicFilterGroupType.DataWarehouse,
+}
+
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohortsById: Partial<Record<CohortType['id'], CohortType>>,
-    keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
     if (isHogQLPropertyFilter(item as AnyFilterLike)) {
         return extractExpressionComment(item.key)
     }
     const { value, key, operator, type } = item
+
+    const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+
     return type === 'cohort'
         ? cohortsById[value]?.name || `ID ${value}`
-        : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
+        : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
                   : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
@@ -180,6 +199,9 @@ export function isRecordingDurationFilter(filter?: AnyFilterLike | null): filter
 export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.Group
 }
+export function isDataWarehousePropertyFilter(filter?: AnyFilterLike | null): filter is DataWarehousePropertyFilter {
+    return filter?.type === PropertyFilterType.DataWarehouse
+}
 export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
     return filter?.type === PropertyFilterType.Feature
 }
@@ -209,7 +231,8 @@ export function isPropertyFilterWithOperator(
     | SessionPropertyFilter
     | RecordingDurationFilter
     | FeaturePropertyFilter
-    | GroupPropertyFilter {
+    | GroupPropertyFilter
+    | DataWarehousePropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
@@ -218,7 +241,8 @@ export function isPropertyFilterWithOperator(
             isSessionPropertyFilter(filter) ||
             isRecordingDurationFilter(filter) ||
             isFeaturePropertyFilter(filter) ||
-            isGroupPropertyFilter(filter))
+            isGroupPropertyFilter(filter) ||
+            isDataWarehousePropertyFilter(filter))
     )
 }
 
@@ -302,6 +326,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
         return PropertyFilterType.Event
+    }
+
+    if (filterType == TaxonomicFilterGroupType.DataWarehouseProperties) {
+        return PropertyFilterType.DataWarehouse
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as

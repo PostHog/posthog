@@ -3,13 +3,14 @@
 # We do this to ensure our reference images for visual regression tests are the same during development and in CI.
 #
 
-FROM mcr.microsoft.com/playwright:v1.32.2
+FROM mcr.microsoft.com/playwright:v1.41.2
 
 WORKDIR /work
 
 RUN npm install -g pnpm
 
 COPY package.json pnpm-lock.yaml ./
+COPY patches/ patches/
 
 ENV CYPRESS_INSTALL_BINARY=0
 

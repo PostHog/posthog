@@ -1,6 +1,6 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'

@@ -1,11 +1,11 @@
 import './PropertyGroupFilters.scss'
 
+import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -23,6 +23,7 @@ type PropertyGroupFiltersProps = {
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    isDataWarehouseSeries?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -32,6 +33,7 @@ export function PropertyGroupFilters({
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
+    isDataWarehouseSeries,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
@@ -45,12 +47,16 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-
+    const disabledReason = isDataWarehouseSeries ? 'Cannot add filter groups to data warehouse series' : undefined
     return (
         <div className="space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <TestAccountFilter query={query} setQuery={setQuery as (node: InsightQueryNode) => void} />
+                    <TestAccountFilter
+                        disabledReason={disabledReason}
+                        query={query}
+                        setQuery={setQuery as (node: InsightQueryNode) => void}
+                    />
                     {showHeader ? (
                         <>
                             <div className="flex items-center justify-between">
@@ -88,7 +94,7 @@ export function PropertyGroupFilters({
                                                             size="small"
                                                         />
                                                         <LemonButton
-                                                            icon={<IconDelete />}
+                                                            icon={<IconTrash />}
                                                             onClick={() => removeFilterGroup(propertyGroupIndex)}
                                                             size="small"
                                                         />
@@ -130,8 +136,9 @@ export function PropertyGroupFilters({
                 data-attr={`${pageKey}-add-filter-group`}
                 type="secondary"
                 onClick={addFilterGroup}
-                icon={<IconPlusMini color="var(--primary)" />}
+                icon={<IconPlusSmall color="var(--primary)" />}
                 sideIcon={null}
+                disabledReason={disabledReason}
             >
                 Add filter group
             </LemonButton>

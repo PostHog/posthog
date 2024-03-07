@@ -24,7 +24,12 @@ import {
     ProjectVariables,
     WebSnippet,
 } from './project/ProjectSettings'
-import { ReplayAuthorizedDomains, ReplayCostControl, ReplayGeneral } from './project/SessionRecordingSettings'
+import {
+    ReplayAuthorizedDomains,
+    ReplayCostControl,
+    ReplayGeneral,
+    ReplaySummarySettings,
+} from './project/SessionRecordingSettings'
 import { SettingPersonsOnEvents } from './project/SettingPersonsOnEvents'
 import { SlackIntegration } from './project/SlackIntegration'
 import { SurveySettings } from './project/SurveySettings'
@@ -163,9 +168,15 @@ export const SettingsMap: SettingSection[] = [
                 flag: 'SESSION_RECORDING_SAMPLING',
                 features: [
                     AvailableFeature.SESSION_REPLAY_SAMPLING,
-                    AvailableFeature.FEATURE_FLAG_BASED_RECORDING,
-                    AvailableFeature.RECORDING_DURATION_MINIMUM,
+                    AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING,
+                    AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM,
                 ],
+            },
+            {
+                id: 'replay-ai-config',
+                title: 'AI Recording Summary',
+                component: <ReplaySummarySettings />,
+                flag: 'AI_SESSION_PERMISSIONS',
             },
         ],
     },

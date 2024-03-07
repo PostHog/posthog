@@ -1,10 +1,13 @@
 import json
-from typing import List, cast
+import uuid
+from typing import List, cast, Dict, Optional, Any
 from unittest import mock
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, call, patch, ANY
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
+from django.http import HttpResponse
+from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 from temporalio.service import RPCError
@@ -12,7 +15,7 @@ from temporalio.service import RPCError
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.constants import AvailableFeature
-from posthog.models import EarlyAccessFeature
+from posthog.models import EarlyAccessFeature, ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
@@ -24,6 +27,22 @@ from posthog.test.base import APIBaseTest
 
 
 class TestTeamAPI(APIBaseTest):
+    def _assert_activity_log(self, expected: List[Dict], team_id: Optional[int] = None) -> None:
+        if not team_id:
+            team_id = self.team.pk
+
+        starting_log_response = self.client.get(f"/api/projects/{team_id}/activity")
+        assert starting_log_response.status_code == 200
+        assert starting_log_response.json()["results"] == expected
+
+    def _assert_organization_activity_log(self, expected: List[Dict]) -> None:
+        starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
+        assert starting_log_response.status_code == 200
+        assert starting_log_response.json()["results"] == expected
+
+    def _assert_activity_log_is_empty(self) -> None:
+        self._assert_activity_log([])
+
     def test_list_projects(self):
         response = self.client.get("/api/projects/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -140,16 +159,49 @@ class TestTeamAPI(APIBaseTest):
             response_data,
         )
 
+    @freeze_time("2022-02-08")
     def test_update_project_timezone(self):
-        response = self.client.patch("/api/projects/@current/", {"timezone": "Europe/Istanbul"})
+        self._assert_activity_log_is_empty()
+
+        response = self.client.patch("/api/projects/@current/", {"timezone": "Europe/Lisbon"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
         self.assertEqual(response_data["name"], self.team.name)
-        self.assertEqual(response_data["timezone"], "Europe/Istanbul")
+        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
 
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Istanbul")
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "updated",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "after": "Europe/Lisbon",
+                                "before": "UTC",
+                                "field": "timezone",
+                                "type": "Team",
+                            },
+                        ],
+                        "name": "Default Project",
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(self.team.pk),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ]
+        )
 
     def test_update_test_filter_default_checked(self):
         response = self.client.patch("/api/projects/@current/", {"test_account_filters_default_checked": "true"})
@@ -201,6 +253,50 @@ class TestTeamAPI(APIBaseTest):
             response_data["test_account_filters"],
             [{"key": "$current_url", "value": "test"}],
         )
+
+    @freeze_time("2022-02-08")
+    @patch("posthog.api.team.delete_bulky_postgres_data")
+    @patch("posthoganalytics.capture")
+    def test_delete_team_activity_log(self, mock_capture: MagicMock, mock_delete_bulky_postgres_data: MagicMock):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        team: Team = Team.objects.create_with_data(organization=self.organization)
+
+        response = self.client.delete(f"/api/projects/{team.id}")
+        assert response.status_code == 204
+
+        # activity log is queried in the context of the team
+        # and the team was deleted, so we can't (for now) view a deleted team activity via the API
+        # even though the activity log is recorded
+
+        deleted_team_activity_response = self.client.get(f"/api/projects/{team.id}/activity")
+        assert deleted_team_activity_response.status_code == status.HTTP_404_NOT_FOUND
+
+        # we can't query by API but can prove the log was recorded
+        activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).all()]
+        assert activity == [
+            {
+                "_state": ANY,
+                "activity": "deleted",
+                "created_at": ANY,
+                "detail": {
+                    "changes": None,
+                    "name": "Default Project",
+                    "short_id": None,
+                    "trigger": None,
+                    "type": None,
+                },
+                "id": ANY,
+                "is_system": False,
+                "organization_id": ANY,
+                "team_id": team.pk,
+                "item_id": str(team.pk),
+                "scope": "Team",
+                "user_id": self.user.pk,
+                "was_impersonated": False,
+            },
+        ]
 
     @patch("posthog.api.team.delete_bulky_postgres_data")
     @patch("posthoganalytics.capture")
@@ -328,9 +424,12 @@ class TestTeamAPI(APIBaseTest):
             with self.assertRaises(RPCError):
                 describe_schedule(temporal, batch_export_id)
 
+    @freeze_time("2022-02-08")
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+        self._assert_activity_log_is_empty()
 
         self.team.api_token = "xyz"
         self.team.save()
@@ -343,6 +442,36 @@ class TestTeamAPI(APIBaseTest):
         self.assertNotEqual(response_data["api_token"], "xyz")
         self.assertEqual(response_data["api_token"], self.team.api_token)
         self.assertTrue(response_data["api_token"].startswith("phc_"))
+
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "updated",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "after": None,
+                                "before": None,
+                                "field": "api_token",
+                                "type": "Team",
+                            },
+                        ],
+                        "name": "Default Project",
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(self.team.pk),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ]
+        )
 
     def test_reset_token_insufficient_priviledges(self):
         self.team.api_token = "xyz"
@@ -415,6 +544,76 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
         mock_create_data_for_demo_team.assert_called_once()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @freeze_time("2022-02-08")
+    def test_team_float_config_can_be_serialized_to_activity_log(self):
+        # regression test since this isn't true by default
+        response = self.client.patch(f"/api/projects/@current/", {"session_recording_sample_rate": 0.4})
+        assert response.status_code == status.HTTP_200_OK
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "updated",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "created",
+                                "after": "0.4",
+                                "before": None,
+                                "field": "session_recording_sample_rate",
+                                "type": "Team",
+                            },
+                        ],
+                        "name": "Default Project",
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(self.team.pk),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ]
+        )
+
+    @freeze_time("2022-02-08")
+    def test_team_creation_is_in_activity_log(self):
+        Team.objects.all().delete()
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        team_name = str(uuid.uuid4())
+        response = self.client.post("/api/projects/", {"name": team_name, "is_demo": False})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        team_id = response.json()["id"]
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "created",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": None,
+                        "name": team_name,
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(team_id),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ],
+            team_id=team_id,
+        )
 
     def test_team_is_cached_on_create_and_update(self):
         Team.objects.all().delete()
@@ -606,32 +805,58 @@ class TestTeamAPI(APIBaseTest):
                 "invalid_input",
                 "Must provide a dictionary or None.",
             ],
-            ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
+            ["numeric string", "-1", "invalid_input", "Must provide a dictionary or None."],
+            ["numeric", 1, "invalid_input", "Must provide a dictionary or None."],
+            ["numeric positive string", "1", "invalid_input", "Must provide a dictionary or None."],
             [
                 "unexpected json - no id",
                 {"key": "something"},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
             [
                 "unexpected json - no key",
                 {"id": 1},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - only variant",
+                {"variant": "1"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - variant must be string",
+                {"variant": 1},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing id",
+                {"key": "one", "variant": "1"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing key",
+                {"id": "one", "variant": "1"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
             [
                 "unexpected json - neither",
                 {"wat": "wat"},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
         ]
     )
     def test_invalid_session_recording_linked_flag(
-        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+        self, _name: str, provided_value: Any, expected_code: str, expected_error: str
     ) -> None:
-        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": provided_value})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
+
         assert response.json() == {
             "attr": "session_recording_linked_flag",
             "code": expected_code,
@@ -640,21 +865,18 @@ class TestTeamAPI(APIBaseTest):
         }
 
     def test_can_set_and_unset_session_recording_linked_flag(self) -> None:
-        first_patch_response = self.client.patch(
-            "/api/projects/@current/",
-            {"session_recording_linked_flag": {"id": 1, "key": "provided_value"}},
-        )
-        assert first_patch_response.status_code == status.HTTP_200_OK
-        get_response = self.client.get("/api/projects/@current/")
-        assert get_response.json()["session_recording_linked_flag"] == {
-            "id": 1,
-            "key": "provided_value",
-        }
+        self._patch_linked_flag_config({"id": 1, "key": "provided_value"})
+        self._assert_linked_flag_config({"id": 1, "key": "provided_value"})
 
-        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": None})
-        assert response.status_code == status.HTTP_200_OK
-        second_get_response = self.client.get("/api/projects/@current/")
-        assert second_get_response.json()["session_recording_linked_flag"] is None
+        self._patch_linked_flag_config(None)
+        self._assert_linked_flag_config(None)
+
+    def test_can_set_and_unset_session_recording_linked_flag_variant(self) -> None:
+        self._patch_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
+        self._assert_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
+
+        self._patch_linked_flag_config(None)
+        self._assert_linked_flag_config(None)
 
     @parameterized.expand(
         [
@@ -716,19 +938,134 @@ class TestTeamAPI(APIBaseTest):
 
     def test_can_set_and_unset_session_replay_config(self) -> None:
         # can set
-        first_patch_response = self.client.patch(
-            "/api/projects/@current/",
-            {"session_replay_config": {"record_canvas": True}},
-        )
-        assert first_patch_response.status_code == status.HTTP_200_OK
-        get_response = self.client.get("/api/projects/@current/")
-        assert get_response.json()["session_replay_config"] == {"record_canvas": True}
+        self._patch_session_replay_config({"record_canvas": True})
+        self._assert_replay_config_is({"record_canvas": True})
 
         # can unset
-        response = self.client.patch("/api/projects/@current/", {"session_replay_config": None})
+        self._patch_session_replay_config(None)
+        self._assert_replay_config_is(None)
+
+    @parameterized.expand(
+        [
+            [
+                "string",
+                "Marple bridge",
+                "invalid_input",
+                "Must provide a dictionary or None.",
+            ],
+            ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no record",
+                {"key": "something"},
+                "invalid_input",
+                "Must provide a dictionary with only allowed keys: included_event_properties, opt_in, preferred_events, excluded_events, important_user_properties.",
+            ],
+        ]
+    )
+    def test_invalid_session_replay_config_ai_config(
+        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+    ) -> None:
+        response = self._patch_session_replay_config(
+            {"ai_config": provided_value}, expected_status=status.HTTP_400_BAD_REQUEST
+        )
+        assert response.json() == {
+            "attr": "session_replay_config",
+            "code": expected_code,
+            "detail": expected_error,
+            "type": "validation_error",
+        }
+
+    def test_can_set_and_unset_session_replay_config_ai_config(self) -> None:
+        # can set just the opt-in
+        self._patch_session_replay_config({"ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": True}})
+
+        # can set some preferences
+        self._patch_session_replay_config({"ai_config": {"opt_in": False, "included_event_properties": ["something"]}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": False, "included_event_properties": ["something"]}})
+
+        self._patch_session_replay_config({"ai_config": None})
+        self._assert_replay_config_is({"ai_config": None})
+
+    def test_can_set_replay_configs_without_providing_them_all(self) -> None:
+        # can set just the opt-in
+        self._patch_session_replay_config({"ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": True}})
+
+        self._patch_session_replay_config({"record_canvas": True})
+        self._assert_replay_config_is({"record_canvas": True, "ai_config": {"opt_in": True}})
+
+    def test_can_set_replay_configs_without_providing_them_all_even_when_either_side_is_none(self) -> None:
+        # because we do some dictionary copying we need a regression test to ensure we can always set and unset keys
+        self._patch_session_replay_config({"record_canvas": True, "ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"record_canvas": True, "ai_config": {"opt_in": True}})
+
+        self._patch_session_replay_config({"record_canvas": None})
+        self._assert_replay_config_is({"record_canvas": None, "ai_config": {"opt_in": True}})
+
+        # top-level from having a value to None
+        self._patch_session_replay_config(None)
+        self._assert_replay_config_is(None)
+
+        # top-level from None to having a value
+        self._patch_session_replay_config({"ai_config": None})
+        self._assert_replay_config_is({"ai_config": None})
+
+        # next-level from None to having a value
+        self._patch_session_replay_config({"ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": True}})
+
+        # next-level from having a value to None
+        self._patch_session_replay_config({"ai_config": None})
+        self._assert_replay_config_is({"ai_config": None})
+
+    def test_can_set_replay_configs_patch_session_replay_config_one_level_deep(self) -> None:
+        # can set just the opt-in
+        self._patch_session_replay_config({"ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": True}})
+
+        self._patch_session_replay_config({"ai_config": {"included_event_properties": ["something"]}})
+        # even though opt_in was not provided in the patch it should be preserved
+        self._assert_replay_config_is({"ai_config": {"opt_in": True, "included_event_properties": ["something"]}})
+
+        self._patch_session_replay_config({"ai_config": {"opt_in": None, "included_event_properties": ["something"]}})
+        # even though opt_in was not provided in the patch it should be preserved
+        self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["something"]}})
+
+        # but we don't go into the next nested level and patch that data
+        # sending a new value without the original
+        self._patch_session_replay_config({"ai_config": {"included_event_properties": ["and another"]}})
+        # and the existing second level nesting is not preserved
+        self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
+
+    def _assert_replay_config_is(self, expected: Dict[str, Any] | None) -> HttpResponse:
+        get_response = self.client.get("/api/projects/@current/")
+        assert get_response.status_code == status.HTTP_200_OK, get_response.json()
+        assert get_response.json()["session_replay_config"] == expected
+
+        return get_response
+
+    def _patch_session_replay_config(
+        self, config: Dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
+    ) -> HttpResponse:
+        patch_response = self.client.patch(
+            "/api/projects/@current/",
+            {"session_replay_config": config},
+        )
+        assert patch_response.status_code == expected_status, patch_response.json()
+
+        return patch_response
+
+    def _assert_linked_flag_config(self, expected_config: Dict | None) -> HttpResponse:
+        response = self.client.get("/api/projects/@current/")
         assert response.status_code == status.HTTP_200_OK
-        second_get_response = self.client.get("/api/projects/@current/")
-        assert second_get_response.json()["session_replay_config"] is None
+        assert response.json()["session_recording_linked_flag"] == expected_config
+        return response
+
+    def _patch_linked_flag_config(self, config: Dict | None, expected_status: int = status.HTTP_200_OK) -> HttpResponse:
+        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": config})
+        assert response.status_code == expected_status, response.json()
+        return response
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:
@@ -752,4 +1089,4 @@ async def acreate_team(organization: Organization, name: str = "Test team") -> T
     could use either the api, or django admin to create, to get better parity
     with real world  scenarios.
     """
-    return await sync_to_async(create_team)(organization, name=name)  # type: ignore
+    return await sync_to_async(create_team)(organization, name=name)

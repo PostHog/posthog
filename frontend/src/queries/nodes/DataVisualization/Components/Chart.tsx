@@ -1,5 +1,6 @@
 import './Chart.scss'
 
+import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
@@ -16,7 +17,11 @@ export const Chart = (): JSX.Element => {
                     <SideBar />
                 </div>
             )}
-            <div className="w-full flex flex-1 overflow-auto">
+            <div
+                className={clsx('w-full h-full flex-1 overflow-auto', {
+                    'pt-[46px]': showEditingUI,
+                })}
+            >
                 <LineGraph />
             </div>
         </div>

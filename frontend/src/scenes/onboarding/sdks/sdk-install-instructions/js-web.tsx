@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { JSSnippet } from 'lib/components/JSSnippet'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function JSInstallSnippet(): JSX.Element {
@@ -20,7 +19,7 @@ export function JSSetupSnippet(): JSX.Element {
             {[
                 "import posthog from 'posthog-js'",
                 '',
-                `posthog.init('${currentTeam?.api_token}', { api_host: '${window.location.origin}' })`,
+                `posthog.init('${currentTeam?.api_token}', { api_host: '${apiHostOrigin()}' })`,
             ].join('\n')}
         </CodeSnippet>
     )
@@ -29,17 +28,9 @@ export function JSSetupSnippet(): JSX.Element {
 export function SDKInstallJSWebInstructions(): JSX.Element {
     return (
         <>
-            <h3>Option 1. Code snippet</h3>
-            <p>
-                Just add this snippet to your website within the <code>&lt;head&gt;</code> tag and you'll be ready to
-                start using PostHog.{' '}
-            </p>
-            <JSSnippet />
-            <LemonDivider thick dashed className="my-4" />
-            <h3>Option 2. Javascript Library</h3>
-            <h4>Install the package</h4>
+            <h3>Install</h3>
             <JSInstallSnippet />
-            <h4>Initialize</h4>
+            <h3>Initialize</h3>
             <JSSetupSnippet />
         </>
     )

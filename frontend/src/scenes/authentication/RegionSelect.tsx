@@ -1,9 +1,9 @@
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
-import { PureField } from 'lib/forms/Field'
-import { IconCheckmark } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -51,7 +51,7 @@ function WhyCloudModal({ setOpen, open }: { setOpen: (open: boolean) => void; op
                                                 key={feature}
                                                 className="flex items-center space-x-2 text-gray-accent-light align-center"
                                             >
-                                                <IconCheckmark className="w-[20px] flex-shrink-0" />
+                                                <IconCheckCircle className="w-[20px] flex-shrink-0" />
                                                 <span className="text-black font-medium">{feature}</span>
                                             </li>
                                         )
@@ -75,7 +75,7 @@ const RegionSelect = (): JSX.Element | null => {
     }
     return (
         <>
-            <PureField label="Data region" onExplanationClick={() => setRegionModalOpen(true)}>
+            <LemonField.Pure label="Data region" onExplanationClick={() => setRegionModalOpen(true)}>
                 <LemonSelect
                     onChange={(region) => {
                         if (!region) {
@@ -98,7 +98,7 @@ const RegionSelect = (): JSX.Element | null => {
                     ]}
                     fullWidth
                 />
-            </PureField>
+            </LemonField.Pure>
 
             <WhyCloudModal open={regionModalOpen} setOpen={setRegionModalOpen} />
         </>

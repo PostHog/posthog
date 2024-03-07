@@ -154,4 +154,4 @@ async def acreate_organization(name: str) -> Organization:
     could use either the api, or django admin to create, to get better parity
     with real world scenarios.
     """
-    return await sync_to_async(create_organization)(name)  # type: ignore
+    return await sync_to_async(create_organization)(name)

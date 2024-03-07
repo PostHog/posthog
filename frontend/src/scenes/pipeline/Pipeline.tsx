@@ -9,10 +9,12 @@ import { PipelineTab } from '~/types'
 
 import { AppsManagement } from './AppsManagement'
 import { Destinations } from './Destinations'
+import { FrontendApps } from './FrontendApps'
+import { ImportApps } from './ImportApps'
 import { NewButton } from './NewButton'
 import { Overview } from './Overview'
-import { PIPELINE_TAB_TO_APP_KIND } from './PipelineApp'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
+import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
@@ -20,25 +22,27 @@ export function Pipeline(): JSX.Element {
 
     const tabToContent: Record<PipelineTab, JSX.Element> = {
         [PipelineTab.Overview]: <Overview />,
-        [PipelineTab.Filters]: <div>Coming soon</div>,
         [PipelineTab.Transformations]: <Transformations />,
         [PipelineTab.Destinations]: <Destinations />,
+        [PipelineTab.SiteApps]: <FrontendApps />,
+        [PipelineTab.ImportApps]: <ImportApps />,
         [PipelineTab.AppsManagement]: <AppsManagement />,
     }
 
-    const maybeKind = PIPELINE_TAB_TO_APP_KIND[currentTab]
+    const maybeKind = PIPELINE_TAB_TO_NODE_STAGE[currentTab]
 
     return (
         <div className="pipeline-scene">
             <PageHeader
                 caption="Add filters or transformations to the events sent to PostHog or export them to other tools."
-                buttons={maybeKind ? <NewButton kind={maybeKind} /> : undefined}
+                buttons={maybeKind ? <NewButton stage={maybeKind} /> : undefined}
             />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTab))}
                 tabs={Object.values(PipelineTab).map((tab) => ({
                     // TODO: Hide admin management based on `canGloballyManagePlugins` permission
+                    // TODO: Hide import apps if there aren't any configs
                     label: humanFriendlyTabName(tab),
                     key: tab,
                     content: tabToContent[tab],

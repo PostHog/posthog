@@ -107,7 +107,8 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
             const breakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
-            const isHistogramable = !!values.getPropertyDefinition(breakdown, propertyDefinitionType)?.is_numerical
+            const isHistogramable =
+                !!values.getPropertyDefinition(breakdown, propertyDefinitionType)?.is_numerical && props.isTrends
 
             if (!props.updateBreakdownFilter || !breakdownType) {
                 return

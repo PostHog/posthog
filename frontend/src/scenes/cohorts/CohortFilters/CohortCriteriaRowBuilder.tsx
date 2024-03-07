@@ -1,10 +1,10 @@
 import './CohortCriteriaRowBuilder.scss'
 
+import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'
-import { IconCopy, IconDelete } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
@@ -112,7 +112,7 @@ export function CohortCriteriaRowBuilder({
                         <div className="CohortCriteriaRow__inline-divider" />
                         <LemonButton icon={<IconCopy />} onClick={() => duplicateFilter(groupIndex, index)} />
                         {!hideDeleteIcon && (
-                            <LemonButton icon={<IconDelete />} onClick={() => removeFilter(groupIndex, index)} />
+                            <LemonButton icon={<IconTrash />} onClick={() => removeFilter(groupIndex, index)} />
                         )}
                     </div>
                     <div className="flex">

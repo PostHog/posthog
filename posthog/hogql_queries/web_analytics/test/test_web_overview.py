@@ -35,10 +35,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
-    def _run_web_overview_query(self, date_from, date_to):
+    def _run_web_overview_query(self, date_from, date_to, compare=True):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=[],
+            compare=compare,
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         return runner.calculate()
@@ -95,24 +96,24 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_web_overview_query("all", "2023-12-15").results
+        results = self._run_web_overview_query("all", "2023-12-15", compare=False).results
 
         visitors = results[0]
         self.assertEqual("visitors", visitors.key)
         self.assertEqual(2, visitors.value)
-        self.assertEqual(0, visitors.previous)
+        self.assertEqual(None, visitors.previous)
         self.assertEqual(None, visitors.changeFromPreviousPct)
 
         views = results[1]
         self.assertEqual("views", views.key)
         self.assertEqual(4, views.value)
-        self.assertEqual(0, views.previous)
+        self.assertEqual(None, views.previous)
         self.assertEqual(None, views.changeFromPreviousPct)
 
         sessions = results[2]
         self.assertEqual("sessions", sessions.key)
         self.assertEqual(3, sessions.value)
-        self.assertEqual(0, sessions.previous)
+        self.assertEqual(None, sessions.previous)
         self.assertEqual(None, sessions.changeFromPreviousPct)
 
         duration_s = results[3]

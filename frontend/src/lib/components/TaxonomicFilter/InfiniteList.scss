@@ -66,12 +66,8 @@
         }
 
         &.hover {
-            background-color: var(--primary-bg-hover);
+            background-color: var(--bg-3000);
             border-radius: var(--radius);
-
-            .posthog-3000 & {
-                background-color: var(--bg-3000);
-            }
         }
 
         &.selected {

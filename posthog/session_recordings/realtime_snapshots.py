@@ -26,9 +26,6 @@ REALTIME_SUBSCRIPTIONS_LOADED_COUNTER = Counter(
 
 SUBSCRIPTION_CHANNEL = "@posthog/replay/realtime-subscriptions"
 
-ATTEMPT_MAX = 6
-ATTEMPT_TIMEOUT_SECONDS = 0.1
-
 
 def get_key(team_id: str, suffix: str) -> str:
     return f"@posthog/replay/snapshots/team-{team_id}/{suffix}"
@@ -67,7 +64,7 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
         # and the consumer doesn't know it should be sending data to redis
         publish_subscription(team_id, session_id)
 
-        if not encoded_snapshots and attempt_count < ATTEMPT_MAX:
+        if not encoded_snapshots and attempt_count < settings.REALTIME_SNAPSHOTS_FROM_REDIS_ATTEMPT_MAX:
             logger.info(
                 "No realtime snapshots found, publishing subscription and retrying",
                 team_id=team_id,
@@ -77,9 +74,11 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
 
             PUBLISHED_REALTIME_SUBSCRIPTIONS_COUNTER.labels(attempt_count=attempt_count).inc()
 
-            # this means we'll sleep 0.1, 0.1, 0,1, 0.2, 0.2, 0.2
-            # for a total of 0.9 seconds
-            sleep(ATTEMPT_TIMEOUT_SECONDS if attempt_count < 4 else ATTEMPT_TIMEOUT_SECONDS * 2)
+            sleep(
+                settings.REALTIME_SNAPSHOTS_FROM_REDIS_ATTEMPT_TIMEOUT_SECONDS
+                if attempt_count < 4
+                else settings.REALTIME_SNAPSHOTS_FROM_REDIS_ATTEMPT_TIMEOUT_SECONDS * 2
+            )
             return get_realtime_snapshots(team_id, session_id, attempt_count + 1)
 
         if encoded_snapshots:

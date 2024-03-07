@@ -18,10 +18,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
 from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, mixins, permissions, serializers, viewsets
+from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from two_factor.forms import TOTPDeviceForm
@@ -35,7 +35,7 @@ from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import raise_if_user_provided_url_unsafe
-from posthog.auth import authenticate_secondarily
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, authenticate_secondarily
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_logged_in,
@@ -45,6 +45,7 @@ from posthog.event_usage import (
 from posthog.models import Team, User, UserScenePersonalisation, Dashboard
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
+from posthog.permissions import APIScopePermission
 from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
@@ -296,9 +297,11 @@ class UserViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
+    scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff"]
     queryset = User.objects.filter(is_active=True)

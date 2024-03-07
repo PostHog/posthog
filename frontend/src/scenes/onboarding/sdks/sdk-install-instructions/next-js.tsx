@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Link } from 'lib/lemon-ui/Link'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { JSInstallSnippet } from './js-web'
@@ -10,10 +11,9 @@ function NextEnvVarsSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[
-                `NEXT_PUBLIC_POSTHOG_KEY=${currentTeam?.api_token}`,
-                `NEXT_PUBLIC_POSTHOG_HOST=${window.location.origin}`,
-            ].join('\n')}
+            {[`NEXT_PUBLIC_POSTHOG_KEY=${currentTeam?.api_token}`, `NEXT_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`].join(
+                '\n'
+            )}
         </CodeSnippet>
     )
 }

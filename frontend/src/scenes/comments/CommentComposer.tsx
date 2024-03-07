@@ -49,6 +49,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                     onClick={sendComposedContent}
                     disabledReason={!composedComment ? 'No message' : null}
                     sideIcon={<KeyboardShortcut command enter />}
+                    data-attr="discussions-comment"
                 >
                     Add {replyingCommentId ? 'reply' : 'comment'}
                 </LemonButton>

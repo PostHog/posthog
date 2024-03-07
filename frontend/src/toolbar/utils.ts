@@ -2,7 +2,6 @@ import { finder } from '@medv/finder'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
-import wildcardMatch from 'wildcard-match'
 
 import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
 import { ActionStepType, StringMatching } from '~/types'
@@ -43,9 +42,13 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
 
     try {
         return finder(element, {
-            attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
             seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
+            attr: (name) => {
+                // preference to data attributes if they exist
+                // that aren't in the PostHog preferred list - they were returned early above
+                return name.startsWith('data-')
+            },
         })
     } catch (error) {
         console.warn('Error while trying to find a selector for element', element, error)

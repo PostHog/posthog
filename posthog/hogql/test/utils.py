@@ -7,9 +7,7 @@ from pydantic import BaseModel
 
 
 def pretty_print_in_tests(query: str, team_id: int) -> str:
-    return re.sub(
-        r"RANDOM_TEST_ID::[a-f0-9\-]+",
-        "RANDOM_TEST_ID::UUID",
+    query = (
         query.replace("SELECT", "\nSELECT")
         .replace("FROM", "\nFROM")
         .replace("WHERE", "\nWHERE")
@@ -17,8 +15,12 @@ def pretty_print_in_tests(query: str, team_id: int) -> str:
         .replace("HAVING", "\nHAVING")
         .replace("LIMIT", "\nLIMIT")
         .replace("SETTINGS", "\nSETTINGS")
-        .replace(f"team_id, {team_id})", "team_id, 420)"),
+        .replace(f"team_id, {team_id})", "team_id, 420)")
     )
+    query = re.sub(r"in_cohort__[0-9]+", "in_cohort__XX", query)
+    query = re.sub(r"cohort_id, [0-9]+", "cohort_id, XX", query)
+    query = re.sub(r"RANDOM_TEST_ID::[a-f0-9\-]+", "RANDOM_TEST_ID::UUID", query)
+    return query
 
 
 def pretty_print_response_in_tests(response: Any, team_id: int) -> str:

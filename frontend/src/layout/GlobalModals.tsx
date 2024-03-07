@@ -12,7 +12,6 @@ import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { UpgradeModal } from 'scenes/UpgradeModal'
 import { userLogic } from 'scenes/userLogic'
 
-import { FeaturePreviewsModal } from './FeaturePreviews'
 import type { globalModalsLogicType } from './GlobalModalsType'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
@@ -53,7 +52,6 @@ export function GlobalModals(): JSX.Element {
             <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
-            <FeaturePreviewsModal />
             <UpgradeModal />
 
             {user && user.organization?.enforce_2fa && !user.is_2fa_enabled && (

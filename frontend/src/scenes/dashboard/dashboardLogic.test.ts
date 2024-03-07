@@ -526,18 +526,21 @@ describe('dashboardLogic', () => {
                                 }
                                 return acc
                             }, [] as InsightShortId[]),
+                            false,
                             true
                         ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
                             [dashboards['5'].tiles[0].insight!.short_id]: {
-                                loading: true,
-                                timer: expect.anything(),
+                                loading: false,
+                                queued: true,
+                                timer: null,
                             },
                             [dashboards['5'].tiles[1].insight!.short_id]: {
-                                loading: true,
-                                timer: expect.anything(),
+                                loading: false,
+                                queued: true,
+                                timer: null,
                             },
                         },
                         refreshMetrics: {
@@ -579,19 +582,24 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.refreshAllDashboardItems({
                         tiles: [dashboards['5'].tiles[0]],
-                        action: 'refresh_manual',
+                        action: 'refresh',
                     })
                 })
                     .toFinishAllListeners()
                     .toDispatchActions([
                         'refreshAllDashboardItems',
-                        logic.actionCreators.setRefreshStatuses([dashboards['5'].tiles[0].insight!.short_id], true),
+                        logic.actionCreators.setRefreshStatuses(
+                            [dashboards['5'].tiles[0].insight!.short_id],
+                            false,
+                            true
+                        ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
                             [dashboards['5'].tiles[0].insight!.short_id]: {
-                                loading: true,
-                                timer: expect.anything(),
+                                loading: false,
+                                queued: true,
+                                timer: null,
                             },
                         },
                         refreshMetrics: {
@@ -724,7 +732,7 @@ describe('dashboardLogic', () => {
                         total: 2,
                     },
                 })
-                .toDispatchActions(['setRefreshStatus', 'setRefreshStatus'])
+                .toDispatchActions(['setRefreshStatus', 'setRefreshStatus', 'setRefreshStatus', 'setRefreshStatus'])
                 .toMatchValues({
                     refreshMetrics: {
                         completed: 2,

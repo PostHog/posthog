@@ -29,6 +29,13 @@
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
+       AND distinct_id IN
+         (SELECT distinct_id
+          FROM events
+          WHERE team_id = 2
+            AND event = 'event_name'
+            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -69,6 +76,13 @@
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
+       AND distinct_id IN
+         (SELECT distinct_id
+          FROM events
+          WHERE team_id = 2
+            AND event = 'viewed'
+            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -140,6 +154,13 @@
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
+       AND distinct_id IN
+         (SELECT distinct_id
+          FROM events
+          WHERE team_id = 2
+            AND event = '$pageview'
+            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -270,6 +291,13 @@
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
+       AND distinct_id IN
+         (SELECT distinct_id
+          FROM events
+          WHERE team_id = 2
+            AND event = '$pageview'
+            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -308,6 +336,13 @@
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
+       AND distinct_id IN
+         (SELECT distinct_id
+          FROM events
+          WHERE team_id = 2
+            AND event = 'viewed'
+            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN

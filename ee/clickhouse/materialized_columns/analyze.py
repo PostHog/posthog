@@ -1,5 +1,4 @@
 import re
-from collections import defaultdict
 from datetime import timedelta
 from typing import Dict, Generator, List, Optional, Set, Tuple
 
@@ -28,7 +27,7 @@ from posthog.models.property import PropertyName, TableColumn, TableWithProperti
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
 
-Suggestion = Tuple[TableWithProperties, TableColumn, PropertyName, int]
+Suggestion = Tuple[TableWithProperties, TableColumn, PropertyName]
 
 logger = structlog.get_logger(__name__)
 
@@ -125,50 +124,58 @@ class Query:
                 yield "events", "group4_properties", property
 
 
-def _get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
-    "Finds queries that have happened since cutoff that were slow"
+def _analyze(since_hours_ago: int, min_query_time: int) -> List[Suggestion]:
+    "Finds columns that should be materialized"
 
     raw_queries = sync_execute(
-        f"""
-        SELECT
-            query,
-            query_duration_ms
-        FROM system.query_log
-        WHERE
-            query NOT LIKE '%%query_log%%'
-            AND (query LIKE '/* user_id:%%' OR query LIKE '/* request:%%')
-            AND query NOT LIKE '%%INSERT%%'
-            AND type = 'QueryFinish'
-            AND query_start_time > now() - toIntervalHour(%(since)s)
-            AND query_duration_ms > %(min_query_time)s
-        ORDER BY query_duration_ms desc
-        """,
-        {"since": since_hours_ago, "min_query_time": min_query_time},
+        """
+WITH
+    {min_query_time} as slow_query_minimum,
+    (
+        159, -- TIMEOUT EXCEEDED
+        160, -- TOO SLOW (estimated query execution time)
+    ) as exception_codes,
+    20 * 1000 * 1000 * 1000 as min_bytes_read,
+    5000000 as min_read_rows
+SELECT
+    arrayJoin(
+        extractAll(query, 'JSONExtract[a-zA-Z0-9]*?\\((?:[a-zA-Z0-9\\`_-]+\\.)?(.*?), .*?\\)')
+    ) as column,
+    arrayJoin(extractAll(query, 'JSONExtract[a-zA-Z0-9]*?\\(.*?, \\'(.*?)\\'\\)')) as prop_to_materialize
+    --,groupUniqArrayIf(JSONExtractInt(log_comment, 'team_id'), type > 2),
+    --count(),
+    --countIf(type > 2) as failures,
+    --countIf(query_duration_ms > 3000) as slow_query,
+    --formatReadableSize(avg(read_bytes)),
+    --formatReadableSize(max(read_bytes))
+FROM
+    clusterAllReplicas(posthog, system, query_log)
+WHERE
+    query_start_time > now() - toIntervalHour({since})
+    and query LIKE '%JSONExtract%'
+    and query not LIKE '%JSONExtractKeysAndValuesRaw(group_properties)%'
+    and type > 1
+    and is_initial_query
+    and JSONExtractString(log_comment, 'access_method') != 'personal_api_key' -- API requests failing is less painful than queries in the interface
+    and JSONExtractString(log_comment, 'kind') != 'celery'
+    and JSONExtractInt(log_comment, 'team_id') != 0
+    and query not like '%person_distinct_id2%' -- Old style person properties that are joined, no need to optimize those queries
+    and column IN ('properties', 'person_properties', 'group0_properties', 'group1_properties', 'group2_properties', 'group3_properties', 'group4_properties')
+    and read_bytes > min_bytes_read
+    and (exception_code IN exception_codes OR query_duration_ms > slow_query_minimum)
+    and read_rows > min_read_rows
+GROUP BY
+    1, 2
+HAVING
+    countIf(exception_code IN exception_codes) > 0 OR countIf(query_duration_ms > slow_query_minimum) > 9
+ORDER BY
+    countIf(exception_code IN exception_codes) DESC,
+    countIf(query_duration_ms > slow_query_minimum) DESC
+LIMIT 100 -- Make sure we don't add 100s of columns in one run
+        """.format(since=since_hours_ago, min_query_time=min_query_time),
     )
-    return [Query(query, query_duration_ms, min_query_time) for query, query_duration_ms in raw_queries]
 
-
-def _analyze(queries: List[Query]) -> List[Suggestion]:
-    """
-    Analyzes query history to find which properties could get materialized.
-
-    Returns an ordered list of suggestions by cost.
-    """
-
-    team_manager = TeamManager()
-    costs: defaultdict = defaultdict(int)
-
-    for query in queries:
-        if not query.is_valid:
-            continue
-
-        for table, table_column, property in query.properties(team_manager):
-            costs[(table, table_column, property)] += query.cost
-
-    return [
-        (table, table_column, property_name, cost)
-        for (table, table_column, property_name), cost in sorted(costs.items(), key=lambda kv: -kv[1])
-    ]
+    return [("events", table_column, property_name) for (table_column, property_name) in raw_queries]
 
 
 def materialize_properties_task(
@@ -184,10 +191,10 @@ def materialize_properties_task(
     """
 
     if columns_to_materialize is None:
-        columns_to_materialize = _analyze(_get_queries(time_to_analyze_hours, min_query_time))
+        columns_to_materialize = _analyze(time_to_analyze_hours, min_query_time)
     result = []
     for suggestion in columns_to_materialize:
-        table, table_column, property_name, _ = suggestion
+        table, table_column, property_name = suggestion
         if (property_name, table_column) not in get_materialized_columns(table):
             result.append(suggestion)
 
@@ -200,8 +207,8 @@ def materialize_properties_task(
         "events": [],
         "person": [],
     }
-    for table, table_column, property_name, cost in result[:maximum]:
-        logger.info(f"Materializing column. table={table}, property_name={property_name}, cost={cost}")
+    for table, table_column, property_name in result[:maximum]:
+        logger.info(f"Materializing column. table={table}, property_name={property_name}")
 
         if not dry_run:
             materialize(table, property_name, table_column=table_column)

@@ -18,12 +18,14 @@ interface RustyWebhookPayload {
         team_id: number
         plugin_id: number
         plugin_config_id: number
+        created_at: string
     }
 }
 
 export class RustyHook {
     constructor(
         private enabledForTeams: ValueMatcher<number>,
+        private rolloutPercentage: number,
         private serviceUrl: string,
         private requestTimeoutMs: number
     ) {}
@@ -39,7 +41,10 @@ export class RustyHook {
         pluginId: number
         pluginConfigId: number
     }): Promise<boolean> {
-        if (!this.enabledForTeams(teamId)) {
+        // A simple and blunt rollout that just uses the last digits of the Team ID as a stable
+        // selection against the `rolloutPercentage`.
+        const enabledByRolloutPercentage = (teamId % 1000) / 1000 < this.rolloutPercentage
+        if (!enabledByRolloutPercentage && !this.enabledForTeams(teamId)) {
             return false
         }
 
@@ -56,6 +61,7 @@ export class RustyHook {
                 team_id: teamId,
                 plugin_id: pluginId,
                 plugin_config_id: pluginConfigId,
+                created_at: new Date().toISOString(),
             },
         }
         const body = JSON.stringify(rustyWebhookPayload, undefined, 4)

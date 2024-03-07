@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -12,32 +12,33 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import (
     get_properties_chain,
-    series_event_name,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
+from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
 
 
 class Breakdown:
     query: TrendsQuery
     team: Team
-    series: EventsNode | ActionsNode
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
     query_date_range: QueryDateRange
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
+    breakdown_values_override: Optional[List[str | int]]
 
     def __init__(
         self,
         team: Team,
         query: TrendsQuery,
-        series: EventsNode | ActionsNode,
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
+        breakdown_values_override: Optional[List[str | int]] = None,
     ):
         self.team = team
         self.query = query
@@ -46,6 +47,7 @@ class Breakdown:
         self.timings = timings
         self.modifiers = modifiers
         self.events_filter = events_filter
+        self.breakdown_values_override = breakdown_values_override
 
     @cached_property
     def enabled(self) -> bool:
@@ -112,7 +114,7 @@ class Breakdown:
                 or_clause = ast.Or(
                     exprs=[
                         ast.CompareOperation(
-                            left=ast.Field(chain=["person", "id"]),
+                            left=ast.Field(chain=["person_id"]),
                             op=ast.CompareOperationOp.InCohort,
                             right=ast.Constant(value=breakdown),
                         )
@@ -127,7 +129,7 @@ class Breakdown:
                     return ast.Constant(value=True)
 
             return ast.CompareOperation(
-                left=ast.Field(chain=["person", "id"]),
+                left=ast.Field(chain=["person_id"]),
                 op=ast.CompareOperationOp.InCohort,
                 right=ast.Constant(value=self.query.breakdownFilter.breakdown),
             )
@@ -209,19 +211,21 @@ class Breakdown:
 
     @cached_property
     def _get_breakdown_values(self) -> List[str | int]:
+        # Used in the actors query
+        if self.breakdown_values_override is not None:
+            return self.breakdown_values_override
+
+        if self.query.breakdownFilter is None:
+            return []
+
         with self.timings.measure("breakdown_values_query"):
             breakdown = BreakdownValues(
                 team=self.team,
-                event_name=series_event_name(self.series) or "",
-                breakdown_field=self.query.breakdownFilter.breakdown,  # type: ignore
-                breakdown_type=self.query.breakdownFilter.breakdown_type,
-                query_date_range=self.query_date_range,
+                series=self.series,
                 events_filter=self.events_filter,
                 chart_display_type=self._trends_display().display_type,
-                histogram_bin_count=self.query.breakdownFilter.breakdown_histogram_bin_count,
-                group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
-                hide_other_aggregation=self.query.breakdownFilter.breakdown_hide_other_aggregation,
-                breakdown_limit=self.query.breakdownFilter.breakdown_limit,
+                breakdown_filter=self.query.breakdownFilter,
+                query_date_range=self.query_date_range,
             )
             return breakdown.get_breakdown_values()
 

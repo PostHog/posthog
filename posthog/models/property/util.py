@@ -397,8 +397,6 @@ def negate_operator(operator: OperatorType) -> OperatorType:
         "is_not_set": "is_set",
         "is_date_before": "is_date_after",
         "is_date_after": "is_date_before",
-        "is_relative_date_before": "is_relative_date_after",
-        "is_relative_date_after": "is_relative_date_before",
         # is_date_exact not yet supported
     }.get(operator, operator)  # type: ignore
 
@@ -482,7 +480,7 @@ def prop_filter_json_extract(
             params,
         )
     elif operator in ("regex", "not_regex"):
-        if not is_valid_regex(prop.value):
+        if not is_valid_regex(str(prop.value)):
             # If OR'ing, shouldn't be a problem since nothing will match this specific clause
             return f"{property_operator} 1 = 2", {}
 

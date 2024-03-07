@@ -7,8 +7,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams, FunnelVizType } from '~/types'
 
-import { FunnelBarChart } from './FunnelBarChart/FunnelBarChart'
-import { FunnelBarGraph } from './FunnelBarGraph/FunnelBarGraph'
+import { FunnelBarHorizontal } from './FunnelBarHorizontal/FunnelBarHorizontal'
+import { FunnelBarVertical } from './FunnelBarVertical/FunnelBarVertical'
 import { funnelDataLogic } from './funnelDataLogic'
 import { FunnelHistogram } from './FunnelHistogram'
 
@@ -23,9 +23,9 @@ export function Funnel(props: ChartParams): JSX.Element {
     } else if (funnelVizType == FunnelVizType.TimeToConvert) {
         viz = <FunnelHistogram />
     } else if ((layout || FunnelLayout.vertical) === FunnelLayout.vertical) {
-        viz = <FunnelBarChart {...props} />
+        viz = <FunnelBarVertical {...props} />
     } else {
-        viz = <FunnelBarGraph {...props} />
+        viz = <FunnelBarHorizontal {...props} />
     }
 
     return (

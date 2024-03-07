@@ -24,6 +24,10 @@ export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string =
     return `InsightViz.${keyForInsightLogicProps('new')(insightProps)}`
 }
 
+export const insightVizDataCollectionId = (props: InsightLogicProps | undefined, fallback: string): string => {
+    return props?.dataNodeCollectionId ?? props?.dashboardId?.toString() ?? props?.dashboardItemId ?? fallback
+}
+
 type InsightVizProps = {
     uniqueKey?: string | number
     query: InsightVizNode
@@ -40,17 +44,22 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
         dashboardItemId: `new-AdHoc.${key}`,
         query,
         setQuery,
+        dataNodeCollectionId: key,
     }
 
     if (!insightProps.setQuery && setQuery) {
         insightProps.setQuery = setQuery
     }
 
+    const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: insightVizDataNodeKey(insightProps),
+        key: vizKey,
         cachedResults: getCachedResults(insightProps.cachedInsight, query.source),
         doNotLoad: insightProps.doNotLoad,
+        onData: insightProps.onData,
+        loadPriority: insightProps.loadPriority,
+        dataNodeCollectionId: insightVizDataCollectionId(insightProps, vizKey),
     }
 
     const { insightMode } = useValues(insightSceneLogic)

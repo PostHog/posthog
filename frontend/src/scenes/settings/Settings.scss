@@ -2,19 +2,15 @@
     display: flex;
     gap: 2rem;
     align-items: start;
-    margin-top: 1rem;
+    margin-top: 0;
 
     .Settings__sections {
         position: sticky;
-        top: 0.5rem;
+        top: 4rem;
         flex-shrink: 0;
         width: 20%;
         min-width: 14rem;
         max-width: 20rem;
-
-        .posthog-3000 & {
-            top: 4rem;
-        }
 
         .SidePanel3000 & {
             top: 0;
@@ -33,7 +29,6 @@
         }
     }
 
-    .posthog-3000 &,
     .LemonModal & {
         margin-top: 0;
     }

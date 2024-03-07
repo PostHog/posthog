@@ -115,6 +115,9 @@ class TraversingVisitor(Visitor):
     def visit_select_query(self, node: ast.SelectQuery):
         # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
         self.visit(node.select_from)
+        if node.ctes is not None:
+            for expr in list(node.ctes.values()):
+                self.visit(expr)
         for expr in node.array_join_list or []:
             self.visit(expr)
         for expr in node.select or []:
@@ -144,7 +147,7 @@ class TraversingVisitor(Visitor):
         self.visit(node.type)
 
     def visit_field_type(self, node: ast.FieldType):
-        self.visit(node.table_type)
+        pass
 
     def visit_select_query_type(self, node: ast.SelectQueryType):
         for expr in node.tables.values():

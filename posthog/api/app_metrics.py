@@ -4,7 +4,7 @@ import uuid
 from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.plugin import PluginConfig
 from posthog.queries.app_metrics.app_metrics import (
     AppMetricsErrorDetailsQuery,
@@ -21,7 +21,8 @@ from posthog.queries.app_metrics.serializers import (
 )
 
 
-class AppMetricsViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    scope_object = "plugin"
     queryset = PluginConfig.objects.all()
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -75,11 +76,13 @@ class AppMetricsViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, views
 
 
 class HistoricalExportsAppMetricsViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     viewsets.ViewSet,
 ):
+    scope_object = "plugin"
+
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         return response.Response(
             {

@@ -31,7 +31,6 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
-    prompt,
     property_definition,
     query,
     search,
@@ -64,10 +63,9 @@ router.register(
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
-router.register(r"prompts", prompt.PromptSequenceViewSet, "user_prompts")  # User prompts
 
 # Nested endpoints shared
-projects_router = router.register(r"projects", team.TeamViewSet)
+projects_router = router.register(r"projects", team.RootTeamViewSet)
 project_plugins_configs_router = projects_router.register(
     r"plugin_configs", plugin.PluginConfigViewSet, "project_plugin_configs", ["team_id"]
 )
@@ -77,16 +75,28 @@ project_plugins_configs_router.register(
     "project_plugins_config_logs",
     ["team_id", "plugin_config_id"],
 )
-pipeline_transformation_configs_router = projects_router.register(
+projects_router.register(
     r"pipeline_transformation_configs",
     plugin.PipelineTransformationsConfigsViewSet,
     "project_pipeline_transformation_configs",
     ["team_id"],
 )
-pipeline_destination_configs_router = projects_router.register(
+projects_router.register(
     r"pipeline_destination_configs",
     plugin.PipelineDestinationsConfigsViewSet,
     "project_pipeline_destination_configs",
+    ["team_id"],
+)
+projects_router.register(
+    r"pipeline_frontend_apps_configs",
+    plugin.PipelineFrontendAppsConfigsViewSet,
+    "project_pipeline_frontend_apps_configs",
+    ["team_id"],
+)
+projects_router.register(
+    r"pipeline_import_apps_configs",
+    plugin.PipelineImportAppsConfigsViewSet,
+    "project_pipeline_import_apps_configs",
     ["team_id"],
 )
 
@@ -190,22 +200,35 @@ projects_router.register(r"warehouse_view_link", view_link.ViewLinkViewSet, "war
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
+organizations_router.register(r"projects", team.TeamViewSet, "projects", ["organization_id"])
 organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
 )
 organization_plugins_router = organizations_router.register(
     r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
 )
-organization_pipeline_transformations_router = organizations_router.register(
+organizations_router.register(
     r"pipeline_transformations",
     plugin.PipelineTransformationsViewSet,
     "organization_pipeline_transformations",
     ["organization_id"],
 )
-organization_pipeline_destinations_router = organizations_router.register(
+organizations_router.register(
     r"pipeline_destinations",
     plugin.PipelineDestinationsViewSet,
     "organization_pipeline_destinations",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"pipeline_frontend_apps",
+    plugin.PipelineFrontendAppsViewSet,
+    "organization_pipeline_frontend_apps",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"pipeline_import_apps",
+    plugin.PipelineImportAppsViewSet,
+    "organization_pipeline_import_apps",
     ["organization_id"],
 )
 organizations_router.register(
@@ -234,7 +257,7 @@ organizations_router.register(
 )
 
 # Project nested endpoints
-projects_router = router.register(r"projects", team.TeamViewSet, "projects")
+projects_router = router.register(r"projects", team.RootTeamViewSet, "projects")
 
 projects_router.register(
     r"event_definitions",

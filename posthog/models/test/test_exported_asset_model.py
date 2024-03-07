@@ -1,11 +1,8 @@
 from datetime import datetime, timedelta
 
-import pytest
-from dateutil.parser import isoparse
 from freezegun import freeze_time
-from rest_framework.exceptions import NotFound
 
-from posthog.models.exported_asset import ExportedAsset, get_content_response
+from posthog.models.exported_asset import ExportedAsset
 from posthog.test.base import APIBaseTest
 
 
@@ -76,21 +73,3 @@ class TestExportedAssetModel(APIBaseTest):
             asset_that_is_not_expired,
             asset_that_has_no_expiry,
         ]
-
-    @freeze_time("2021-01-01T12:00:00Z")
-    def test_invalid_exported_asset_is_expired_on_access(self) -> None:
-        asset: ExportedAsset = ExportedAsset.objects.create(
-            team=self.team,
-            created_by=self.user,
-            expires_after=datetime.now() + timedelta(seconds=100),
-            # an invalid asset is one that has no local or remote content
-            content=None,
-            content_location=None,
-        )
-
-        assert asset.expires_after != isoparse("2021-01-01T12:00:00Z")
-
-        with pytest.raises(NotFound):
-            get_content_response(asset, False)
-
-        assert asset.expires_after == isoparse("2021-01-01T12:00:00Z")

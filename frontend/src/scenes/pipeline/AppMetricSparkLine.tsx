@@ -1,20 +1,14 @@
 import { useValues } from 'kea'
 import { Sparkline, SparklineTimeSeries } from 'lib/lemon-ui/Sparkline'
 
-import { PluginConfigWithPluginInfoNew } from '~/types'
+import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
+import { PipelineBackend, PipelineNode } from './types'
 
-import { DestinationType, PipelineAppBackend } from './destinationsLogic'
-import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
-
-export function AppMetricSparkLine({
-    config,
-}: {
-    config: DestinationType | PluginConfigWithPluginInfoNew
-}): JSX.Element {
-    if ('backend' in config && config.backend === PipelineAppBackend.BatchExport) {
+export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNode }): JSX.Element {
+    if (pipelineNode.backend === PipelineBackend.BatchExport) {
         return <></> // TODO: not ready yet
     } else {
-        const logic = pipelineAppMetricsLogic({ pluginConfigId: config.id })
+        const logic = pipelineNodeMetricsLogic({ pluginConfigId: pipelineNode.id })
         const { appMetricsResponse } = useValues(logic)
 
         const displayData: SparklineTimeSeries[] = [

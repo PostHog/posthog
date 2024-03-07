@@ -1,11 +1,11 @@
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 
 // Creates PROPERTY_NAME_ALIASES in posthog/api/property_definition.py
 // eslint-disable-next-line no-console
 console.log(
     JSON.stringify(
         Object.fromEntries(
-            Array.from(Object.entries(KEY_MAPPING.event))
+            Array.from(Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties))
                 .map(([key, value]) => [key, value.label])
                 .filter(([key, label]) => {
                     if (!key) {

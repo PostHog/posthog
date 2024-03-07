@@ -28,6 +28,7 @@ class BatchExportDestination(UUIDModel):
         POSTGRES = "Postgres"
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
+        HTTP = "HTTP"
         NOOP = "NoOp"
 
     secret_fields = {
@@ -36,6 +37,7 @@ class BatchExportDestination(UUIDModel):
         "Postgres": set("password"),
         "Redshift": set("password"),
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
+        "HTTP": set("token"),
         "NoOp": set(),
     }
 
@@ -72,8 +74,9 @@ class BatchExportRun(UUIDModel):
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
-        CONTINUEDASNEW = "ContinuedAsNew"
+        CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
+        FAILED_RETRYABLE = "FailedRetryable"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
@@ -164,6 +167,12 @@ class BatchExport(UUIDModel):
         null=True,
         default=None,
         help_text="Time after which any Batch Export runs won't be triggered.",
+    )
+
+    schema: models.JSONField = models.JSONField(
+        null=True,
+        default=None,
+        help_text="A schema of custom fields to select when exporting data.",
     )
 
     @property
@@ -261,8 +270,9 @@ class BatchExportBackfill(UUIDModel):
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
-        CONTINUEDASNEW = "ContinuedAsNew"
+        CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
+        FAILED_RETRYABLE = "FailedRetryable"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
@@ -275,7 +285,7 @@ class BatchExportBackfill(UUIDModel):
         help_text="The BatchExport this backfill belongs to.",
     )
     start_at: models.DateTimeField = models.DateTimeField(help_text="The start of the data interval.")
-    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.")
+    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.", null=True)
     status: models.CharField = models.CharField(
         choices=Status.choices, max_length=64, help_text="The status of this backfill."
     )

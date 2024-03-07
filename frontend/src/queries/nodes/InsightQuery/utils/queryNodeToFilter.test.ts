@@ -1,6 +1,19 @@
+import { FunnelLayout } from 'lib/constants'
+
 import { hiddenLegendItemsToKeys, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema'
-import { ChartDisplayType, InsightType, LifecycleFilterType, TrendsFilterType } from '~/types'
+import { FunnelsQuery, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import {
+    BreakdownAttributionType,
+    ChartDisplayType,
+    FunnelConversionWindowTimeUnit,
+    FunnelsFilterType,
+    FunnelStepReference,
+    FunnelVizType,
+    InsightType,
+    LifecycleFilterType,
+    StepOrderValue,
+    TrendsFilterType,
+} from '~/types'
 
 describe('queryNodeToFilter', () => {
     test('converts a query node to a filter', () => {
@@ -86,6 +99,82 @@ describe('queryNodeToFilter', () => {
             show_percent_stack_view: true,
             show_legend: true,
             show_values_on_series: true,
+        }
+        expect(result).toEqual(filters)
+    })
+
+    test('converts a funnelsFilter into filter properties', () => {
+        const query: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            funnelsFilter: {
+                funnelVizType: FunnelVizType.Steps,
+                funnelFromStep: 1,
+                funnelToStep: 2,
+                funnelStepReference: FunnelStepReference.total,
+                breakdownAttributionType: BreakdownAttributionType.AllSteps,
+                breakdownAttributionValue: 1,
+                binCount: 'auto',
+                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                funnelWindowInterval: 7,
+                funnelOrderType: StepOrderValue.ORDERED,
+                exclusions: [
+                    {
+                        event: '$pageview',
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        funnelFromStep: 1,
+                        funnelToStep: 2,
+                    },
+                    {
+                        id: 3,
+                        kind: NodeKind.ActionsNode,
+                        name: 'Some action',
+                        funnelFromStep: 1,
+                        funnelToStep: 2,
+                    },
+                ],
+                layout: FunnelLayout.horizontal,
+            },
+            series: [],
+        }
+
+        const result = queryNodeToFilter(query)
+
+        const filters: Partial<FunnelsFilterType> = {
+            insight: InsightType.FUNNELS,
+            funnel_viz_type: FunnelVizType.Steps,
+            funnel_from_step: 1,
+            funnel_to_step: 2,
+            funnel_step_reference: FunnelStepReference.total,
+            breakdown_attribution_type: BreakdownAttributionType.AllSteps,
+            breakdown_attribution_value: 1,
+            bin_count: 'auto',
+            funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
+            funnel_window_interval: 7,
+            funnel_order_type: StepOrderValue.ORDERED,
+            exclusions: [
+                {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    funnel_from_step: 1,
+                    funnel_to_step: 2,
+                },
+                {
+                    id: 3,
+                    type: 'actions',
+                    order: 1,
+                    name: 'Some action',
+                    funnel_from_step: 1,
+                    funnel_to_step: 2,
+                },
+            ],
+            layout: FunnelLayout.horizontal,
+            interval: undefined,
+            hidden_legend_keys: undefined,
+            funnel_aggregate_by_hogql: undefined,
+            entity_type: 'events',
         }
         expect(result).toEqual(filters)
     })

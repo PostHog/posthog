@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 function GoInstallSnippet(): JSX.Element {
@@ -16,7 +17,7 @@ import (
     "github.com/posthog/posthog-go"
 )
 func main() {
-    client, _ := posthog.NewWithConfig("${currentTeam?.api_token}", posthog.Config{Endpoint: "${window.location.origin}"})
+    client, _ := posthog.NewWithConfig("${currentTeam?.api_token}", posthog.Config{Endpoint: "${apiHostOrigin()}"})
     defer client.Close()
 }`}
         </CodeSnippet>

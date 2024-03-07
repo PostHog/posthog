@@ -1,18 +1,17 @@
 from datetime import datetime
 from typing import Dict, Optional
-from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
+from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import (
+    ClickhouseTrendExperimentResult,
     uses_math_aggregation_by_user_or_property_value,
 )
 
-from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_CUMULATIVE
+from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
-from posthog.queries.funnels import ClickhouseFunnel
-from posthog.queries.trends.trends import Trends
 
 
 class ClickhouseSecondaryExperimentResult:
@@ -31,52 +30,30 @@ class ClickhouseSecondaryExperimentResult:
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
     ):
-        breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]
-
-        # our filters assume that the given time ranges are in the project timezone.
-        # while start and end date are in UTC.
-        # so we need to convert them to the project timezone
-        if team.timezone:
-            start_date_in_project_timezone = experiment_start_date.astimezone(ZoneInfo(team.timezone))
-            end_date_in_project_timezone = (
-                experiment_end_date.astimezone(ZoneInfo(team.timezone)) if experiment_end_date else None
-            )
-
-        query_filter = filter.shallow_clone(
-            {
-                "date_from": start_date_in_project_timezone,
-                "date_to": end_date_in_project_timezone,
-                "explicit_date": True,
-                "breakdown": breakdown_key,
-                "breakdown_type": "event",
-                "properties": [],
-                # :TRICKY: We don't use properties set on filters, as these
-                # correspond to feature flag properties, not the funnel properties.
-            }
-        )
-
         self.team = team
-        if query_filter.insight == INSIGHT_TRENDS and not (
-            uses_math_aggregation_by_user_or_property_value(query_filter)
-        ):
-            query_filter = query_filter.shallow_clone({"display": TRENDS_CUMULATIVE})
-
-        self.query_filter = query_filter
+        self.feature_flag = feature_flag
+        self.filter = filter
+        self.experiment_start_date = experiment_start_date
+        self.experiment_end_date = experiment_end_date
 
     def get_results(self):
-        if self.query_filter.insight == INSIGHT_TRENDS:
-            trend_results = Trends().run(self.query_filter, self.team)
-            variants = self.get_trend_count_data_for_variants(trend_results)
+        if self.filter.insight == INSIGHT_TRENDS:
+            significance_results = ClickhouseTrendExperimentResult(
+                self.filter, self.team, self.feature_flag, self.experiment_start_date, self.experiment_end_date
+            ).get_results(validate=False)
+            variants = self.get_trend_count_data_for_variants(significance_results["insight"])
 
-        elif self.query_filter.insight == INSIGHT_FUNNELS:
-            funnel_results = ClickhouseFunnel(self.query_filter, self.team).run()
-            variants = self.get_funnel_conversion_rate_for_variants(funnel_results)
+        elif self.filter.insight == INSIGHT_FUNNELS:
+            significance_results = ClickhouseFunnelExperimentResult(
+                self.filter, self.team, self.feature_flag, self.experiment_start_date, self.experiment_end_date
+            ).get_results(validate=False)
+            variants = self.get_funnel_conversion_rate_for_variants(significance_results["insight"])
 
         else:
             raise ValidationError("Secondary metrics need to be funnel or trend insights")
 
-        return {"result": variants}
+        return {"result": variants, **significance_results}
 
     def get_funnel_conversion_rate_for_variants(self, insight_results) -> Dict[str, float]:
         variants = {}
@@ -98,7 +75,7 @@ class ClickhouseSecondaryExperimentResult:
             count = result["count"]
             breakdown_value = result["breakdown_value"]
 
-            if uses_math_aggregation_by_user_or_property_value(self.query_filter):
+            if uses_math_aggregation_by_user_or_property_value(self.filter):
                 count = result["count"] / len(result.get("data", [0]))
 
             if breakdown_value in self.variants:

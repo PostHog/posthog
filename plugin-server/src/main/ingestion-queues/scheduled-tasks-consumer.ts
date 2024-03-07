@@ -2,6 +2,7 @@ import { Batch, EachBatchHandler, Kafka } from 'kafkajs'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/kafka-topics'
+import { PluginsServerConfig } from '../../types'
 import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
@@ -16,11 +17,13 @@ export const startScheduledTasksConsumer = async ({
     kafka,
     producer,
     piscina,
+    serverConfig,
     partitionConcurrency = 3,
 }: {
     kafka: Kafka
     producer: KafkaProducerWrapper
     piscina: Piscina
+    serverConfig: PluginsServerConfig
     partitionConcurrency: number
 }) => {
     /*
@@ -43,7 +46,11 @@ export const startScheduledTasksConsumer = async ({
     */
 
     const groupId = 'scheduled-tasks-runner'
-    const consumer = kafka.consumer({ groupId })
+    const consumer = kafka.consumer({
+        groupId,
+        sessionTimeout: serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+        rebalanceTimeout: serverConfig.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS ?? undefined,
+    })
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting scheduled tasks consumer')
