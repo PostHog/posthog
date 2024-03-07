@@ -88,6 +88,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                 percentage_usage=0,
                 projected_usage=0,
                 projected_amount_usd="0.00",
+                usage_key="events",
             )
         ],
         billing_period=BillingPeriod(
@@ -136,6 +137,7 @@ def create_billing_products_response(**kwargs) -> Dict[str, List[CustomerProduct
                 percentage_usage=0,
                 projected_usage=0,
                 projected_amount_usd="0.00",
+                usage_key="events",
             )
         ]
     }
@@ -285,6 +287,7 @@ class TestBillingAPI(APILicensedTest):
                     "unit_amount_usd": "0.00",
                     "projected_amount_usd": "0.00",
                     "projected_usage": 0,
+                    "usage_key": "events",
                 }
             ],
             "billing_period": {
@@ -357,6 +360,7 @@ class TestBillingAPI(APILicensedTest):
                     "usage_limit": None,
                     "image_url": "https://posthog.com/static/images/product-os.png",
                     "percentage_usage": 0.0,
+                    "usage_key": "events",
                 }
             ],
             "billing_period": {

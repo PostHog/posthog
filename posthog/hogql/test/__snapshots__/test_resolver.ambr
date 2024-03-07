@@ -3268,16 +3268,7 @@
               lazy_join: {
                 from_field: "person_id",
                 join_function: <function>,
-                join_table: {
-                  fields: {
-                    created_at: {},
-                    id: {},
-                    is_identified: {},
-                    pdi: {},
-                    properties: {},
-                    team_id: {}
-                  }
-                }
+                join_table: "persons"
               }
               table_type: {
                 field: "pdi"
@@ -3404,16 +3395,7 @@
               lazy_join: {
                 from_field: "person_id",
                 join_function: <function>,
-                join_table: {
-                  fields: {
-                    created_at: {},
-                    id: {},
-                    is_identified: {},
-                    pdi: {},
-                    properties: {},
-                    team_id: {}
-                  }
-                }
+                join_table: "persons"
               }
               table_type: {
                 field: "pdi"
@@ -3743,16 +3725,7 @@
               lazy_join: {
                 from_field: "person_id",
                 join_function: <function>,
-                join_table: {
-                  fields: {
-                    created_at: {},
-                    id: {},
-                    is_identified: {},
-                    pdi: {},
-                    properties: {},
-                    team_id: {}
-                  }
-                }
+                join_table: "persons"
               }
               table_type: <recursion ...>
             }
