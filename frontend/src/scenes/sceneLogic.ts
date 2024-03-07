@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, ProductKey } from '~/types'
 
+import { appContextLogic } from './appContextLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
@@ -37,7 +38,7 @@ export const sceneLogic = kea<sceneLogicType>([
     ),
     path(['scenes', 'sceneLogic']),
     connect(() => ({
-        logic: [router, userLogic, preflightLogic],
+        logic: [router, userLogic, preflightLogic, appContextLogic],
         actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [featureFlagLogic, ['featureFlags']],
     })),

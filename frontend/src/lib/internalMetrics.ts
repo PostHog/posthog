@@ -1,4 +1,4 @@
-import api, { getJSONOrNull } from 'lib/api'
+import api, { getJSONOrThrow } from 'lib/api'
 import posthog from 'posthog-js'
 import { getResponseBytes } from 'scenes/insights/utils'
 
@@ -53,7 +53,7 @@ export async function apiGetWithTimeToSeeDataTracking<T>(
     const requestStartMs = performance.now()
     try {
         response = await api.getResponse(url)
-        responseData = await getJSONOrNull(response)
+        responseData = await getJSONOrThrow(response)
     } catch (e) {
         error = e
     }
