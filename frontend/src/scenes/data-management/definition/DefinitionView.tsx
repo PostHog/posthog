@@ -198,7 +198,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <LemonDivider className="my-6" />
                     <h3>Matching events</h3>
                     <p>This is the list of recent events that match this definition.</p>
-                    <LemonDivider className="my-6" />
                     <Query
                         query={{
                             kind: NodeKind.DataTableNode,
