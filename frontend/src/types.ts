@@ -143,6 +143,7 @@ export enum AvailableFeature {
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
+    AUTOMATIC_PROVISIONING = 'automatic_provisioning',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`

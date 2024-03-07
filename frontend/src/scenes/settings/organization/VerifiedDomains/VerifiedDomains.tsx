@@ -1,5 +1,6 @@
 import { IconCheckCircle, IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -12,7 +13,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { OrganizationDomainType } from '~/types'
+import { AvailableFeature, OrganizationDomainType } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
@@ -27,7 +28,7 @@ export function VerifiedDomains(): JSX.Element {
     const { setAddModalShown } = useActions(verifiedDomainsLogic)
 
     return (
-        <>
+        <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING}>
             <p>
                 Enable users to sign up automatically with an email address on verified domains and enforce SSO for
                 accounts under your domains.
@@ -42,7 +43,7 @@ export function VerifiedDomains(): JSX.Element {
             >
                 Add domain
             </LemonButton>
-        </>
+        </PayGateMini>
     )
 }
 
