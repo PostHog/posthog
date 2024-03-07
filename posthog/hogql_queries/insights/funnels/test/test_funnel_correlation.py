@@ -22,11 +22,13 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.schema import (
+    EventPropertyFilter,
     EventsNode,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
     FunnelsQuery,
     FunnelCorrelationResultsType,
+    PropertyOperator,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -1638,22 +1640,48 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "positively_related", {"blah": "value_bleh"})),
-        #     5,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"})),
-        #     3,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"}, False)),
-        #     0,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_event(filter, "negatively_related", {"signup_source": "email"}, False)),
-        #     3,
-        # )
+        self.assertEqual(
+            len(
+                self._get_actors_for_event(
+                    filters,
+                    "positively_related",
+                    [EventPropertyFilter(operator=PropertyOperator.exact, key="blah", value="value_bleh")],
+                )
+            ),
+            5,
+        )
+        self.assertEqual(
+            len(
+                self._get_actors_for_event(
+                    filters,
+                    "positively_related",
+                    [EventPropertyFilter(operator=PropertyOperator.exact, key="signup_source", value="facebook")],
+                )
+            ),
+            3,
+        )
+        self.assertEqual(
+            len(
+                self._get_actors_for_event(
+                    filters,
+                    "positively_related",
+                    [EventPropertyFilter(operator=PropertyOperator.exact, key="signup_source", value="facebook")],
+                    False,
+                )
+            ),
+            0,
+        )
+        self.assertEqual(
+            len(
+                self._get_actors_for_event(
+                    filters,
+                    "negatively_related",
+                    [EventPropertyFilter(operator=PropertyOperator.exact, key="signup_source", value="email")],
+                    False,
+                )
+            ),
+            3,
+        )
 
     @also_test_with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
     @snapshot_clickhouse_queries

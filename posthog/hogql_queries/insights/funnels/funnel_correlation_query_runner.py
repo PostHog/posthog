@@ -369,10 +369,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         date_to = funnel_event_query._date_range().date_to_as_hogql()
 
         properties = self.correlation_actors_query.funnelCorrelationPersonEntity.properties
+        prop_query = None
         if properties is not None and properties != []:
             prop_query = property_to_expr(properties, self.team)
-        else:
-            prop_query = []
 
         conversion_filter = (
             f'AND funnel_actors.steps {"=" if self.correlation_actors_query.funnelCorrelationPersonConverted else "<>"} target_step'
@@ -413,7 +412,8 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             },
         )
 
-        query.where.exprs = [*query.where.exprs, *prop_query]
+        if prop_query:
+            query.where.exprs = [*query.where.exprs, prop_query]
 
         return query
 
