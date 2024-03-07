@@ -93,7 +93,7 @@ WHERE
 KILL_MUTATION_IN_PROGRESS_ON_CLUSTER = """
 KILL MUTATION ON CLUSTER {cluster}
 WHERE is_done = 0
-WHERE table = '{table}'
+AND table = '{table}'
 AND database = '{database}'
 AND command LIKE %(query)s
 """
