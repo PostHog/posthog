@@ -86,7 +86,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         return [str(row[1]["id"]) for row in serialized_actors]
 
-    def _get_actors_for_property(self, filters: Dict[str, Any], property_values: list, success=True):
+    def _get_actors_for_property(
+        self, filters: Dict[str, Any], property_values: list, success=True, funnelCorrelationNames=None
+    ):
         funnelCorrelationPropertyValues = [
             (
                 PersonPropertyFilter(key=prop, value=value, operator=PropertyOperator.exact)
@@ -102,7 +104,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             filters,
             self.team,
             funnelCorrelationType=FunnelCorrelationResultsType.properties,
-            funnelCorrelationNames=["$browser"],
+            funnelCorrelationNames=funnelCorrelationNames,
             funnelCorrelationPersonConverted=success,
             funnelCorrelationPropertyValues=funnelCorrelationPropertyValues,
         )
@@ -627,19 +629,35 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(
-            len(self._get_actors_for_property(filters, [("$browser", "Positive", "person", None)])),
+            len(
+                self._get_actors_for_property(
+                    filters, [("$browser", "Positive", "person", None)], funnelCorrelationNames=["$browser"]
+                )
+            ),
             10,
         )
         self.assertEqual(
-            len(self._get_actors_for_property(filters, [("$browser", "Positive", "person", None)], False)),
+            len(
+                self._get_actors_for_property(
+                    filters, [("$browser", "Positive", "person", None)], False, funnelCorrelationNames=["$browser"]
+                )
+            ),
             1,
         )
         self.assertEqual(
-            len(self._get_actors_for_property(filters, [("$browser", "Negative", "person", None)])),
+            len(
+                self._get_actors_for_property(
+                    filters, [("$browser", "Negative", "person", None)], funnelCorrelationNames=["$browser"]
+                )
+            ),
             1,
         )
         self.assertEqual(
-            len(self._get_actors_for_property(filters, [("$browser", "Negative", "person", None)], False)),
+            len(
+                self._get_actors_for_property(
+                    filters, [("$browser", "Negative", "person", None)], False, funnelCorrelationNames=["$browser"]
+                )
+            ),
             10,
         )
 
@@ -1195,7 +1213,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2020-01-14",
         }
 
-        #  5 successful people with both properties
+        # 5 successful people with both properties
         for i in range(5):
             _create_person(
                 distinct_ids=[f"user_{i}"],
@@ -1215,7 +1233,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 timestamp="2020-01-04T14:00:00Z",
             )
 
-        #  10 successful people with some different properties
+        # 10 successful people with some different properties
         for i in range(5, 15):
             _create_person(
                 distinct_ids=[f"user_{i}"],
@@ -1388,18 +1406,30 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(new_result, new_expected_result)
 
+        self.assertEqual(
+            len(
+                self._get_actors_for_property(
+                    filters, [("$nice", "not", "person", None)], funnelCorrelationNames=["$browser", "$nice"]
+                )
+            ),
+            10,
+        )
         # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("$nice", "not", "person", None)])),
-        #     10,
-        # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("$nice", "", "person", None)], False)),
+        #     len(
+        #         self._get_actors_for_property(
+        #             filters, [("$nice", "", "person", None)], False, funnelCorrelationNames=["$browser", "$nice"]
+        #         )
+        #     ),
         #     1,
         # )
-        # self.assertEqual(
-        #     len(self._get_actors_for_property(filter, [("$nice", "very", "person", None)])),
-        #     5,
-        # )
+        self.assertEqual(
+            len(
+                self._get_actors_for_property(
+                    filters, [("$nice", "very", "person", None)], funnelCorrelationNames=["$browser", "$nice"]
+                )
+            ),
+            5,
+        )
 
     def test_discarding_insignificant_events(self):
         filters = {
