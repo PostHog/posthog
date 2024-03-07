@@ -2,10 +2,10 @@ import { DateTime } from 'luxon'
 
 import {
     ConsoleLogEntry,
-    createPerformanceEvent,
     createSessionReplayEvent,
     gatherConsoleLogEvents,
     getTimestampsFrom,
+    LogLevel,
     SummarizedSessionRecordingEvent,
 } from '../../../../src/main/ingestion-queues/session-recording/process-event'
 import { RRWebEvent, TimestampFormat } from '../../../../src/types'
@@ -134,6 +134,33 @@ describe('session recording process event', () => {
                         timestamp: 1682449093469,
                         windowId: '1',
                     },
+                    // group and trace end up in info
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'group' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'trace' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
+                    // assert ends up in error
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'assert' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
+                    // countReset ends up in warn
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'countReset' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
                 ],
             },
             expected: {
@@ -144,11 +171,11 @@ describe('session recording process event', () => {
                 first_timestamp: '2023-04-25 18:58:13.469',
                 last_timestamp: '2023-04-25 18:58:13.469',
                 active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
-                console_log_count: 2,
-                console_warn_count: 3,
-                console_error_count: 1,
-                size: 762,
-                event_count: 7,
+                console_log_count: 4,
+                console_warn_count: 4,
+                console_error_count: 2,
+                size: 1232,
+                event_count: 11,
                 message_count: 1,
                 snapshot_source: 'web',
             },
@@ -358,14 +385,14 @@ describe('session recording process event', () => {
         expect(getTimestampsFrom(events)).toEqual(expectedTimestamps)
     })
 
-    function consoleMessageFor(payload: any[]) {
+    function consoleMessageFor(payload: any[], level: string | null | undefined = 'info') {
         return {
             timestamp: 1682449093469,
             type: 6,
             data: {
                 plugin: 'rrweb/console@1',
                 payload: {
-                    level: 'info',
+                    level: level,
                     payload: payload,
                 },
             },
@@ -402,7 +429,7 @@ describe('session recording process event', () => {
         expect(consoleLogEntries).toEqual([
             {
                 team_id: 12345,
-                log_level: 'info',
+                level: 'info',
                 log_source: 'session_replay',
                 log_source_id: 'session_id',
                 instance_id: null,
@@ -415,72 +442,44 @@ describe('session recording process event', () => {
         ])
     })
 
-    it('performance event stored as performance_event', () => {
-        const data = createPerformanceEvent('some-id', 12345, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', {
-            // Taken from a real event from the JS
-            '0': 'resource',
-            '1': 1671723295836,
-            '2': 'http://localhost:8000/api/projects/1/session_recordings',
-            '3': 10737.89999999106,
-            '4': 0,
-            '5': 0,
-            '6': 0,
-            '7': 10737.89999999106,
-            '8': 10737.89999999106,
-            '9': 10737.89999999106,
-            '10': 10737.89999999106,
-            '11': 0,
-            '12': 10737.89999999106,
-            '13': 10745.09999999404,
-            '14': 11121.70000000298,
-            '15': 11122.20000000298,
-            '16': 73374,
-            '17': 1767,
-            '18': 'fetch',
-            '19': 'http/1.1',
-            '20': 'non-blocking',
-            '22': 2067,
-            '39': 384.30000001192093,
-            '40': 1671723306573,
-            token: 'phc_234',
-            $session_id: '1853a793ad26c1-0eea05631cbeff-17525635-384000-1853a793ad31dd2',
-            $window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
-            distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-            $current_url: 'http://localhost:8000/recordings/recent',
-        })
-
-        expect(data).toEqual({
-            connect_end: 10737.89999999106,
-            connect_start: 10737.89999999106,
-            current_url: 'http://localhost:8000/recordings/recent',
-            decoded_body_size: 73374,
-            distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-            domain_lookup_end: 10737.89999999106,
-            domain_lookup_start: 10737.89999999106,
-            duration: 384.30000001192093,
-            encoded_body_size: 1767,
-            entry_type: 'resource',
-            fetch_start: 10737.89999999106,
-            initiator_type: 'fetch',
-            name: 'http://localhost:8000/api/projects/1/session_recordings',
-            next_hop_protocol: 'http/1.1',
-            pageview_id: undefined,
-            redirect_end: 0,
-            redirect_start: 0,
-            render_blocking_status: 'non-blocking',
-            request_start: 10745.09999999404,
-            response_end: 11122.20000000298,
-            response_start: 11121.70000000298,
-            secure_connection_start: 0,
-            session_id: '1853a793ad26c1-0eea05631cbeff-17525635-384000-1853a793ad31dd2',
-            start_time: 10737.89999999106,
-            team_id: 12345,
-            time_origin: 1671723295836,
-            timestamp: 1671723306573,
-            transfer_size: 2067,
-            uuid: 'some-id',
-            window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
-            worker_start: 0,
-        })
+    test.each([
+        { browserLogLevel: 'log', logLevel: 'info' },
+        { browserLogLevel: 'trace', logLevel: 'info' },
+        { browserLogLevel: 'dir', logLevel: 'info' },
+        { browserLogLevel: 'dirxml', logLevel: 'info' },
+        { browserLogLevel: 'group', logLevel: 'info' },
+        { browserLogLevel: 'groupCollapsed', logLevel: 'info' },
+        { browserLogLevel: 'debug', logLevel: 'info' },
+        { browserLogLevel: 'timeLog', logLevel: 'info' },
+        { browserLogLevel: 'info', logLevel: 'info' },
+        { browserLogLevel: 'count', logLevel: 'info' },
+        { browserLogLevel: 'timeEnd', logLevel: 'info' },
+        { browserLogLevel: 'warn', logLevel: 'warn' },
+        { browserLogLevel: 'countReset', logLevel: 'warn' },
+        { browserLogLevel: 'error', logLevel: 'error' },
+        { browserLogLevel: 'assert', logLevel: 'error' },
+        { browserLogLevel: 'countReset', logLevel: 'warn' },
+        { browserLogLevel: 'wakanda forever', logLevel: 'info' },
+        { browserLogLevel: '\\n\\r\\t\\0\\b\\f', logLevel: 'info' },
+        { browserLogLevel: null, logLevel: 'info' },
+        { browserLogLevel: undefined, logLevel: 'info' },
+    ])('log level console log processing: %s', ({ browserLogLevel, logLevel }) => {
+        const consoleLogEntries = gatherConsoleLogEvents(12345, 'session_id', [
+            consoleMessageFor(['test'], browserLogLevel),
+        ])
+        expect(consoleLogEntries).toEqual([
+            {
+                team_id: 12345,
+                level: logLevel as LogLevel,
+                log_source: 'session_replay',
+                log_source_id: 'session_id',
+                instance_id: null,
+                timestamp: castTimestampToClickhouseFormat(
+                    DateTime.fromMillis(1682449093469),
+                    TimestampFormat.ClickHouse
+                ),
+                message: 'test',
+            } satisfies ConsoleLogEntry,
+        ])
     })
 })

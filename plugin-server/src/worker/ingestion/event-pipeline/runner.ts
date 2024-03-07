@@ -43,12 +43,6 @@ class StepErrorNoRetry extends Error {
         this.args = args
     }
 }
-
-export async function runEventPipeline(hub: Hub, event: PipelineEvent): Promise<EventPipelineResult> {
-    const runner = new EventPipelineRunner(hub, event)
-    return runner.runEventPipeline(event)
-}
-
 export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
@@ -164,6 +158,7 @@ export class EventPipelineRunner {
                 description: step.name,
             },
             async () => {
+                const sendToSentry = false
                 const timeout = timeoutGuard(
                     `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
                     {
@@ -172,7 +167,8 @@ export class EventPipelineRunner {
                         teamId: teamId,
                         distinctId: this.originalEvent.distinct_id,
                     },
-                    this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000
+                    this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
+                    sendToSentry
                 )
                 try {
                     const result = await step(...args)

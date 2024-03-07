@@ -1,6 +1,6 @@
-import { IconX } from '@posthog/icons'
+import { IconCode, IconX } from '@posthog/icons'
 import { useValues } from 'kea'
-import { IconBranch, IconCode } from 'lib/lemon-ui/icons'
+import { IconBranch } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useState } from 'react'
 

@@ -4,6 +4,7 @@ import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter 
 import {
     ActionsNode,
     BreakdownFilter,
+    DataWarehouseNode,
     EventsNode,
     FunnelsFilterLegacy,
     InsightNodeKind,
@@ -17,6 +18,7 @@ import {
 } from '~/queries/schema'
 import {
     isActionsNode,
+    isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
     isLifecycleQuery,
@@ -27,12 +29,24 @@ import {
 } from '~/queries/utils'
 import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 
-type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
+type FilterTypeActionsAndEvents = {
+    events?: ActionFilter[]
+    actions?: ActionFilter[]
+    data_warehouse?: ActionFilter[]
+    new_entity?: ActionFilter[]
+}
 
-export const seriesNodeToFilter = (node: EventsNode | ActionsNode, index?: number): ActionFilter => {
+export const seriesNodeToFilter = (
+    node: EventsNode | ActionsNode | DataWarehouseNode,
+    index?: number
+): ActionFilter => {
     const entity: ActionFilter = objectClean({
-        type: isActionsNode(node) ? EntityTypes.ACTIONS : EntityTypes.EVENTS,
-        id: (!isActionsNode(node) ? node.event : node.id) || null,
+        type: isDataWarehouseNode(node)
+            ? EntityTypes.DATA_WAREHOUSE
+            : isActionsNode(node)
+            ? EntityTypes.ACTIONS
+            : EntityTypes.EVENTS,
+        id: isDataWarehouseNode(node) ? node.table_name : (!isActionsNode(node) ? node.event : node.id) || null,
         order: index,
         name: node.name,
         custom_name: node.custom_name,
@@ -42,15 +56,19 @@ export const seriesNodeToFilter = (node: EventsNode | ActionsNode, index?: numbe
         math_hogql: node.math_hogql,
         math_group_type_index: node.math_group_type_index,
         properties: node.properties as any, // TODO,
+        ...(isDataWarehouseNode(node)
+            ? { table_name: node.table_name, id_field: node.id_field, timestamp_field: node.timestamp_field }
+            : {}),
     })
     return entity
 }
 
 export const seriesToActionsAndEvents = (
-    series: (EventsNode | ActionsNode)[]
+    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
+    const data_warehouse: ActionFilter[] = []
     const new_entity: ActionFilter[] = []
     series.forEach((node, index) => {
         const entity = seriesNodeToFilter(node, index)
@@ -58,12 +76,14 @@ export const seriesToActionsAndEvents = (
             events.push(entity)
         } else if (isActionsNode(node)) {
             actions.push(entity)
+        } else if (isDataWarehouseNode(node)) {
+            data_warehouse.push(entity)
         } else {
             new_entity.push(entity)
         }
     })
 
-    return { actions, events, new_entity }
+    return { actions, events, data_warehouse, new_entity }
 }
 
 export const hiddenLegendItemsToKeys = (
@@ -103,12 +123,15 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {
-        const { actions, events, new_entity } = seriesToActionsAndEvents(query.series)
+        const { actions, events, data_warehouse, new_entity } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions
         }
         if (events.length > 0) {
             filters.events = events
+        }
+        if (data_warehouse.length > 0) {
+            filters.data_warehouse = data_warehouse
         }
         if (new_entity.length > 0) {
             filters.new_entity = new_entity

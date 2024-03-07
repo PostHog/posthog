@@ -28,7 +28,7 @@ export class ReplayEventsIngester {
 
     constructor(
         private readonly serverConfig: PluginsServerConfig,
-        private readonly persistentHighWaterMarker: OffsetHighWaterMarker
+        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -73,10 +73,21 @@ export class ReplayEventsIngester {
             }
         }
 
-        const topicPartitionOffsets = findOffsetsToCommit(messages.map((message) => message.metadata))
-        await Promise.all(
-            topicPartitionOffsets.map((tpo) => this.persistentHighWaterMarker.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
-        )
+        if (this.persistentHighWaterMarker) {
+            const topicPartitionOffsets = findOffsetsToCommit(
+                messages.map((message) => ({
+                    topic: message.metadata.topic,
+                    partition: message.metadata.partition,
+                    offset: message.metadata.highOffset,
+                }))
+            )
+
+            await Promise.all(
+                topicPartitionOffsets.map((tpo) =>
+                    this.persistentHighWaterMarker!.add(tpo, HIGH_WATERMARK_KEY, tpo.offset)
+                )
+            )
+        }
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
@@ -94,22 +105,24 @@ export class ReplayEventsIngester {
         }
 
         if (
-            await this.persistentHighWaterMarker.isBelowHighWaterMark(
+            await this.persistentHighWaterMarker?.isBelowHighWaterMark(
                 event.metadata,
                 HIGH_WATERMARK_KEY,
-                event.metadata.offset
+                event.metadata.highOffset
             )
         ) {
             return drop('high_water_mark')
         }
 
         try {
+            const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
+
             const replayRecord = createSessionReplayEvent(
                 randomUUID(),
                 event.team_id,
                 event.distinct_id,
                 event.session_id,
-                event.events,
+                rrwebEvents,
                 event.snapshot_source
             )
 

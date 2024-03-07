@@ -1,8 +1,8 @@
-import { IconX } from '@posthog/icons'
+import { IconCheckCircle, IconX } from '@posthog/icons'
 import { LemonButton, LemonButtonWithSideActionProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProfessorHog } from 'lib/components/hedgehogs'
-import { IconCheckmark, LemonIconProps } from 'lib/lemon-ui/icons'
+import { LemonIconProps } from 'lib/lemon-ui/icons'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -91,7 +91,7 @@ const ActivationTask = ({
         id,
         fullWidth: true,
         type: 'secondary',
-        icon: completed ? <IconCheckmark /> : skipped ? <IconX /> : null,
+        icon: completed ? <IconCheckCircle /> : skipped ? <IconX /> : null,
         tooltip: name,
     }
     if (url) {

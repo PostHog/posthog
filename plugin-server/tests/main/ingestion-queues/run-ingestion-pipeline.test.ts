@@ -6,7 +6,7 @@ import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
-import { runEventPipeline } from '../../../src/worker/ingestion/event-pipeline/runner'
+import { EventPipelineRunner } from '../../../src/worker/ingestion/event-pipeline/runner'
 import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {
@@ -49,18 +49,19 @@ describe('workerTasks.runEventPipeline()', () => {
             return Promise.reject(new Error(errorMessage))
         })
 
-        await expect(
-            runEventPipeline(hub, {
-                distinct_id: 'asdf',
-                ip: '',
-                team_id: teamId,
-                event: 'some event',
-                properties: {},
-                site_url: 'https://example.com',
-                now: new Date().toISOString(),
-                uuid: new UUIDT().toString(),
-            })
-        ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
+        const event = {
+            distinct_id: 'asdf',
+            ip: '',
+            team_id: teamId,
+            event: 'some event',
+            properties: {},
+            site_url: 'https://example.com',
+            now: new Date().toISOString(),
+            uuid: new UUIDT().toString(),
+        }
+        await expect(new EventPipelineRunner(hub, event).runEventPipeline(event)).rejects.toEqual(
+            new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage))
+        )
         pgQueryMock.mockRestore()
     })
 })

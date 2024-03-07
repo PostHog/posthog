@@ -44,6 +44,7 @@ class Command(BaseCommand):
             cluster=CLICKHOUSE_CLUSTER,
             verify_ssl_cert=CLICKHOUSE_VERIFY,
             autocreate=False,
+            randomize_replica_paths=True,
         )
         if database.db_exists:
             print(  # noqa: T201

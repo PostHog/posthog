@@ -3,22 +3,22 @@ import './PersonsModal.scss'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonBadge,
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
     LemonModal,
+    LemonModalProps,
     LemonSelect,
     LemonSkeleton,
     Link,
 } from '@posthog/lemon-ui'
-import { LemonModalProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -99,6 +99,8 @@ export function PersonsModal({
         useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { startExport } = useActions(exportsLogic)
+
     const totalActorsCount = missingActorsCount + actors.length
 
     const getTitle = useCallback(() => {
@@ -246,7 +248,7 @@ export function PersonsModal({
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
-                                    void triggerExport({
+                                    startExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: query
                                             ? { source: actorsQuery as Record<string, any> }

@@ -1,9 +1,9 @@
 import './FeatureFlagInstructions.scss'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'

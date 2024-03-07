@@ -1,11 +1,11 @@
 import { Monaco } from '@monaco-editor/react'
+import { IconInfo, IconMagicWand } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -130,7 +130,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     <div className="flex gap-2">
                         <LemonInput
                             className="grow"
-                            prefix={<IconAutoAwesome />}
+                            prefix={<IconMagicWand />}
                             value={prompt}
                             onPressEnter={() => draftFromPrompt()}
                             onChange={(value) => setPrompt(value)}
@@ -351,6 +351,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 suggest: {
                                     showInlineDetails: true,
                                 },
+                                quickSuggestionsDelay: 300,
                             }}
                         />
                     </div>
@@ -374,7 +375,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             {!props.setQuery ? 'No permission to update' : 'Update and run'}
                         </LemonButton>
                     </div>
-                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] ? (
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? (
                         <LemonButton
                             className="ml-2"
                             onClick={saveAsView}
@@ -392,7 +393,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             Save as View
                         </LemonButton>
                     ) : null}
-                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                         <LemonButtonWithDropdown
                             className="ml-2"
                             icon={<IconInfo />}

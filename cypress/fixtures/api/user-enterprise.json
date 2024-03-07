@@ -40,7 +40,7 @@
                 "timezone": "UTC"
             }
         ],
-        "available_features": ["zapier", "organizations_projects", "social_sso", "dashboard_collaboration"]
+        "available_features": ["zapier", "organizations_projects", "social_sso", "team_collaboration"]
     },
     "organizations": [{ "id": "01787e47-5558-0000-bae1-6bc513b42abe", "name": "Hogflix Movies" }]
 }

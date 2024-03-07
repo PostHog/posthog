@@ -2,9 +2,12 @@ import './SavedInsights.scss'
 
 import {
     IconBrackets,
+    IconCoffee,
     IconFunnels,
+    IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconPerson,
     IconPlusSmall,
     IconRetention,
     IconStar,
@@ -20,17 +23,7 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import {
-    IconAction,
-    IconBarChart,
-    IconCoffee,
-    IconEvent,
-    IconGridView,
-    IconListView,
-    IconPerson,
-    IconSelectEvents,
-    IconTableChart,
-} from 'lib/lemon-ui/icons'
+import { IconAction, IconEvent, IconGridView, IconListView, IconSelectEvents, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -172,6 +165,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconAction,
         inMenu: true,
     },
+    [NodeKind.DataWarehouseNode]: {
+        name: 'Data Warehouse',
+        description: 'List and explore data warehouse tables',
+        icon: IconTableChart,
+        inMenu: true,
+    },
     [NodeKind.EventsQuery]: {
         name: 'Events Query',
         description: 'Hmmm, not every kind should be displayable I guess',
@@ -217,13 +216,13 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.SavedInsightNode]: {
         name: 'Insight visualization by short id',
         description: 'View your insights',
-        icon: IconBarChart,
+        icon: IconGraph,
         inMenu: true,
     },
     [NodeKind.InsightVizNode]: {
         name: 'Insight visualization',
         description: 'View your insights',
-        icon: IconBarChart,
+        icon: IconGraph,
         inMenu: true,
     },
     [NodeKind.TimeToSeeDataSessionsQuery]: {

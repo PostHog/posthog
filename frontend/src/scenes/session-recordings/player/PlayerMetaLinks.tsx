@@ -1,7 +1,7 @@
-import { IconNotebook, IconTrash } from '@posthog/icons'
+import { IconNotebook, IconPin, IconPinFilled, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconComment, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
+import { IconComment, IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -46,7 +46,7 @@ function PinToPlaylistButton(): JSX.Element {
             size="small"
             tooltip={tooltip}
             data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
-            icon={logicProps.pinned ? <IconPinFilled /> : <IconPinOutline />}
+            icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
         />
     ) : (
         <PlaylistPopoverButton size="small">

@@ -11,8 +11,8 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
-import { ActionsNode, BreakdownFilter, EventsNode, PathsFilter } from '~/queries/schema'
-import { isEventsNode } from '~/queries/utils'
+import { ActionsNode, BreakdownFilter, DataWarehouseNode, EventsNode, PathsFilter } from '~/queries/schema'
+import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
     AnyPartialFilterType,
@@ -59,7 +59,10 @@ export const getDisplayNameFromEntityFilter = (
     return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
 }
 
-export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isCustom = true): string | null => {
+export const getDisplayNameFromEntityNode = (
+    node: EventsNode | ActionsNode | DataWarehouseNode,
+    isCustom = true
+): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
@@ -70,7 +73,7 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
         name = 'All events'
     }
 
-    const id = isEventsNode(node) ? node.event : node.id
+    const id = isDataWarehouseNode(node) ? node.table_name : isEventsNode(node) ? node.event : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)

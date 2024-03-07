@@ -30,7 +30,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results: PluginType[] = await api.loadPaginatedResults(
+                    const results = await api.loadPaginatedResults<PluginType>(
                         `api/organizations/@current/pipeline_transformations`
                     )
                     const plugins: Record<number, PluginType> = {}
@@ -53,7 +53,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {} as Record<number, PluginConfigTypeNew>,
             {
                 loadPluginConfigs: async () => {
-                    const res: PluginConfigTypeNew[] = await api.loadPaginatedResults(
+                    const res = await api.loadPaginatedResults<PluginConfigTypeNew>(
                         `api/projects/${values.currentTeamId}/pipeline_transformation_configs`
                     )
 

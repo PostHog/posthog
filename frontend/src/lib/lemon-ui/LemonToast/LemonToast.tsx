@@ -1,8 +1,8 @@
-import { IconWarning, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import posthog from 'posthog-js'
 import { toast, ToastContentProps as ToastifyRenderProps, ToastOptions } from 'react-toastify'
 
-import { IconCheckmark, IconErrorOutline, IconInfo } from '../icons'
+import { IconErrorOutline } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { Spinner } from '../Spinner'
 
@@ -80,7 +80,7 @@ export const lemonToast = {
     success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
         toastOptions = ensureToastId(toastOptions)
         toast.success(<ToastContent type="success" message={message} button={button} id={toastOptions.toastId} />, {
-            icon: <IconCheckmark />,
+            icon: <IconCheckCircle />,
             ...toastOptions,
         })
     },
@@ -135,7 +135,7 @@ export const lemonToast = {
                     render({ data }: ToastifyRenderProps<string>) {
                         return <ToastContent type="success" message={data || messages.success} />
                     },
-                    icon: icons.success ?? <IconCheckmark />,
+                    icon: icons.success ?? <IconCheckCircle />,
                 },
                 error: {
                     render({ data }: ToastifyRenderProps<Error>) {

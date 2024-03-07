@@ -1,6 +1,6 @@
 import './FunnelCorrelationTable.scss'
 
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconTrending } from '@posthog/icons'
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 import { ConfigProvider, Empty, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
@@ -9,7 +9,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { IconSelectProperties, IconTrendingDown, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { IconSelectProperties, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -107,7 +107,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             <>
                 <h4>
                     {is_success ? (
-                        <IconTrendingUp style={{ color: 'green' }} />
+                        <IconTrending style={{ color: 'green' }} />
                     ) : (
                         <IconTrendingDown style={{ color: 'red' }} />
                     )}{' '}
@@ -141,7 +141,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         <IconSelectProperties style={{ marginRight: 4, opacity: 0.5, fontSize: 24 }} />
                         CORRELATED PROPERTIES
                     </div>
-                    <div className="table-options">
+                    <div className="table-options flex-wrap">
                         <div className="flex">
                             <p className="title">PROPERTIES</p>
                             <Popover

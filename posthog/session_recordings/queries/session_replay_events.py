@@ -69,9 +69,9 @@ class SessionReplayEvents:
                 session_id
         """
         query = query.format(
-            optional_timestamp_clause="AND min_first_timestamp >= %(recording_start_time)s"
-            if recording_start_time
-            else ""
+            optional_timestamp_clause=(
+                "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
+            )
         )
 
         replay_response: List[Tuple] = sync_execute(

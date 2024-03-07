@@ -1,6 +1,6 @@
-import { IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
+import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -83,7 +83,7 @@ function VerifiedDomainsTable(): JSX.Element {
                       render: function Verified(_, { is_verified, verified_at }) {
                           return is_verified ? (
                               <div className="flex items-center text-success">
-                                  <IconCheckmark style={iconStyle} /> Verified
+                                  <IconCheckCircle style={iconStyle} /> Verified
                               </div>
                           ) : verified_at ? (
                               <div className="flex items-center text-danger">
@@ -179,7 +179,7 @@ function VerifiedDomainsTable(): JSX.Element {
                     <>
                         {has_saml ? (
                             <div className="flex items-center text-success">
-                                <IconCheckmark style={iconStyle} /> SAML enabled
+                                <IconCheckCircle style={iconStyle} /> SAML enabled
                             </div>
                         ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
                             <div className="flex items-center text-warning">
@@ -197,22 +197,38 @@ function VerifiedDomainsTable(): JSX.Element {
             },
         },
         {
+            key: 'verify',
+            width: 32,
+            align: 'center',
+            render: function RenderActions(_, { is_verified, id }) {
+                return is_verified ? (
+                    <></>
+                ) : (
+                    <LemonButton type="primary" onClick={() => setVerifyModal(id)}>
+                        Verify
+                    </LemonButton>
+                )
+            },
+        },
+        {
             key: 'actions',
             width: 32,
             align: 'center',
             render: function RenderActions(_, { is_verified, id, domain }) {
-                return is_verified ? (
+                return (
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    onClick={() => setConfigureSAMLModalId(id)}
-                                    fullWidth
-                                    disabled={!isSAMLAvailable}
-                                    title={isSAMLAvailable ? undefined : 'Upgrade to enable SAML'}
-                                >
-                                    Configure SAML
-                                </LemonButton>
+                                {is_verified && (
+                                    <LemonButton
+                                        onClick={() => setConfigureSAMLModalId(id)}
+                                        fullWidth
+                                        disabled={!isSAMLAvailable}
+                                        title={isSAMLAvailable ? undefined : 'Upgrade to enable SAML'}
+                                    >
+                                        Configure SAML
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
@@ -231,16 +247,13 @@ function VerifiedDomainsTable(): JSX.Element {
                                         })
                                     }
                                     fullWidth
+                                    icon={<IconTrash />}
                                 >
-                                    <IconTrash /> Remove domain
+                                    Remove domain
                                 </LemonButton>
                             </>
                         }
                     />
-                ) : (
-                    <LemonButton type="primary" onClick={() => setVerifyModal(id)}>
-                        Verify
-                    </LemonButton>
                 )
             },
         },

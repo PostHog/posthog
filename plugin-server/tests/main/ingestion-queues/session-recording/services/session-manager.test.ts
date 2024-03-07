@@ -170,13 +170,19 @@ describe('session-manager', () => {
         const lastTimestamp = 1679568043305 + 4000
 
         const eventOne = createIncomingRecordingMessage({
-            events: [
-                {
-                    timestamp: firstTimestamp,
-                    type: 4,
-                    data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
-                },
-            ],
+            eventsRange: {
+                start: firstTimestamp,
+                end: firstTimestamp,
+            },
+            eventsByWindowId: {
+                window_id_1: [
+                    {
+                        timestamp: firstTimestamp,
+                        type: 4,
+                        data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
+                    },
+                ],
+            },
             metadata: {
                 // the highest offset doesn't have to be received first!
                 offset: 12345,
@@ -184,13 +190,19 @@ describe('session-manager', () => {
             } as any,
         })
         const eventTwo = createIncomingRecordingMessage({
-            events: [
-                {
-                    timestamp: lastTimestamp,
-                    type: 4,
-                    data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
-                },
-            ],
+            eventsRange: {
+                start: lastTimestamp,
+                end: lastTimestamp,
+            },
+            eventsByWindowId: {
+                window_id_1: [
+                    {
+                        timestamp: lastTimestamp,
+                        type: 4,
+                        data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
+                    },
+                ],
+            },
             metadata: {
                 offset: 12344,
                 timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
@@ -278,7 +290,7 @@ describe('session-manager', () => {
     it('flushes messages and whilst collecting new ones', async () => {
         const event = createIncomingRecordingMessage()
         const event2 = createIncomingRecordingMessage({
-            events: [{ timestamp: 1234, type: 4, data: { href: 'http://localhost:3001/' } }],
+            eventsByWindowId: { window_id_1: [{ timestamp: 1234, type: 4, data: { href: 'http://localhost:3001/' } }] },
         })
         await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
@@ -313,7 +325,8 @@ describe('session-manager', () => {
             sessionManager.add(
                 createIncomingRecordingMessage({
                     metadata: {
-                        offset,
+                        lowOffset: offset,
+                        highOffset: offset,
                     } as any,
                 })
             )

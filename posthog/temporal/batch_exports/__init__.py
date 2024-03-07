@@ -1,5 +1,3 @@
-from typing import Callable, Sequence
-
 from posthog.temporal.batch_exports.backfill_batch_export import (
     BackfillBatchExportWorkflow,
     backfill_schedule,
@@ -14,6 +12,10 @@ from posthog.temporal.batch_exports.batch_exports import (
 from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
     insert_into_bigquery_activity,
+)
+from posthog.temporal.batch_exports.http_batch_export import (
+    HttpBatchExportWorkflow,
+    insert_into_http_activity,
 )
 from posthog.temporal.batch_exports.noop import NoOpWorkflow, noop_activity
 from posthog.temporal.batch_exports.postgres_batch_export import (
@@ -31,10 +33,6 @@ from posthog.temporal.batch_exports.s3_batch_export import (
 from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportWorkflow,
     insert_into_snowflake_activity,
-)
-from posthog.temporal.batch_exports.http_batch_export import (
-    HttpBatchExportWorkflow,
-    insert_into_http_activity,
 )
 from posthog.temporal.batch_exports.squash_person_overrides import *
 
@@ -54,21 +52,20 @@ ACTIVITIES = [
     backfill_schedule,
     create_batch_export_backfill_model,
     create_export_run,
-    delete_squashed_person_overrides_from_clickhouse,
-    delete_squashed_person_overrides_from_postgres,
-    drop_dictionary,
+    create_table,
+    drop_table,
     get_schedule_frequency,
     insert_into_bigquery_activity,
+    insert_into_http_activity,
     insert_into_postgres_activity,
     insert_into_redshift_activity,
     insert_into_s3_activity,
     insert_into_snowflake_activity,
-    insert_into_http_activity,
     noop_activity,
-    prepare_dictionary,
-    prepare_person_overrides,
-    select_persons_to_delete,
-    squash_events_partition,
+    optimize_person_distinct_id_overrides,
+    submit_mutation,
     update_batch_export_backfill_model_status,
     update_export_run_status,
+    wait_for_mutation,
+    wait_for_table,
 ]

@@ -14,7 +14,10 @@ from posthog.tasks.utils import CeleryQueue
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=False, queue=CeleryQueue.SESSION_REPLAY_EMBEDDINGS.value)
+# rate limits are per worker, and this task makes multiple calls to open AI
+# we currently are allowed 500 calls per minute, so let's rate limit each worker
+# to much less than that
+@shared_task(ignore_result=False, queue=CeleryQueue.SESSION_REPLAY_EMBEDDINGS.value, rate_limit="75/m")
 def embed_batch_of_recordings_task(recordings: List[Any], team_id: int) -> None:
     embed_batch_of_recordings(recordings, team_id)
 
@@ -39,6 +42,12 @@ def generate_recordings_embeddings_batch() -> None:
     for team in settings.REPLAY_EMBEDDINGS_ALLOWED_TEAMS:
         try:
             recordings = fetch_recordings_without_embeddings(int(team))
+            logger.info(
+                f"[generate_recordings_embeddings_batch] Fetched {len(recordings)} recordings",
+                recordings=recordings,
+                flow="embeddings",
+                team_id=team,
+            )
             embed_batch_of_recordings_task.si(recordings, int(team)).apply_async()
         except Team.DoesNotExist:
             logger.info(f"[generate_recordings_embeddings_batch] Team {team} does not exist. Skipping.")

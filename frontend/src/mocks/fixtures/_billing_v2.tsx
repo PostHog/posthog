@@ -148,7 +148,7 @@ export const billingJson: BillingV2Type = {
                             note: null,
                         },
                         {
-                            key: 'dashboard_permissioning',
+                            key: 'advanced_permissions',
                             name: 'Dashboard permissions',
                             description:
                                 'Restrict access to dashboards within the organization to only those who need it.',
@@ -157,7 +157,7 @@ export const billingJson: BillingV2Type = {
                             note: null,
                         },
                         {
-                            key: 'dashboard_collaboration',
+                            key: 'team_collaboration',
                             name: 'Tags & text cards',
                             description:
                                 'Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.',
@@ -781,7 +781,7 @@ export const billingJson: BillingV2Type = {
                     type: 'secondary',
                 },
                 {
-                    key: 'dashboard_collaboration',
+                    key: 'team_collaboration',
                     name: 'Tags & text cards',
                     description:
                         'Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.',
@@ -790,7 +790,7 @@ export const billingJson: BillingV2Type = {
                     type: null,
                 },
                 {
-                    key: 'dashboard_permissioning',
+                    key: 'advanced_permissions',
                     name: 'Dashboard permissions',
                     description: 'Restrict access to dashboards within the organization to only those who need it.',
                     images: null,

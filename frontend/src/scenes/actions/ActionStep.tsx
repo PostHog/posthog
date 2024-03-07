@@ -35,7 +35,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     }
 
     return (
-        <div className="ActionStep rounded border p-4 relative h-full">
+        <div className="ActionStep bg-bg-light rounded border p-4 relative">
             {index > 0 && !(index % 2 === 0) && (
                 <div className="ActionStep__or-tag">
                     <OperandTag operand="or" />
@@ -162,7 +162,7 @@ function Option({
 
     return (
         <div className="space-y-1">
-            <div className="flex space-x-1">
+            <div className="flex flex-wrap gap-1">
                 <LemonLabel>{label}</LemonLabel>
                 {extra_options}
             </div>

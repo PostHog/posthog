@@ -4,7 +4,6 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { mswDecorator } from '~/mocks/browser'
-import { billingJson } from '~/mocks/fixtures/_billing_v2'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {
@@ -24,9 +23,6 @@ const meta: Meta = {
                 '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
                 '/api/projects/:team_id/persons/properties': samplePersonProperties,
                 '/api/projects/:team_id/groups_types': [],
-                '/api/billing-v2/': {
-                    ...billingJson,
-                },
             },
             post: {
                 '/api/projects/:team_id/cohorts/': { id: 1 },

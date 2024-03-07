@@ -24,7 +24,6 @@ import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
 import { runOnEvent } from '../../../src/worker/plugins/run'
 import { pluginConfig39 } from '../../helpers/plugins'
-import { runEventPipeline } from './../../../src/worker/ingestion/event-pipeline/runner'
 
 jest.mock('../../../src/worker/plugins/run')
 
@@ -37,9 +36,13 @@ jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', (
 })
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
+
+const runEventPipeline = jest.fn().mockResolvedValue('default value')
+
 jest.mock('./../../../src/worker/ingestion/event-pipeline/runner', () => ({
-    runEventPipeline: jest.fn().mockResolvedValue('default value'),
-    // runEventPipeline: jest.fn().mockRejectedValue('default value'),
+    EventPipelineRunner: jest.fn().mockImplementation(() => ({
+        runEventPipeline: runEventPipeline,
+    })),
 }))
 
 const event: PostIngestionEvent = {
@@ -375,19 +378,12 @@ describe('eachBatchX', () => {
     })
 
     describe('eachBatchParallelIngestion', () => {
-        let runEventPipelineSpy
-        beforeEach(() => {
-            runEventPipelineSpy = jest.spyOn(
-                require('./../../../src/worker/ingestion/event-pipeline/runner'),
-                'runEventPipeline'
-            )
-        })
         it('calls runEventPipeline', async () => {
             const batch = createBatch(captureEndpointEvent)
             const tokenBlockList = buildStringMatcher('another_token,more_token', false)
             await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Disabled)
 
-            expect(runEventPipeline).toHaveBeenCalledWith(expect.anything(), {
+            expect(runEventPipeline).toHaveBeenCalledWith({
                 distinct_id: 'id',
                 event: 'event',
                 properties: {},
@@ -402,7 +398,7 @@ describe('eachBatchX', () => {
 
         it("doesn't fail the batch if runEventPipeline rejects once then succeeds on retry", async () => {
             const batch = createBatch(captureEndpointEvent)
-            runEventPipelineSpy.mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+            runEventPipeline.mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
             const tokenBlockList = buildStringMatcher('another_token,more_token', false)
             await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Disabled)
             expect(runEventPipeline).toHaveBeenCalledTimes(2)
@@ -410,7 +406,7 @@ describe('eachBatchX', () => {
 
         it('fails the batch if one deferred promise rejects', async () => {
             const batch = createBatch(captureEndpointEvent)
-            runEventPipelineSpy.mockImplementationOnce(() =>
+            runEventPipeline.mockImplementationOnce(() =>
                 Promise.resolve({
                     promises: [Promise.resolve(), Promise.reject('deferred nopes out')],
                 })
@@ -518,7 +514,7 @@ describe('eachBatchX', () => {
         it('fails the batch if runEventPipeline rejects repeatedly', async () => {
             const tokenBlockList = buildStringMatcher('another_token,more_token', false)
             const batch = createBatch(captureEndpointEvent)
-            runEventPipelineSpy
+            runEventPipeline
                 .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
                 .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
                 .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
@@ -526,7 +522,7 @@ describe('eachBatchX', () => {
                 eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Disabled)
             ).rejects.toBe('runEventPipeline nopes out')
             expect(runEventPipeline).toHaveBeenCalledTimes(3)
-            runEventPipelineSpy.mockRestore()
+            runEventPipeline.mockRestore()
         })
     })
 })

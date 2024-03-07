@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
-from posthog.schema import ActionsNode, EventsNode
+from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode
 from posthog.queries.util import correct_result_for_sampling
 
 
@@ -230,12 +230,15 @@ class FunnelUnordered(FunnelBase):
 
     def _serialize_step(
         self,
-        step: ActionsNode | EventsNode,
+        step: ActionsNode | EventsNode | DataWarehouseNode,
         count: int,
         index: int,
         people: Optional[List[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
     ) -> Dict[str, Any]:
+        if isinstance(step, DataWarehouseNode):
+            raise NotImplementedError("Data Warehouse queries are not supported in funnels")
+
         return {
             "action_id": None,
             "name": f"Completed {index+1} step{'s' if index != 0 else ''}",

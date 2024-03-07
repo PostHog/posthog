@@ -98,7 +98,7 @@ function DestinationsTable(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Success rate',
+                        title: 'Weekly volume',
                         render: function RenderSuccessRate(_, destination) {
                             return <AppMetricSparkLine pipelineNode={destination} />
                         },

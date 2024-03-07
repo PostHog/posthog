@@ -1,5 +1,5 @@
 import * as Icons from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -20,68 +20,16 @@ export const scene: SceneExport = {
     component: Products,
 }
 
-function OnboardingCompletedButton({
-    productUrl,
-    onboardingUrl,
-    productKey,
-    getStartedActionOverride,
-}: {
-    productUrl: string
-    onboardingUrl: string
-    productKey: ProductKey
-    getStartedActionOverride?: () => void
-}): JSX.Element {
-    const { setTeamPropertiesForProduct } = useActions(onboardingLogic)
-    return (
-        <>
-            <LemonButton type="secondary" to={productUrl}>
-                Go to product
-            </LemonButton>
-            <LemonButton
-                type="tertiary"
-                onClick={() => {
-                    setTeamPropertiesForProduct(productKey as ProductKey)
-                    if (getStartedActionOverride) {
-                        getStartedActionOverride()
-                    }
-                    router.actions.push(onboardingUrl)
-                }}
-            >
-                Set up again
-            </LemonButton>
-        </>
-    )
+const ProductNameToColor = {
+    'Product analytics': 'blue',
+    'Session replay': 'var(--warning)',
+    'Feature flags & A/B testing': 'seagreen',
+    Surveys: 'salmon',
 }
 
-function OnboardingNotCompletedButton({
-    url,
-    productKey,
-    getStartedActionOverride,
-}: {
-    url: string
-    productKey: ProductKey
-    getStartedActionOverride?: () => void
-}): JSX.Element {
-    const { setTeamPropertiesForProduct } = useActions(onboardingLogic)
-    return (
-        <LemonButton
-            type="primary"
-            onClick={() => {
-                setTeamPropertiesForProduct(productKey as ProductKey)
-                if (getStartedActionOverride) {
-                    getStartedActionOverride()
-                }
-                router.actions.push(url)
-            }}
-            data-attr={`${productKey}-get-started-button`}
-        >
-            Get started
-        </LemonButton>
-    )
-}
-
-export function getProductIcon(iconKey?: string | null, className?: string): JSX.Element {
-    return Icons[iconKey || 'IconLogomark'].render({ className })
+export function getProductIcon(productName: string, iconKey?: string | null, className?: string): JSX.Element {
+    const Icon = Icons[iconKey || 'IconLogomark']
+    return <Icon className={className} color={ProductNameToColor[productName] || 'none'} />
 }
 
 export function ProductCard({
@@ -105,47 +53,40 @@ export function ProductCard({
 
     return (
         <LemonCard
-            className={clsx('flex gap-4', vertical ? 'flex-col max-w-80' : 'items-center', className)}
+            data-attr={`${product.type}-onboarding-card`}
+            className={clsx('flex justify-center cursor-pointer', vertical ? 'flex-col' : 'items-center', className)}
             key={product.type}
+            onClick={() => {
+                setIncludeIntro(false)
+                if (!onboardingCompleted) {
+                    const includeFirstOnboardingProductOnUserProperties = user?.date_joined
+                        ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
+                        : false
+                    reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
+                    getStartedActionOverride && getStartedActionOverride()
+                }
+                router.actions.push(urls.onboarding(product.type))
+            }}
         >
-            <div className="flex">
-                <div>
-                    <div className="bg-mid rounded p-2">{getProductIcon(product.icon_key, 'text-2xl')}</div>
-                </div>
-            </div>
-            <div className="flex-1">
-                <h3 className={`bold ${vertical ? 'mb-2' : 'mb-0'}`}>{product.name}</h3>
-                <p className="grow m-0">{product.description}</p>
-            </div>
-            <div className={`flex gap-x-2 flex-0 items-center ${!vertical && 'justify-end'}`}>
-                {onboardingCompleted ? (
-                    <OnboardingCompletedButton
-                        productUrl={getProductUri(product.type as ProductKey, featureFlags)}
-                        onboardingUrl={urls.onboarding(product.type)}
-                        productKey={product.type as ProductKey}
-                        getStartedActionOverride={() => {
-                            setIncludeIntro(false)
+            {onboardingCompleted && (
+                <Tooltip
+                    title="You've already set up this product. Click to return to this product's page."
+                    placement="right"
+                >
+                    <div
+                        className="relative"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            router.actions.push(getProductUri(product.type as ProductKey, featureFlags))
                         }}
-                    />
-                ) : (
-                    <div>
-                        <OnboardingNotCompletedButton
-                            url={urls.onboarding(product.type)}
-                            productKey={product.type as ProductKey}
-                            getStartedActionOverride={() => {
-                                setIncludeIntro(false)
-                                const includeFirstOnboardingProductOnUserProperties = user?.date_joined
-                                    ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
-                                    : false
-                                reportOnboardingProductSelected(
-                                    product.type,
-                                    includeFirstOnboardingProductOnUserProperties
-                                )
-                                getStartedActionOverride && getStartedActionOverride()
-                            }}
-                        />
+                    >
+                        <Icons.IconCheckCircle className="absolute top-0 right-0" color="green" />
                     </div>
-                )}
+                </Tooltip>
+            )}
+            <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center">
+                <div className="self-center">{getProductIcon(product.name, product.icon_key, 'text-2xl')}</div>
+                <div className="font-bold text-center self-start text-md">{product.name}</div>
             </div>
         </LemonCard>
     )
@@ -157,19 +98,18 @@ export function Products(): JSX.Element {
     const products = billing?.products || []
 
     return (
-        <div className="flex flex-col flex-1 w-full h-full p-6 items-center justify-center bg-mid">
+        <div className="flex flex-col flex-1 w-full px-6 items-center justify-center bg-mid h-[calc(100vh-var(--breadcrumbs-height-full)-2*var(--scene-padding))]">
             <div className="mb-8">
-                <h1 className="text-center text-4xl">
-                    Pick your {isFirstProductOnboarding ? 'first' : 'next'} product.
-                </h1>
-                <p className="text-center">
-                    Pick your {isFirstProductOnboarding ? 'first' : 'next'} product to get started with. You can set up
-                    any others you'd like later.
-                </p>
+                {isFirstProductOnboarding ? (
+                    <h2 className="text-center text-4xl">Where do you want to start?</h2>
+                ) : (
+                    <h2 className="text-center text-4xl">Welcome back. What would you like to set up?</h2>
+                )}
+                {isFirstProductOnboarding && <p className="text-center">You can set up additional products later.</p>}
             </div>
             {products.length > 0 ? (
                 <>
-                    <div className="flex w-full max-w-300 justify-center gap-6 flex-wrap">
+                    <div className="grid gap-4 grid-rows-[150px] grid-cols-[repeat(2,_minmax(min-content,_150px))] md:grid-cols-[repeat(4,_minmax(min-content,_150px))] ">
                         {products
                             .filter(
                                 (product) =>

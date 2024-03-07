@@ -1,11 +1,10 @@
-import { IconKeyboard, IconPinFilled } from '@posthog/icons'
+import { IconBug, IconClock, IconCursorClick, IconKeyboard, IconMagicWand, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconAutoAwesome, IconAutocapture, IconSchedule } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -22,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { DurationType, SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
@@ -48,8 +48,8 @@ function RecordingDuration({
     const [hours, minutes, seconds] = formattedDuration.split(':')
 
     return (
-        <div className="flex items-center flex-1 justify-end font-semibold">
-            <IconSchedule className={iconClassNames} />
+        <div className="flex items-center flex-1 space-x-1 justify-end font-semibold">
+            <IconClock className={iconClassNames} />
             <span>
                 <span className={clsx(hours === '00' && 'opacity-50 font-normal')}>{hours}:</span>
                 <span
@@ -61,6 +61,25 @@ function RecordingDuration({
                 </span>
                 {seconds}
             </span>
+        </div>
+    )
+}
+
+function ErrorCount({
+    iconClassNames,
+    errorCount,
+}: {
+    iconClassNames: string
+    errorCount: number | undefined
+}): JSX.Element {
+    if (errorCount === undefined) {
+        return <div className="flex items-center flex-1 justify-end font-semibold">-</div>
+    }
+
+    return (
+        <div className="flex items-center flex-1 space-x-1 justify-end font-semibold">
+            <IconBug className={iconClassNames} />
+            <span>{errorCount}</span>
         </div>
     )
 }
@@ -179,7 +198,7 @@ function ActivityIndicators({
                 title={`Mouse clicks: ${recording.click_count}`}
                 className="flex items-center gap-1  overflow-hidden shrink-0"
             >
-                <IconAutocapture />
+                <IconCursorClick />
                 {recording.click_count}
             </span>
 
@@ -243,9 +262,10 @@ export function SessionRecordingPreview({
     summariseFn,
     sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
+    const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
-    const iconClassnames = clsx('SessionRecordingPreview__property-icon text-base text-muted-alt')
+    const iconClassnames = 'SessionRecordingPreview__property-icon text-base text-muted-alt'
 
     const [summaryPopoverIsVisible, setSummaryPopoverIsVisible] = useState<boolean>(false)
 
@@ -282,7 +302,7 @@ export function SessionRecordingPreview({
                                     summaryButtonIsVisible ? 'block' : 'hidden',
                                     'absolute right-px top-px'
                                 )}
-                                icon={<IconAutoAwesome />}
+                                icon={<IconMagicWand />}
                                 onClick={(e) => {
                                     e.preventDefault()
                                     e.stopPropagation()
@@ -304,10 +324,17 @@ export function SessionRecordingPreview({
                         </div>
                         <div className="flex-1" />
 
-                        <RecordingDuration
-                            iconClassNames={iconClassnames}
-                            recordingDuration={durationToShow(recording, durationTypeToShow)}
-                        />
+                        {orderBy === 'console_error_count' ? (
+                            <ErrorCount iconClassNames={iconClassnames} errorCount={recording.console_error_count} />
+                        ) : (
+                            <RecordingDuration
+                                iconClassNames={iconClassnames}
+                                recordingDuration={durationToShow(
+                                    recording,
+                                    orderBy === 'start_time' ? durationTypeToShow : orderBy
+                                )}
+                            />
+                        )}
                     </div>
 
                     <div className="flex items-center justify-between gap-2">

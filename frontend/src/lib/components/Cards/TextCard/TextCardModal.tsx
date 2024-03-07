@@ -46,7 +46,7 @@ export function TextCardModal({
                     >
                         Cancel
                     </LemonButton>
-                    {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                    {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && (
                         <LemonButton
                             disabledReason={textTileValidationErrors.body as string | null}
                             loading={isTextTileSubmitting}
@@ -70,7 +70,7 @@ export function TextCardModal({
                 className=""
                 enableFormOnSubmit
             >
-                <PayGateMini feature={AvailableFeature.DASHBOARD_COLLABORATION}>
+                <PayGateMini feature={AvailableFeature.TEAM_COLLABORATION}>
                     <Field name="body" label="">
                         <LemonTextAreaMarkdown data-attr="text-card-edit-area" />
                     </Field>

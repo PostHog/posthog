@@ -1,5 +1,6 @@
 import datetime
 from textwrap import indent
+from django.conf import settings
 
 from django.core.management.base import BaseCommand
 from infi.clickhouse_orm import Database
@@ -59,6 +60,7 @@ class Command(BaseCommand):
             password=CLICKHOUSE_PASSWORD,
             cluster=CLICKHOUSE_CLUSTER,
             verify_ssl_cert=False,
+            randomize_replica_paths=settings.TEST,
         )
         if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")

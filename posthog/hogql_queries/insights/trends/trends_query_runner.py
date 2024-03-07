@@ -1,3 +1,4 @@
+from typing import Union
 from copy import deepcopy
 from datetime import timedelta
 from itertools import groupby
@@ -28,7 +29,9 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.data_warehouse_trends_query_builder import DataWarehouseTrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -49,6 +52,7 @@ from posthog.schema import (
     CompareItem,
     DayItem,
     EventsNode,
+    DataWarehouseNode,
     HogQLQueryResponse,
     InCohortVia,
     InsightActorsQueryOptionsResponse,
@@ -118,14 +122,27 @@ class TrendsQueryRunner(QueryRunner):
                 else:
                     query_date_range = self.query_previous_date_range
 
-                query_builder = TrendsQueryBuilder(
-                    trends_query=series.overriden_query or self.query,
-                    team=self.team,
-                    query_date_range=query_date_range,
-                    series=series.series,
-                    timings=self.timings,
-                    modifiers=self.modifiers,
-                )
+                query_builder: TrendsQueryBuilderAbstract
+
+                if isinstance(series.series, DataWarehouseNode):
+                    query_builder = DataWarehouseTrendsQueryBuilder(
+                        trends_query=series.overriden_query or self.query,
+                        team=self.team,
+                        query_date_range=query_date_range,
+                        series=series.series,
+                        timings=self.timings,
+                        modifiers=self.modifiers,
+                    )
+                else:
+                    query_builder = TrendsQueryBuilder(
+                        trends_query=series.overriden_query or self.query,
+                        team=self.team,
+                        query_date_range=query_date_range,
+                        series=series.series,
+                        timings=self.timings,
+                        modifiers=self.modifiers,
+                    )
+
                 queries.append(query_builder.build_query())
 
         return queries
@@ -139,6 +156,10 @@ class TrendsQueryRunner(QueryRunner):
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
             series = self.query.series[series_index]
+
+            # TODO: Add support for DataWarehouseNode
+            if isinstance(series, DataWarehouseNode):
+                raise Exception("DataWarehouseNode is not supported for actors query")
 
             if compare == Compare.previous:
                 query_date_range = self.query_previous_date_range
@@ -187,6 +208,10 @@ class TrendsQueryRunner(QueryRunner):
 
         # Breakdowns
         for series in self.query.series:
+            # TODO: Add support for DataWarehouseNode
+            if isinstance(series, DataWarehouseNode):
+                continue
+
             # TODO: Work out if we will have issues only getting breakdown values for
             # the "current" period and not "previous" period for when "compare" is turned on
             query_date_range = self.query_date_range
@@ -247,17 +272,17 @@ class TrendsQueryRunner(QueryRunner):
         queries = self.to_queries()
 
         if len(queries) == 1:
-            resonse_hogql_query = queries[0]
+            response_hogql_query = queries[0]
         else:
-            resonse_hogql_query = ast.SelectUnionQuery(select_queries=[])
+            response_hogql_query = ast.SelectUnionQuery(select_queries=[])
             for query in queries:
                 if isinstance(query, ast.SelectQuery):
-                    resonse_hogql_query.select_queries.append(query)
+                    response_hogql_query.select_queries.append(query)
                 else:
-                    resonse_hogql_query.select_queries.extend(query.select_queries)
+                    response_hogql_query.select_queries.extend(query.select_queries)
 
         with self.timings.measure("printing_hogql_for_response"):
-            response_hogql = to_printed_hogql(resonse_hogql_query, self.team, self.modifiers)
+            response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
 
         res_matrix: List[List[Any] | Any | None] = [None] * len(queries)
         timings_matrix: List[List[QueryTiming] | None] = [None] * len(queries)
@@ -366,7 +391,9 @@ class TrendsQueryRunner(QueryRunner):
                             "%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else "")
                         )
                         for item in get_value("date", val)
-                    ],
+                    ]
+                    if response.columns and "date" in response.columns
+                    else [],
                     "count": 0,
                     "aggregated_value": get_value("total", val),
                     "label": "All events" if series_label is None else series_label,
@@ -511,13 +538,17 @@ class TrendsQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def series_event(self, series: EventsNode | ActionsNode) -> str | None:
+    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
             action = Action.objects.get(pk=int(series.id), team=self.team)
             return action.name
+
+        if isinstance(series, DataWarehouseNode):
+            return series.table_name
+
         return None
 
     def update_hogql_modifiers(self) -> None:
@@ -551,13 +582,16 @@ class TrendsQueryRunner(QueryRunner):
             updated_series = []
             if isinstance(self.query.breakdownFilter.breakdown, List):
                 cohort_ids = self.query.breakdownFilter.breakdown
-            else:
+            elif self.query.breakdownFilter.breakdown is not None:
                 cohort_ids = [self.query.breakdownFilter.breakdown]
+            else:
+                cohort_ids = []
 
             for cohort_id in cohort_ids:
                 for series in series_with_extras:
                     copied_query = deepcopy(self.query)
-                    copied_query.breakdownFilter.breakdown = cohort_id
+                    if copied_query.breakdownFilter is not None:
+                        copied_query.breakdownFilter.breakdown = cohort_id
 
                     updated_series.append(
                         SeriesWithExtras(
@@ -602,24 +636,44 @@ class TrendsQueryRunner(QueryRunner):
             for _, group in groupby(sorted_results, key=itemgetter("compare_label")):
                 group_list = list(group)
 
-                series_data = map(lambda s: s["data"], group_list)
-                new_series_data = FormulaAST(series_data).call(formula)
+                if self._trends_display.should_aggregate_values():
+                    series_data = list(map(lambda s: [s["aggregated_value"]], group_list))
+                    new_series_data = FormulaAST(series_data).call(formula)
 
-                new_result = group_list[0]
-                new_result["data"] = new_series_data
-                new_result["count"] = float(sum(new_series_data))
-                new_result["label"] = f"Formula ({formula})"
+                    new_result = group_list[0]
+                    new_result["aggregated_value"] = float(sum(new_series_data))
+                    new_result["data"] = None
+                    new_result["count"] = 0
+                    new_result["label"] = f"Formula ({formula})"
+                    res.append(new_result)
+                else:
+                    series_data = list(map(lambda s: s["data"], group_list))
+                    new_series_data = FormulaAST(series_data).call(formula)
 
-                res.append(new_result)
+                    new_result = group_list[0]
+                    new_result["data"] = new_series_data
+                    new_result["count"] = float(sum(new_series_data))
+                    new_result["label"] = f"Formula ({formula})"
+                    res.append(new_result)
             return res
 
-        series_data = map(lambda s: s["data"], results)
-        new_series_data = FormulaAST(series_data).call(formula)
-        new_result = results[0]
+        if self._trends_display.should_aggregate_values():
+            series_data = list(map(lambda s: [s["aggregated_value"]], results))
+            new_series_data = FormulaAST(series_data).call(formula)
 
-        new_result["data"] = new_series_data
-        new_result["count"] = float(sum(new_series_data))
-        new_result["label"] = f"Formula ({formula})"
+            new_result = results[0]
+            new_result["aggregated_value"] = float(sum(new_series_data))
+            new_result["data"] = None
+            new_result["count"] = 0
+            new_result["label"] = f"Formula ({formula})"
+        else:
+            series_data = list(map(lambda s: s["data"], results))
+            new_series_data = FormulaAST(series_data).call(formula)
+
+            new_result = results[0]
+            new_result["data"] = new_series_data
+            new_result["count"] = float(sum(new_series_data))
+            new_result["label"] = f"Formula ({formula})"
 
         return [new_result]
 

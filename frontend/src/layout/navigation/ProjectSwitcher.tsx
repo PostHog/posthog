@@ -50,8 +50,6 @@ export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () =
                     onClickInside?.()
                     guardAvailableFeature(
                         AvailableFeature.ORGANIZATIONS_PROJECTS,
-                        'multiple projects',
-                        'Projects allow you to separate data and configuration for different products or environments.',
                         showCreateProjectModal,
                         undefined,
                         currentOrganization?.teams?.length

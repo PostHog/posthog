@@ -1,5 +1,6 @@
+import { IconClock } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { MouseEventHandler } from 'react'
 
@@ -70,7 +71,7 @@ export function PathNodeCardMenu({
             )}
             {!isPathStart && (
                 <CardItem
-                    icon={<IconSchedule className="text-xl shrink-0 text-muted" />}
+                    icon={<IconClock className="text-xl shrink-0 text-muted" />}
                     text="Average time from previous step"
                     count={<b className="pr-2">{humanFriendlyDuration(averageConversionTime)}</b>}
                 />

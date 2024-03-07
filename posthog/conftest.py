@@ -96,6 +96,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         password=settings.CLICKHOUSE_PASSWORD,
         cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
+        randomize_replica_paths=True,
     )
 
     if not django_db_keepdb:

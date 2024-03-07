@@ -1,8 +1,6 @@
 import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyMilliseconds, humanizeBytes, isURL } from 'lib/utils'
@@ -309,9 +307,7 @@ export function ItemPerformanceEvent({
                         </>
                     ) : (
                         <>
-                            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                                <StatusRow item={item} />
-                            </FlaggedFeature>
+                            <StatusRow item={item} />
                             <p>
                                 Request started at{' '}
                                 <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and took{' '}
@@ -341,84 +337,77 @@ export function ItemPerformanceEvent({
                     <LemonDivider dashed />
                     {['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') ? (
                         <>
-                            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
-                                <LemonTabs
-                                    activeKey={activeTab}
-                                    onChange={(newKey) => setActiveTab(newKey)}
-                                    tabs={[
-                                        {
-                                            key: 'timings',
-                                            label: 'Timings',
-                                            content: (
-                                                <>
-                                                    <SimpleKeyValueList item={sanitizedProps} />
-                                                    <LemonDivider dashed />
-                                                    <NetworkRequestTiming performanceEvent={item} />
-                                                </>
-                                            ),
-                                        },
-                                        {
-                                            key: 'headers',
-                                            label: 'Headers',
-                                            content: (
-                                                <HeadersDisplay
-                                                    request={item.request_headers}
-                                                    response={item.response_headers}
-                                                    isInitial={item.is_initial}
-                                                />
-                                            ),
-                                        },
-                                        item.entry_type !== 'navigation' && {
-                                            key: 'payload',
-                                            label: 'Payload',
-                                            content: (
-                                                <BodyDisplay
-                                                    content={item.request_body}
-                                                    headers={item.request_headers}
-                                                    emptyMessage={
-                                                        item.is_initial
-                                                            ? 'Request captured before PostHog was initialized'
-                                                            : 'No request body captured'
-                                                    }
-                                                />
-                                            ),
-                                        },
-                                        item.entry_type !== 'navigation' && item.response_body
-                                            ? {
-                                                  key: 'response_body',
-                                                  label: 'Response',
-                                                  content: (
-                                                      <BodyDisplay
-                                                          content={item.response_body}
-                                                          headers={item.response_headers}
-                                                          emptyMessage={
-                                                              item.is_initial
-                                                                  ? 'Response captured before PostHog was initialized'
-                                                                  : 'No response body captured'
-                                                          }
-                                                      />
-                                                  ),
-                                              }
-                                            : false,
-                                        // raw is only available if the feature flag is enabled
-                                        // TODO before proper release we should put raw behind its own flag
-                                        {
-                                            key: 'raw',
-                                            label: 'Json',
-                                            content: (
-                                                <CodeSnippet language={Language.JSON} wrap thing="performance event">
-                                                    {JSON.stringify(item.raw, null, 2)}
-                                                </CodeSnippet>
-                                            ),
-                                        },
-                                    ]}
-                                />
-                            </FlaggedFeature>
-                            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={false}>
-                                <SimpleKeyValueList item={sanitizedProps} />
-                                <LemonDivider dashed />
-                                <NetworkRequestTiming performanceEvent={item} />
-                            </FlaggedFeature>
+                            <LemonTabs
+                                activeKey={activeTab}
+                                onChange={(newKey) => setActiveTab(newKey)}
+                                tabs={[
+                                    {
+                                        key: 'timings',
+                                        label: 'Timings',
+                                        content: (
+                                            <>
+                                                <SimpleKeyValueList item={sanitizedProps} />
+                                                <LemonDivider dashed />
+                                                <NetworkRequestTiming performanceEvent={item} />
+                                            </>
+                                        ),
+                                    },
+                                    {
+                                        key: 'headers',
+                                        label: 'Headers',
+                                        content: (
+                                            <HeadersDisplay
+                                                request={item.request_headers}
+                                                response={item.response_headers}
+                                                isInitial={item.is_initial}
+                                            />
+                                        ),
+                                    },
+                                    item.entry_type !== 'navigation' && {
+                                        key: 'payload',
+                                        label: 'Payload',
+                                        content: (
+                                            <BodyDisplay
+                                                content={item.request_body}
+                                                headers={item.request_headers}
+                                                emptyMessage={
+                                                    item.is_initial
+                                                        ? 'Request captured before PostHog was initialized'
+                                                        : 'No request body captured'
+                                                }
+                                            />
+                                        ),
+                                    },
+                                    item.entry_type !== 'navigation' && item.response_body
+                                        ? {
+                                              key: 'response_body',
+                                              label: 'Response',
+                                              content: (
+                                                  <BodyDisplay
+                                                      content={item.response_body}
+                                                      headers={item.response_headers}
+                                                      emptyMessage={
+                                                          item.is_initial
+                                                              ? 'Response captured before PostHog was initialized'
+                                                              : 'No response body captured'
+                                                      }
+                                                  />
+                                              ),
+                                          }
+                                        : false,
+                                    // raw is only available if the feature flag is enabled
+                                    // TODO before proper release we should put raw behind its own flag
+                                    {
+                                        key: 'raw',
+                                        label: 'Json',
+                                        content: (
+                                            <CodeSnippet language={Language.JSON} wrap thing="performance event">
+                                                {JSON.stringify(item.raw, null, 2)}
+                                            </CodeSnippet>
+                                        ),
+                                    },
+                                ]}
+                            />
                         </>
                     ) : (
                         <>

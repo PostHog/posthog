@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -12,18 +12,17 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import (
     get_properties_chain,
-    series_event_name,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
+from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
 
 
 class Breakdown:
     query: TrendsQuery
     team: Team
-    series: EventsNode | ActionsNode
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
     query_date_range: QueryDateRange
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -34,7 +33,7 @@ class Breakdown:
         self,
         team: Team,
         query: TrendsQuery,
-        series: EventsNode | ActionsNode,
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
@@ -115,7 +114,7 @@ class Breakdown:
                 or_clause = ast.Or(
                     exprs=[
                         ast.CompareOperation(
-                            left=ast.Field(chain=["person", "id"]),
+                            left=ast.Field(chain=["person_id"]),
                             op=ast.CompareOperationOp.InCohort,
                             right=ast.Constant(value=breakdown),
                         )
@@ -130,7 +129,7 @@ class Breakdown:
                     return ast.Constant(value=True)
 
             return ast.CompareOperation(
-                left=ast.Field(chain=["person", "id"]),
+                left=ast.Field(chain=["person_id"]),
                 op=ast.CompareOperationOp.InCohort,
                 right=ast.Constant(value=self.query.breakdownFilter.breakdown),
             )
@@ -222,10 +221,11 @@ class Breakdown:
         with self.timings.measure("breakdown_values_query"):
             breakdown = BreakdownValues(
                 team=self.team,
-                event_name=series_event_name(self.series) or "",
+                series=self.series,
                 events_filter=self.events_filter,
                 chart_display_type=self._trends_display().display_type,
                 breakdown_filter=self.query.breakdownFilter,
+                query_date_range=self.query_date_range,
             )
             return breakdown.get_breakdown_values()
 

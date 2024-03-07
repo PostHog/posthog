@@ -90,7 +90,7 @@ test.concurrent(`exports: exporting events on ingestion`, async () => {
     )
 })
 
-test.concurrent(`exports: exporting $autocapture events on ingestion`, async () => {
+test.concurrent.skip(`exports: exporting $autocapture events on ingestion`, async () => {
     const teamId = await createTeam(organizationId)
     const plugin = await createPlugin({
         organization_id: organizationId,

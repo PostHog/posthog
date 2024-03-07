@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 from posthog.models.element import chain_to_elements
+from hashlib import shake_256
 
 
 @dataclasses.dataclass
@@ -82,6 +83,42 @@ def simplify_window_id(session_events: SessionSummaryPromptData) -> SessionSumma
         simplified_results.append(result_list)
 
     return dataclasses.replace(session_events, results=simplified_results)
+
+
+def only_pageview_urls(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
+    """
+    including the url with every event is a lot of duplication,
+    so we remove it from all events except pageviews
+    """
+    if session_events.is_empty():
+        return session_events
+
+    # find url column index
+    url_index = session_events.column_index("$current_url")
+    event_index = session_events.column_index("event")
+
+    pageview_results = []
+    for result in session_events.results:
+        if url_index is None or event_index is None:
+            pageview_results.append(result)
+            continue
+
+        url: str | None = result[url_index]
+        event: str | None = result[event_index]
+        if not url:
+            pageview_results.append(result)
+            continue
+        if event == "$pageview":
+            pageview_results.append(result)
+            continue
+
+        # otherwise we hash the url, so we have ~one token per event
+        # this would mean sessions with multiple events that only
+        # differ by URL should still have some distance between them
+        result[url_index] = shake_256(url.encode("utf-8")).hexdigest(4)
+        pageview_results.append(result)
+
+    return dataclasses.replace(session_events, results=pageview_results)
 
 
 def deduplicate_urls(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:

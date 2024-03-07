@@ -45,7 +45,7 @@ def test_csv_rendering(mock_settings, mock_request, filename):
     mock.status_code = 200
     mock.json.return_value = fixture["response"]
     mock_request.return_value = mock
-    csv_exporter.export_csv(asset)
+    csv_exporter.export_tabular(asset)
     csv_rows = asset.content.decode("utf-8").split("\r\n")
 
     assert csv_rows == fixture["csv_rows"]

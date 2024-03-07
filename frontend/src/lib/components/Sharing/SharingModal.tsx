@@ -15,8 +15,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
+import { sceneLogic } from 'scenes/sceneLogic'
 
-import { InsightModel, InsightShortId, InsightType } from '~/types'
+import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
 
 import { sharingLogic } from './sharingLogic'
 
@@ -63,6 +64,7 @@ export function SharingModalContent({
         shareLink,
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, togglePreview } = useActions(sharingLogic(logicProps))
+    const { guardAvailableFeature } = useActions(sceneLogic)
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
@@ -148,16 +150,19 @@ export function SharingModalContent({
                                                 label={
                                                     <div className="flex items-center">
                                                         <span>Show PostHog branding</span>
-                                                        {!whitelabelAvailable ? (
-                                                            <Tooltip title="Upgrade to any paid plan to hide PostHog branding">
-                                                                <IconLock className="ml-2" />
+                                                        {!whitelabelAvailable && (
+                                                            <Tooltip title="This is a premium feature, click to learn more.">
+                                                                <IconLock className="ml-1 text-muted text-base" />
                                                             </Tooltip>
-                                                        ) : null}
+                                                        )}
                                                     </div>
                                                 }
-                                                onChange={() => onChange(!value)}
+                                                onChange={() =>
+                                                    guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
+                                                        onChange(!value)
+                                                    )
+                                                }
                                                 checked={!value}
-                                                disabled={!whitelabelAvailable}
                                             />
                                         )}
                                     </LemonField>

@@ -8,4 +8,5 @@ module.exports = {
     setupFilesAfterEnv: ['./jest.setup.fetch-mock.js'],
     testMatch: ['<rootDir>/tests/**/*.test.ts'],
     testTimeout: 60000,
+    modulePathIgnorePatterns: ['<rootDir>/.tmp/'],
 }

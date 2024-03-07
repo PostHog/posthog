@@ -1,7 +1,7 @@
 import './Spinner.scss'
 
+import { IconClock } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconSchedule } from 'lib/lemon-ui/icons'
 
 export interface SpinnerProps {
     textColored?: boolean
@@ -43,7 +43,7 @@ export function SpinnerOverlay({
     return (
         <div className={clsx('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
             {mode === 'waiting' ? (
-                <IconSchedule className="text-5xl text-primary z-10 animate-pulse drop-shadow-xl" />
+                <IconClock className="text-5xl text-primary z-10 animate-pulse drop-shadow-xl" />
             ) : (
                 <Spinner className={clsx('text-5xl', className)} {...spinnerProps} />
             )}

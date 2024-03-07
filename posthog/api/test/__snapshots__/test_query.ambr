@@ -166,6 +166,7 @@
          events.elements_chain AS elements_chain,
          toTimeZone(events.created_at, 'UTC') AS created_at,
          events.`$session_id` AS `$session_id`,
+         events.`$window_id` AS `$window_id`,
          events.`$group_0` AS `$group_0`,
          events.`$group_1` AS `$group_1`,
          events.`$group_2` AS `$group_2`,

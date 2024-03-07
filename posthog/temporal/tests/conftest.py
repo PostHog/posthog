@@ -9,7 +9,7 @@ from django.conf import settings
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 
 
@@ -63,7 +63,7 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def clickhouse_client():
     """Provide a ClickHouseClient to use in tests."""
     client = ClickHouseClient(
@@ -72,6 +72,10 @@ def clickhouse_client():
         password=settings.CLICKHOUSE_PASSWORD,
         database=settings.CLICKHOUSE_DATABASE,
         output_format_arrow_string_as_string="true",
+        # This parameter is disabled (0) in production.
+        # Durting testing, it's useful to enable it to wait for mutations.
+        # Otherwise, tests that rely on running a mutation may become flaky.
+        mutations_sync=2,
     )
 
     yield client
@@ -138,3 +142,13 @@ async def temporal_worker(temporal_client, workflows, activities):
 
     worker_run.cancel()
     await asyncio.wait([worker_run])
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
