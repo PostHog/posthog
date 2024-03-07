@@ -118,7 +118,7 @@ export const PlanComparison = ({
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
-    const { surveyID } = useValues(billingProductLogic({ product }))
+    const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
 
     const upgradeButtons = plans?.map((plan, i) => {
@@ -264,11 +264,11 @@ export const PlanComparison = ({
                 {fullyFeaturedPlan?.features?.map((feature, i) => (
                     <tr
                         key={`tr-${feature.key}`}
-                        className={
+                        className={clsx(
                             i == fullyFeaturedPlan?.features?.length - 1 && !billing?.has_active_subscription
                                 ? 'PlanTable__tr__border'
                                 : ''
-                        }
+                        )}
                     >
                         <th
                             className={clsx(
@@ -278,7 +278,15 @@ export const PlanComparison = ({
                             )}
                         >
                             <Tooltip title={feature.description}>
-                                <span>{feature.name}</span>
+                                <div
+                                    className={
+                                        comparisonModalHighlightedFeatureKey === feature.key
+                                            ? 'border-b-2 border-danger-lighter px-1 pb-1 w-max'
+                                            : undefined
+                                    }
+                                >
+                                    <span>{feature.name}</span>
+                                </div>
                             </Tooltip>
                         </th>
                         {plans?.map((plan) => (

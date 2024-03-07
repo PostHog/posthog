@@ -1,16 +1,15 @@
 import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { lowercaseFirstLetter } from 'lib/utils'
+import { useValues } from 'kea'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
+
+import { PayGateMiniButton } from './PayGateMiniButton'
 
 export interface PayGateMiniProps {
     feature: AvailableFeature
@@ -38,8 +37,7 @@ export function PayGateMini({
 }: PayGateMiniProps): JSX.Element | null {
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { hasAvailableFeature, availableFeature } = useValues(userLogic)
-    const { billing } = useValues(billingLogic)
-    const { hideUpgradeModal } = useActions(sceneLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
 
     const product = billing?.products.find((product) => product.features?.some((f) => f.key === feature))
     const featureInfo = product?.features.find((f) => f.key === feature)
@@ -57,6 +55,10 @@ export function PayGateMini({
         } else {
             gateVariant = 'move-to-cloud'
         }
+    }
+
+    if (billingLoading) {
+        return null
     }
 
     if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {
@@ -96,16 +98,18 @@ export function PayGateMini({
                     </p>
                 </div>
             ) : (
-                <p>
-                    {gateVariant === 'move-to-cloud' ? (
-                        <>On PostHog Cloud, you can </>
-                    ) : (
-                        <>
-                            Upgrade your <b>{product?.name}</b> plan to{' '}
-                        </>
-                    )}
-                    {featureInfo.description ? lowercaseFirstLetter(featureInfo.description) : 'use this feature.'}
-                </p>
+                <>
+                    <p>{featureInfo.description}</p>
+                    <p>
+                        {gateVariant === 'move-to-cloud' ? (
+                            <>This feature is only available on PostHog Cloud.</>
+                        ) : (
+                            <>
+                                Upgrade your <b>{product?.name}</b> plan to use this feature.
+                            </>
+                        )}
+                    </p>
+                </>
             )}
             {isGrandfathered && (
                 <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
@@ -125,28 +129,7 @@ export function PayGateMini({
                     </>
                 </div>
             )}
-            <LemonButton
-                to={
-                    gateVariant === 'add-card'
-                        ? `/organization/billing?products=${product.type}`
-                        : gateVariant === 'contact-sales'
-                        ? `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo.name}`
-                        : gateVariant === 'move-to-cloud'
-                        ? 'https://us.posthog.com/signup?utm_medium=in-product&utm_campaign=move-to-cloud'
-                        : undefined
-                }
-                type="primary"
-                center
-                onClick={hideUpgradeModal}
-            >
-                {gateVariant === 'add-card'
-                    ? billing?.has_active_subscription
-                        ? `Upgrade ${product?.name}`
-                        : 'Subscribe now'
-                    : gateVariant === 'contact-sales'
-                    ? 'Contact sales'
-                    : 'Move to PostHog Cloud'}
-            </LemonButton>
+            <PayGateMiniButton product={product} featureInfo={featureInfo} gateVariant={gateVariant} />
         </div>
     ) : (
         <div className={className}>{children}</div>
