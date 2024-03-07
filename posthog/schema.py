@@ -1572,6 +1572,7 @@ class WebAnalyticsQueryBase(BaseModel):
     dateRange: Optional[DateRange] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     sampling: Optional[Sampling] = None
+    useSessionsTable: Optional[bool] = None
 
 
 class WebOverviewQuery(BaseModel):
@@ -1584,6 +1585,7 @@ class WebOverviewQuery(BaseModel):
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[Sampling] = None
+    useSessionsTable: Optional[bool] = None
 
 
 class WebStatsTableQuery(BaseModel):
@@ -1600,6 +1602,7 @@ class WebStatsTableQuery(BaseModel):
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
+    useSessionsTable: Optional[bool] = None
 
 
 class WebTopClicksQuery(BaseModel):
@@ -1611,6 +1614,7 @@ class WebTopClicksQuery(BaseModel):
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
     sampling: Optional[Sampling] = None
+    useSessionsTable: Optional[bool] = None
 
 
 class AnyResponseType(

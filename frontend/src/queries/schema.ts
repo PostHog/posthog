@@ -965,6 +965,7 @@ export interface WebAnalyticsQueryBase {
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
+    useSessionsTable?: boolean
 }
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {

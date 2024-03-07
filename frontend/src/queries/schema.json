@@ -5214,6 +5214,9 @@
                         }
                     },
                     "type": "object"
+                },
+                "useSessionsTable": {
+                    "type": "boolean"
                 }
             },
             "required": ["properties"],
@@ -5275,6 +5278,9 @@
                         }
                     },
                     "type": "object"
+                },
+                "useSessionsTable": {
+                    "type": "boolean"
                 }
             },
             "required": ["kind", "properties"],
@@ -5376,6 +5382,9 @@
                         }
                     },
                     "type": "object"
+                },
+                "useSessionsTable": {
+                    "type": "boolean"
                 }
             },
             "required": ["breakdownBy", "kind", "properties"],
@@ -5457,6 +5466,9 @@
                         }
                     },
                     "type": "object"
+                },
+                "useSessionsTable": {
+                    "type": "boolean"
                 }
             },
             "required": ["kind", "properties"],
