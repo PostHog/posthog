@@ -96,6 +96,7 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                     // 401 is handled by api.ts and the userLogic
                 ) {
                     let errorMessage = error.detail || error.statusText
+
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
                     }
