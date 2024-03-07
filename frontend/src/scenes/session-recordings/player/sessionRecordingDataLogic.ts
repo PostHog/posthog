@@ -742,9 +742,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         start: [
-            (s) => [s.sessionPlayerMetaData],
-            (meta): Dayjs | undefined => {
-                return meta?.start_time ? dayjs(meta.start_time) : undefined
+            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
+            (meta, sessionPlayerSnapshotData): Dayjs | undefined => {
+                // NOTE: We might end up with more snapshots than we knew about when we started the recording so we
+                // either use the metadata start point or the first snapshot, whichever is earlier.
+                const start = meta?.start_time ? dayjs(meta.start_time) : undefined
+                const snapshots = (sessionPlayerSnapshotData?.snapshots || []).sort((a, b) => a.timestamp - b.timestamp)
+                const firstEvent = snapshots[0]
+                // eslint-disable-next-line no-console
+                console.log('[wat] picking start', start?.valueOf(), firstEvent?.timestamp)
+                return firstEvent?.timestamp && firstEvent.timestamp < (start?.valueOf() ?? 0)
+                    ? dayjs(firstEvent.timestamp)
+                    : start
             },
         ],
 
