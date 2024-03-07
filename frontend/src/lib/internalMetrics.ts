@@ -3,6 +3,8 @@ import api, { getJSONOrNull } from 'lib/api'
 import posthog from 'posthog-js'
 import { getResponseBytes } from 'scenes/insights/utils'
 
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+
 export interface TimeToSeeDataPayload {
     type: 'dashboard_load' | 'insight_load' | 'properties_timeline_load' | 'property_values_load' | 'properties_load'
     context: 'dashboard' | 'insight' | 'actors_modal' | 'filters'
@@ -29,6 +31,11 @@ export function currentSessionId(): string | undefined {
 
 export async function captureTimeToSeeData(teamId: number | null, payload: TimeToSeeDataPayload): Promise<void> {
     if (window.JS_CAPTURE_TIME_TO_SEE_DATA && teamId) {
+        if (getCurrentExporterData()) {
+            // This is likely we are in a "sharing" context so we are essentially unauthenticated
+            return
+        }
+
         try {
             await api.create(`api/projects/${teamId}/insights/timing`, {
                 session_id: currentSessionId(),
