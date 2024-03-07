@@ -1,7 +1,6 @@
 import { LemonMarkdown } from '../LemonMarkdown'
 import { Link, LinkProps } from '../Link'
 
-// TODO: Rename as it might not always be a link
 export function LemonTableLink({
     title,
     description,

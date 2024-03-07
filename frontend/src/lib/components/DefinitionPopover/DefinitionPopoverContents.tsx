@@ -1,6 +1,6 @@
 import { hide } from '@floating-ui/react'
 import { IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
