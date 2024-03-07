@@ -3,7 +3,7 @@ import tiktoken
 import datetime
 import pytz
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 from abc import ABC, abstractmethod
 from prometheus_client import Histogram, Counter
@@ -75,19 +75,24 @@ SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE = Counter(
 logger = get_logger(__name__)
 
 
-class EmbeddingsRunner(ABC):
+class EmbeddingPreparation(ABC):
+    @staticmethod
+    @abstractmethod
+    def prepare(item, team) -> Tuple[str, str]:
+        raise NotImplementedError()
+
+
+class SessionEmbeddingsRunner(ABC):
     team: Team
     source_type: str
-    client: Any
+    client: Any = OpenAI(api_key="123456")
 
-    def __init__(
-        self,
-        team: Team,
-    ):
+    def __init__(self, team: Team):
         self.team = team
-        self.client = OpenAI()
 
-    def run(self, items: List[any], team: Team) -> None:
+    def run(self, items: List[any], embeddings_preparation: EmbeddingPreparation) -> None:
+        source_type = embeddings_preparation.source_type
+
         try:
             batched_embeddings = []
 
@@ -97,70 +102,74 @@ class EmbeddingsRunner(ABC):
                         f"generating embedding input for item",
                         flow="embeddings",
                         item=json.dumps(item),
-                        source_type=self.source_type,
+                        source_type=source_type,
                     )
 
-                    session_id, content = self._prepare_for_embedding(item)
+                    result = embeddings_preparation.prepare(item, self.team)
 
-                    logger.info(
-                        f"generating embedding for item",
-                        flow="embeddings",
-                        session_id=session_id,
-                        source_type=self.source_type,
-                    )
+                    if result:
+                        session_id, input = result
 
-                    with GENERATE_RECORDING_EMBEDDING_TIMING.time():
-                        embeddings = self._embed_input(content)
-
-                    logger.info(
-                        f"generated embedding for item",
-                        flow="embeddings",
-                        session_id=session_id,
-                        source_type=self.source_type,
-                    )
-
-                    if embeddings:
-                        SESSION_EMBEDDINGS_GENERATED.inc()
-                        batched_embeddings.append(
-                            {
-                                "team_id": self.team.pk,
-                                "session_id": session_id,
-                                "embeddings": embeddings,
-                                "source_type": self.source_type,
-                            }
+                        logger.info(
+                            f"generating embedding for item",
+                            flow="embeddings",
+                            session_id=session_id,
+                            source_type=source_type,
                         )
+
+                        with GENERATE_RECORDING_EMBEDDING_TIMING.labels(source_type=source_type).time():
+                            embeddings = self._embed_input(input, source_type=source_type)
+
+                        logger.info(
+                            f"generated embedding for item",
+                            flow="embeddings",
+                            session_id=session_id,
+                            source_type=source_type,
+                        )
+
+                        if embeddings:
+                            SESSION_EMBEDDINGS_GENERATED.labels(source_type=source_type).inc()
+                            batched_embeddings.append(
+                                {
+                                    "team_id": self.team.pk,
+                                    "session_id": session_id,
+                                    "embeddings": embeddings,
+                                    "source_type": source_type,
+                                }
+                            )
                 # we don't want to fail the whole batch if only a single recording fails
                 except Exception as e:
-                    SESSION_EMBEDDINGS_FAILED.inc()
+                    SESSION_EMBEDDINGS_FAILED.labels(source_type=source_type).inc()
                     logger.error(
-                        f"embed individual item error", flow="embeddings", error=e, source_type=self.source_type
+                        f"embed individual item error",
+                        flow="embeddings",
+                        error=e,
+                        source_type=source_type,
                     )
                     # so we swallow errors here
 
             if len(batched_embeddings) > 0:
-                self._flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
+                self._flush_embeddings_to_clickhouse(embeddings=batched_embeddings, source_input=source_type)
         except Exception as e:
             # but we don't swallow errors within the wider task itself
             # if something is failing here then we're most likely having trouble with ClickHouse
-            SESSION_EMBEDDINGS_FATAL_FAILED.inc()
-            logger.error(f"embed items fatal error", flow="embeddings", error=e, source_type=self.source_type)
+            SESSION_EMBEDDINGS_FATAL_FAILED.labels(source_type=source_type).inc()
+            logger.error(f"embed items fatal error", flow="embeddings", error=e, source_type=source_type)
             raise e
 
-    @abstractmethod
-    def _prepare_for_embedding(self, item):
-        raise NotImplementedError()
-
-    def _embed_input(self, input: str):
+    def _embed_input(self, input: str, source_type: str):
         token_count = self._num_tokens_for_input(input)
-        RECORDING_EMBEDDING_TOKEN_COUNT.observe(token_count)
+        RECORDING_EMBEDDING_TOKEN_COUNT.labels(source_type=source_type).observe(token_count)
         if token_count > MAX_TOKENS_FOR_MODEL:
             logger.error(
                 f"embedding input exceeds max token count for model",
                 flow="embeddings",
                 input=json.dumps(input),
-                source_type=self.source_type,
+                source_type=source_type,
             )
-            SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.inc()
+            SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.labels(
+                source_type=source_type, reason="token_count_too_high"
+            ).inc()
             return None
 
         return (
@@ -172,60 +181,52 @@ class EmbeddingsRunner(ABC):
             .embedding
         )
 
-    def _num_tokens_for_input(string: str) -> int:
+    def _num_tokens_for_input(self, string: str) -> int:
         """Returns the number of tokens in a text string."""
         return len(encoding.encode(string))
 
-    def _flush_embeddings_to_clickhouse(self, embeddings: List[Dict[str, Any]]) -> None:
+    def _flush_embeddings_to_clickhouse(self, embeddings: List[Dict[str, Any]], source_type: str) -> None:
         try:
             sync_execute(
                 "INSERT INTO session_replay_embeddings (session_id, team_id, embeddings, source_type) VALUES",
                 embeddings,
             )
-            SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.inc(len(embeddings))
+            SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.labels(source_type=source_type).inc(len(embeddings))
         except Exception as e:
-            logger.error(f"flush embeddings error", flow="embeddings", error=e, source_type=self.source_type)
-            SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE.inc(len(embeddings))
+            logger.error(f"flush embeddings error", flow="embeddings", error=e, source_type=source_type)
+            SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE.labels(source_type=source_type).inc(len(embeddings))
             raise e
 
 
-class ErrorEmbeddingsRunner(EmbeddingsRunner):
+class ErrorEmbeddingsPreparation(EmbeddingPreparation):
     source_type = "error"
 
-    def __init__(
-        self,
-        team: Team,
-    ):
-        super().__init__(team=team)
-
-    def _prepare_for_embedding(self, item):
+    @staticmethod
+    def prepare(item: Tuple[str, str], _):
         session_id = item[0]
         error_message = item[1]
         return session_id, error_message
 
 
-class SessionEmbeddingsRunner(EmbeddingsRunner):
+class SessionEventsEmbeddingsPreparation(EmbeddingPreparation):
     source_type = "session"
 
-    def __init__(
-        self,
-        team: Team,
-    ):
-        super().__init__(team=team)
-
-    def _prepare_for_embedding(self, session_id):
+    @staticmethod
+    def prepare(session_id: str, team: Team):
         eight_days_ago = datetime.datetime.now(pytz.UTC) - datetime.timedelta(days=8)
         session_metadata = SessionReplayEvents().get_metadata(
-            session_id=str(session_id), team=self.team, recording_start_time=eight_days_ago
+            session_id=str(session_id), team=team, recording_start_time=eight_days_ago
         )
         if not session_metadata:
             logger.error(f"no session metadata found for session", flow="embeddings", session_id=session_id)
-            SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.inc()
+            SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.labels(
+                source_type=SessionEventsEmbeddingsPreparation.source_type, reason="metadata_missing"
+            ).inc()
             return None
 
         session_events = SessionReplayEvents().get_events(
             session_id=str(session_id),
-            team=self.team,
+            team=team,
             metadata=session_metadata,
             events_to_ignore=[
                 "$feature_flag_called",
@@ -234,7 +235,9 @@ class SessionEmbeddingsRunner(EmbeddingsRunner):
 
         if not session_events or not session_events[0] or not session_events[1]:
             logger.error(f"no events found for session", flow="embeddings", session_id=session_id)
-            SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.inc()
+            SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.labels(
+                source_type=SessionEventsEmbeddingsPreparation.source_type, reason="events_missing"
+            ).inc()
             return None
 
         processed_sessions = collapse_sequence_of_events(
@@ -260,7 +263,7 @@ class SessionEmbeddingsRunner(EmbeddingsRunner):
             str(session_metadata)
             + "\n"
             + "\n".join(
-                self.compact_result(
+                SessionEventsEmbeddingsPreparation.compact_result(
                     event_name=result[processed_sessions_index] if processed_sessions_index is not None else "",
                     current_url=result[current_url_index] if current_url_index is not None else "",
                     elements_chain=result[elements_chain_index] if elements_chain_index is not None else "",
@@ -271,7 +274,8 @@ class SessionEmbeddingsRunner(EmbeddingsRunner):
 
         return session_id, input
 
-    def _compact_result(self, event_name: str, current_url: int, elements_chain: Dict[str, str] | str) -> str:
+    @staticmethod
+    def _compact_result(event_name: str, current_url: int, elements_chain: Dict[str, str] | str) -> str:
         elements_string = (
             elements_chain if isinstance(elements_chain, str) else ", ".join(str(e) for e in elements_chain)
         )

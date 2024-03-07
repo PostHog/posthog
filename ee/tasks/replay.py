@@ -3,10 +3,14 @@ from typing import Any, List
 import structlog
 from celery import shared_task
 
-from ee.session_recordings.ai.generate_embeddings import (
+from ee.session_recordings.ai.embeddings_queries import (
+    fetch_errors_by_session_without_embeddings,
     fetch_recordings_without_embeddings,
-    embed_batch_of_recordings,
-    embed_batch_of_errors,
+)
+from ee.session_recordings.ai.embeddings_runner import (
+    SessionEmbeddingsRunner,
+    ErrorEmbeddingsPreparation,
+    SessionEventsEmbeddingsPreparation,
 )
 from posthog import settings
 from posthog.models import Team
@@ -22,9 +26,12 @@ logger = structlog.get_logger(__name__)
 def embed_batch_of_recordings_task(recordings: List[Any], team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)
+        runner = SessionEmbeddingsRunner(team=team)
 
-        embed_batch_of_recordings(recordings, team)
-        embed_batch_of_errors(team)
+        runner.run(recordings, embeddings_preparation=SessionEventsEmbeddingsPreparation)
+
+        results = fetch_errors_by_session_without_embeddings(team)
+        runner.run(results, embeddings_preparation=ErrorEmbeddingsPreparation)
     except Team.DoesNotExist:
         logger.info(f"[embed_batch_of_recordings_task] Team {team} does not exist. Skipping.")
         pass
