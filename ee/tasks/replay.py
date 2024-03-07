@@ -30,7 +30,7 @@ def embed_batch_of_recordings_task(recordings: List[Any], team_id: int) -> None:
 
         runner.run(recordings, embeddings_preparation=SessionEventsEmbeddingsPreparation)
 
-        results = fetch_errors_by_session_without_embeddings(team)
+        results = fetch_errors_by_session_without_embeddings(team.pk)
         runner.run(results, embeddings_preparation=ErrorEmbeddingsPreparation)
     except Team.DoesNotExist:
         logger.info(f"[embed_batch_of_recordings_task] Team {team} does not exist. Skipping.")

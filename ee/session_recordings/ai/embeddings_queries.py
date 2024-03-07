@@ -9,10 +9,7 @@ BATCH_FLUSH_SIZE = settings.REPLAY_EMBEDDINGS_BATCH_SIZE
 MIN_DURATION_INCLUDE_SECONDS = settings.REPLAY_EMBEDDINGS_MIN_DURATION_SECONDS
 
 
-def fetch_errors_by_session_without_embeddings(team: Team | int, offset=0) -> List[str]:
-    if isinstance(team, int):
-        team = Team.objects.get(id=team)
-
+def fetch_errors_by_session_without_embeddings(team_id: int, offset=0) -> List[str]:
     query = """
             WITH embedded_sessions AS (
                 SELECT
@@ -40,17 +37,12 @@ def fetch_errors_by_session_without_embeddings(team: Team | int, offset=0) -> Li
             OFFSET %(offset)s
         """
 
-    # query = "SELECT log_source_id, message FROM log_entries"
-
-    # query = "INSERT INTO log_entries (log_source_id, message) VALUES ('67564324567', 'this is a message'),('2345676', 'this is a message'),('6543', 'this is a message')"
-    # sync_execute(query)
-
     return sync_execute(
         query,
         {
-            "team_id": team.pk,
-            "batch_flush_size": 10,
-            "offset": 0,
+            "team_id": team_id,
+            "batch_flush_size": BATCH_FLUSH_SIZE,
+            "offset": offset,
         },
     )
 
