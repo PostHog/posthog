@@ -2074,7 +2074,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             team_id=self.team.id,
         )
 
-        (session_recordings, _) = self._filter_recordings_by({"console_logs": ["log"]})
+        (session_recordings, _) = self._filter_recordings_by({"console_logs": ["info"]})
 
         assert sorted(
             [(sr["session_id"], sr["console_log_count"]) for sr in session_recordings],
@@ -2118,7 +2118,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             (with_logs_session_id, 4),
         ]
 
-        (session_recordings, _) = self._filter_recordings_by({"console_logs": ["log"]})
+        (session_recordings, _) = self._filter_recordings_by({"console_logs": ["info"]})
 
         assert session_recordings == []
 
@@ -2153,7 +2153,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             (with_logs_session_id, 4),
         ]
 
-        (session_recordings, _) = self._filter_recordings_by({"console_logs": ["log"]})
+        (session_recordings, _) = self._filter_recordings_by({"console_logs": ["info"]})
 
         assert session_recordings == []
 
@@ -2207,7 +2207,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             ]
         )
 
-        (session_recordings, _) = self._filter_recordings_by({"console_logs": ["log"]})
+        (session_recordings, _) = self._filter_recordings_by({"console_logs": ["info"]})
 
         assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
             [
@@ -2233,7 +2233,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             team_id=self.team.id,
             console_log_count=4,
             log_messages={
-                "log": [
+                "info": [
                     "log message 1",
                     "log message 2",
                     "log message 3",
@@ -2286,7 +2286,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                     "error message 3",
                     "error message 4",
                 ],
-                "log": ["log message 1", "log message 2", "log message 3"],
+                "info": ["log message 1", "log message 2", "log message 3"],
             },
         )
 
@@ -2336,8 +2336,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         (session_recordings, _) = self._filter_recordings_by(
             {
-                # message 5 does not match log level "log
-                "console_logs": ["log"],
+                # message 5 does not match log level "info"
+                "console_logs": ["info"],
                 "console_search_query": "message 5",
             }
         )

@@ -109,6 +109,7 @@ const meta: Meta = {
 }
 export default meta
 export function Database(): JSX.Element {
+    setFeatureFlags([FEATURE_FLAGS.DATA_WAREHOUSE])
     useEffect(() => {
         router.actions.push(urls.database())
     }, [])

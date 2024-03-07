@@ -75,12 +75,19 @@ const eventToPersonProperties = new Set([
     'utm_content',
     'utm_name',
     'utm_term',
-    'gclid',
-    'gad_source',
-    'gbraid',
-    'wbraid',
-    'fbclid',
-    'msclkid',
+    'gclid', // google ads
+    'gad_source', // google ads
+    'gclsrc', // google ads 360
+    'dclid', // google display ads
+    'gbraid', // google ads, web to app
+    'wbraid', // google ads, app to web
+    'fbclid', // facebook
+    'msclkid', // microsoft
+    'twclid', // twitter
+    'li_fat_id', // linkedin
+    'mc_cid', // mailchimp campaign id
+    'igshid', // instagram
+    'ttclid', // tiktok
 ])
 
 /** If we get new UTM params, make sure we set those  **/

@@ -1,5 +1,6 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
@@ -269,7 +270,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }
     }),
     beforeUnload(({ values }) => ({
-        enabled: () => {
+        enabled: (newLocation?: CombinedLocation) => {
             // safeguard against running this check on other scenes
             if (values.activeScene !== Scene.Insight) {
                 return false
@@ -277,6 +278,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             if (values.isDev) {
                 // TRICKY: We disable beforeUnload handling in dev, but ONLY for insights
+                return false
+            }
+
+            // If just the hash changes, don't show the prompt
+            if (router.values.currentLocation.pathname === newLocation?.pathname) {
                 return false
             }
 
