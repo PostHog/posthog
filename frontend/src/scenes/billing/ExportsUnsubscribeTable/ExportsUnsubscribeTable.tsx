@@ -23,16 +23,17 @@ export function ExportsUnsubscribeTable(): JSX.Element {
             loading={loading}
             columns={[
                 {
-                    title: 'App name',
+                    width: 0,
                     render: function RenderAppInfo(_, item) {
                         return item.icon
                     },
                 },
                 {
+                    title: 'App name',
                     render: function RenderPluginName(_, item) {
                         return (
                             <>
-                                <LemonTableLink title={item.name} description={item.description} />
+                                <LemonTableLink to={item.url} title={item.name} description={item.description} />
                             </>
                         )
                     },
