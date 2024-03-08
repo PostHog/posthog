@@ -136,13 +136,13 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
         at - datetime.timedelta(days=1),
         datetime.time.max,
         tzinfo=ZoneInfo("UTC"),
-    )  # very end of the previous day
+    )  # end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=ZoneInfo("UTC"),
-    )  # very start of the previous day
+    )  # start of the previous day
 
     return (period_start, period_end)
 
@@ -160,13 +160,13 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
         at,
         datetime.time.max,
         tzinfo=ZoneInfo("UTC"),
-    )  # very end of the reference day
+    )  # end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=ZoneInfo("UTC"),
-    )  # very start of the reference day
+    )  # start of the reference day
 
     return (period_start, period_end)
 
@@ -311,7 +311,8 @@ def render_template(
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://app.posthog.com'"
+        context["js_posthog_host"] = "'https://internal-e.posthog.com'"
+        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
