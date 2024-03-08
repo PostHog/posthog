@@ -6,7 +6,7 @@
     },
     "listeners": {
         "*:8000": {
-            "pass": "applications/posthog"
+            "pass": "routes/posthog"
         },
         "*:8001": {
             "pass": "routes/metrics"
@@ -16,6 +16,22 @@
         }
     },
     "routes": {
+        "posthog": [
+            {
+                "match": {
+                    "uri": ["/static/*"]
+                },
+                "action": {
+                    "rewrite": "`${uri.slice(7)}`",
+                    "share": ["/code/staticfiles$uri", "/code/frontend/dist$uri", "/code/posthog/year_in_posthog/images$uri"]
+                }
+            },
+            {
+                "action": {
+                    "pass": "applications/posthog"
+                }
+            }
+        ],
         "metrics": [
             {
                 "match": {
