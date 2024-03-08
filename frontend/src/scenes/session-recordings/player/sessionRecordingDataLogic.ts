@@ -29,6 +29,7 @@ import { NodeKind } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     EncodedRecordingSnapshot,
+    PerformanceEvent,
     PersonType,
     PropertyFilterType,
     PropertyOperator,
@@ -125,6 +126,29 @@ const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined =>
     return (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
 }
 
+// PerformanceEvent timestamp is for some reason string | number, yuck
+function asInt(x: string | number): number {
+    return typeof x === 'number' ? x : parseInt(x)
+}
+
+function getSnapshotSortingTimestamp(e: eventWithTime | undefined): number | undefined {
+    if (!e) {
+        return undefined
+    }
+    // rrweb network events have a timestamp, but might contain requests from before the recording started
+    if (e.type === EventType.Plugin && e.data.plugin === 'rrweb/network@1') {
+        const requests: PerformanceEvent[] = e.data.payload?.['requests'] || []
+        const sortedRequests = requests.sort((a: PerformanceEvent, b: PerformanceEvent) => {
+            const left = asInt(a.timestamp)
+            const right = asInt(b.timestamp)
+            return left - right
+        })
+        const firstTimestamp = sortedRequests.length ? sortedRequests[0].timestamp : undefined
+        return firstTimestamp !== undefined ? asInt(firstTimestamp) : undefined
+    }
+    return e.timestamp
+}
+
 export const prepareRecordingSnapshots = (
     newSnapshots?: RecordingSnapshot[],
     existingSnapshots?: RecordingSnapshot[]
@@ -138,7 +162,10 @@ export const prepareRecordingSnapshots = (
             // we have to stringify the snapshot to compare it to other snapshots.
             // so we can filter by storing them all in a set
 
-            const key = JSON.stringify(snapshot)
+            // we can see duplicates that only differ by delay - these still count as duplicates
+            // even though the delay would hide that
+            const { delay: _delay, ...delayFreeSnapshot } = snapshot
+            const key = JSON.stringify(delayFreeSnapshot)
             if (seenHashes.has(key)) {
                 return false
             } else {
@@ -146,7 +173,7 @@ export const prepareRecordingSnapshots = (
                 return true
             }
         })
-        .sort((a, b) => a.timestamp - b.timestamp)
+        .sort((a, b) => (getSnapshotSortingTimestamp(a) || 0) - (getSnapshotSortingTimestamp(b) || 0))
 }
 
 const generateRecordingReportDurations = (cache: Record<string, any>): RecordingReportLoadTimes => {
@@ -742,9 +769,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         start: [
-            (s) => [s.sessionPlayerMetaData],
-            (meta): Dayjs | undefined => {
-                return meta?.start_time ? dayjs(meta.start_time) : undefined
+            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
+            (meta, sessionPlayerSnapshotData): Dayjs | undefined => {
+                // NOTE: We might end up with more snapshots than we knew about when we started the recording so we
+                // either use the metadata start point or the first snapshot, whichever is earlier.
+                const start = meta?.start_time ? dayjs(meta.start_time) : undefined
+                const snapshots = sessionPlayerSnapshotData?.snapshots || []
+                const firstEventTimestamp = getSnapshotSortingTimestamp(snapshots[0])
+                return firstEventTimestamp && firstEventTimestamp < (start?.valueOf() ?? 0)
+                    ? dayjs(firstEventTimestamp)
+                    : start
             },
         ],
 
