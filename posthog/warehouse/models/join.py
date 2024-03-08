@@ -6,6 +6,7 @@ from django.db import models
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.parser import parse_expr
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -53,15 +54,30 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not requested_fields:
                 raise HogQLException(f"No fields requested from {to_table}")
 
+            left = parse_expr(self.source_table_key)
+            if not isinstance(left, ast.Field):
+                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+            left.chain = [from_table, *left.chain]
+
+            right = parse_expr(self.joining_table_key)
+            if not isinstance(right, ast.Field):
+                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+            right.chain = [to_table, *right.chain]
+
             join_expr = ast.JoinExpr(
-                table=ast.Field(chain=[self.joining_table_name]),
+                table=ast.SelectQuery(
+                    select=[
+                        ast.Alias(alias=alias, expr=ast.Field(chain=chain)) for alias, chain in requested_fields.items()
+                    ],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=[self.joining_table_name])),
+                ),
                 join_type="LEFT JOIN",
                 alias=to_table,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=[from_table, self.source_table_key]),
-                        right=ast.Field(chain=[to_table, self.joining_table_key]),
+                        left=left,
+                        right=right,
                     )
                 ),
             )
