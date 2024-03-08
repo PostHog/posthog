@@ -4,13 +4,13 @@ import type { Meta, Parameters, Preview } from '@storybook/react'
 import { Title, Subtitle, Description, Primary, Controls, Stories } from '@storybook/blocks'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
-import { getStorybookAppContext } from './app-context'
 import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
 import { defaultMocks } from '~/mocks/handlers'
 import { withFeatureFlags } from './decorators/withFeatureFlags'
 import { withTheme } from './decorators/withTheme'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { getStorybookAppContext } from './app-context'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
