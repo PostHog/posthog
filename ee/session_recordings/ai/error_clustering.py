@@ -8,6 +8,7 @@ import pandas as pd
 CLUSTER_REPLAY_ERRORS_TIMING = Histogram(
     "posthog_session_recordings_cluster_replay_errors",
     "Time spent clustering the embeddings of replay errors",
+    buckets=[0.5, 1, 2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60],
 )
 
 DBSCAN_EPS = settings.REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_EPS
