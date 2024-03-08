@@ -146,6 +146,13 @@ class Team(UUIDClassicModel):
         related_name="teams",
         related_query_name="team",
     )
+    project: models.ForeignKey = models.ForeignKey(
+        "posthog.Project",
+        on_delete=models.CASCADE,
+        related_name="teams",
+        related_query_name="team",
+        null=True,
+    )
     api_token: models.CharField = models.CharField(
         max_length=200,
         unique=True,
