@@ -19,8 +19,6 @@ const NEW_VIEW_LINK: DataWarehouseViewLink = {
     field_name: undefined,
 }
 
-export const HOGQL_IDENTIFIER = '$hogql'
-
 export interface KeySelectOption {
     value: string
     label: JSX.Element
@@ -41,9 +39,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         selectJoiningTable: (selectedTableName: string) => ({ selectedTableName }),
         selectSourceTable: (selectedTableName: string) => ({ selectedTableName }),
         selectSourceKey: (selectedKey: string) => ({ selectedKey, sourceTable: values.selectedSourceTable }),
-        selectSourceKeyHogQL: (hogQL: string) => ({ hogQL }),
         selectJoiningKey: (selectedKey: string) => ({ selectedKey, joiningTable: values.selectedJoiningTable }),
-        selectJoiningKeyHogQL: (hogQL: string) => ({ hogQL }),
         toggleJoinTableModal: true,
         toggleEditJoinModal: (join: DataWarehouseViewLink) => ({ join }),
         toggleNewJoinModal: true,
@@ -95,45 +91,11 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 toggleEditJoinModal: (_, { join }) => join.source_table_key ?? null,
             },
         ],
-        selectedSourceKeyHogQL: [
-            null as string | null,
-            {
-                selectSourceKeyHogQL: (_, { hogQL }) => hogQL,
-                toggleEditJoinModal: (_, { join }) => join.source_table_key_hogql ?? null,
-                selectSourceKey: (state, { selectedKey, sourceTable }) => {
-                    if (state === null && selectedKey === HOGQL_IDENTIFIER) {
-                        const firstColumn = sourceTable?.columns?.[0]?.key
-                        if (firstColumn) {
-                            return `lower(${firstColumn})`
-                        }
-                    }
-
-                    return state
-                },
-            },
-        ],
         selectedJoiningKey: [
             null as string | null,
             {
                 selectJoiningKey: (_, { selectedKey }) => selectedKey,
                 toggleEditJoinModal: (_, { join }) => join.joining_table_key ?? null,
-            },
-        ],
-        selectedJoiningKeyHogQL: [
-            null as string | null,
-            {
-                selectJoiningKeyHogQL: (_, { hogQL }) => hogQL,
-                toggleEditJoinModal: (_, { join }) => join.joining_table_key_hogql ?? null,
-                selectJoiningKey: (state, { selectedKey, joiningTable }) => {
-                    if (state === null && selectedKey === HOGQL_IDENTIFIER) {
-                        const firstColumn = joiningTable?.columns?.[0]?.key
-                        if (firstColumn) {
-                            return `lower(${firstColumn})`
-                        }
-                    }
-
-                    return state
-                },
             },
         ],
         fieldName: [
@@ -177,10 +139,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                         await api.dataWarehouseViewLinks.update(values.joinToEdit.id, {
                             source_table_name: source_table_name ?? values.selectedSourceTable.name,
                             source_table_key: values.selectedSourceKey ?? undefined,
-                            source_table_key_hogql: values.selectedSourceKeyHogQL ?? undefined,
                             joining_table_name,
                             joining_table_key: values.selectedJoiningKey ?? undefined,
-                            joining_table_key_hogql: values.selectedJoiningKeyHogQL ?? undefined,
                             field_name: values.fieldName,
                         })
 
@@ -196,10 +156,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                         await api.dataWarehouseViewLinks.create({
                             source_table_name: source_table_name ?? values.selectedSourceTable.name,
                             source_table_key: values.selectedSourceKey ?? undefined,
-                            source_table_key_hogql: values.selectedSourceKeyHogQL ?? undefined,
                             joining_table_name,
                             joining_table_key: values.selectedJoiningKey ?? undefined,
-                            joining_table_key_hogql: values.selectedJoiningKeyHogQL ?? undefined,
                             field_name: values.fieldName,
                         })
 
@@ -254,6 +212,26 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         selectedJoiningTable: [
             (s) => [s.selectedJoiningTableName, s.tables],
             (selectedJoiningTableName, tables) => tables.find((row) => row.name === selectedJoiningTableName),
+        ],
+        sourceIsUsingHogQLExpression: [
+            (s) => [s.selectedSourceKey, s.selectedSourceTable],
+            (sourceKey, sourceTable) => {
+                if (sourceKey === null) {
+                    return false
+                }
+                const column = sourceTable?.columns.find((n) => n.key == sourceKey)
+                return !column
+            },
+        ],
+        joiningIsUsingHogQLExpression: [
+            (s) => [s.selectedJoiningKey, s.selectedJoiningTable],
+            (joiningKey, joiningTable) => {
+                if (joiningKey === null) {
+                    return false
+                }
+                const column = joiningTable?.columns.find((n) => n.key == joiningKey)
+                return !column
+            },
         ],
         tableOptions: [
             (s) => [s.tables],

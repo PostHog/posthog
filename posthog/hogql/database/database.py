@@ -203,21 +203,15 @@ def create_hogql_database(
         source_table = database.get_table(join.source_table_name)
         joining_table = database.get_table(join.joining_table_name)
 
-        if join.source_table_key == "$hogql":
-            field = parse_expr(join.source_table_key_hogql)
-            if not isinstance(field, ast.Field):
-                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
-            from_field = field.chain
-        else:
-            from_field = [join.source_table_key]
+        field = parse_expr(join.source_table_key)
+        if not isinstance(field, ast.Field):
+            raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+        from_field = field.chain
 
-        if join.joining_table_key == "$hogql":
-            field = parse_expr(join.joining_table_key_hogql)
-            if not isinstance(field, ast.Field):
-                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
-            to_field = field.chain
-        else:
-            to_field = [join.joining_table_key]
+        field = parse_expr(join.joining_table_key)
+        if not isinstance(field, ast.Field):
+            raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+        to_field = field.chain
 
         source_table.fields[join.field_name] = LazyJoin(
             from_field=from_field,

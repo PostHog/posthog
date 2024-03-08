@@ -109,8 +109,7 @@ class TestLazyJoins(BaseTest):
             source_table_name="cohort_people",
             source_table_key="person_id",
             joining_table_name="persons",
-            joining_table_key="$hogql",
-            joining_table_key_hogql="properties.email",
+            joining_table_key="properties.email",
             field_name="new_person",
         ).save()
 
@@ -122,8 +121,7 @@ class TestLazyJoins(BaseTest):
         DataWarehouseJoin(
             team=self.team,
             source_table_name="persons",
-            source_table_key="$hogql",
-            source_table_key_hogql="properties.email",
+            source_table_key="properties.email",
             joining_table_name="events",
             joining_table_key="event",
             field_name="events",

@@ -36,10 +36,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     source_table_name: models.CharField = models.CharField(max_length=400)
     source_table_key: models.CharField = models.CharField(max_length=400)
-    source_table_key_hogql: models.CharField = models.CharField(max_length=400, null=True)
     joining_table_name: models.CharField = models.CharField(max_length=400)
     joining_table_key: models.CharField = models.CharField(max_length=400)
-    joining_table_key_hogql: models.CharField = models.CharField(max_length=400, null=True)
     field_name: models.CharField = models.CharField(max_length=400)
 
     @property
@@ -56,21 +54,15 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if not requested_fields:
                 raise HogQLException(f"No fields requested from {to_table}")
 
-            if self.source_table_key == "$hogql":
-                left = parse_expr(self.source_table_key_hogql)
-                if not isinstance(left, ast.Field):
-                    raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
-                left.chain = [from_table, *left.chain]
-            else:
-                left = ast.Field(chain=[from_table, self.source_table_key])
+            left = parse_expr(self.source_table_key)
+            if not isinstance(left, ast.Field):
+                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+            left.chain = [from_table, *left.chain]
 
-            if self.joining_table_key == "$hogql":
-                right = parse_expr(self.joining_table_key_hogql)
-                if not isinstance(right, ast.Field):
-                    raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
-                right.chain = [to_table, *right.chain]
-            else:
-                right = ast.Field(chain=[to_table, self.joining_table_key])
+            right = parse_expr(self.joining_table_key)
+            if not isinstance(right, ast.Field):
+                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+            right.chain = [to_table, *right.chain]
 
             join_expr = ast.JoinExpr(
                 table=ast.SelectQuery(

@@ -16,7 +16,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
-import { HOGQL_IDENTIFIER, viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
+import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 
@@ -55,9 +55,9 @@ export function ViewLinkForm(): JSX.Element {
         fieldName,
         isNewJoin,
         selectedSourceKey,
-        selectedSourceKeyHogQL,
         selectedJoiningKey,
-        selectedJoiningKeyHogQL,
+        sourceIsUsingHogQLExpression,
+        joiningIsUsingHogQLExpression,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -65,9 +65,7 @@ export function ViewLinkForm(): JSX.Element {
         selectSourceTable,
         setFieldName,
         selectSourceKey,
-        selectSourceKeyHogQL,
         selectJoiningKey,
-        selectJoiningKeyHogQL,
     } = useActions(viewLinkLogic)
 
     return (
@@ -109,18 +107,15 @@ export function ViewLinkForm(): JSX.Element {
                                 <LemonSelect
                                     fullWidth
                                     onSelect={selectSourceKey}
-                                    value={selectedSourceKey ?? undefined}
+                                    value={sourceIsUsingHogQLExpression ? '' : selectedSourceKey ?? undefined}
                                     disabledReason={selectedSourceTableName ? '' : 'Select a table to choose join key'}
-                                    options={[
-                                        ...sourceTableKeys,
-                                        { value: HOGQL_IDENTIFIER, label: <span>HogQL Expression</span> },
-                                    ]}
+                                    options={[...sourceTableKeys, { value: '', label: <span>HogQL Expression</span> }]}
                                     placeholder="Select a key"
                                 />
-                                {selectedSourceKey === HOGQL_IDENTIFIER && (
+                                {sourceIsUsingHogQLExpression && (
                                     <HogQLDropdown
-                                        hogQLValue={selectedSourceKeyHogQL ?? ''}
-                                        onHogQLValueChange={selectSourceKeyHogQL}
+                                        hogQLValue={selectedSourceKey ?? ''}
+                                        onHogQLValueChange={selectSourceKey}
                                     />
                                 )}
                             </>
@@ -136,18 +131,15 @@ export function ViewLinkForm(): JSX.Element {
                                 <LemonSelect
                                     fullWidth
                                     onSelect={selectJoiningKey}
-                                    value={selectedJoiningKey ?? undefined}
+                                    value={joiningIsUsingHogQLExpression ? '' : selectedJoiningKey ?? undefined}
                                     disabledReason={selectedJoiningTable ? '' : 'Select a table to choose join key'}
-                                    options={[
-                                        ...joiningTableKeys,
-                                        { value: HOGQL_IDENTIFIER, label: <span>HogQL Expression</span> },
-                                    ]}
+                                    options={[...joiningTableKeys, { value: '', label: <span>HogQL Expression</span> }]}
                                     placeholder="Select a key"
                                 />
-                                {selectedJoiningKey === HOGQL_IDENTIFIER && (
+                                {joiningIsUsingHogQLExpression && (
                                     <HogQLDropdown
-                                        hogQLValue={selectedJoiningKeyHogQL ?? ''}
-                                        onHogQLValueChange={selectJoiningKeyHogQL}
+                                        hogQLValue={selectedJoiningKey ?? ''}
+                                        onHogQLValueChange={selectJoiningKey}
                                     />
                                 )}
                             </>

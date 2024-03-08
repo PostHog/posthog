@@ -1926,13 +1926,7 @@ const api = {
             viewId: DataWarehouseViewLink['id'],
             data: Pick<
                 DataWarehouseViewLink,
-                | 'source_table_name'
-                | 'source_table_key'
-                | 'joining_table_name'
-                | 'joining_table_key'
-                | 'field_name'
-                | 'source_table_key_hogql'
-                | 'joining_table_key_hogql'
+                'source_table_name' | 'source_table_key' | 'joining_table_name' | 'joining_table_key' | 'field_name'
             >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
