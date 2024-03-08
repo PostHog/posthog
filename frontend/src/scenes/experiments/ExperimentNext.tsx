@@ -128,14 +128,16 @@ const StepInfo = (): JSX.Element => {
                                                     spellCheck={false}
                                                 />
                                             </LemonField>
-                                            <div className={`${index === 1 && 'invisible'}`}>
-                                                <Tooltip title="Delete this variant" placement="top-start">
-                                                    <LemonButton
-                                                        size="small"
-                                                        icon={<IconTrash />}
-                                                        onClick={() => removeExperimentGroup(index)}
-                                                    />
-                                                </Tooltip>
+                                            <div className={`${index === 1 && 'pr-9'}`}>
+                                                {index !== 1 && (
+                                                    <Tooltip title="Delete this variant" placement="top-start">
+                                                        <LemonButton
+                                                            size="small"
+                                                            icon={<IconTrash />}
+                                                            onClick={() => removeExperimentGroup(index)}
+                                                        />
+                                                    </Tooltip>
+                                                )}
                                             </div>
                                         </div>
                                     </Group>
