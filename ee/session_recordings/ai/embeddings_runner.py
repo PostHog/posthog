@@ -86,7 +86,7 @@ class EmbeddingPreparation(ABC):
 
 class SessionEmbeddingsRunner(ABC):
     team: Team
-    client: Any = OpenAI(api_key="123456")
+    client: Any = OpenAI()
 
     def __init__(self, team: Team):
         self.team = team
