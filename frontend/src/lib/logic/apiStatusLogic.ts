@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
@@ -10,10 +10,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         onApiResponse: (response?: Response, error?: any) => ({ response, error }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
     }),
-    connect({
-        actions: [userLogic, ['logout']],
-        values: [userLogic, ['user']],
-    }),
+
     reducers({
         internetConnectionIssue: [
             false,
@@ -37,7 +34,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             }
 
             if (response?.status === 401) {
-                if (!values.user) {
+                if (!userLogic.findMounted()?.values.user) {
                     // We should only check and logout if we have a user
                     return
                 }
@@ -50,7 +47,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
 
                     await api.get('api/users/@me/').catch((error: any) => {
                         if (error.status === 401) {
-                            actions.logout()
+                            userLogic.findMounted()?.actions.logout()
                         }
                     })
                 }
