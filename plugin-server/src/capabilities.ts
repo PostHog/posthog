@@ -1,5 +1,5 @@
 import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
-import { isDevEnv, isTestEnv } from './utils/env-utils'
+import { isTestEnv } from './utils/env-utils'
 
 export function getPluginServerCapabilities(config: PluginsServerConfig): PluginServerCapabilities {
     const mode: PluginServerMode | null = config.PLUGIN_SERVER_MODE
