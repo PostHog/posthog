@@ -5,7 +5,7 @@ import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
-import { MAX_VARIANTS } from 'lib/constants'
+import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import React, { useEffect } from 'react'
@@ -144,7 +144,7 @@ const StepInfo = (): JSX.Element => {
                             <div className="text-muted text-xs ml-9 mr-20 mt-2">
                                 Alphanumeric, hyphens and underscores only
                             </div>
-                            {(experiment.parameters.feature_flag_variants.length ?? 0) < MAX_VARIANTS && (
+                            {(experiment.parameters.feature_flag_variants.length ?? 0) < MAX_EXPERIMENT_VARIANTS && (
                                 <LemonButton
                                     className="ml-9 mt-2"
                                     type="secondary"

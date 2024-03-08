@@ -98,7 +98,7 @@ export const INSTANTLY_AVAILABLE_PROPERTIES = [
     '$group_key',
     'distinct_id',
 ]
-export const MAX_VARIANTS = 10
+export const MAX_EXPERIMENT_VARIANTS = 10
 
 // Event constants
 export const ACTION_TYPE = 'action_type'
