@@ -2,7 +2,6 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
     isGroupPropertyFilter,
-    isPropertyFilterWithOperator,
     propertyFilterTypeToPropertyDefinitionType,
     propertyFilterTypeToTaxonomicFilterType,
     sanitizePropertyFilter,
@@ -126,7 +125,6 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     }
                     const operator =
                         property_name_to_default_operator_override[propertyKey] ||
-                        (isPropertyFilterWithOperator(values.filter) ? values.filter.operator : null) ||
                         property_value_type_to_default_operator_override[propertyValueType ?? ''] ||
                         PropertyOperator.Exact
 
