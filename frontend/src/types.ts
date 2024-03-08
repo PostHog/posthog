@@ -1331,7 +1331,7 @@ export interface CurrentBillCycleType {
 }
 
 export type BillingV2FeatureType = {
-    key: AvailableFeature
+    key: AvailableFeatureUnion
     name: string
     description?: string | null
     docsUrl?: string | null
