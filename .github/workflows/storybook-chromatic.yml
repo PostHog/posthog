@@ -202,7 +202,7 @@ jobs:
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
-              if: github.event.pull_request.head.repo.full_name == github.repository &&
+              if: github.event.pull_request.head.repo.full_name == github.repository
               id: commit
               with:
                   add: '["frontend/__snapshots__/", "playwright/"]'
