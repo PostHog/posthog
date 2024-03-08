@@ -1,64 +1,109 @@
 import * as packageIcons from '@posthog/icons'
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { LemonCollapse } from '../LemonCollapse'
 
 const meta: Meta = {
     title: 'PostHog 3000/Icons',
-    tags: ['autodocs'],
+    // tags: ['autodocs'],
+    parameters: {
+        previewTabs: {
+            'storybook/docs/panel': {
+                hidden: true,
+            },
+        },
+    },
 }
 export default meta
 
 const posthogIcons = Object.entries(packageIcons)
-    .filter(([key]) => key !== 'IconBase')
+    .filter(([key]) => key !== 'BaseIcon')
     .map(([key, Icon]) => ({ name: key, icon: Icon }))
 
-const CATEGORIES = {
-    Arrows: [
-        'IconArrowLeft',
-        'IconArrowRight',
-        'IconArrowCircleLeft',
-        'IconArrowCircleRight',
-        'IconArrowRightDown',
-        'IconArrowUpRight',
-        'IconCollapse',
-        'IconExpand',
-        'IconCollapse45',
-        'IconExpand45',
-        'IconChevronDown',
+export const UNUSED_ICONS = [
+    'IconAdvanced',
+    'IconAstreisk',
+    'IconGridMasonry',
+    'IconApps',
+    'IconRibbon',
+    'IconPulse',
+    'IconPineapple',
+    'IconPizza',
+    'IconTarget',
+    'IconThumbsUp',
+    'IconThumbsDown',
+]
+
+const OBJECTS = {
+    Misc: [
+        'IconPalette',
+        'IconMegaphone',
+        'IconRocket',
+        'IconMap',
+        'IconTie',
+        'IconCoffee',
+        'IconFlag',
+        'IconCreditCard',
+        'IconCrown',
+        'IconBolt',
+        'IconBook',
+        'IconConfetti',
+        'IconPresent',
+        'IconMagicWand',
+        'IconMagic',
+        'IconHelmet',
+        'IconSpotlight',
+        'IconGraduationCap',
+        'IconLightBulb',
+        'IconBell',
+        'IconBox',
+        'IconBuilding',
+        'IconEye',
+        'IconFeatures',
+        'IconHome',
+        'IconHomeFilled',
+        'IconGear',
+        'IconGearFilled',
+        'IconStack',
     ],
-    Logos: ['IconLogomark', 'IconGithub'],
-    Analytics: [
-        'IconCorrelationAnalysis',
-        'IconGraph',
-        'IconLineGraph',
-        'IconRetention',
-        'IconFunnels',
-        'IconGanttChart',
-        'IconTrending',
-        'IconTrends',
-        'IconLifecycle',
-        'IconPieChart',
-        'IconUserPaths',
-        'IconStickiness',
-        'IconPageChart',
-        'IconSampling',
-        'IconLive',
+    People: ['IconPeople', 'IconPeopleFilled', 'IconPerson', 'IconProfile', 'IconUser'],
+    'Business & Finance': ['IconStore', 'IconCart', 'IconReceipt', 'IconPiggyBank'],
+    Time: ['IconHourglass', 'IconCalendar', 'IconClock'],
+    Nature: ['IconDay', 'IconNight', 'IconGlobe', 'IconCloud', 'IconBug'],
+    Text: ['IconDocument', 'IconBrackets', 'IconTextWidth', 'IconQuote', 'IconLetter', 'IconNewspaper'],
+}
+
+const TECHNOLOGY = {
+    Messaging: ['IconSend', 'IconHeadset', 'IconMessage', 'IconNotification', 'IconChat', 'IconThoughtBubble'],
+    Devices: [
+        'IconLaptop',
+        'IconPhone',
+        'IconWebcam',
+        'IconMicrophone',
+        'IconKeyboard',
+        'IconServer',
+        'IconDatabase',
+        'IconHardDrive',
     ],
-    Replay: [
-        'IconPlay',
-        'IconPlayFilled',
-        'IconPlaylist',
-        'IconPause',
-        'IconPauseFilled',
-        'IconRewind',
-        'IconRecord',
-        'IconRewindPlay',
-        'IconVideoCamera',
+    Software: ['IconBrowser', 'IconCode', 'IconCodeInsert', 'IconTerminal', 'IconApp'],
+    UI: [
+        'IconPassword',
+        'IconToggle',
+        'IconLoading',
+        // 'IconSpinner',
+        'IconBrightness',
+        'IconCursor',
+        'IconCursorBox',
+        'IconCursorClick',
+        'IconToolbar',
+        'IconToolbarFilled',
+        'IconCheckbox',
+        'IconList',
+        'IconColumns',
     ],
-    'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting'],
-    Pipeline: ['IconWebhooks', 'IconDecisionTree'],
-    'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
+}
+
+const ELEMENTS = {
     Actions: [
         'IconCopy',
         'IconTrash',
@@ -79,6 +124,40 @@ const CATEGORIES = {
         'IconSort',
         'IconExternal',
     ],
+    Symbols: [
+        'IconLock',
+        'IconUnlock',
+        'IconPrivacy',
+        'IconShield',
+        'IconWarning',
+        'IconQuestion',
+        'IconInfo',
+        'IconCheckCircle',
+        'IconCheck',
+        'IconX',
+        'IconEllipsis',
+    ],
+    'Arrows & Shapes': [
+        'IconArrowLeft',
+        'IconArrowRight',
+        'IconArrowCircleLeft',
+        'IconArrowCircleRight',
+        'IconArrowRightDown',
+        'IconArrowUpRight',
+        'IconCollapse',
+        'IconExpand',
+        'IconCollapse45',
+        'IconExpand45',
+        'IconChevronDown',
+        'IconTriangleDown',
+        'IconTriangleDownFilled',
+        'IconTriangleUp',
+        'IconTriangleUpFilled',
+        'IconStar',
+        'IconStarFilled',
+        'IconHeart',
+        'IconHeartFilled',
+    ],
     Mathematics: [
         'IconPlus',
         'IconPlusSmall',
@@ -90,93 +169,42 @@ const CATEGORIES = {
         'IconPercentage',
         'IconCalculator',
     ],
-    'Messaging & Communication': [
-        'IconSend',
-        'IconHeadset',
-        'IconMessage',
-        'IconNotification',
-        'IconLetter',
-        'IconNewspaper',
-        'IconChat',
-        'IconThoughtBubble',
+}
+
+const TEAMS_AND_COMPANIES = {
+    Analytics: [
+        'IconCorrelationAnalysis',
+        'IconGraph',
+        'IconLineGraph',
+        'IconRetention',
+        'IconFunnels',
+        'IconGanttChart',
+        'IconTrending',
+        'IconTrends',
+        'IconLifecycle',
+        'IconPieChart',
+        'IconUserPaths',
+        'IconStickiness',
+        'IconPageChart',
+        'IconSampling',
+        'IconLive',
+        'IconBadge',
     ],
-    Technology: [
-        'IconLaptop',
-        'IconPhone',
-        'IconWebcam',
-        'IconMicrophone',
-        'IconKeyboard',
-        'IconServer',
-        'IconDatabase',
-        'IconHardDrive',
-        'IconBrowser',
-        'IconCode',
-        'IconCodeInsert',
-        'IconTerminal',
-        'IconApp',
+    Replay: [
+        'IconPlay',
+        'IconPlayFilled',
+        'IconPlaylist',
+        'IconPause',
+        'IconPauseFilled',
+        'IconRewind',
+        'IconRecord',
+        'IconRewindPlay',
+        'IconVideoCamera',
     ],
-    People: ['IconPeople', 'IconPeopleFilled', 'IconPerson', 'IconProfile', 'IconUser'],
-    Objects: [
-        'IconPalette',
-        'IconCart',
-        'IconMegaphone',
-        'IconRocket',
-        'IconMap',
-        'IconClock',
-        'IconTie',
-        'IconClock',
-        'IconCoffee',
-        'IconPiggyBank',
-        'IconFlag',
-        'IconCreditCard',
-        'IconHourglass',
-        'IconCalendar',
-        'IconCrown',
-        'IconBolt',
-        'IconBook',
-        'IconStore',
-        'IconConfetti',
-        'IconPresent',
-        'IconMagicWand',
-        'IconMagic',
-        'IconHelmet',
-        'IconSpotlight',
-        'IconReceipt',
-        'IconGraduationCap',
-        'IconLightBulb',
-        'IconBell',
-        'IconBox',
-        'IconBuilding',
-    ],
-    Nature: ['IconDay', 'IconNight', 'IconGlobe', 'IconCloud', 'IconBug'],
-    UI: [
-        'IconPassword',
-        'IconToggle',
-        'IconLoading',
-        // 'IconSpinner',
-        'IconBrightness',
-        'IconCursor',
-        'IconCursorBox',
-        'IconCursorClick',
-        'IconToolbar',
-        'IconToolbarFilled',
-        'IconCheckbox',
-        'IconList',
-        'IconColumns',
-    ],
-    Symbols: [
-        'IconPrivacy',
-        'IconShield',
-        'IconWarning',
-        'IconQuestion',
-        'IconEllipsis',
-        'IconX',
-        'IconCheck',
-        'IconCheckCircle',
-        'IconInfo',
-    ],
-    Text: ['IconDocument', 'IconBrackets', 'IconTextWidth'],
-    Unused: ['IconAdvanced', 'IconAstreisk', 'IconGridMasonry'],
+    'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting'],
+    Pipeline: ['IconWebhooks', 'IconDecisionTree'],
+    'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
+    Logos: ['IconLogomark', 'IconGithub'],
 }
 
 const IconTemplate = ({ icons }: { icons: { name: string; icon: any }[] }): JSX.Element => {
@@ -194,29 +222,47 @@ const IconTemplate = ({ icons }: { icons: { name: string; icon: any }[] }): JSX.
     )
 }
 
-export function AlphabeticalIcons(): JSX.Element {
+export function Alphabetical(): JSX.Element {
     return <IconTemplate icons={posthogIcons} />
 }
 
-export function CategoricalIcons(): JSX.Element {
+const GroupBase = ({ group }: { group: Record<string, string[]> }): JSX.Element => {
     return (
         <LemonCollapse
             multiple
-            panels={[
-                ...Object.entries(CATEGORIES).map(([key, icons]) => {
-                    return {
-                        key,
-                        header: key,
-                        content: (
-                            <IconTemplate
-                                icons={icons.map((icon) => {
-                                    return { name: icon, icon: packageIcons[icon] }
-                                })}
-                            />
-                        ),
-                    }
-                }),
-            ]}
+            panels={Object.entries(group).map(([key, icons]) => {
+                return {
+                    key,
+                    header: key,
+                    content: (
+                        <IconTemplate
+                            icons={icons.map((icon) => {
+                                return { name: icon, icon: packageIcons[icon] }
+                            })}
+                        />
+                    ),
+                }
+            })}
         />
     )
 }
+
+export const Technology: StoryObj = (): JSX.Element => {
+    return <GroupBase group={TECHNOLOGY} />
+}
+Technology.storyName = 'Category - Technology'
+
+export const Objects: StoryObj = (): JSX.Element => {
+    return <GroupBase group={OBJECTS} />
+}
+Objects.storyName = 'Category - Objects'
+
+export const Elements: StoryObj = (): JSX.Element => {
+    return <GroupBase group={ELEMENTS} />
+}
+Elements.storyName = 'Category - Elements'
+
+export const TeamsAndCompanies: StoryObj = (): JSX.Element => {
+    return <GroupBase group={TEAMS_AND_COMPANIES} />
+}
+TeamsAndCompanies.storyName = 'Category - Teams & Companies'
