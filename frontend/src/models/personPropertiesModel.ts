@@ -1,6 +1,6 @@
 import { connect, events, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,6 +12,8 @@ import { PersonProperty } from '~/types'
 
 import type { personPropertiesModelType } from './personPropertiesModelType'
 import { PersonPropertiesModelProps } from './types'
+
+const WHITELISTED = ['/insights', '/events', '/sessions', '/dashboard', '/person']
 
 export const personPropertiesModel = kea<personPropertiesModelType>([
     props({} as PersonPropertiesModelProps),
@@ -47,7 +49,11 @@ export const personPropertiesModel = kea<personPropertiesModelType>([
         combinedPersonProperties: [
             (s) => [s.personProperties, s.columnsJoinedToPersons, s.featureFlags],
             (personProperties, columnsJoinedToPersons, featureFlags) => {
-                if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
+                // Hack to make sure person properties only show data warehouse in specific instances for now
+                if (
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] &&
+                    WHITELISTED.some((path) => router.values.location.pathname.includes(path))
+                ) {
                     return [...personProperties, ...columnsJoinedToPersons]
                 }
                 return [...personProperties]
