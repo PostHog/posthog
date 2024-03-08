@@ -2,6 +2,7 @@ import './Experiment.scss'
 
 import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import {
+    LemonDialog,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -11,7 +12,6 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { Popconfirm } from 'antd'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -571,25 +571,7 @@ export function Experiment(): JSX.Element {
                                                 />
                                                 <LemonDivider vertical />
                                             </>
-                                            <Popconfirm
-                                                placement="bottomLeft"
-                                                title={
-                                                    <div>
-                                                        Reset this experiment and go back to draft mode?
-                                                        <div className="text-sm text-muted">
-                                                            All collected data so far will be discarded.
-                                                        </div>
-                                                        {experiment.archived && (
-                                                            <div className="text-sm text-muted">
-                                                                Resetting will also unarchive the experiment.
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                }
-                                                onConfirm={() => resetRunningExperiment()}
-                                            >
-                                                <LemonButton type="secondary">Reset</LemonButton>
-                                            </Popconfirm>
+                                            <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
                                             {!experiment.end_date && (
                                                 <LemonButton
                                                     type="secondary"
@@ -855,6 +837,41 @@ export function Experiment(): JSX.Element {
                 <LoadingState />
             )}
         </>
+    )
+}
+
+const ResetButton = ({ experiment, onConfirm }: { experiment: ExperimentType; onConfirm: () => void }): JSX.Element => {
+    const onClickReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset this experiment?',
+            content: (
+                <>
+                    <div className="text-sm text-muted">
+                        All collected data so far will be discarded and the experiment will go back to draft mode.
+                    </div>
+                    {experiment.archived && (
+                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                    )}
+                </>
+            ),
+            primaryButton: {
+                children: 'Confirm',
+                type: 'primary',
+                onClick: onConfirm,
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    return (
+        <LemonButton type="secondary" onClick={onClickReset}>
+            Reset
+        </LemonButton>
     )
 }
 
