@@ -15,9 +15,7 @@ import { ViewLinkKeyLabel } from './ViewLinkModal'
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
     source_table_name: undefined,
-    source_table_key: undefined,
     joining_table_name: undefined,
-    joining_table_key: undefined,
     field_name: undefined,
 }
 
@@ -37,9 +35,11 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         ],
         actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseJoinsLogic, ['loadJoins']],
     }),
-    actions({
+    actions(({ values }) => ({
         selectJoiningTable: (selectedTableName: string) => ({ selectedTableName }),
         selectSourceTable: (selectedTableName: string) => ({ selectedTableName }),
+        selectSourceKey: (selectedKey: string) => ({ selectedKey, sourceTable: values.selectedSourceTable }),
+        selectJoiningKey: (selectedKey: string) => ({ selectedKey, joiningTable: values.selectedJoiningTable }),
         toggleJoinTableModal: true,
         toggleEditJoinModal: (join: DataWarehouseViewLink) => ({ join }),
         toggleNewJoinModal: true,
@@ -48,7 +48,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setError: (error: string) => ({ error }),
         setFieldName: (fieldName: string) => ({ fieldName }),
         clearModalFields: true,
-    }),
+    })),
     reducers({
         joinToEdit: [
             null as DataWarehouseViewLink | null,
@@ -84,6 +84,20 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 clearModalFields: () => null,
             },
         ],
+        selectedSourceKey: [
+            null as string | null,
+            {
+                selectSourceKey: (_, { selectedKey }) => selectedKey,
+                toggleEditJoinModal: (_, { join }) => join.source_table_key ?? null,
+            },
+        ],
+        selectedJoiningKey: [
+            null as string | null,
+            {
+                selectJoiningKey: (_, { selectedKey }) => selectedKey,
+                toggleEditJoinModal: (_, { join }) => join.joining_table_key ?? null,
+            },
+        ],
         fieldName: [
             '' as string,
             {
@@ -112,44 +126,21 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     forms(({ actions, values }) => ({
         viewLink: {
             defaults: NEW_VIEW_LINK,
-            errors: ({ source_table_name, joining_table_name, joining_table_key, source_table_key }) => {
-                let joining_table_key_err: string | undefined = undefined
-                let source_table_key_err: string | undefined = undefined
-
-                if (!joining_table_key) {
-                    joining_table_key_err = 'Must select a join key'
-                }
-
-                if (!source_table_key) {
-                    source_table_key_err = 'Must select a join key'
-                }
-
-                if (
-                    joining_table_key &&
-                    source_table_key &&
-                    values.selectedJoiningTable?.columns?.find((n) => n.key == joining_table_key)?.type !==
-                        values.selectedSourceTable?.columns?.find((n) => n.key == source_table_key)?.type
-                ) {
-                    joining_table_key_err = 'Join key types must match'
-                    source_table_key_err = 'Join key types must match'
-                }
-
+            errors: ({ source_table_name, joining_table_name }) => {
                 return {
                     source_table_name: values.isNewJoin && !source_table_name ? 'Must select a table' : undefined,
                     joining_table_name: !joining_table_name ? 'Must select a table' : undefined,
-                    source_table_key: source_table_key_err,
-                    joining_table_key: joining_table_key_err,
                 }
             },
-            submit: async ({ joining_table_name, source_table_name, source_table_key, joining_table_key }) => {
+            submit: async ({ joining_table_name, source_table_name }) => {
                 if (values.joinToEdit?.id && values.selectedSourceTable) {
                     // Edit join
                     try {
                         await api.dataWarehouseViewLinks.update(values.joinToEdit.id, {
                             source_table_name: source_table_name ?? values.selectedSourceTable.name,
-                            source_table_key,
+                            source_table_key: values.selectedSourceKey ?? undefined,
                             joining_table_name,
-                            joining_table_key,
+                            joining_table_key: values.selectedJoiningKey ?? undefined,
                             field_name: values.fieldName,
                         })
 
@@ -164,9 +155,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     try {
                         await api.dataWarehouseViewLinks.create({
                             source_table_name: source_table_name ?? values.selectedSourceTable.name,
-                            source_table_key,
+                            source_table_key: values.selectedSourceKey ?? undefined,
                             joining_table_name,
-                            joining_table_key,
+                            joining_table_key: values.selectedJoiningKey ?? undefined,
                             field_name: values.fieldName,
                         })
 
@@ -221,6 +212,26 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         selectedJoiningTable: [
             (s) => [s.selectedJoiningTableName, s.tables],
             (selectedJoiningTableName, tables) => tables.find((row) => row.name === selectedJoiningTableName),
+        ],
+        sourceIsUsingHogQLExpression: [
+            (s) => [s.selectedSourceKey, s.selectedSourceTable],
+            (sourceKey, sourceTable) => {
+                if (sourceKey === null) {
+                    return false
+                }
+                const column = sourceTable?.columns.find((n) => n.key == sourceKey)
+                return !column
+            },
+        ],
+        joiningIsUsingHogQLExpression: [
+            (s) => [s.selectedJoiningKey, s.selectedJoiningTable],
+            (joiningKey, joiningTable) => {
+                if (joiningKey === null) {
+                    return false
+                }
+                const column = joiningTable?.columns.find((n) => n.key == joiningKey)
+                return !column
+            },
         ],
         tableOptions: [
             (s) => [s.tables],
