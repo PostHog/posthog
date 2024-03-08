@@ -134,7 +134,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                     kind: NodeKind.InsightActorsQuery,
                     source: values.querySource!,
                     funnelStep: converted ? stepNo : -stepNo,
-                    funnelStepBreakdown: series.breakdown_value,
+                    funnelStepBreakdown: series.breakdown_value === 'Baseline' ? null : series.breakdown_value,
                     includeRecordings: true,
                 }
                 openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
