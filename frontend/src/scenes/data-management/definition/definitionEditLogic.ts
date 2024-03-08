@@ -1,16 +1,15 @@
-import { beforeUnmount, connect, kea, key, path, props } from 'kea'
+import { connect, kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { beforeUnload, router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { capitalizeFirstLetter } from 'lib/utils'
-import {
-    definitionLogic,
-    DefinitionLogicProps,
-    DefinitionPageMode,
-} from 'scenes/data-management/definition/definitionLogic'
+import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import { urls } from 'scenes/urls'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { tagsModel } from '~/models/tagsModel'
@@ -18,19 +17,15 @@ import { Definition, EventDefinition, PropertyDefinition } from '~/types'
 
 import type { definitionEditLogicType } from './definitionEditLogicType'
 
-export interface DefinitionEditLogicProps extends DefinitionLogicProps {
-    definition: Definition
-}
-
 export const definitionEditLogic = kea<definitionEditLogicType>([
     path(['scenes', 'data-management', 'definition', 'definitionDetailLogic']),
-    props({} as DefinitionEditLogicProps),
+    props({} as DefinitionLogicProps),
     key((props) => props.id || 'new'),
-    connect(({ id }: DefinitionEditLogicProps) => ({
-        values: [definitionLogic({ id }), ['isEvent', 'isProperty', 'singular', 'mode', 'hasTaxonomyFeatures']],
+    connect(({ id }: DefinitionLogicProps) => ({
+        values: [definitionLogic({ id }), ['definition', 'isEvent', 'singular']],
         actions: [
             definitionLogic({ id }),
-            ['setDefinition', 'setPageMode'],
+            ['setDefinition'],
             propertyDefinitionsTableLogic,
             ['setLocalPropertyDefinition'],
             eventDefinitionsTableLogic,
@@ -39,9 +34,9 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
             ['loadTags'],
         ],
     })),
-    forms(({ actions, props }) => ({
-        definition: {
-            defaults: { ...props.definition } as Definition,
+    forms(({ actions }) => ({
+        editDefinition: {
+            defaults: {} as Definition,
             errors: ({ name }) => ({
                 name: !name ? 'You need to set a name' : null,
             }),
@@ -50,12 +45,12 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
             },
         },
     })),
-    loaders(({ values, props, actions }) => ({
-        definition: [
-            { ...props.definition } as Definition,
+    loaders(({ values, actions }) => ({
+        editDefinition: [
+            {} as Definition,
             {
                 saveDefinition: async (_, breakpoint) => {
-                    let definition = { ...values.definition }
+                    let definition = { ...values.editDefinition }
 
                     if (values.isEvent) {
                         // Event Definition
@@ -88,15 +83,29 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                     } else {
                         actions.setLocalPropertyDefinition(definition)
                     }
-                    actions.setPageMode(DefinitionPageMode.View)
                     actions.setDefinition(definition)
                     actions.loadTags() // reload tags in case new tags are being saved
+
+                    router.actions.push(
+                        values.isEvent ? urls.eventDefinition(definition.id) : urls.propertyDefinition(definition.id)
+                    )
                     return definition
                 },
             },
         ],
     })),
-    beforeUnmount(({ actions }) => {
-        actions.setPageMode(DefinitionPageMode.View)
-    }),
+
+    subscriptions(({ actions }) => ({
+        definition: (def) => {
+            actions.resetEditDefinition(def)
+        },
+    })),
+
+    beforeUnload(({ values, actions }) => ({
+        enabled: () => values.editDefinitionChanged,
+        message: `Leave?\nChanges you made will be discarded.`,
+        onConfirm: () => {
+            actions.resetEditDefinition(values.definition)
+        },
+    })),
 ])
