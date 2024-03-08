@@ -1,4 +1,4 @@
-import { IconBug, IconQuestion } from '@posthog/icons'
+import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
 import {
     LemonBanner,
     LemonInput,
@@ -169,7 +169,7 @@ export function SupportForm(): JSX.Element | null {
                             Severity level
                             <Tooltip title="Severity levels help us prioritize your request.">
                                 <span>
-                                    <IconQuestion className="opacity-75" />
+                                    <IconInfo className="opacity-75" />
                                 </span>
                             </Tooltip>
                         </label>
