@@ -305,9 +305,9 @@ class User(AbstractUser, UUIDClassicModel):
             ).exists(),  # has completed the onboarding at least for one project
             # properties dependent on current project / org below
             "organization_id": str(self.organization.id) if self.organization else None,
-            "current_organization_membership_level": current_organization_membership.level
-            if current_organization_membership
-            else None,
+            "current_organization_membership_level": (
+                current_organization_membership.level if current_organization_membership else None
+            ),
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
             "joined_at": self.date_joined,
