@@ -77,7 +77,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     props({} as TaxonomicFilterLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
-    connect({
+    connect((props: TaxonomicFilterLogicProps) => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -87,10 +87,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['allGroupProperties'],
             dataWarehouseSceneLogic,
             ['externalTables'],
-            personPropertiesModel,
+            personPropertiesModel({
+                propertyAllowList: props.propertyAllowList,
+                taxonomicFilterLogicKey: props.taxonomicFilterLogicKey,
+            }),
             ['combinedPersonProperties'],
         ],
-    }),
+    })),
     actions(() => ({
         moveUp: true,
         moveDown: true,
@@ -167,6 +170,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
+                s.taxonomicFilterLogicKey,
             ],
             (
                 teamId,
@@ -176,7 +180,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 schemaColumns,
                 metadataSource,
                 excludedProperties,
-                propertyAllowList
+                propertyAllowList,
+                taxonomicFilterLogicKey
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -327,7 +332,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Person properties',
                         searchPlaceholder: 'person properties',
                         type: TaxonomicFilterGroupType.PersonProperties,
-                        logic: personPropertiesModel({ propertyAllowList }),
+                        logic: personPropertiesModel({ propertyAllowList, taxonomicFilterLogicKey }),
                         value: 'combinedPersonProperties',
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => {
