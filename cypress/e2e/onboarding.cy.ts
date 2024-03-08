@@ -2,15 +2,7 @@ import { urls } from 'scenes/urls'
 import { decideResponse } from '../fixtures/api/decide'
 
 describe('Onboarding', () => {
-    beforeEach(() => {
-        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'product-intro-pages': 'test',
-                })
-            )
-        )
-
+    beforeEach(function () {
         cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-unsubscribed.json' })
     })
 
@@ -23,11 +15,18 @@ describe('Onboarding', () => {
         // Confirm product intro is not included as the first step in the upper right breadcrumbs
         cy.get('[data-attr=onboarding-breadcrumbs] > :first-child > * span').should('not.contain', 'Product Intro')
 
-        // Navigate to the product intro page
-        cy.visit('/onboarding/session_replay?step=product_intro')
+        cy.window().then((win) => {
+            win.POSTHOG_APP_CONTEXT.current_team.has_completed_onboarding_for = {}
+        })
+
+        cy.get('[data-attr=menu-item-savedinsights]').click()
 
         // Confirm we're on the product_intro page
         cy.get('[data-attr=top-bar-name] > span').contains('Product intro')
+
+        // Should see both an option to skip onboarding and an option to see the sdk instructions
+        cy.get('[data-attr=skip-onboarding]').should('be.visible')
+        cy.get('[data-attr=start-onboarding-sdk]').should('be.visible')
     })
 
     it('Step through PA onboarding', () => {
