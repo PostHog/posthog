@@ -144,7 +144,7 @@ export const experimentLogic = kea<experimentLogicType>([
         openExperimentExposureModal: true,
         closeExperimentExposureModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
-        moveToNextFormStep: (currentStepIndex: number) => ({ currentStepIndex }),
+        moveToNextFormStep: true,
     }),
     reducers({
         experiment: [
@@ -281,7 +281,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         currentFormStep: [
-            null as number | null,
+            0,
             {
                 setCurrentFormStep: (_, { stepIndex }) => stepIndex,
             },
@@ -557,8 +557,9 @@ export const experimentLogic = kea<experimentLogicType>([
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
         },
-        moveToNextFormStep: async ({ currentStepIndex }) => {
-            if (currentStepIndex === 0) {
+        moveToNextFormStep: async () => {
+            const { currentFormStep } = values
+            if (currentFormStep === 0) {
                 actions.touchExperimentField('name')
                 actions.touchExperimentField('feature_flag_key')
                 values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
@@ -567,7 +568,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             if (!hasFormErrors(values.experimentErrors)) {
-                actions.setCurrentFormStep(currentStepIndex + 1)
+                actions.setCurrentFormStep(currentFormStep + 1)
             }
         },
     })),

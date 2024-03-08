@@ -161,7 +161,7 @@ const StepInfo = (): JSX.Element => {
             </div>
             <div className="sticky bottom-0 -mx-4 z-50 bg-bg-3000">
                 <LemonDivider />
-                <LemonButton className="px-4 pt-2 pb-3" type="primary" onClick={() => moveToNextFormStep(0)}>
+                <LemonButton className="px-4 pt-2 pb-3" type="primary" onClick={() => moveToNextFormStep()}>
                     Continue
                 </LemonButton>
             </div>
