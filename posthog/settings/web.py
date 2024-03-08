@@ -27,7 +27,7 @@ DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type
 
 # Decide db settings
 
-DECIDE_SKIP_DATABASE_FLAGS = get_from_env("DECIDE_SKIP_DATABASE_FLAGS", False, type_cast=str_to_bool)
+DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
 
 # Decide billing analytics
 

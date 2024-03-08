@@ -5254,7 +5254,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(0), self.settings(DECIDE_SKIP_DATABASE_FLAGS=True):
+        with self.assertNumQueries(0), self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True):
             # No queries because of config parameter
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
             mock_postgres_check.assert_not_called()
@@ -5266,7 +5266,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(0), connection.execute_wrapper(slow_query), patch(
             "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
             500,
-        ), self.settings(DECIDE_SKIP_DATABASE_FLAGS=True):
+        ), self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True):
             mock_postgres_check.return_value = False
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
