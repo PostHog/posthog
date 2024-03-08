@@ -2799,7 +2799,7 @@ export enum PropertyDefinitionState {
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
-    id: number
+    id: string
     name: string
     count: number
     table?: string

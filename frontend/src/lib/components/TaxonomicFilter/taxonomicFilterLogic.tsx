@@ -29,7 +29,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { updateListOfPropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 import {
     ActionType,
@@ -706,14 +706,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     groupType === TaxonomicFilterGroupType.NumericalEventProperties)
             ) {
                 const propertyDefinitions: PropertyDefinition[] = results.results as PropertyDefinition[]
-                const apiType = groupType === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
-                const newPropertyDefinitions = Object.fromEntries(
-                    propertyDefinitions.map((propertyDefinition) => [
-                        `${apiType}/${propertyDefinition.name}`,
-                        propertyDefinition,
-                    ])
-                )
-                updatePropertyDefinitions(newPropertyDefinitions)
+                updateListOfPropertyDefinitions(propertyDefinitions, groupType)
             }
         },
     })),

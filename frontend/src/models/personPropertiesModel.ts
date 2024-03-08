@@ -1,4 +1,4 @@
-import { connect, events, kea, key, path, props, selectors } from 'kea'
+import { connect, events, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { updateListOfPropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { PersonProperty } from '~/types'
 
 import type { personPropertiesModelType } from './personPropertiesModelType'
@@ -44,6 +45,11 @@ export const personPropertiesModel = kea<personPropertiesModelType>([
                 },
             },
         ],
+    })),
+    listeners(() => ({
+        loadPersonPropertiesSuccess: ({ personProperties }) => {
+            updateListOfPropertyDefinitions(personProperties, TaxonomicFilterGroupType.PersonProperties)
+        },
     })),
     selectors(() => ({
         combinedPersonProperties: [
