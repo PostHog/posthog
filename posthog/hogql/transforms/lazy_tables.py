@@ -64,6 +64,8 @@ class LazyFinder(TraversingVisitor):
 
 
 class LazyTableResolver(TraversingVisitor):
+    lazy_finder_counter = 0
+
     def __init__(
         self,
         dialect: Literal["hogql", "clickhouse"],
@@ -395,7 +397,9 @@ class LazyTableResolver(TraversingVisitor):
 
         # When joining a lazy table to another lazy table, the joined table doesn't get resolved
         # Doing another pass solves this for us
-        lazy_finder = LazyFinder()
-        lazy_finder.visit(node)
-        if lazy_finder.found_lazy:
-            self.visit_select_query(node)
+        if self.lazy_finder_counter < 20:
+            lazy_finder = LazyFinder()
+            lazy_finder.visit(node)
+            if lazy_finder.found_lazy:
+                self.lazy_finder_counter = self.lazy_finder_counter + 1
+                self.visit_select_query(node)
