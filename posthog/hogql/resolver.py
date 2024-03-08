@@ -215,7 +215,7 @@ class Resolver(CloningVisitor):
     def _asterisk_columns(self, asterisk: ast.AsteriskType) -> List[ast.Expr]:
         """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
         if isinstance(asterisk.table_type, ast.BaseTableType):
-            table = asterisk.table_type.resolve_database_table()
+            table = asterisk.table_type.resolve_database_table(self.context)
             database_fields = table.get_asterisk()
             return [ast.Field(chain=[key]) for key in database_fields.keys()]
         elif (
@@ -380,7 +380,7 @@ class Resolver(CloningVisitor):
         arg_types: List[ast.ConstantType] = []
         for arg in node.args:
             if arg.type:
-                arg_types.append(arg.type.resolve_constant_type() or ast.UnknownType())
+                arg_types.append(arg.type.resolve_constant_type(self.context) or ast.UnknownType())
             else:
                 arg_types.append(ast.UnknownType())
         param_types: Optional[List[ast.ConstantType]] = None
@@ -388,7 +388,7 @@ class Resolver(CloningVisitor):
             param_types = []
             for param in node.params:
                 if param.type:
-                    param_types.append(param.type.resolve_constant_type() or ast.UnknownType())
+                    param_types.append(param.type.resolve_constant_type(self.context) or ast.UnknownType())
                 else:
                     param_types.append(ast.UnknownType())
         node.type = ast.CallType(
@@ -454,7 +454,7 @@ class Resolver(CloningVisitor):
 
         # Field in scope
         if not type:
-            type = lookup_field_by_name(scope, name)
+            type = lookup_field_by_name(scope, name, self.context)
 
         if not type:
             cte = lookup_cte_by_name(self.scopes, name)
@@ -493,7 +493,7 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
-            loop_type = loop_type.get_child(next_chain)
+            loop_type = loop_type.get_child(next_chain, self.context)
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
@@ -510,7 +510,7 @@ class Resolver(CloningVisitor):
             self.context.add_notice(
                 start=node.start,
                 end=node.end,
-                message=f"Field '{node.type.name}' is of type '{node.type.resolve_constant_type().print_type()}'",
+                message=f"Field '{node.type.name}' is of type '{node.type.resolve_constant_type(self.context).print_type()}'",
             )
 
         if isinstance(node.type, ast.FieldType):
@@ -547,14 +547,14 @@ class Resolver(CloningVisitor):
                 or (
                     isinstance(array.type, ast.FieldType)
                     and isinstance(
-                        array.type.resolve_database_field(),
+                        array.type.resolve_database_field(self.context),
                         StringJSONDatabaseField,
                     )
                 )
             )
         ):
             array.chain.append(node.property.value)
-            array.type = array.type.get_child(node.property.value)
+            array.type = array.type.get_child(node.property.value, self.context)
             return array
 
         return node
@@ -570,11 +570,11 @@ class Resolver(CloningVisitor):
             (isinstance(tuple.type, ast.PropertyType))
             or (
                 isinstance(tuple.type, ast.FieldType)
-                and isinstance(tuple.type.resolve_database_field(), StringJSONDatabaseField)
+                and isinstance(tuple.type.resolve_database_field(self.context), StringJSONDatabaseField)
             )
         ):
             tuple.chain.append(node.index)
-            tuple.type = tuple.type.get_child(node.index)
+            tuple.type = tuple.type.get_child(node.index, self.context)
             return tuple
 
         return node

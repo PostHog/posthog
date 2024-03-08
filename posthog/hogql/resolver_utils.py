@@ -2,26 +2,27 @@ from typing import List, Optional
 
 from posthog import schema
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException, ResolverException, SyntaxException
 from posthog.hogql.visitor import clone_expr
 
 
-def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
+def lookup_field_by_name(scope: ast.SelectQueryType, name: str, context: HogQLContext) -> Optional[ast.Type]:
     """Looks for a field in the scope's list of aliases and children for each joined table."""
     if name in scope.aliases:
         return scope.aliases[name]
     else:
-        named_tables = [table for table in scope.tables.values() if table.has_child(name)]
-        anonymous_tables = [table for table in scope.anonymous_tables if table.has_child(name)]
+        named_tables = [table for table in scope.tables.values() if table.has_child(name, context)]
+        anonymous_tables = [table for table in scope.anonymous_tables if table.has_child(name, context)]
         tables_with_field = named_tables + anonymous_tables
 
         if len(tables_with_field) > 1:
             raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
         elif len(tables_with_field) == 1:
-            return tables_with_field[0].get_child(name)
+            return tables_with_field[0].get_child(name, context)
 
         if scope.parent:
-            return lookup_field_by_name(scope.parent, name)
+            return lookup_field_by_name(scope.parent, name, context)
 
         return None
 
