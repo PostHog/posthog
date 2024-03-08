@@ -1,7 +1,7 @@
 import './CorrelationMatrix.scss'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { Button, Modal } from 'antd'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -66,13 +66,10 @@ export function CorrelationMatrix(): JSX.Element {
     const dismiss = (): void => setFunnelCorrelationDetails(null)
 
     return (
-        <Modal
-            className="correlation-matrix"
-            visible={!!funnelCorrelationDetails}
-            onCancel={dismiss}
-            destroyOnClose
-            footer={<Button onClick={dismiss}>Dismiss</Button>}
-            width={600}
+        <LemonModal
+            isOpen={!!funnelCorrelationDetails}
+            onClose={dismiss}
+            footer={<LemonButton onClick={dismiss}>Dismiss</LemonButton>}
             title="Correlation details"
         >
             <div className="correlation-table-wrapper">
@@ -231,6 +228,6 @@ export function CorrelationMatrix(): JSX.Element {
                     </LemonBanner>
                 )}
             </div>
-        </Modal>
+        </LemonModal>
     )
 }
