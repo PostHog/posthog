@@ -363,14 +363,14 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                                             value: ['true'],
                                         },
                                     ]}
-                                    emptyState={
-                                        <div>
-                                            No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
-                                            <Link onClick={toggleImplementOptInInstructionsModal}>
-                                                implementing public opt-in
-                                            </Link>
-                                        </div>
-                                    }
+                                    // emptyState={
+                                    //     <div>
+                                    //         No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
+                                    //         <Link onClick={toggleImplementOptInInstructionsModal}>
+                                    //             implementing public opt-in
+                                    //         </Link>
+                                    //     </div>
+                                    // }
                                 />
                             </>
                         ),
@@ -389,14 +389,14 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                                         value: ['false'],
                                     },
                                 ]}
-                                emptyState={
-                                    <div>
-                                        No manual opt-outs. Manually opted-out people will appear here. Start by{' '}
-                                        <Link onClick={toggleImplementOptInInstructionsModal}>
-                                            implementing public opt-out
-                                        </Link>
-                                    </div>
-                                }
+                                // emptyState={
+                                //     <div>
+                                //         No manual opt-outs. Manually opted-out people will appear here. Start by{' '}
+                                //         <Link onClick={toggleImplementOptInInstructionsModal}>
+                                //             implementing public opt-out
+                                //         </Link>
+                                //     </div>
+                                // }
                             />
                         ),
                     },
@@ -414,11 +414,10 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
 
 interface PersonsTableByFilterProps {
     properties: PersonPropertyFilter[]
-    emptyState?: JSX.Element
     recordingsFilters: Partial<FilterType>
 }
 
-function PersonsTableByFilter({ emptyState, recordingsFilters, properties }: PersonsTableByFilterProps): JSX.Element {
+function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByFilterProps): JSX.Element {
     const [query, setQuery] = useState<Node | QuerySchema>({
         kind: NodeKind.DataTableNode,
         source: {
@@ -430,17 +429,15 @@ function PersonsTableByFilter({ emptyState, recordingsFilters, properties }: Per
     })
 
     return (
-        <div className="space-y-2">
-            <div className="flex flex-row justify-between">
-                <div className="flex flex-row gap-2">
-                    <LemonButton
-                        key="view-opt-in-session-recordings"
-                        to={urls.replay(ReplayTabs.Recent, recordingsFilters)}
-                        type="secondary"
-                    >
-                        View recordings
-                    </LemonButton>
-                </div>
+        <div className="space-y-2 relative">
+            <div className="absolute top-0 right-0 z-10">
+                <LemonButton
+                    key="view-opt-in-session-recordings"
+                    to={urls.replay(ReplayTabs.Recent, recordingsFilters)}
+                    type="secondary"
+                >
+                    View recordings
+                </LemonButton>
             </div>
             <Query query={query} setQuery={setQuery} />
         </div>
