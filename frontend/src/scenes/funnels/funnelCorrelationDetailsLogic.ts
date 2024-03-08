@@ -15,14 +15,22 @@ export const funnelCorrelationDetailsLogic = kea<funnelCorrelationDetailsLogicTy
     })),
 
     actions({
-        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
+        openCorrelationDetailsModal: (payload: FunnelCorrelation) => ({ payload }),
+        closeCorrelationDetailsModal: true,
     }),
 
     reducers({
+        correlationDetailsModalOpen: [
+            false,
+            {
+                openCorrelationDetailsModal: () => true,
+                closeCorrelationDetailsModal: () => false,
+            },
+        ],
         funnelCorrelationDetails: [
             null as null | FunnelCorrelation,
             {
-                setFunnelCorrelationDetails: (_, { payload }) => payload,
+                openCorrelationDetailsModal: (_, { payload }) => payload,
             },
         ],
     }),

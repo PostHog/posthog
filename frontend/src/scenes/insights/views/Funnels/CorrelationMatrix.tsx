@@ -22,10 +22,10 @@ import { FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { correlationsLoading } = useValues(funnelCorrelationLogic(insightProps))
-    const { funnelCorrelationDetails, correlationMatrixAndScore } = useValues(
+    const { correlationDetailsModalOpen, funnelCorrelationDetails, correlationMatrixAndScore } = useValues(
         funnelCorrelationDetailsLogic(insightProps)
     )
-    const { setFunnelCorrelationDetails } = useActions(funnelCorrelationDetailsLogic(insightProps))
+    const { closeCorrelationDetailsModal } = useActions(funnelCorrelationDetailsLogic(insightProps))
     const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
 
     const actor = funnelCorrelationDetails?.result_type === FunnelCorrelationResultsType.Events ? 'event' : 'property'
@@ -63,13 +63,11 @@ export function CorrelationMatrix(): JSX.Element {
             <IconErrorOutline className="text-danger" />
         )
 
-    const dismiss = (): void => setFunnelCorrelationDetails(null)
-
     return (
         <LemonModal
-            isOpen={!!funnelCorrelationDetails}
-            onClose={dismiss}
-            footer={<LemonButton onClick={dismiss}>Dismiss</LemonButton>}
+            isOpen={correlationDetailsModalOpen}
+            onClose={closeCorrelationDetailsModal}
+            footer={<LemonButton onClick={closeCorrelationDetailsModal}>Dismiss</LemonButton>}
             title="Correlation details"
         >
             <div className="correlation-table-wrapper">
