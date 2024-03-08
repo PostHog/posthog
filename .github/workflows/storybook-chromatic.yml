@@ -198,7 +198,9 @@ jobs:
 
             - name: If no-update-visual-snapshot label is present, just fail if any snapshots are updated
               if: contains(github.event.pull_request.labels.*.name, 'no-update-visual-snapshot')
-              run: git diff --exit-code frontend/__snapshots__/ playwright/
+              run: |
+                  git add frontend/__snapshots__/ playwright/
+                  git diff --exit-code frontend/__snapshots__/ playwright/
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
