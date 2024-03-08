@@ -23,7 +23,7 @@ class TestWhereClauseExtractor(BaseTest):
 
     def _compare_operators(self, query: ast.SelectQuery, table_name: str) -> List[ast.Expr]:
         assert query.where is not None and query.type is not None
-        return WhereClauseExtractor(query.where, table_name, query.type).compare_operators
+        return WhereClauseExtractor(query.where, table_name, query.type, self.context).compare_operators
 
     def test_with_simple_equality_clause(self):
         query = self._select(
