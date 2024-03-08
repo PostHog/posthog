@@ -165,6 +165,7 @@ export const PlanComparison = ({
                             reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                         }
                     }}
+                    data-attr={`upgrade-${plan.name}`}
                 >
                     {plan.current_plan
                         ? 'Current plan'
