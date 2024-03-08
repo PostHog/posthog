@@ -1,11 +1,11 @@
-import { LemonTable, LemonTableColumn, LemonTag, lemonToast, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTag, lemonToast, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
@@ -61,24 +61,17 @@ function DestinationsTable(): JSX.Element {
                         sticky: true,
                         render: function RenderPluginName(_, destination) {
                             return (
-                                <>
-                                    <Tooltip title="Click to update configuration, view metrics, and more">
-                                        <Link
-                                            to={urls.pipelineNode(
-                                                PipelineStage.Destination,
-                                                destination.id,
-                                                PipelineNodeTab.Configuration
-                                            )}
-                                        >
-                                            <span className="row-name">{destination.name}</span>
-                                        </Link>
-                                    </Tooltip>
-                                    {destination.description && (
-                                        <LemonMarkdown className="row-description" lowKeyHeadings>
-                                            {destination.description}
-                                        </LemonMarkdown>
-                                    )}
-                                </>
+                                <Tooltip title="Click to update configuration, view metrics, and more">
+                                    <LemonTableLink
+                                        to={urls.pipelineNode(
+                                            PipelineStage.Destination,
+                                            destination.id,
+                                            PipelineNodeTab.Configuration
+                                        )}
+                                        title={destination.name}
+                                        description={destination.description}
+                                    />
+                                </Tooltip>
                             )
                         },
                     },
