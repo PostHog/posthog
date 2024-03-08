@@ -312,14 +312,14 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
-export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
+export function InsightIcon({ insight, className }: { insight: InsightModel; className?: string }): JSX.Element | null {
     let insightType = insight?.filters?.insight || InsightType.TRENDS
     if (!!insight.query && !isInsightVizNode(insight.query)) {
         insightType = InsightType.JSON
     }
     const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
-        return <insightMetadata.icon />
+        return <insightMetadata.icon className={className} />
     }
     return null
 }
@@ -405,11 +405,7 @@ export function SavedInsights(): JSX.Element {
             key: 'id',
             width: 32,
             render: function renderType(_, insight) {
-                return (
-                    <span className="text-muted text-2xl">
-                        <InsightIcon insight={insight} />
-                    </span>
-                )
+                return <InsightIcon insight={insight} className="text-muted text-2xl" />
             },
         },
         {
