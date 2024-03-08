@@ -138,13 +138,12 @@ function getSnapshotSortingTimestamp(e: eventWithTime | undefined): number | und
     // rrweb network events have a timestamp, but might contain requests from before the recording started
     if (e.type === EventType.Plugin && e.data.plugin === 'rrweb/network@1') {
         const requests: PerformanceEvent[] = e.data.payload?.['requests'] || []
-        const sortedRequests = requests.sort((a: PerformanceEvent, b: PerformanceEvent) => {
-            const left = asInt(a.timestamp)
-            const right = asInt(b.timestamp)
-            return left - right
-        })
+        const sortedRequests = requests.sort(
+            (a: PerformanceEvent, b: PerformanceEvent) => asInt(a.timestamp) - asInt(b.timestamp)
+        )
         const firstTimestamp = sortedRequests.length ? sortedRequests[0].timestamp : undefined
-        return firstTimestamp !== undefined ? asInt(firstTimestamp) : undefined
+        // if we have no requests, we use the event timestamp
+        return firstTimestamp !== undefined ? asInt(firstTimestamp) : e.timestamp
     }
     return e.timestamp
 }
