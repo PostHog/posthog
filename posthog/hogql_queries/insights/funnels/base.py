@@ -247,6 +247,8 @@ class FunnelBase(ABC):
             self.context.breakdownFilter,
         )
 
+        assert breakdown is not None
+
         if breakdownType == "person":
             properties_column = "person.properties"
             return get_breakdown_expr(breakdown, properties_column)
@@ -262,7 +264,7 @@ class FunnelBase(ABC):
         elif breakdownType == "hogql":
             return ast.Alias(
                 alias="value",
-                expr=parse_expr(str(breakdown)),
+                expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
             )
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
