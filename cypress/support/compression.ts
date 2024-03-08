@@ -7,7 +7,7 @@ export function getUnencodedPayload(request) {
 
 export function getBase64EncodedPayload(request) {
     const data = decodeURIComponent(request.body.match(/data=(.*)/)[1])
-    return JSON.parse(Buffer.from(data, 'base64').toString())
+    return JSON.parse(atob(data))
 }
 
 export async function getGzipEncodedPayload(request) {
