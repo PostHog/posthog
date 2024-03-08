@@ -138,7 +138,11 @@ export const PlanComparison = ({
                             : undefined
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
-                    status={plan.current_plan ? 'default' : 'alt'}
+                    status={
+                        plan.current_plan || (plan.included_if == 'has_subscription' && i >= currentPlanIndex)
+                            ? 'default'
+                            : 'alt'
+                    }
                     fullWidth
                     center
                     disableClientSideRouting={!plan.contact_support}
