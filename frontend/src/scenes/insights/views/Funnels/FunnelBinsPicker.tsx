@@ -1,9 +1,9 @@
+import { IconGraph } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { Select } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BIN_COUNT_AUTO } from 'lib/constants'
-import { IconBarChart } from 'lib/lemon-ui/icons'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -101,7 +101,7 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
                             value={option.value}
                             label={
                                 <>
-                                    <IconBarChart /> {option.label}
+                                    <IconGraph /> {option.label}
                                 </>
                             }
                         >

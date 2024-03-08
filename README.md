@@ -27,7 +27,7 @@
 
 PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. It's free to get started and comes with a generous monthly free tier:
 - 1 million product analytics events
-- 15k session replays
+- 5k session replays
 - 1 million feature flag requests
 - 250 survey responses
 
@@ -45,7 +45,7 @@ We're constantly adding new features, with web analytics and data warehouse now 
 
 ### PostHog Cloud (Recommended)
 
-The fastest and most reliable way to get started with PostHog is signing up for free to [PostHog Cloud](https://app.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup). Your first 1 million events (and 15k replays) are free every month, after which you pay based on usage.
+The fastest and most reliable way to get started with PostHog is signing up for free to [PostHog Cloud](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup). Your first 1 million events (and 5k replays) are free every month, after which you pay based on usage.
 
 ### Open-source hobby deploy (Advanced)
 

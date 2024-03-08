@@ -259,6 +259,33 @@ PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: (
     """,
 )
 
+KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
+    table_name="kafka_" + PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID, group="clickhouse-person-distinct-id-overrides"),
+    extra_fields="",
+)
+
+PERSON_DISTINCT_ID_OVERRIDES_MV_SQL = """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
+TO {database}.{table_name}
+AS SELECT
+team_id,
+distinct_id,
+person_id,
+is_deleted,
+version,
+_timestamp,
+_offset,
+_partition
+FROM {database}.kafka_{table_name}
+WHERE version > 0 -- only store updated rows, not newly inserted ones
+""".format(
+    table_name=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    database=CLICKHOUSE_DATABASE,
+)
+
 #
 # Static Cohort
 #

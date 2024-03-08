@@ -39,6 +39,7 @@ export function TaxonomicPropertyFilter({
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,
     eventNames,
+    schemaColumns,
     propertyGroupType,
     orFiltering,
     addText = 'Add filter',
@@ -111,6 +112,7 @@ export function TaxonomicPropertyFilter({
             taxonomicGroupTypes={groupTypes}
             metadataSource={metadataSource}
             eventNames={eventNames}
+            schemaColumns={schemaColumns}
             propertyAllowList={propertyAllowList}
             optionsFromProp={taxonomicFilterOptionsFromProp}
         />

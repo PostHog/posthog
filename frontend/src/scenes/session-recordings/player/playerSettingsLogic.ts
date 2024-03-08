@@ -183,6 +183,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSyncScroll: (enabled: boolean) => ({ enabled }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
+        setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
+        setQuickFilterProperties: (properties: string[]) => ({ properties }),
     }),
     reducers(() => ({
         showFilters: [
@@ -192,6 +194,24 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
             {
                 setShowFilters: (_, { showFilters }) => showFilters,
+            },
+        ],
+        prefersAdvancedFilters: [
+            true,
+            {
+                persist: true,
+            },
+            {
+                setPrefersAdvancedFilters: (_, { prefersAdvancedFilters }) => prefersAdvancedFilters,
+            },
+        ],
+        quickFilterProperties: [
+            ['$geoip_country_name'] as string[],
+            {
+                persist: true,
+            },
+            {
+                setQuickFilterProperties: (_, { properties }) => properties,
             },
         ],
         durationTypeToShow: [

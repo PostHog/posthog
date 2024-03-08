@@ -131,9 +131,22 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
             },
         ],
     })),
-    listeners(({ props, values }) => ({
-        select: () => {
+    listeners(({ props, values, actions }) => ({
+        select: async (_val, breakpoint) => {
+            await breakpoint(500) // give some extra debounce time, because the menu is fiddly
             props.onChange?.(values.value)
+        },
+        setDateOption: () => {
+            actions.select()
+        },
+        setCounter: () => {
+            actions.select()
+        },
+        increaseCounter: () => {
+            actions.select()
+        },
+        decreaseCounter: () => {
+            actions.select()
         },
     })),
 ])

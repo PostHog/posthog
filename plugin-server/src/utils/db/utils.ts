@@ -39,12 +39,15 @@ export function sanitizeEventName(eventName: any): string {
 export function timeoutGuard(
     message: string,
     context?: Record<string, any> | (() => Record<string, any>),
-    timeout = defaultConfig.TASK_TIMEOUT * 1000
+    timeout = defaultConfig.TASK_TIMEOUT * 1000,
+    sendToSentry = true
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
         status.warn('⌛', message, ctx)
-        Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
+        if (sendToSentry) {
+            Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
+        }
     }, timeout)
 }
 
@@ -72,12 +75,19 @@ const eventToPersonProperties = new Set([
     'utm_content',
     'utm_name',
     'utm_term',
-    'gclid',
-    'gad_source',
-    'gbraid',
-    'wbraid',
-    'fbclid',
-    'msclkid',
+    'gclid', // google ads
+    'gad_source', // google ads
+    'gclsrc', // google ads 360
+    'dclid', // google display ads
+    'gbraid', // google ads, web to app
+    'wbraid', // google ads, app to web
+    'fbclid', // facebook
+    'msclkid', // microsoft
+    'twclid', // twitter
+    'li_fat_id', // linkedin
+    'mc_cid', // mailchimp campaign id
+    'igshid', // instagram
+    'ttclid', // tiktok
 ])
 
 /** If we get new UTM params, make sure we set those  **/

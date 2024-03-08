@@ -1,3 +1,4 @@
+import { IconBug, IconQuestion } from '@posthog/icons'
 import {
     LemonBanner,
     LemonInput,
@@ -10,7 +11,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconBugReport, IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
@@ -26,7 +27,7 @@ const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = 
     {
         value: 'support',
         label: 'Question',
-        icon: <IconHelpOutline />,
+        icon: <IconQuestion />,
     },
     {
         value: 'feedback',
@@ -36,7 +37,7 @@ const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = 
     {
         value: 'bug',
         label: 'Bug',
-        icon: <IconBugReport />,
+        icon: <IconBug />,
     },
 ]
 
@@ -168,7 +169,7 @@ export function SupportForm(): JSX.Element | null {
                             Severity level
                             <Tooltip title="Severity levels help us prioritize your request.">
                                 <span>
-                                    <IconHelpOutline className="opacity-75" />
+                                    <IconQuestion className="opacity-75" />
                                 </span>
                             </Tooltip>
                         </label>

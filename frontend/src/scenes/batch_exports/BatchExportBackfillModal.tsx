@@ -4,15 +4,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { userLogic } from 'scenes/userLogic'
-
-import { AvailableFeature } from '~/types'
 
 import { batchExportLogic } from './batchExportLogic'
+import { showBatchExports } from './utils'
 
 export function BatchExportBackfillModal(): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
-    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
+    if (!showBatchExports()) {
         return <></>
     }
     const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting } = useValues(batchExportLogic)

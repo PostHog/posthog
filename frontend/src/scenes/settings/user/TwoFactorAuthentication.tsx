@@ -1,7 +1,6 @@
-import { IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -35,7 +34,7 @@ export function TwoFactorAuthentication(): JSX.Element {
             {user?.is_2fa_enabled ? (
                 <>
                     <div className="mb-2 flex items-center">
-                        <IconCheckmark color="green" className="text-xl mr-2" />
+                        <IconCheckCircle color="green" className="text-xl mr-2" />
                         <span className="font-medium">2FA enabled.</span>
                     </div>
                     <LemonButton type="primary" to="/account/two_factor/" targetBlank>

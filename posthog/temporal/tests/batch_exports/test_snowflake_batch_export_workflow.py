@@ -30,14 +30,15 @@ from posthog.temporal.batch_exports.batch_exports import (
     iter_records,
     update_export_run_status,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
+    SnowflakeHeartbeatDetails,
     SnowflakeInsertInputs,
     insert_into_snowflake_activity,
     snowflake_default_fields,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -692,8 +693,54 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
     assert len(runs) == 1
 
     run = runs[0]
-    assert run.status == "Failed"
+    assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
+
+
+async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_errors(ateam, snowflake_batch_export):
+    """Test that Snowflake Export Workflow can gracefully handle non-retryable errors when inserting Snowflake data."""
+    workflow_id = str(uuid4())
+    inputs = SnowflakeBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
+        data_interval_end="2023-04-25 14:30:00.000000",
+        **snowflake_batch_export.destination.config,
+    )
+
+    @activity.defn(name="insert_into_snowflake_activity")
+    async def insert_into_snowflake_activity_mocked(_: SnowflakeInsertInputs) -> str:
+        class ForbiddenError(Exception):
+            pass
+
+        raise ForbiddenError("A useful error message")
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SnowflakeBatchExportWorkflow],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity_mocked,
+                update_export_run_status,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    SnowflakeBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Failed"
+    assert run.latest_error == "ForbiddenError: A useful error message"
 
 
 async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snowflake_batch_export):
@@ -1296,3 +1343,19 @@ async def test_insert_into_snowflake_activity_heartbeats(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
     )
+
+
+@pytest.mark.parametrize("details", [(str(dt.datetime.now()), 1)])
+def test_snowflake_heartbeat_details_parses_from_tuple(details):
+    class FakeActivity:
+        def info(self):
+            return FakeInfo()
+
+    class FakeInfo:
+        def __init__(self):
+            self.heartbeat_details = details
+
+    snowflake_details = SnowflakeHeartbeatDetails.from_activity(FakeActivity())
+
+    assert snowflake_details.last_inserted_at == dt.datetime.fromisoformat(details[0])
+    assert snowflake_details.file_no == details[1]

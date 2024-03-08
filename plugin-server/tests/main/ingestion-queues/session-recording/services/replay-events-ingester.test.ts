@@ -14,9 +14,11 @@ jest.mock('../../../../../src/kafka/producer')
 const makeIncomingMessage = (source: string | null, timestamp: number): IncomingRecordingMessage => {
     return {
         distinct_id: '',
-        events: [{ data: { any: 'thing' }, type: 2, timestamp: timestamp }],
+        eventsRange: { start: timestamp, end: timestamp },
+        eventsByWindowId: { '': [{ data: { any: 'thing' }, type: 2, timestamp: timestamp }] },
         metadata: {
-            offset: 0,
+            lowOffset: 0,
+            highOffset: 0,
             partition: 0,
             topic: 'topic',
             timestamp: timestamp,

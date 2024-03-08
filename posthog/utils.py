@@ -136,13 +136,13 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
         at - datetime.timedelta(days=1),
         datetime.time.max,
         tzinfo=ZoneInfo("UTC"),
-    )  # very end of the previous day
+    )  # end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=ZoneInfo("UTC"),
-    )  # very start of the previous day
+    )  # start of the previous day
 
     return (period_start, period_end)
 
@@ -160,13 +160,13 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
         at,
         datetime.time.max,
         tzinfo=ZoneInfo("UTC"),
-    )  # very end of the reference day
+    )  # end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=ZoneInfo("UTC"),
-    )  # very start of the reference day
+    )  # start of the reference day
 
     return (period_start, period_end)
 
@@ -311,7 +311,8 @@ def render_template(
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://app.posthog.com'"
+        context["js_posthog_host"] = "'https://internal-e.posthog.com'"
+        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
@@ -531,7 +532,6 @@ def get_compare_period_dates(
     date_from_delta_mapping: Optional[Dict[str, int]],
     date_to_delta_mapping: Optional[Dict[str, int]],
     interval: str,
-    ignore_date_from_alignment: bool = False,  # New HogQL trends no longer requires the adjustment
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -550,7 +550,6 @@ def get_compare_period_dates(
             and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
-            and not ignore_date_from_alignment
         ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges

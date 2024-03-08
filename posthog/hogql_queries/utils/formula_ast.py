@@ -52,6 +52,8 @@ class FormulaAST:
 
             try:
                 return self.op_map[type(op)](left, right)
+            except ZeroDivisionError:
+                return 0
             except KeyError:
                 raise ValueError(f"Operator {op.__class__.__name__} not supported")
 

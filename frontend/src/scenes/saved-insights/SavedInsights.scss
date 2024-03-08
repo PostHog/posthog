@@ -1,21 +1,6 @@
 @import '../../styles/mixins';
 
 .saved-insights {
-    > .LemonTable td {
-        padding-top: 0.75rem !important;
-        padding-bottom: 0.75rem !important;
-
-        &.icon-column {
-            font-size: 1.5rem;
-            color: var(--muted);
-
-            .LemonSkeleton {
-                width: 2rem;
-                height: 2rem;
-            }
-        }
-    }
-
     .new-insight-dropdown-btn {
         height: 40px;
         padding: 8px 12px 8px 16px;

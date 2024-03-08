@@ -439,12 +439,28 @@ def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 
     runner = AsyncEventDeletion()
-    runner.mark_deletions_done()
-    runner.run()
+
+    try:
+        runner.mark_deletions_done()
+    except Exception as e:
+        logger.error("Failed to mark deletions done", error=e, exc_info=True)
+
+    try:
+        runner.run()
+    except Exception as e:
+        logger.error("Failed to run deletions", error=e, exc_info=True)
 
     cohort_runner = AsyncCohortDeletion()
-    cohort_runner.mark_deletions_done()
-    cohort_runner.run()
+
+    try:
+        cohort_runner.mark_deletions_done()
+    except Exception as e:
+        logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
+
+    try:
+        cohort_runner.run()
+    except Exception as e:
+        logger.error("Failed to run cohort deletions", error=e, exc_info=True)
 
 
 @shared_task(ignore_result=True)

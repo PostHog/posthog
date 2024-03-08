@@ -14,7 +14,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
     const { removeBreakdown } = useActions(breakdownTagLogic)
-    const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { breakdownFilter, isTrends } = useValues(insightVizDataLogic(insightProps))
     const { updateBreakdownFilter } = useActions(insightVizDataLogic(insightProps))
 
     const { histogramBinCount, breakdownLimit, histogramBinsUsed } = useValues(taxonomicBreakdownFilterLogic)
@@ -90,33 +90,36 @@ export const BreakdownTagMenu = (): JSX.Element => {
                 </>
             ) : (
                 <>
-                    <LemonSwitch
-                        fullWidth
-                        className="min-h-10 px-2"
-                        checked={!breakdownFilter?.breakdown_hide_other_aggregation}
-                        onChange={() =>
-                            updateBreakdownFilter({
-                                ...breakdownFilter,
-                                breakdown_hide_other_aggregation: !breakdownFilter?.breakdown_hide_other_aggregation,
-                            })
-                        }
-                        label={
-                            <div className="flex gap-1">
-                                <span>Group remaining values under "Other"</span>
-                                <Tooltip
-                                    title={
-                                        <>
-                                            If you have over {breakdownFilter?.breakdown_limit ?? 25} breakdown options,
-                                            the smallest ones are aggregated under the label "Other". Use this toggle to
-                                            show/hide the "Other" option.
-                                        </>
-                                    }
-                                >
-                                    <IconInfo className="text-muted text-xl shrink-0" />
-                                </Tooltip>
-                            </div>
-                        }
-                    />
+                    {isTrends && (
+                        <LemonSwitch
+                            fullWidth
+                            className="min-h-10 px-2"
+                            checked={!breakdownFilter?.breakdown_hide_other_aggregation}
+                            onChange={() =>
+                                updateBreakdownFilter({
+                                    ...breakdownFilter,
+                                    breakdown_hide_other_aggregation:
+                                        !breakdownFilter?.breakdown_hide_other_aggregation,
+                                })
+                            }
+                            label={
+                                <div className="flex gap-1">
+                                    <span>Group remaining values under "Other"</span>
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                If you have over {breakdownFilter?.breakdown_limit ?? 25} breakdown
+                                                options, the smallest ones are aggregated under the label "Other". Use
+                                                this toggle to show/hide the "Other" option.
+                                            </>
+                                        }
+                                    >
+                                        <IconInfo className="text-muted text-xl shrink-0" />
+                                    </Tooltip>
+                                </div>
+                            }
+                        />
+                    )}
                     <div>
                         <LemonButton
                             onClick={() => {

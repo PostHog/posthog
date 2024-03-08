@@ -1,7 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import useIsHovering from 'lib/hooks/useIsHovering'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
@@ -76,9 +74,7 @@ export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: Pla
 
     const isHovering = useIsHovering(seekBarRef)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const alwaysShowSeekbarPreview = !!featureFlags[FEATURE_FLAGS.ALWAYS_SHOW_SEEKBAR_PREVIEW]
-    const canShowPreview = alwaysShowSeekbarPreview || (typeof activeMs === 'number' && activeMs < TWENTY_MINUTES_IN_MS)
+    const canShowPreview = typeof activeMs === 'number' && activeMs < TWENTY_MINUTES_IN_MS
 
     useEffect(() => {
         if (!seekBarRef?.current) {

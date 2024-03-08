@@ -4,8 +4,6 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -15,7 +13,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { Scene } from 'scenes/sceneTypes'
@@ -48,13 +46,14 @@ import {
     ScheduledChangeType,
     Survey,
     SurveyQuestionType,
-    UserBlastRadiusType,
 } from '~/types'
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
+
+export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -118,13 +117,13 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 }
 
 export interface FeatureFlagLogicProps {
-    id: number | 'new' | 'link' | 'schedule'
+    id: number | 'new' | 'link'
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
 // This doesn't work for forms because variant-keys can be updated too which would invalidate the dictionary entry.
 // If a multivariant flag is returned, the payload dictionary will be transformed to be <variant-key-index>: <payload>
-const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFlagType => {
+export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFlagType => {
     if (!flag.filters.multivariate) {
         return flag
     }
@@ -184,7 +183,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             teamLogic,
             ['currentTeamId'],
             groupsModel,
-            ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
+            ['aggregationLabel'],
             userLogic,
             ['hasAvailableFeature'],
             dashboardsLogic,
@@ -201,24 +200,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        setFeatureFlagFilters: (filters: FeatureFlagType['filters'], errors: any) => ({ filters, errors }),
+        setActiveTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
-        addConditionSet: true,
         addRollbackCondition: true,
-        setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
-        removeConditionSet: (index: number) => ({ index }),
         removeRollbackCondition: (index: number) => ({ index }),
-        duplicateConditionSet: (index: number) => ({ index }),
-        updateConditionSet: (
-            index: number,
-            newRolloutPercentage?: number,
-            newProperties?: AnyPropertyFilter[],
-            newVariant?: string | null
-        ) => ({
-            index,
-            newRolloutPercentage,
-            newProperties,
-            newVariant,
-        }),
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
@@ -230,15 +216,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadInsightAtIndex: (index: number, filters: Partial<FilterType>) => ({ index, filters }),
         setInsightResultAtIndex: (index: number, average: number) => ({ index, average }),
         loadAllInsightsForFlag: true,
-        setAffectedUsers: (index: number, count?: number) => ({ index, count }),
-        setTotalUsers: (count: number) => ({ count }),
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
-        setFeatureFlagId: (id: number | null) => ({ id }),
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
-        setScheduledChangeOperation: (changeType: string | null) => ({ changeType }),
+        setSchedulePayload: (
+            filters: FeatureFlagType['filters'] | null,
+            active: FeatureFlagType['active'] | null,
+            errors?: any
+        ) => ({ filters, active, errors }),
+        setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -272,6 +260,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 setFeatureFlag: (_, { featureFlag }) => {
                     if (featureFlag.filters.groups) {
+                        // TODO: This propertygroup conversion is non-sensical, don't need it here.
                         const groups = featureFlag.filters.groups.map((group) => {
                             if (group.properties) {
                                 return {
@@ -287,15 +276,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     return featureFlag
                 },
-                addConditionSet: (state) => {
-                    if (!state) {
-                        return state
-                    }
-                    const groups = [
-                        ...(state?.filters?.groups || []),
-                        { properties: [], rollout_percentage: undefined, variant: null },
-                    ]
-                    return { ...state, filters: { ...state.filters, groups } }
+                setFeatureFlagFilters: (state, { filters }) => {
+                    return { ...state, filters }
                 },
                 addRollbackCondition: (state) => {
                     if (!state) {
@@ -313,41 +295,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     const rollback_conditions = [...state.rollback_conditions]
                     rollback_conditions.splice(index, 1)
                     return { ...state, rollback_conditions: rollback_conditions }
-                },
-                updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant }) => {
-                    if (!state) {
-                        return state
-                    }
-
-                    const groups = [...(state?.filters?.groups || [])]
-                    if (newRolloutPercentage !== undefined) {
-                        groups[index] = { ...groups[index], rollout_percentage: newRolloutPercentage }
-                    }
-
-                    if (newProperties !== undefined) {
-                        groups[index] = { ...groups[index], properties: newProperties }
-                    }
-
-                    if (newVariant !== undefined) {
-                        groups[index] = { ...groups[index], variant: newVariant }
-                    }
-
-                    return { ...state, filters: { ...state.filters, groups } }
-                },
-                removeConditionSet: (state, { index }) => {
-                    if (!state) {
-                        return state
-                    }
-                    const groups = [...state.filters.groups]
-                    groups.splice(index, 1)
-                    return { ...state, filters: { ...state.filters, groups } }
-                },
-                duplicateConditionSet: (state, { index }) => {
-                    if (!state) {
-                        return state
-                    }
-                    const groups = state.filters.groups.concat([state.filters.groups[index]])
-                    return { ...state, filters: { ...state.filters, groups } }
                 },
                 setMultivariateOptions: (state, { multivariateOptions }) => {
                     if (!state) {
@@ -420,23 +367,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         },
                     }
                 },
-                setAggregationGroupTypeIndex: (state, { value }) => {
-                    if (!state || state.filters.aggregation_group_type_index == value) {
-                        return state
-                    }
-
-                    const originalRolloutPercentage = state.filters.groups[0].rollout_percentage
-
-                    return {
-                        ...state,
-                        filters: {
-                            ...state.filters,
-                            aggregation_group_type_index: value,
-                            // :TRICKY: We reset property filters after changing what you're aggregating by.
-                            groups: [{ properties: [], rollout_percentage: originalRolloutPercentage, variant: null }],
-                        },
-                    }
-                },
                 createEarlyAccessFeatureSuccess: (state, { newEarlyAccessFeature }) => {
                     if (!state) {
                         return state
@@ -455,7 +385,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         surveys: [...(state.surveys || []), newSurvey],
                     }
                 },
-                setFeatureFlagId: (state, { id }) => ({ ...state, id }),
+            },
+        ],
+        propertySelectErrors: [
+            null as any,
+            {
+                setFeatureFlagFilters: (_, { errors }) => {
+                    return errors
+                },
+            },
+        ],
+        activeTab: [
+            FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
@@ -474,23 +417,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }),
             },
         ],
-        affectedUsers: [
-            { 0: -1 },
-            {
-                setAffectedUsers: (state, { index, count }) => ({
-                    ...state,
-                    [index]: count,
-                }),
-                resetFeatureFlag: () => ({ 0: -1 }),
-                loadFeatureFlag: () => ({ 0: -1 }),
-            },
-        ],
-        totalUsers: [
-            null as number | null,
-            {
-                setTotalUsers: (_, { count }) => count,
-            },
-        ],
         copyDestinationProject: [
             null as number | null,
             {
@@ -503,8 +429,30 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
             },
         ],
+        schedulePayload: [
+            {
+                filters: { ...NEW_FLAG.filters },
+                active: NEW_FLAG.active,
+            } as ScheduleFlagPayload,
+            {
+                setSchedulePayload: (state, { filters, active }) => {
+                    return {
+                        filters: filters === null ? state.filters : filters,
+                        active: active === null ? state.active : active,
+                    }
+                },
+            },
+        ],
+        schedulePayloadErrors: [
+            null as any,
+            {
+                setSchedulePayload: (state, { errors }) => {
+                    return errors === null ? state : errors
+                },
+            },
+        ],
         scheduledChangeOperation: [
-            ScheduledChangeOperationType.AddReleaseCondition as string | null,
+            ScheduledChangeOperationType.AddReleaseCondition as ScheduledChangeOperationType,
             {
                 setScheduledChangeOperation: (_, { changeType }) => changeType,
             },
@@ -513,7 +461,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
-                if (props.id && props.id !== 'new' && props.id !== 'link' && props.id !== 'schedule') {
+                if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
@@ -614,7 +562,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as CohortType | null,
             {
                 createStaticCohort: async () => {
-                    if (props.id && props.id !== 'new' && props.id !== 'link' && props.id !== 'schedule') {
+                    if (props.id && props.id !== 'new' && props.id !== 'link') {
                         return (await api.featureFlags.createStaticCohort(props.id)).cohort
                     }
                     return null
@@ -667,7 +615,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         scheduledChange: {
             __default: {} as ScheduledChangeType,
             createScheduledChange: async () => {
-                const { featureFlag, scheduledChangeOperation, scheduleDateMarker, currentTeamId } = values
+                const { scheduledChangeOperation, scheduleDateMarker, currentTeamId, schedulePayload } = values
 
                 const fields = {
                     [ScheduledChangeOperationType.UpdateStatus]: 'active',
@@ -680,7 +628,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         model_name: 'FeatureFlag',
                         payload: {
                             operation: scheduledChangeOperation,
-                            value: featureFlag[fields[scheduledChangeOperation]],
+                            value: schedulePayload[fields[scheduledChangeOperation]],
                         },
                         scheduled_at: scheduleDateMarker.toISOString(),
                     }
@@ -777,81 +725,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 values.featureFlag.rollback_conditions[index].threshold_metric as FilterType
             )
         },
-        updateConditionSet: async ({ index, newProperties }, breakpoint) => {
-            if (newProperties) {
-                // properties have changed, so we'll have to re-fetch affected users
-                actions.setAffectedUsers(index, undefined)
-            }
-
-            if (
-                !newProperties ||
-                newProperties.some(
-                    (property) =>
-                        property.value === null ||
-                        property.value === undefined ||
-                        (Array.isArray(property.value) && property.value.length === 0)
-                )
-            ) {
-                return
-            }
-
-            await breakpoint(1000) // in ms
-
-            const response = await api.create(`api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`, {
-                condition: { properties: newProperties },
-                group_type_index: values.featureFlag?.filters?.aggregation_group_type_index ?? null,
-            })
-            actions.setAffectedUsers(index, response.users_affected)
-            actions.setTotalUsers(response.total_users)
-        },
-        addConditionSet: () => {
-            actions.setAffectedUsers(values.featureFlag.filters.groups.length - 1, -1)
-        },
-        editFeatureFlag: async ({ editing }) => {
-            if (!editing) {
-                return
-            }
-
-            const usersAffected: Promise<UserBlastRadiusType>[] = []
-
-            values.featureFlag?.filters?.groups?.forEach((condition, index) => {
-                actions.setAffectedUsers(index, undefined)
-
-                const properties = condition.properties
-                if (
-                    !properties ||
-                    properties?.length === 0 ||
-                    properties.some(
-                        (property) =>
-                            property.value === null ||
-                            property.value === undefined ||
-                            (Array.isArray(property.value) && property.value.length === 0)
-                    )
-                ) {
-                    // don't compute for full rollouts or empty conditions
-                    usersAffected.push(Promise.resolve({ users_affected: -1, total_users: -1 }))
-                } else {
-                    const responsePromise = api.create(
-                        `api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`,
-                        {
-                            condition,
-                            group_type_index: values.featureFlag?.filters?.aggregation_group_type_index ?? null,
-                        }
-                    )
-
-                    usersAffected.push(responsePromise)
-                }
-            })
-
-            const results = await Promise.all(usersAffected)
-            // Create action for all users affected
-            results.forEach((result, index) => {
-                actions.setAffectedUsers(index, result.users_affected)
-                if (result.total_users !== -1) {
-                    actions.setTotalUsers(result.total_users)
-                }
-            })
-        },
         triggerFeatureFlagUpdate: async ({ payload }) => {
             if (values.featureFlag) {
                 const updatedFlag = await api.update(
@@ -893,13 +766,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
                 actions.loadScheduledChanges()
-                actions.setFeatureFlag({
-                    ...values.featureFlag,
-                    filters: NEW_FLAG.filters,
-                    active: NEW_FLAG.active,
-                })
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
+            }
+        },
+        setScheduledChangeOperation: () => {
+            // reset filters when operation changes
+            actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+        },
+        setActiveTab: ({ tab }) => {
+            // reset filters when opening schedule tab, and load scheduled changes
+            if (tab === FeatureFlagsTab.SCHEDULE) {
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+                actions.loadScheduledChanges()
             }
         },
         createScheduledChangeFailure: ({ error }) => {
@@ -942,36 +822,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return 'users'
             },
         ],
-        taxonomicGroupTypes: [
-            (s) => [s.featureFlag, s.groupsTaxonomicTypes, s.enabledFeatures],
-            (featureFlag, groupsTaxonomicTypes, enabledFeatures): TaxonomicFilterGroupType[] => {
-                const baseGroupTypes = []
-                const additionalGroupTypes = []
-                const newFlagOperatorsEnabled = enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]
-                if (
-                    featureFlag &&
-                    featureFlag.filters.aggregation_group_type_index != null &&
-                    groupsTaxonomicTypes.length > 0
-                ) {
-                    baseGroupTypes.push(groupsTaxonomicTypes[featureFlag.filters.aggregation_group_type_index])
-
-                    if (newFlagOperatorsEnabled) {
-                        additionalGroupTypes.push(
-                            `${TaxonomicFilterGroupType.GroupNamesPrefix}_${featureFlag.filters.aggregation_group_type_index}` as unknown as TaxonomicFilterGroupType
-                        )
-                    }
-                } else {
-                    baseGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
-                    baseGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
-
-                    if (newFlagOperatorsEnabled) {
-                        additionalGroupTypes.push(TaxonomicFilterGroupType.Metadata)
-                    }
-                }
-
-                return [...baseGroupTypes, ...additionalGroupTypes]
-            },
-        ],
         breadcrumbs: [
             (s) => [s.featureFlag],
             (featureFlag): Breadcrumb[] => [
@@ -982,69 +832,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
-        ],
-        featureFlagTaxonomicOptions: [
-            (s) => [s.featureFlag],
-            (featureFlag) => {
-                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null) {
-                    return {}
-                }
-
-                const taxonomicOptions: TaxonomicFilterProps['optionsFromProp'] = {
-                    [TaxonomicFilterGroupType.Metadata]: [
-                        { name: 'distinct_id', propertyFilterType: PropertyFilterType.Person },
-                    ],
-                }
-                return taxonomicOptions
-            },
-        ],
-        propertySelectErrors: [
-            (s) => [s.featureFlag],
-            (featureFlag) => {
-                return featureFlag?.filters?.groups?.map(
-                    ({ properties, rollout_percentage }: FeatureFlagGroupType) => ({
-                        properties: properties?.map((property: AnyPropertyFilter) => ({
-                            value:
-                                property.value === null ||
-                                property.value === undefined ||
-                                (Array.isArray(property.value) && property.value.length === 0)
-                                    ? "Property filters can't be empty"
-                                    : undefined,
-                        })),
-                        rollout_percentage:
-                            rollout_percentage === undefined ? 'You need to set a rollout % value' : undefined,
-                    })
-                )
-            },
-        ],
-        computeBlastRadiusPercentage: [
-            (s) => [s.affectedUsers, s.totalUsers],
-            (affectedUsers, totalUsers) => (rolloutPercentage, index) => {
-                let effectiveRolloutPercentage = rolloutPercentage
-                if (
-                    rolloutPercentage === undefined ||
-                    rolloutPercentage === null ||
-                    (rolloutPercentage && rolloutPercentage > 100)
-                ) {
-                    effectiveRolloutPercentage = 100
-                }
-
-                if (
-                    affectedUsers[index] === -1 ||
-                    totalUsers === -1 ||
-                    !totalUsers ||
-                    affectedUsers[index] === undefined
-                ) {
-                    return effectiveRolloutPercentage
-                }
-
-                let effectiveTotalUsers = totalUsers
-                if (effectiveTotalUsers === 0) {
-                    effectiveTotalUsers = 1
-                }
-
-                return effectiveRolloutPercentage * (affectedUsers[index] / effectiveTotalUsers)
-            },
         ],
         filteredDashboards: [
             (s) => [s.dashboards, s.featureFlag],
@@ -1121,6 +908,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return (featureFlag?.features?.length || 0) > 0
             },
         ],
+        earlyAccessFeaturesList: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag?.features || []
+            },
+        ],
+        featureFlagKey: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag.key
+            },
+        ],
         canCreateEarlyAccessFeature: [
             (s) => [s.featureFlag, s.variants],
             (featureFlag, variants) => {
@@ -1158,7 +957,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setFeatureFlag(formatPayloads)
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
-        } else if (props.id !== 'new' && props.id !== 'schedule') {
+        } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
         }
         actions.loadSentryStats()

@@ -278,7 +278,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 validate_schema_activity,
                 validate_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=2),
+                start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 

@@ -102,7 +102,18 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.EVENT_DEFINITION,
         defaultDocsPath: '/docs/data/events',
     },
+    [Scene.EventDefinitionEdit]: {
+        projectBased: true,
+        name: 'Data management',
+        activityScope: ActivityScope.EVENT_DEFINITION,
+        defaultDocsPath: '/docs/data/events',
+    },
     [Scene.PropertyDefinition]: {
+        projectBased: true,
+        name: 'Data management',
+        activityScope: ActivityScope.PROPERTY_DEFINITION,
+    },
+    [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
         activityScope: ActivityScope.PROPERTY_DEFINITION,
@@ -269,6 +280,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Onboarding]: {
         projectBased: true,
+        hideBillingNotice: true,
         hideProjectNotice: true,
     },
     [Scene.ToolbarLaunch]: {
@@ -465,12 +477,14 @@ export const routes: Record<string, Scene> = {
     [urls.actions()]: Scene.DataManagement,
     [urls.eventDefinitions()]: Scene.DataManagement,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
+    [urls.eventDefinitionEdit(':id')]: Scene.EventDefinitionEdit,
     [urls.batchExports()]: Scene.BatchExports,
     [urls.batchExportNew()]: Scene.BatchExportEdit,
     [urls.batchExport(':id')]: Scene.BatchExport,
     [urls.batchExportEdit(':id')]: Scene.BatchExportEdit,
     [urls.propertyDefinitions()]: Scene.DataManagement,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
+    [urls.propertyDefinitionEdit(':id')]: Scene.PropertyDefinitionEdit,
     [urls.dataManagementHistory()]: Scene.DataManagement,
     [urls.database()]: Scene.DataManagement,
     [urls.events()]: Scene.Events,

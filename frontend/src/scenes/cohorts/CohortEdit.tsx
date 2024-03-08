@@ -148,7 +148,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             </LemonField>
                         </div>
                     </div>
-                    {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                    {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && (
                         <div className="ph-ignore-input">
                             <LemonField name="description" label="Description" data-attr="cohort-description">
                                 <LemonTextArea />

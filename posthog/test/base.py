@@ -59,6 +59,15 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.sessions.sql import (
+    DROP_SESSION_TABLE_SQL,
+    DROP_SESSION_MATERIALIZED_VIEW_SQL,
+    DROP_SESSION_VIEW_SQL,
+    SESSIONS_TABLE_SQL,
+    SESSIONS_TABLE_MV_SQL,
+    SESSIONS_VIEW_SQL,
+    DISTRIBUTED_SESSIONS_TABLE_SQL,
+)
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -487,10 +496,10 @@ class QueryMatchingTest:
         # replace django cursors
         query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
 
-        # hog ql checks team ids differently
+        # hog ql checks some ids differently
         query = re.sub(
-            r"equals\(([^.]+\.)?team_id?, \d+\)",
-            r"equals(\1team_id, 2)",
+            r"equals\(([^.]+\.)?(team_id|cohort_id)?, \d+\)",
+            r"equals(\1\2, 2)",
             query,
         )
 
@@ -858,6 +867,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+                DROP_SESSION_TABLE_SQL(),
+                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+                DROP_SESSION_VIEW_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -868,6 +880,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL,
+                SESSIONS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -876,6 +889,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL,
+                SESSIONS_TABLE_MV_SQL(),
+                SESSIONS_VIEW_SQL(),
+                DISTRIBUTED_SESSIONS_TABLE_SQL(),
             ]
         )
 
@@ -891,6 +907,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+                DROP_SESSION_TABLE_SQL(),
+                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+                DROP_SESSION_VIEW_SQL(),
             ]
         )
 
@@ -902,6 +921,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL,
+                SESSIONS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -909,6 +929,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSIONS_TABLE_SQL(),
+                SESSIONS_VIEW_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL,
             ]
         )

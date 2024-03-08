@@ -36,6 +36,10 @@
               "type": "string"
           },
           {
+              "key": "$window_id",
+              "type": "string"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -286,7 +290,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -420,7 +426,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -443,7 +451,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -629,7 +639,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           },
           {
@@ -718,7 +730,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           },
           {
@@ -799,6 +813,10 @@
           },
           {
               "key": "$session_id",
+              "type": "string"
+          },
+          {
+              "key": "$window_id",
               "type": "string"
           },
           {
@@ -1047,7 +1065,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -1181,7 +1201,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -1204,7 +1226,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -1390,7 +1414,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           },
           {
@@ -1479,7 +1505,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           },
           {

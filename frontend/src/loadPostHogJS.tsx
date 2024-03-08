@@ -22,6 +22,7 @@ export function loadPostHogJS(): void {
             window.JS_POSTHOG_API_KEY,
             configWithSentry({
                 api_host: window.JS_POSTHOG_HOST,
+                ui_host: window.JS_POSTHOG_UI_HOST,
                 rageclick: true,
                 persistence: 'localStorage+cookie',
                 bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
@@ -38,6 +39,9 @@ export function loadPostHogJS(): void {
                     }
                 },
                 scroll_root_selector: ['main', 'html'],
+                autocapture: {
+                    capture_copied_text: true,
+                },
             })
         )
 

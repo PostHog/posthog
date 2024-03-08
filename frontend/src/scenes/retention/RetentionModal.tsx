@@ -1,9 +1,9 @@
 import './RetentionTable.scss'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs } from 'lib/dayjs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
@@ -15,7 +15,6 @@ import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { EXPORT_MAX_LIMIT, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
-import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { ExporterFormat } from '~/types'
 
@@ -32,6 +31,7 @@ export function RetentionModal(): JSX.Element | null {
         retentionModalLogic(insightProps)
     )
     const { closeModal } = useActions(retentionModalLogic(insightProps))
+    const { startExport } = useActions(exportsLogic)
 
     const dataTableNodeQuery: DataTableNode | undefined = actorsQuery
         ? {
@@ -57,7 +57,7 @@ export function RetentionModal(): JSX.Element | null {
                             <LemonButton
                                 type="secondary"
                                 onClick={() =>
-                                    void triggerExport({
+                                    startExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: {
                                             path: row?.people_url,
@@ -69,17 +69,16 @@ export function RetentionModal(): JSX.Element | null {
                             </LemonButton>
                         )}
                         {!!dataTableNodeQuery && (
-                            <ExportWithConfirmation
-                                key={1}
-                                placement="topRight"
-                                onConfirm={() => {
-                                    dataTableNodeQuery && void startDownload(dataTableNodeQuery, true)
-                                }}
-                                actor="persons"
-                                limit={EXPORT_MAX_LIMIT}
-                            >
-                                <LemonButton type="secondary">Export all as CSV</LemonButton>
-                            </ExportWithConfirmation>
+                            <Tooltip delayMs={0} title={`CSV export is limited to ${EXPORT_MAX_LIMIT} persons`}>
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        dataTableNodeQuery && void startDownload(dataTableNodeQuery, true, startExport)
+                                    }}
+                                >
+                                    Export all as CSV
+                                </LemonButton>
+                            </Tooltip>
                         )}
                     </div>
                     {exploreUrl && (

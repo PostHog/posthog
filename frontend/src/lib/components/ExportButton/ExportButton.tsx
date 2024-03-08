@@ -1,13 +1,12 @@
 import { useMountedLogic } from 'kea'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { forwardRef } from 'react'
 
-import { sidePanelExportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/sidePanelExportsLogic'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { ExporterFormat, OnlineExportContext, SidePanelTab } from '~/types'
+import { ExporterFormat, OnlineExportContext } from '~/types'
 
-import { triggerExport, TriggerExportProps } from './exporter'
+import { TriggerExportProps } from './exporter'
 
 export interface ExportButtonItem {
     title?: string | React.ReactNode
@@ -23,17 +22,11 @@ export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type
 
 export const ExportButton: React.FunctionComponent<ExportButtonProps & React.RefAttributes<HTMLButtonElement>> =
     forwardRef(function ExportButton({ items, ...buttonProps }, ref): JSX.Element {
-        useMountedLogic(sidePanelLogic)
-        useMountedLogic(sidePanelExportsLogic)
+        useMountedLogic(exportsLogic)
 
-        const { actions } = sidePanelLogic
-        const { loadExports } = sidePanelExportsLogic.actions
-
+        const { actions } = exportsLogic
         const onExportClick = async (triggerExportProps: TriggerExportProps): Promise<void> => {
-            actions.openSidePanel(SidePanelTab.Exports)
-            loadExports()
-            await triggerExport(triggerExportProps)
-            loadExports()
+            actions.startExport(triggerExportProps)
         }
 
         return (
@@ -50,7 +43,9 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                             <h5>File type</h5>
                             <LemonDivider />
                             {items.map(({ title, ...triggerExportProps }, i) => {
-                                const exportFormatExtension = triggerExportProps.export_format.split('/').pop()
+                                const exportFormatExtension = Object.keys(ExporterFormat)
+                                    .find((key) => ExporterFormat[key as any] === triggerExportProps.export_format)
+                                    ?.toLowerCase()
 
                                 let target: string
                                 let exportBody: string = ''

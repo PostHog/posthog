@@ -28,6 +28,7 @@ class CustomerProduct(TypedDict):
     percentage_usage: float
     projected_usage: int
     projected_amount: Decimal
+    usage_key: str
 
 
 class LicenseInfo(TypedDict):
@@ -59,6 +60,7 @@ class CustomerInfo(TypedDict):
     free_trial_until: Optional[str]
     discount_percent: Optional[int]
     discount_amount_usd: Optional[str]
+    customer_trust_scores: Dict[str, int]
 
 
 class BillingStatus(TypedDict):

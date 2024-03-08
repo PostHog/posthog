@@ -1,9 +1,9 @@
-import { IconCrown, IconLock, IconUnlock } from '@posthog/icons'
+import { IconCrown, IconLeave, IconLock, IconUnlock } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
-import { IconCancel, IconLogout } from 'lib/lemon-ui/icons'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -125,7 +125,7 @@ function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
             data-attr="delete-team-membership"
             tooltip={isSelf ? 'Leave project' : 'Remove from project'}
         >
-            {isSelf ? <IconLogout /> : <IconCancel />}
+            {isSelf ? <IconLeave /> : <IconCancel />}
         </LemonButton>
     ) : null
 }
@@ -209,10 +209,7 @@ export function ProjectAccessControl(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
 
-    const projectPermissioningEnabled =
-        hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && currentTeam?.access_control
     const isRestricted = !!useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
@@ -220,7 +217,7 @@ export function ProjectAccessControl(): JSX.Element {
     return (
         <>
             <p>
-                {projectPermissioningEnabled ? (
+                {currentTeam?.access_control ? (
                     <>
                         This project is{' '}
                         <b>
@@ -243,14 +240,14 @@ export function ProjectAccessControl(): JSX.Element {
             </p>
             <LemonSwitch
                 onChange={(checked) => {
-                    guardAvailableFeature(
-                        AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                        'project-based permissioning',
-                        'Set permissions granularly for each project. Make sure only the right people have access to protected data.',
-                        () => updateCurrentTeam({ access_control: checked })
-                    )
+                    // Let them uncheck it if it's already checked, but don't let them check it if they don't have the feature
+                    checked
+                        ? guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () =>
+                              updateCurrentTeam({ access_control: checked })
+                          )
+                        : updateCurrentTeam({ access_control: checked })
                 }}
-                checked={!!projectPermissioningEnabled}
+                checked={!!currentTeam?.access_control}
                 disabled={
                     isRestricted ||
                     !currentOrganization ||
@@ -262,9 +259,7 @@ export function ProjectAccessControl(): JSX.Element {
                 label="Make project private"
             />
 
-            {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
-                <ProjectTeamMembers />
-            )}
+            {currentTeam?.access_control && <ProjectTeamMembers />}
         </>
     )
 }

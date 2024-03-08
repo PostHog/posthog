@@ -278,6 +278,21 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id_overrides ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_overrides]
   '''
   
@@ -910,6 +925,21 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_person_distinct_id_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id_overrides ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_person_overrides]
   '''
   
@@ -1262,6 +1292,25 @@
       
   '''
 # ---
+# name: test_create_table_query[person_distinct_id_overrides_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_overrides_mv ON CLUSTER 'posthog'
+  TO posthog_test.person_distinct_id_overrides
+  AS SELECT
+  team_id,
+  distinct_id,
+  person_id,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+  FROM posthog_test.kafka_person_distinct_id_overrides
+  WHERE version > 0 -- only store updated rows, not newly inserted ones
+  
+  '''
+# ---
 # name: test_create_table_query[person_mv]
   '''
   
@@ -1568,6 +1617,107 @@
   
   '''
 # ---
+# name: test_create_table_query[sessions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sessions ON CLUSTER 'posthog'
+  (
+      -- part of order by so will aggregate correctly
+      session_id VARCHAR,
+      -- part of order by so will aggregate correctly
+      team_id Int64,
+      -- ClickHouse will pick any value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
+      distinct_id SimpleAggregateFunction(any, String),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- create a map of how many times we saw each event
+      event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
+      -- duplicate the event count as a specific column for pageviews and autocaptures,
+      -- as these are used in some key queries and need to be fast
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_sessions', sipHash64(session_id))
+  
+  '''
+# ---
+# name: test_create_table_query[sessions_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS sessions_mv ON CLUSTER 'posthog'
+  TO posthog_test.writable_sessions
+  AS SELECT
+  
+  `$session_id` as session_id,
+  team_id,
+  
+  -- it doesn't matter which distinct_id gets picked (it'll be somewhat random) as they can all join to the right person
+  any(distinct_id) as distinct_id,
+  
+  min(timestamp) AS min_timestamp,
+  max(timestamp) AS max_timestamp,
+  
+  groupUniqArray(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) AS urls,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), timestamp) as entry_url,
+  argMaxState(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), timestamp) as exit_url,
+  
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, '$referring_domain'), '^"|"$', ''), timestamp) as initial_referring_domain,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'utm_source'), '^"|"$', ''), timestamp) as initial_utm_source,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'utm_campaign'), '^"|"$', ''), timestamp) as initial_utm_campaign,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'utm_medium'), '^"|"$', ''), timestamp) as initial_utm_medium,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'utm_term'), '^"|"$', ''), timestamp) as initial_utm_term,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'utm_content'), '^"|"$', ''), timestamp) as initial_utm_content,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'gclid'), '^"|"$', ''), timestamp) as initial_gclid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'gad_source'), '^"|"$', ''), timestamp) as initial_gad_source,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'gclsrc'), '^"|"$', ''), timestamp) as initial_gclsrc,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'dclid'), '^"|"$', ''), timestamp) as initial_dclid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'gbraid'), '^"|"$', ''), timestamp) as initial_gbraid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'wbraid'), '^"|"$', ''), timestamp) as initial_wbraid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'fbclid'), '^"|"$', ''), timestamp) as initial_fbclid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'msclkid'), '^"|"$', ''), timestamp) as initial_msclkid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'twclid'), '^"|"$', ''), timestamp) as initial_twclid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'li_fat_id'), '^"|"$', ''), timestamp) as initial_li_fat_id,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'mc_cid'), '^"|"$', ''), timestamp) as initial_mc_cid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'igshid'), '^"|"$', ''), timestamp) as initial_igshid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'ttclid'), '^"|"$', ''), timestamp) as initial_ttclid,
+  
+  sumMap(CAST(([event], [1]), 'Map(String, UInt64)')) as event_count_map,
+  sumIf(1, event='$pageview') as pageview_count,
+  sumIf(1, event='$autocapture') as autocapture_count
+  
+  FROM posthog_test.sharded_events
+  WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND toStartOfDay(timestamp) >= '2024-03-08'
+  GROUP BY `$session_id`, team_id
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_app_metrics]
   '''
   
@@ -1822,6 +1972,71 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_sessions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_sessions ON CLUSTER 'posthog'
+  (
+      -- part of order by so will aggregate correctly
+      session_id VARCHAR,
+      -- part of order by so will aggregate correctly
+      team_id Int64,
+      -- ClickHouse will pick any value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
+      distinct_id SimpleAggregateFunction(any, String),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- create a map of how many times we saw each event
+      event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
+      -- duplicate the event count as a specific column for pageviews and autocaptures,
+      -- as these are used in some key queries and need to be fast
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sessions', '{replica}')
+  
+      PARTITION BY toYYYYMM(min_timestamp)
+      -- order by is used by the aggregating merge tree engine to
+      -- identify candidates to merge, e.g. toDate(min_timestamp)
+      -- would mean we would have one row per day per session_id
+      -- if CH could completely merge to match the order by
+      -- it is also used to organise data to make queries faster
+      -- we want the fewest rows possible but also the fastest queries
+      -- since we query by date and not by time
+      -- and order by must be in order of increasing cardinality
+      -- so we order by date first, then team_id, then session_id
+      -- hopefully, this is a good balance between the two
+      ORDER BY (toStartOfDay(min_timestamp), team_id, session_id)
+  SETTINGS index_granularity=512
+  
+  '''
+# ---
 # name: test_create_table_query[writable_events]
   '''
   
@@ -1877,6 +2092,57 @@
   , _offset UInt64
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_sessions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_sessions ON CLUSTER 'posthog'
+  (
+      -- part of order by so will aggregate correctly
+      session_id VARCHAR,
+      -- part of order by so will aggregate correctly
+      team_id Int64,
+      -- ClickHouse will pick any value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
+      distinct_id SimpleAggregateFunction(any, String),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- create a map of how many times we saw each event
+      event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
+      -- duplicate the event count as a specific column for pageviews and autocaptures,
+      -- as these are used in some key queries and need to be fast
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_sessions', sipHash64(session_id))
   
   '''
 # ---
@@ -2520,6 +2786,71 @@
       -- so we order by date first, then team_id, then session_id
       -- hopefully, this is a good balance between the two
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
+  SETTINGS index_granularity=512
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_sessions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_sessions ON CLUSTER 'posthog'
+  (
+      -- part of order by so will aggregate correctly
+      session_id VARCHAR,
+      -- part of order by so will aggregate correctly
+      team_id Int64,
+      -- ClickHouse will pick any value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      -- it will still (or should still) map to the same person
+      distinct_id SimpleAggregateFunction(any, String),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- create a map of how many times we saw each event
+      event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
+      -- duplicate the event count as a specific column for pageviews and autocaptures,
+      -- as these are used in some key queries and need to be fast
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sessions', '{replica}')
+  
+      PARTITION BY toYYYYMM(min_timestamp)
+      -- order by is used by the aggregating merge tree engine to
+      -- identify candidates to merge, e.g. toDate(min_timestamp)
+      -- would mean we would have one row per day per session_id
+      -- if CH could completely merge to match the order by
+      -- it is also used to organise data to make queries faster
+      -- we want the fewest rows possible but also the fastest queries
+      -- since we query by date and not by time
+      -- and order by must be in order of increasing cardinality
+      -- so we order by date first, then team_id, then session_id
+      -- hopefully, this is a good balance between the two
+      ORDER BY (toStartOfDay(min_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
   '''

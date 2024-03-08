@@ -1,8 +1,6 @@
 import './CodeSnippet.scss'
 
 import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
-import { Popconfirm } from 'antd'
-import { PopconfirmProps } from 'antd/lib/popconfirm'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -77,19 +75,12 @@ SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 SyntaxHighlighter.registerLanguage(Language.SQL, sql)
 SyntaxHighlighter.registerLanguage(Language.Kotlin, kotlin)
 
-export interface Action {
-    icon: React.ReactElement
-    title: string
-    callback: () => void
-    popconfirmProps?: Omit<PopconfirmProps, 'onConfirm'>
-}
-
 export interface CodeSnippetProps {
     children: string
     language?: Language
     wrap?: boolean
     compact?: boolean
-    actions?: Action[]
+    actions?: JSX.Element
     style?: React.CSSProperties
     /** What is being copied. @example 'link' */
     thing?: string
@@ -118,23 +109,7 @@ export function CodeSnippet({
         // eslint-disable-next-line react/forbid-dom-props
         <div className={clsx('CodeSnippet', compact && 'CodeSnippet--compact')} style={style}>
             <div className="CodeSnippet__actions">
-                {actions &&
-                    actions.map(({ icon, callback, popconfirmProps, title }, index) =>
-                        !popconfirmProps ? (
-                            <LemonButton
-                                key={`snippet-action-${index}`}
-                                onClick={callback}
-                                icon={icon}
-                                title={title}
-                                size={compact ? 'small' : 'medium'}
-                                noPadding
-                            />
-                        ) : (
-                            <Popconfirm key={`snippet-action-${index}`} {...popconfirmProps} onConfirm={callback}>
-                                <LemonButton icon={icon} title={title} size={compact ? 'small' : 'medium'} noPadding />
-                            </Popconfirm>
-                        )
-                    )}
+                {actions}
                 <LemonButton
                     data-attr="copy-code-button"
                     icon={<IconCopy />}

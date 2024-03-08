@@ -237,6 +237,12 @@ class QueryDateRange:
     def date_to_to_start_of_interval_hogql(self) -> ast.Call:
         return self.date_to_start_of_interval_hogql(self.date_to_as_hogql())
 
+    def date_to_with_extra_interval_hogql(self) -> ast.Call:
+        return ast.Call(
+            name="plus",
+            args=[self.date_to_start_of_interval_hogql(self.date_to_as_hogql()), self.one_interval_period()],
+        )
+
     def to_placeholders(self) -> Dict[str, ast.Expr]:
         return {
             "interval": self.interval_period_string_as_hogql_constant(),

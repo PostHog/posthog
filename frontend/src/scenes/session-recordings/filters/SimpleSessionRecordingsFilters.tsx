@@ -1,116 +1,111 @@
-import { urls } from '@posthog/apps-common'
-import { IconPlus } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
-import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { IconGear, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonMenu, Popover } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { useMemo, useState } from 'react'
-import { teamLogic } from 'scenes/teamLogic'
+import { useMemo, useRef, useState } from 'react'
 
-import {
-    AnyPropertyFilter,
-    EntityTypes,
-    FilterType,
-    PropertyFilterType,
-    PropertyOperator,
-    RecordingFilters,
-} from '~/types'
+import { EntityTypes, EventPropertyFilter, PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
+
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
 export const SimpleSessionRecordingsFilters = ({
     filters,
     setFilters,
-    localFilters,
-    setLocalFilters,
 }: {
     filters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
-    localFilters: FilterType
-    setLocalFilters: (localFilters: FilterType) => void
 }): JSX.Element => {
-    const { currentTeam } = useValues(teamLogic)
+    const { quickFilterProperties } = useValues(playerSettingsLogic)
+    const { setQuickFilterProperties } = useActions(playerSettingsLogic)
+    const [showPropertySelector, setShowPropertySelector] = useState<boolean>(false)
+    const buttonRef = useRef<HTMLButtonElement>(null)
 
-    const displayNameProperties = useMemo(() => currentTeam?.person_display_name_properties ?? [], [currentTeam])
-
-    const personPropertyOptions = useMemo(() => {
-        const properties = [{ label: 'Country', key: '$geoip_country_name' }]
-        return properties.concat(
-            displayNameProperties.slice(0, 2).map((property) => {
-                return { label: property, key: property }
-            })
-        )
-    }, [displayNameProperties])
-
-    const pageviewEvent = localFilters.events?.find((event) => event.id === '$pageview')
+    const pageviewEvent = filters.events?.find((event) => event.id === '$pageview')
 
     const personProperties = filters.properties || []
     const eventProperties = pageviewEvent?.properties || []
 
-    return (
-        <div className="space-y-2">
-            <div className="flex flex-wrap gap-1">
-                {personPropertyOptions.map(({ label, key }) => (
-                    <SimpleSessionRecordingsFiltersInserter
-                        key={key}
-                        type={PropertyFilterType.Person}
-                        propertyKey={key}
-                        label={label}
-                        disabled={personProperties.some((property) => property.key === key)}
-                        onChange={(newProperties) => {
-                            const properties = filters.properties || []
-                            setFilters({ ...filters, properties: [...properties, ...newProperties] })
-                        }}
-                    />
-                ))}
-                <SimpleSessionRecordingsFiltersInserter
-                    type={PropertyFilterType.Event}
-                    propertyKey="$current_url"
-                    label="URL"
-                    disabled={!!pageviewEvent}
-                    onChange={(properties) => {
-                        const events = filters.events || []
-                        setLocalFilters({
-                            ...filters,
-                            events: [
-                                ...events,
-                                {
-                                    id: '$pageview',
-                                    name: '$pageview',
-                                    type: EntityTypes.EVENTS,
-                                    properties: properties,
-                                },
-                            ],
-                        })
-                    }}
-                />
-                {displayNameProperties.length === 0 && (
-                    <Link to={urls.settings('project', 'person-display-name')}>
-                        <LemonButton size="small" className="whitespace-nowrap" icon={<IconPlus />}>
-                            Add person properties
-                        </LemonButton>
-                    </Link>
-                )}
-            </div>
+    const onClickPersonProperty = (key: string): void => {
+        setFilters({
+            ...filters,
+            properties: [
+                ...personProperties,
+                { type: PropertyFilterType.Person, key: key, value: null, operator: PropertyOperator.Exact },
+            ],
+        })
+    }
 
-            {personProperties && (
+    const onClickCurrentUrl = (): void => {
+        const events = filters.events || []
+        setFilters({
+            ...filters,
+            events: [
+                ...events,
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: EntityTypes.EVENTS,
+                    properties: [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$current_url',
+                            value: null,
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ],
+        })
+    }
+
+    const defaultItems = useMemo(() => {
+        const eventKeys = eventProperties.map((p: EventPropertyFilter) => p.key)
+
+        return [
+            !eventKeys.includes('$current_url') && {
+                label: <PropertyKeyInfo disablePopover disableIcon value="$current_url" />,
+                key: '$current_url',
+                onClick: onClickCurrentUrl,
+            },
+        ].filter(Boolean)
+    }, [eventProperties])
+
+    const personPropertyItems = useMemo(() => {
+        const personKeys = personProperties.map((p) => p.key)
+
+        return quickFilterProperties
+            .map((property) => {
+                return (
+                    !personKeys.includes(property) && {
+                        label: <PropertyKeyInfo disablePopover disableIcon value={property} />,
+                        key: property,
+                        onClick: () => onClickPersonProperty(property),
+                    }
+                )
+            })
+            .filter(Boolean)
+    }, [quickFilterProperties, personProperties])
+
+    return (
+        <div className="space-y-3">
+            <div className="space-y-1">
                 <PropertyFilters
-                    pageKey="session-recordings"
+                    pageKey="session-recordings-simple-$country"
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
                     propertyFilters={personProperties}
                     onChange={(properties) => setFilters({ properties })}
                     allowNew={false}
+                    openOnInsert
                 />
-            )}
-            {pageviewEvent && (
                 <PropertyFilters
-                    pageKey="session-recordings-$current_url"
+                    pageKey="session-recordings-simple-$current_url"
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                     propertyFilters={eventProperties}
                     onChange={(properties) => {
-                        setLocalFilters({
+                        setFilters({
                             ...filters,
                             events:
                                 properties.length > 0
@@ -126,78 +121,98 @@ export const SimpleSessionRecordingsFilters = ({
                         })
                     }}
                     allowNew={false}
+                    openOnInsert
                 />
-            )}
+                <Popover
+                    visible={showPropertySelector}
+                    onClickOutside={() => setShowPropertySelector(false)}
+                    overlay={
+                        <Configuration
+                            properties={quickFilterProperties}
+                            onChange={(value) => {
+                                setQuickFilterProperties(value)
+                            }}
+                        />
+                    }
+                    referenceElement={buttonRef.current}
+                    placement="right-start"
+                >
+                    <LemonMenu
+                        items={[
+                            defaultItems.length > 0 && { items: defaultItems },
+                            personPropertyItems.length > 0 && {
+                                title: 'Person properties',
+                                items: personPropertyItems,
+                            },
+                        ]}
+                        onVisibilityChange={() => setShowPropertySelector(false)}
+                    >
+                        <LemonButton
+                            ref={buttonRef}
+                            size="small"
+                            type="secondary"
+                            sideAction={{
+                                icon: <IconGear />,
+                                tooltip: 'Edit properties',
+                                onClick: () => setShowPropertySelector(true),
+                            }}
+                        >
+                            Choose quick filter
+                        </LemonButton>
+                    </LemonMenu>
+                </Popover>
+            </div>
         </div>
     )
 }
 
-const SimpleSessionRecordingsFiltersInserter = ({
-    propertyKey,
-    type,
-    label,
-    disabled,
+const Configuration = ({
+    properties,
     onChange,
 }: {
-    propertyKey: string
-    type: PropertyFilterType.Event | PropertyFilterType.Person
-    label: string
-    disabled: boolean
-    onChange: (properties: AnyPropertyFilter[]) => void
+    properties: string[]
+    onChange: (properties: string[]) => void
 }): JSX.Element => {
-    const [open, setOpen] = useState(false)
-
-    const pageKey = `session-recordings-inserter-${propertyKey}`
-
-    const logicProps: PropertyFilterLogicProps = {
-        propertyFilters: [{ type: type, key: propertyKey, operator: PropertyOperator.Exact }],
-        onChange,
-        pageKey: pageKey,
-        sendAllKeyUpdates: false,
-    }
-
-    const { setFilters } = useActions(propertyFilterLogic(logicProps))
-
-    const handleVisibleChange = (visible: boolean): void => {
-        if (!visible) {
-            setFilters([{ type: type, key: propertyKey, operator: PropertyOperator.Exact }])
-        }
-
-        setOpen(visible)
-    }
+    const [showPropertySelector, setShowPropertySelector] = useState<boolean>(false)
 
     return (
-        <BindLogic logic={propertyFilterLogic} props={logicProps}>
+        <div className="font-medium">
+            {properties.map((property) => (
+                <div className="flex items-center p-1 gap-2" key={property}>
+                    <span className="flex-1">
+                        <PropertyKeyInfo value={property} />
+                    </span>
+                    <LemonButton
+                        size="xsmall"
+                        status="danger"
+                        icon={<IconTrash />}
+                        onClick={() => {
+                            const newProperties = properties.filter((p) => p != property)
+                            onChange(newProperties)
+                        }}
+                    />
+                </div>
+            ))}
             <Popover
-                className="filter-row-popover"
-                visible={open}
-                onClickOutside={() => handleVisibleChange(false)}
+                visible={showPropertySelector}
+                onClickOutside={() => setShowPropertySelector(false)}
+                placement="right-start"
                 overlay={
-                    <TaxonomicPropertyFilter
-                        pageKey={pageKey}
-                        index={0}
-                        onComplete={() => handleVisibleChange(false)}
-                        orFiltering={false}
+                    <TaxonomicFilter
+                        onChange={(_, value) => {
+                            properties.push(value as string)
+                            onChange([...properties])
+                            setShowPropertySelector(false)
+                        }}
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                        propertyGroupType={null}
-                        disablePopover={false}
-                        selectProps={{}}
+                        excludedProperties={{ [TaxonomicFilterGroupType.PersonProperties]: properties }}
                     />
                 }
             >
-                <LemonButton
-                    data-attr="simple-session-recordings-filter"
-                    data-ph-capture-attribute-simple-filter-property-key={propertyKey}
-                    onClick={() => handleVisibleChange(true)}
-                    className="new-prop-filter"
-                    type="secondary"
-                    size="small"
-                    disabledReason={disabled && 'Add more values using your existing filter.'}
-                    sideIcon={null}
-                >
-                    {label}
+                <LemonButton onClick={() => setShowPropertySelector(!showPropertySelector)} fullWidth>
+                    Add person properties
                 </LemonButton>
             </Popover>
-        </BindLogic>
+        </div>
     )
 }

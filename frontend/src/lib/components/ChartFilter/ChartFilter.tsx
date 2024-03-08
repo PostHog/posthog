@@ -1,15 +1,7 @@
+import { IconGlobe, IconGraph, IconPieChart, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import {
-    Icon123,
-    IconAreaChart,
-    IconBarChart,
-    IconCumulativeChart,
-    IconPieChart,
-    IconPublic,
-    IconShowChart,
-    IconTableChart,
-} from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconCumulativeChart, IconTableChart } from 'lib/lemon-ui/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -33,12 +25,12 @@ export function ChartFilter(): JSX.Element {
             options: [
                 {
                     value: ChartDisplayType.ActionsLineGraph,
-                    icon: <IconShowChart />,
+                    icon: <IconTrends />,
                     label: 'Line chart',
                 },
                 {
                     value: ChartDisplayType.ActionsBar,
-                    icon: <IconBarChart />,
+                    icon: <IconGraph />,
                     label: 'Bar chart',
                 },
                 {
@@ -77,7 +69,7 @@ export function ChartFilter(): JSX.Element {
                 },
                 {
                     value: ChartDisplayType.ActionsBarValue,
-                    icon: <IconBarChart className="rotate-90" />,
+                    icon: <IconGraph className="rotate-90" />,
                     label: 'Bar chart',
                     disabledReason: trendsOnlyDisabledReason,
                 },
@@ -88,7 +80,7 @@ export function ChartFilter(): JSX.Element {
                 },
                 {
                     value: ChartDisplayType.WorldMap,
-                    icon: <IconPublic />,
+                    icon: <IconGlobe />,
                     label: 'World map',
                     tooltip: 'Visualize data by country.',
                     disabledReason:

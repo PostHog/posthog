@@ -1,4 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
+import { IconEllipsis } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -12,7 +13,7 @@ import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -26,15 +27,14 @@ import { useEffect, useState } from 'react'
 import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, BatchExportLogEntry } from '~/types'
+import { BatchExportLogEntry } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportLogic, BatchExportLogicProps, BatchExportTab } from './batchExportLogic'
 import { batchExportLogsLogic, BatchExportLogsProps, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
-import { humanizeDestination, intervalToFrequency, isRunInProgress } from './utils'
+import { humanizeDestination, intervalToFrequency, isRunInProgress, showBatchExports } from './utils'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -45,7 +45,6 @@ export const scene: SceneExport = {
 }
 
 export function RunsTab(): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
     const {
         batchExportRunsResponse,
         batchExportConfig,
@@ -58,7 +57,7 @@ export function RunsTab(): JSX.Element {
 
     const [dateRangeVisible, setDateRangeVisible] = useState(false)
 
-    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+    const hasDataPipelines = showBatchExports()
     if (!batchExportConfig && !batchExportConfigLoading) {
         return <NotFound object="Batch Export" />
     }
@@ -395,8 +394,7 @@ export function BatchExportScene(): JSX.Element {
     const { batchExportConfig, batchExportConfigLoading, activeTab } = useValues(batchExportLogic)
     const { loadBatchExportConfig, loadBatchExportRuns, openBackfillModal, pause, unpause, archive, setActiveTab } =
         useActions(batchExportLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
-    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+    const hasDataPipelines = showBatchExports()
 
     useEffect(() => {
         loadBatchExportConfig()

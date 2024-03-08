@@ -14,6 +14,7 @@ import {
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
+    ProductKey,
     ReplayTabs,
 } from '~/types'
 
@@ -54,8 +55,10 @@ export const urls = {
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
+    eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
     propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
+    propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     events: (): string => '/events',
@@ -175,7 +178,8 @@ export const urls = {
     onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
         `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
     // Cloud only
-    organizationBilling: (): string => '/organization/billing',
+    organizationBilling: (products?: ProductKey[]): string =>
+        `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
     instanceStaffUsers: (): string => '/instance/staff_users',

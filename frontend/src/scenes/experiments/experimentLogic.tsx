@@ -8,7 +8,7 @@ import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { toParams } from 'lib/utils'
+import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ReactElement } from 'react'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
@@ -143,6 +143,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentGoalModal: true,
         openExperimentExposureModal: true,
         closeExperimentExposureModal: true,
+        setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
+        moveToNextFormStep: true,
     }),
     reducers({
         experiment: [
@@ -276,6 +278,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setExperiment: () => true,
                 loadExperiment: () => false,
                 updateExperiment: () => false,
+            },
+        ],
+        currentFormStep: [
+            0,
+            {
+                setCurrentFormStep: (_, { stepIndex }) => stepIndex,
             },
         ],
     }),
@@ -548,6 +556,20 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
+        },
+        moveToNextFormStep: async () => {
+            const { currentFormStep } = values
+            if (currentFormStep === 0) {
+                actions.touchExperimentField('name')
+                actions.touchExperimentField('feature_flag_key')
+                values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
+                    actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
+                )
+            }
+
+            if (!hasFormErrors(values.experimentErrors)) {
+                actions.setCurrentFormStep(currentFormStep + 1)
+            }
         },
     })),
     loaders(({ actions, props, values }) => ({
@@ -995,6 +1017,7 @@ export const experimentLogic = kea<experimentLogicType>([
     }),
     forms(({ actions, values }) => ({
         experiment: {
+            options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
             errors: ({ name, feature_flag_key, parameters }) => ({
                 name: !name && 'You have to enter a name.',

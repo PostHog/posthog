@@ -57,6 +57,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
         },
+        $copy_autocapture: {
+            label: 'Clipboard autocapture',
+            description: 'Selected text automatically captured when a user copies or cuts.',
+        },
         $screen: {
             label: 'Screen',
             description: 'When a user loads a screen in a mobile app.',
@@ -179,6 +183,15 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     event_properties: {
         distinct_id: {} as CoreFilterDefinition, // Copied from `metadata` down below
         $session_duration: {} as CoreFilterDefinition, // Copied from `sessions` down below
+        $copy_type: {
+            label: 'Copy Type',
+            description: 'Type of copy event.',
+            examples: ['copy', 'cut'],
+        },
+        $selected_content: {
+            label: 'Copied content',
+            description: 'The content that was selected when the user copied or cut.',
+        },
         $set: {
             label: 'Set',
             description: 'Person properties to be set',
@@ -913,6 +926,8 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>
 
 CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
+// add distinct_id to event properties before copying to person properties so it exists in person properties as well
+CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
 CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = Object.fromEntries(
     Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties).flatMap(([key, value]) =>
         eventToPersonProperties.has(key) || key.startsWith('$geoip_')
@@ -943,7 +958,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = Object.fromEntries(
             : [[key, value]]
     )
 )
-CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
 // We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.$session_duration =
     CORE_FILTER_DEFINITIONS_BY_GROUP.sessions.$session_duration

@@ -1,4 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { promptLogic } from 'lib/logic/promptLogic'
 import { objectsEqual } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -12,8 +14,16 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
-import { FilterType, InsightLogicProps, InsightType } from '~/types'
+import {
+    isFunnelsQuery,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
+import { ExportContext, FilterType, InsightLogicProps, InsightType } from '~/types'
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
@@ -55,6 +65,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['filterTestAccountsDefault'],
             teamLogic,
             ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             insightLogic,
@@ -119,14 +131,32 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         exportContext: [
-            (s) => [s.query, s.insight],
-            (query, insight) => {
+            (s) => [s.query, s.insight, s.featureFlags],
+            (query, insight, featureFlags) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
                     return undefined
                 }
                 const filename = ['export', insight.name || insight.derived_name].join('-')
-                return { ...queryExportContext(query), filename }
+
+                let sourceQuery = query
+                if (isInsightVizNode(query)) {
+                    sourceQuery = query.source
+                }
+
+                const maintainLegacy = !(
+                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE] && isLifecycleQuery(sourceQuery)) ||
+                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS] && isPathsQuery(sourceQuery)) ||
+                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION] && isRetentionQuery(sourceQuery)) ||
+                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] && isTrendsQuery(sourceQuery)) ||
+                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS] && isStickinessQuery(sourceQuery)) ||
+                    (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS] && isFunnelsQuery(sourceQuery))
+                )
+
+                return {
+                    ...queryExportContext(sourceQuery, undefined, undefined, maintainLegacy),
+                    filename,
+                } as ExportContext
             },
         ],
 

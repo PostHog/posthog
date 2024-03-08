@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
 
@@ -22,6 +22,7 @@ interface FilterRowProps {
     disablePopover?: boolean
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
+    openOnInsert?: boolean
     onRemove: (index: number) => void
     orFiltering?: boolean
     errorMessage?: JSX.Element | null
@@ -35,6 +36,7 @@ export const FilterRow = React.memo(function FilterRow({
     showConditionBadge,
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
+    openOnInsert = false,
     filterComponent,
     label,
     onRemove,
@@ -42,6 +44,10 @@ export const FilterRow = React.memo(function FilterRow({
     errorMessage,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
+
+    useEffect(() => {
+        setOpen(openOnInsert)
+    }, [])
 
     const { key } = item
 

@@ -14,6 +14,7 @@ import {
 import {
     ActionsNode,
     BreakdownFilter,
+    DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
@@ -42,6 +43,7 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     BaseMathType,
+    DataWarehouseFilter,
     FilterLogicalOperator,
     FilterType,
     FunnelExclusionLegacy,
@@ -49,6 +51,7 @@ import {
     GroupMathType,
     HogQLMathType,
     InsightType,
+    isDataWarehouseFilter,
     PathsFilterType,
     PropertyFilterType,
     PropertyGroupFilterValue,
@@ -75,16 +78,33 @@ const actorsOnlyMathTypes = [
     HogQLMathType.HogQL,
 ]
 
-type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
+type FilterTypeActionsAndEvents = {
+    events?: ActionFilter[]
+    actions?: ActionFilter[]
+    data_warehouse?: DataWarehouseFilter[]
+    new_entity?: ActionFilter[]
+}
 
 export const legacyEntityToNode = (
-    entity: ActionFilter,
+    entity: ActionFilter | DataWarehouseFilter,
     includeProperties: boolean,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode => {
-    let shared: Partial<EventsNode | ActionsNode> = {
+): EventsNode | ActionsNode | DataWarehouseNode => {
+    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
+        id_field: 'id_field' in entity ? entity.id_field : undefined,
+        timestamp_field: 'timestamp_field' in entity ? entity.timestamp_field : undefined,
+        table_name: 'table_name' in entity ? entity.table_name : undefined,
+    }
+
+    if (isDataWarehouseFilter(entity)) {
+        shared = {
+            ...shared,
+            id_field: entity.id_field || undefined,
+            timestamp_field: entity.timestamp_field || undefined,
+            table_name: entity.table_name || undefined,
+        }
     }
 
     if (includeProperties) {
@@ -116,6 +136,12 @@ export const legacyEntityToNode = (
             id: entity.id,
             ...shared,
         }) as any
+    } else if (entity.type === 'data_warehouse') {
+        return objectCleanWithEmpty({
+            kind: NodeKind.DataWarehouseNode,
+            id: entity.id,
+            ...shared,
+        }) as any
     } else {
         return objectCleanWithEmpty({
             kind: NodeKind.EventsNode,
@@ -128,7 +154,9 @@ export const legacyEntityToNode = (
 export const exlusionEntityToNode = (
     entity: FunnelExclusionLegacy
 ): FunnelExclusionEventsNode | FunnelExclusionActionsNode => {
-    const baseEntity = legacyEntityToNode(entity as ActionFilter, false, MathAvailability.None)
+    const baseEntity = legacyEntityToNode(entity as ActionFilter, false, MathAvailability.None) as
+        | EventsNode
+        | ActionsNode
     return {
         ...baseEntity,
         funnelFromStep: entity.funnel_from_step,
@@ -137,11 +165,11 @@ export const exlusionEntityToNode = (
 }
 
 export const actionsAndEventsToSeries = (
-    { actions, events, new_entity }: FilterTypeActionsAndEvents,
+    { actions, events, data_warehouse, new_entity }: FilterTypeActionsAndEvents,
     includeProperties: boolean,
     includeMath: MathAvailability
-): (EventsNode | ActionsNode)[] => {
-    const series: any = [...(actions || []), ...(events || []), ...(new_entity || [])]
+): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
+    const series: any = [...(actions || []), ...(events || []), ...(data_warehouse || []), ...(new_entity || [])]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
         .map((f) => legacyEntityToNode(f, includeProperties, includeMath))
 
@@ -251,6 +279,21 @@ const cleanProperties = (parentProperties: FilterType['properties']): InsightsQu
         return parentProperties.map(processAnyPropertyFilter)
     }
 
+    if (
+        (parentProperties.type === FilterLogicalOperator.And || parentProperties.type === FilterLogicalOperator.Or) &&
+        Array.isArray(parentProperties.values) &&
+        parentProperties.values.some(
+            (value) =>
+                typeof value !== 'object' ||
+                (value.type !== FilterLogicalOperator.And && value.type !== FilterLogicalOperator.Or)
+        )
+    ) {
+        return {
+            type: FilterLogicalOperator.And,
+            values: [processPropertyGroupFilterValue(parentProperties)],
+        }
+    }
+
     // parentProperties is PropertyGroupFilter
     const values = parentProperties.values.map(processPropertyGroupFilterValue)
     return {
@@ -275,7 +318,9 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         kind: reverseInsightMap[filters.insight],
         properties: cleanProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
-        samplingFactor: filters.sampling_factor,
+    }
+    if (filters.sampling_factor) {
+        query.samplingFactor = filters.sampling_factor
     }
 
     // date range
@@ -294,8 +339,12 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             includeMath = MathAvailability.ActorsOnly
         }
 
-        const { events, actions } = filters
-        query.series = actionsAndEventsToSeries({ actions, events } as any, includeProperties, includeMath)
+        const { events, actions, data_warehouse } = filters
+        query.series = actionsAndEventsToSeries(
+            { actions, events, data_warehouse } as any,
+            includeProperties,
+            includeMath
+        )
         query.interval = filters.interval
     }
 

@@ -17,9 +17,11 @@ const makeIncomingMessage = (
 ): IncomingRecordingMessage => {
     return {
         distinct_id: '',
-        events: data.map((d) => ({ type: 6, timestamp: 0, data: { ...d } })),
+        eventsRange: { start: 0, end: 0 },
+        eventsByWindowId: { window_id: data.map((d) => ({ type: 6, timestamp: 0, data: { ...d } })) },
         metadata: {
-            offset: 0,
+            lowOffset: 0,
+            highOffset: 0,
             partition: 0,
             topic: 'topic',
             timestamp: 0,
@@ -54,7 +56,7 @@ describe('console log ingester', () => {
                     [
                         {
                             plugin: 'rrweb/console@1',
-                            payload: { level: 'log', payload: ['a'.repeat(3001)] },
+                            payload: { level: 'info', payload: ['a'.repeat(3001)] },
                         },
                     ],
                     true
@@ -71,7 +73,7 @@ describe('console log ingester', () => {
                             JSON.stringify({
                                 team_id: 0,
                                 message: 'a'.repeat(2999),
-                                log_level: 'log',
+                                level: 'info',
                                 log_source: 'session_replay',
                                 log_source_id: '',
                                 instance_id: null,
@@ -89,15 +91,15 @@ describe('console log ingester', () => {
                     [
                         {
                             plugin: 'rrweb/console@1',
-                            payload: { level: 'log', payload: ['aaaaa'] },
+                            payload: { level: 'info', payload: ['aaaaa'] },
                         },
                         {
                             plugin: 'rrweb/something-else@1',
-                            payload: { level: 'log', payload: ['bbbbb'] },
+                            payload: { level: 'info', payload: ['bbbbb'] },
                         },
                         {
                             plugin: 'rrweb/console@1',
-                            payload: { level: 'log', payload: ['ccccc'] },
+                            payload: { level: 'info', payload: ['ccccc'] },
                         },
                     ],
                     true
@@ -115,7 +117,7 @@ describe('console log ingester', () => {
                             JSON.stringify({
                                 team_id: 0,
                                 message: 'aaaaa',
-                                log_level: 'log',
+                                level: 'info',
                                 log_source: 'session_replay',
                                 log_source_id: '',
                                 instance_id: null,
@@ -133,7 +135,7 @@ describe('console log ingester', () => {
                             JSON.stringify({
                                 team_id: 0,
                                 message: 'ccccc',
-                                log_level: 'log',
+                                level: 'info',
                                 log_source: 'session_replay',
                                 log_source_id: '',
                                 instance_id: null,
@@ -151,11 +153,11 @@ describe('console log ingester', () => {
                     [
                         {
                             plugin: 'rrweb/console@1',
-                            payload: { level: 'log', payload: ['aaaaa'] },
+                            payload: { level: 'info', payload: ['aaaaa'] },
                         },
                         {
                             plugin: 'rrweb/console@1',
-                            payload: { level: 'log', payload: ['aaaaa'] },
+                            payload: { level: 'info', payload: ['aaaaa'] },
                         },
                     ],
                     true
@@ -172,7 +174,7 @@ describe('console log ingester', () => {
                             JSON.stringify({
                                 team_id: 0,
                                 message: 'aaaaa',
-                                log_level: 'log',
+                                level: 'info',
                                 log_source: 'session_replay',
                                 log_source_id: '',
                                 instance_id: null,

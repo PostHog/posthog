@@ -4,8 +4,7 @@ describe('Feature Flags', () => {
     let name
 
     beforeEach(() => {
-
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
+        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
             req.reply(
                 decideResponse({
                     'new-feature-flag-operators': true,
@@ -139,7 +138,7 @@ describe('Feature Flags', () => {
         // selects the first value
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
-        
+
         // now change property type
         cy.get('[data-attr=property-select-toggle-0').click()
         cy.get('[data-attr=taxonomic-tab-person_properties]').click()
@@ -151,7 +150,7 @@ describe('Feature Flags', () => {
 
         // By default says "Select a value"
         cy.get('[data-attr=taxonomic-value-select]').contains('Select a value').click()
-        cy.get('.Popover__content').contains('Last 7 days').click({ force: true})
+        cy.get('.Popover__content').contains('Last 7 days').click({ force: true })
         cy.get('[data-attr=taxonomic-value-select]').contains('Last 7 days')
 
         // now change property type

@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { InsightLogicProps } from '~/types'
 
+import { insightVizDataLogic } from '../insightVizDataLogic'
 import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 
 const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
@@ -15,6 +16,7 @@ interface SamplingFilterProps {
 }
 
 export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element {
+    const { isDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
 
@@ -39,6 +41,9 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                         posthog.capture('sampling_disabled_on_insight')
                     }}
                     checked={!!samplingPercentage}
+                    disabledReason={
+                        isDataWarehouseSeries ? 'Sampling is not available for data warehouse series' : undefined
+                    }
                 />
             </div>
             {samplingPercentage ? (

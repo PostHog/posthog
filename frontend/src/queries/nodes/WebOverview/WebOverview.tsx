@@ -1,7 +1,8 @@
+import { IconTrending } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
-import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
@@ -80,7 +81,7 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
             ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
             : item.changeFromPreviousPct > 0
             ? {
-                  Icon: IconTrendingUp,
+                  Icon: IconTrending,
                   color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
               }
             : {

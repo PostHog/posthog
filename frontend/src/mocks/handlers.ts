@@ -14,6 +14,7 @@ import {
 import { getAvailableFeatures } from '~/mocks/features'
 import { SharingConfigurationType } from '~/types'
 
+import { billingJson } from './fixtures/_billing_v2'
 import { Mocks, MockSignature, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
@@ -59,6 +60,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/explicit_members/': [],
         '/api/projects/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
@@ -85,7 +87,6 @@ export const defaultMocks: Mocks = {
             },
         ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
-        '/api/billing-v2/': (): MockSignature => [200, {}],
         '/api/projects/:team_id/comments/count': { count: 0 },
         '/api/projects/:team_id/comments': { results: [] },
         '/_preflight': require('./fixtures/_preflight.json'),
@@ -101,6 +102,9 @@ export const defaultMocks: Mocks = {
         'https://www.gravatar.com/avatar/:gravatar_id': () => [404, ''],
         'https://app.posthog.com/api/early_access_features': {
             earlyAccessFeatures: [],
+        },
+        '/api/billing-v2/': {
+            ...billingJson,
         },
     },
     post: {

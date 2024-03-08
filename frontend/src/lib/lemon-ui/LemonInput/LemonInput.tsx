@@ -1,8 +1,8 @@
 import './LemonInput.scss'
 
-import { IconX } from '@posthog/icons'
+import { IconEye, IconSearch, IconX } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconEyeHidden, IconEyeVisible, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { useRef, useState } from 'react'
 
@@ -103,13 +103,13 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
 
     if (type === 'search') {
         allowClear = allowClear ?? true
-        prefix = prefix ?? <IconMagnifier />
+        prefix = prefix ?? <IconSearch />
     } else if (type === 'password') {
         suffix = suffix ?? (
             <LemonButton
                 size="small"
                 noPadding
-                icon={passwordVisible ? <IconEyeHidden /> : <IconEyeVisible />}
+                icon={passwordVisible ? <IconEyeHidden /> : <IconEye />}
                 tooltip={passwordVisible ? 'Hide password' : 'Show password'}
                 onClick={(e) => {
                     e.stopPropagation()

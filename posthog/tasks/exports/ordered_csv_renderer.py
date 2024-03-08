@@ -23,15 +23,10 @@ class OrderedCsvRenderer(
         # dictionaries that are each exactly one level deep).  The key for
         # each item designates the name of the column that the item will
         # fall into.
-        data = self.flatten_data(data)
+        data = tuple(self.flatten_data(data))
 
         # Get the set of all unique headers, and sort them.
-        data = tuple(data)
-        all_headers = []
-        for item in data:
-            all_headers.extend(item.keys())
-
-        unique_fields = list(unique_everseen(all_headers))
+        unique_fields = list(unique_everseen(itertools.chain(*(item.keys() for item in data))))
 
         ordered_fields: Dict[str, Any] = OrderedDict()
         for item in unique_fields:
@@ -64,5 +59,4 @@ class OrderedCsvRenderer(
         # Create a row for each dictionary, filling in columns for which the
         # item has no data with None values.
         for item in data:
-            row = [item.get(key, None) for key in field_headers]
-            yield row
+            yield [item.get(key, None) for key in field_headers]

@@ -10,9 +10,10 @@ import { InsightQueryNode } from '~/queries/schema'
 type TestAccountFilterProps = {
     query: InsightQueryNode
     setQuery: (query: InsightQueryNode) => void
+    disabledReason?: string
 }
 
-export function TestAccountFilter({ query, setQuery }: TestAccountFilterProps): JSX.Element | null {
+export function TestAccountFilter({ query, setQuery, disabledReason }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { setLocalDefault } = useActions(filterTestAccountsDefaultsLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
@@ -39,6 +40,7 @@ export function TestAccountFilter({ query, setQuery }: TestAccountFilterProps): 
             }
             fullWidth
             disabled={!hasFilters}
+            disabledReason={disabledReason}
         />
     )
 }

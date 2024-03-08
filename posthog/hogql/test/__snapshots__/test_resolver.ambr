@@ -28,6 +28,7 @@
                           $group_3: {},
                           $group_4: {},
                           $session_id: {},
+                          $window_id: {},
                           created_at: {},
                           distinct_id: {},
                           elements_chain: {},
@@ -88,6 +89,13 @@
                   alias: "$session_id"
                   type: {
                     name: "$session_id"
+                    table_type: <recursion ...>
+                  }
+                },
+                $window_id: {
+                  alias: "$window_id"
+                  type: {
+                    name: "$window_id"
                     table_type: <recursion ...>
                   }
                 },
@@ -270,6 +278,23 @@
         hidden: True
         type: {
           alias: "$session_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "$window_id"
+        expr: {
+          chain: [
+            "$window_id"
+          ]
+          type: {
+            name: "$window_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "$window_id"
           type: <recursion ...>
         }
       },
@@ -451,6 +476,17 @@
             type: <recursion ...>
           },
           {
+            alias: "$window_id"
+            expr: {
+              chain: [
+                "$window_id"
+              ]
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
             alias: "$group_0"
             expr: {
               chain: [
@@ -531,6 +567,7 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
+        $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
         elements_chain: <recursion ...>,
@@ -574,6 +611,7 @@
                           $group_3: {},
                           $group_4: {},
                           $session_id: {},
+                          $window_id: {},
                           created_at: {},
                           distinct_id: {},
                           elements_chain: {},
@@ -634,6 +672,13 @@
                   alias: "$session_id"
                   type: {
                     name: "$session_id"
+                    table_type: <recursion ...>
+                  }
+                },
+                $window_id: {
+                  alias: "$window_id"
+                  type: {
+                    name: "$window_id"
                     table_type: <recursion ...>
                   }
                 },
@@ -816,6 +861,23 @@
         hidden: True
         type: {
           alias: "$session_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "$window_id"
+        expr: {
+          chain: [
+            "$window_id"
+          ]
+          type: {
+            name: "$window_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "$window_id"
           type: <recursion ...>
         }
       },
@@ -999,6 +1061,17 @@
                 type: <recursion ...>
               },
               {
+                alias: "$window_id"
+                expr: {
+                  chain: [
+                    "$window_id"
+                  ]
+                  type: <recursion ...>
+                }
+                hidden: True
+                type: <recursion ...>
+              },
+              {
                 alias: "$group_0"
                 expr: {
                   chain: [
@@ -1084,6 +1157,7 @@
                           $group_3: {},
                           $group_4: {},
                           $session_id: {},
+                          $window_id: {},
                           created_at: {},
                           distinct_id: {},
                           elements_chain: {},
@@ -1238,6 +1312,23 @@
                 }
               },
               {
+                alias: "$window_id"
+                expr: {
+                  chain: [
+                    "$window_id"
+                  ]
+                  type: {
+                    name: "$window_id"
+                    table_type: <recursion ...>
+                  }
+                }
+                hidden: True
+                type: {
+                  alias: "$window_id"
+                  type: <recursion ...>
+                }
+              },
+              {
                 alias: "$group_0"
                 expr: {
                   chain: [
@@ -1342,6 +1433,7 @@
                 $group_3: <recursion ...>,
                 $group_4: <recursion ...>,
                 $session_id: <recursion ...>,
+                $window_id: <recursion ...>,
                 created_at: <recursion ...>,
                 distinct_id: <recursion ...>,
                 elements_chain: <recursion ...>,
@@ -1378,6 +1470,7 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
+        $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
         elements_chain: <recursion ...>,
@@ -1621,6 +1714,7 @@
                   $group_3: {},
                   $group_4: {},
                   $session_id: {},
+                  $window_id: {},
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},
@@ -1775,6 +1869,23 @@
         }
       },
       {
+        alias: "$window_id"
+        expr: {
+          chain: [
+            "$window_id"
+          ]
+          type: {
+            name: "$window_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "$group_0"
         expr: {
           chain: [
@@ -1879,6 +1990,7 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
+        $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
         elements_chain: <recursion ...>,
@@ -1918,6 +2030,7 @@
                     $group_3: {},
                     $group_4: {},
                     $session_id: {},
+                    $window_id: {},
                     created_at: {},
                     distinct_id: {},
                     elements_chain: {},
@@ -2073,6 +2186,23 @@
         }
       },
       {
+        alias: "$window_id"
+        expr: {
+          chain: [
+            "$window_id"
+          ]
+          type: {
+            name: "$window_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "$group_0"
         expr: {
           chain: [
@@ -2178,6 +2308,7 @@
         $group_3: <recursion ...>,
         $group_4: <recursion ...>,
         $session_id: <recursion ...>,
+        $window_id: <recursion ...>,
         created_at: <recursion ...>,
         distinct_id: <recursion ...>,
         elements_chain: <recursion ...>,
@@ -2217,6 +2348,7 @@
                       $group_3: {},
                       $group_4: {},
                       $session_id: {},
+                      $window_id: {},
                       created_at: {},
                       distinct_id: {},
                       elements_chain: {},
@@ -2473,6 +2605,7 @@
                   $group_3: {},
                   $group_4: {},
                   $session_id: {},
+                  $window_id: {},
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},
@@ -2603,6 +2736,7 @@
                     $group_3: {},
                     $group_4: {},
                     $session_id: {},
+                    $window_id: {},
                     created_at: {},
                     distinct_id: {},
                     elements_chain: {},
@@ -2737,6 +2871,7 @@
                       $group_3: {},
                       $group_4: {},
                       $session_id: {},
+                      $window_id: {},
                       created_at: {},
                       distinct_id: {},
                       elements_chain: {},
@@ -2907,6 +3042,7 @@
                               $group_3: {},
                               $group_4: {},
                               $session_id: {},
+                              $window_id: {},
                               created_at: {},
                               distinct_id: {},
                               elements_chain: {},
@@ -3082,6 +3218,7 @@
                   $group_3: {},
                   $group_4: {},
                   $session_id: {},
+                  $window_id: {},
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},
@@ -3129,23 +3266,19 @@
             table_type: {
               field: "person"
               lazy_join: {
-                from_field: "person_id",
+                from_field: [
+                  "person_id"
+                ],
                 join_function: <function>,
-                join_table: {
-                  fields: {
-                    created_at: {},
-                    id: {},
-                    is_identified: {},
-                    pdi: {},
-                    properties: {},
-                    team_id: {}
-                  }
-                }
+                join_table: "persons",
+                to_field: None
               }
               table_type: {
                 field: "pdi"
                 lazy_join: {
-                  from_field: "distinct_id",
+                  from_field: [
+                    "distinct_id"
+                  ],
                   join_function: <function>,
                   join_table: {
                     fields: {
@@ -3154,7 +3287,8 @@
                       person_id: {},
                       team_id: {}
                     }
-                  }
+                  },
+                  to_field: None
                 }
                 table_type: <recursion ...>
               }
@@ -3215,6 +3349,7 @@
                     $group_3: {},
                     $group_4: {},
                     $session_id: {},
+                    $window_id: {},
                     created_at: {},
                     distinct_id: {},
                     elements_chain: {},
@@ -3264,23 +3399,19 @@
             table_type: {
               field: "person"
               lazy_join: {
-                from_field: "person_id",
+                from_field: [
+                  "person_id"
+                ],
                 join_function: <function>,
-                join_table: {
-                  fields: {
-                    created_at: {},
-                    id: {},
-                    is_identified: {},
-                    pdi: {},
-                    properties: {},
-                    team_id: {}
-                  }
-                }
+                join_table: "persons",
+                to_field: None
               }
               table_type: {
                 field: "pdi"
                 lazy_join: {
-                  from_field: "distinct_id",
+                  from_field: [
+                    "distinct_id"
+                  ],
                   join_function: <function>,
                   join_table: {
                     fields: {
@@ -3289,7 +3420,8 @@
                       person_id: {},
                       team_id: {}
                     }
-                  }
+                  },
+                  to_field: None
                 }
                 table_type: <recursion ...>
               }
@@ -3349,6 +3481,7 @@
                   $group_3: {},
                   $group_4: {},
                   $session_id: {},
+                  $window_id: {},
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},
@@ -3395,7 +3528,9 @@
             table_type: {
               field: "pdi"
               lazy_join: {
-                from_field: "distinct_id",
+                from_field: [
+                  "distinct_id"
+                ],
                 join_function: <function>,
                 join_table: {
                   fields: {
@@ -3404,7 +3539,8 @@
                     person_id: {},
                     team_id: {}
                   }
-                }
+                },
+                to_field: None
               }
               table_type: <recursion ...>
             }
@@ -3464,6 +3600,7 @@
                     $group_3: {},
                     $group_4: {},
                     $session_id: {},
+                    $window_id: {},
                     created_at: {},
                     distinct_id: {},
                     elements_chain: {},
@@ -3512,7 +3649,9 @@
             table_type: {
               field: "pdi"
               lazy_join: {
-                from_field: "distinct_id",
+                from_field: [
+                  "distinct_id"
+                ],
                 join_function: <function>,
                 join_table: {
                   fields: {
@@ -3521,7 +3660,8 @@
                     person_id: {},
                     team_id: {}
                   }
-                }
+                },
+                to_field: None
               }
               table_type: <recursion ...>
             }
@@ -3601,18 +3741,12 @@
             table_type: {
               field: "person"
               lazy_join: {
-                from_field: "person_id",
+                from_field: [
+                  "person_id"
+                ],
                 join_function: <function>,
-                join_table: {
-                  fields: {
-                    created_at: {},
-                    id: {},
-                    is_identified: {},
-                    pdi: {},
-                    properties: {},
-                    team_id: {}
-                  }
-                }
+                join_table: "persons",
+                to_field: None
               }
               table_type: <recursion ...>
             }
@@ -3672,6 +3806,7 @@
                       $group_3: {},
                       $group_4: {},
                       $session_id: {},
+                      $window_id: {},
                       created_at: {},
                       distinct_id: {},
                       elements_chain: {},
@@ -3765,6 +3900,7 @@
                       $group_3: {},
                       $group_4: {},
                       $session_id: {},
+                      $window_id: {},
                       created_at: {},
                       distinct_id: {},
                       elements_chain: {},
@@ -3870,6 +4006,7 @@
                   $group_3: {},
                   $group_4: {},
                   $session_id: {},
+                  $window_id: {},
                   created_at: {},
                   distinct_id: {},
                   elements_chain: {},

@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
-
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FieldTraverser,
     StringDatabaseField,
@@ -139,7 +140,7 @@ def create_hogql_database(
     from posthog.warehouse.models import (
         DataWarehouseTable,
         DataWarehouseSavedQuery,
-        DataWarehouseViewLink,
+        DataWarehouseJoin,
     )
 
     team = team_arg or Team.objects.get(pk=team_id)
@@ -166,7 +167,7 @@ def create_hogql_database(
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled:
         database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
         database.events.fields["override"] = LazyJoin(
-            from_field="event_person_id",
+            from_field=["event_person_id"],
             join_table=PersonOverridesTable(),
             join_function=join_with_person_overrides_table,
         )
@@ -189,24 +190,35 @@ def create_hogql_database(
         if database.events.fields.get(mapping.group_type) is None:
             database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
-    for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
-        table = database.get_table(view.table)
-
-        # Saved query names are unique to team
-        table.fields[view.saved_query.name] = LazyJoin(
-            from_field=view.from_join_key,
-            join_table=view.saved_query.hogql_definition(),
-            join_function=view.join_function,
-        )
-
-    tables = {}
+    tables: Dict[str, Table] = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
 
-    for table in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
-        tables[table.name] = table.hogql_definition()
+    for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
+        tables[saved_query.name] = saved_query.hogql_definition()
 
     database.add_warehouse_tables(**tables)
+
+    for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
+        source_table = database.get_table(join.source_table_name)
+        joining_table = database.get_table(join.joining_table_name)
+
+        field = parse_expr(join.source_table_key)
+        if not isinstance(field, ast.Field):
+            raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+        from_field = field.chain
+
+        field = parse_expr(join.joining_table_key)
+        if not isinstance(field, ast.Field):
+            raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+        to_field = field.chain
+
+        source_table.fields[join.field_name] = LazyJoin(
+            from_field=from_field,
+            to_field=to_field,
+            join_table=joining_table,
+            join_function=join.join_function,
+        )
 
     return database
 
@@ -234,24 +246,27 @@ class SerializedField(_SerializedFieldBase, total=False):
     chain: List[str]
 
 
-def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
+def serialize_database(context: HogQLContext) -> Dict[str, List[SerializedField]]:
     tables: Dict[str, List[SerializedField]] = {}
 
-    for table_key in database.model_fields.keys():
+    if context.database is None:
+        raise HogQLException("Must provide database to serialize_database")
+
+    for table_key in context.database.model_fields.keys():
         field_input: Dict[str, Any] = {}
-        table = getattr(database, table_key, None)
+        table = getattr(context.database, table_key, None)
         if isinstance(table, FunctionCallTable):
             field_input = table.get_asterisk()
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: List[SerializedField] = serialize_fields(field_input)
+        field_output: List[SerializedField] = serialize_fields(field_input, context)
         tables[table_key] = field_output
 
     return tables
 
 
-def serialize_fields(field_input) -> List[SerializedField]:
+def serialize_fields(field_input, context: HogQLContext) -> List[SerializedField]:
     from posthog.hogql.database.models import SavedQuery
 
     field_output: List[SerializedField] = []
@@ -276,13 +291,13 @@ def serialize_fields(field_input) -> List[SerializedField]:
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append({"key": field_key, "type": "array"})
         elif isinstance(field, LazyJoin):
-            is_view = isinstance(field.join_table, SavedQuery)
+            is_view = isinstance(field.resolve_table(context), SavedQuery)
             field_output.append(
                 {
                     "key": field_key,
                     "type": "view" if is_view else "lazy_table",
-                    "table": field.join_table.to_printed_hogql(),
-                    "fields": list(field.join_table.fields.keys()),
+                    "table": field.resolve_table(context).to_printed_hogql(),
+                    "fields": list(field.resolve_table(context).fields.keys()),
                 }
             )
         elif isinstance(field, VirtualTable):
