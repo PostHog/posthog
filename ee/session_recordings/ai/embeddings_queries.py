@@ -20,7 +20,7 @@ def fetch_errors_by_session_without_embeddings(team_id: int, offset=0) -> List[s
                     team_id = %(team_id)s
                     -- don't load all data for all time
                     AND generation_timestamp > now() - INTERVAL 7 DAY
-                    -- AND source_type = 'error'
+                    AND source_type = 'error'
             )
             SELECT log_source_id, message
             FROM log_entries
