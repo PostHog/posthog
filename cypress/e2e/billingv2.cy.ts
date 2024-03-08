@@ -1,4 +1,5 @@
 import * as fflate from 'fflate'
+import { getCapturePayload } from '../support/compression'
 
 const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 
@@ -22,10 +23,8 @@ describe('Billing', () => {
         cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Product analytics')
         cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
 
-        cy.wait('@capture').then(({ request }) => {
-            const data = new Uint8Array(request.body)
-            const decoded = fflate.strFromU8(fflate.decompressSync(data))
-            const decodedJSON = JSON.parse(decoded)
+        cy.wait('@capture').then(async ({ request }) => {
+            const decodedJSON = await getCapturePayload(request)
 
             // These should be a 'survey sent' event somewhere in the decodedJSON
             const matchingEvents = decodedJSON.filter((event) => event.event === 'survey sent')
