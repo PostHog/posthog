@@ -67,7 +67,6 @@ export function AppManagementView({
                             onConfirm={() => uninstallPlugin(plugin.id)}
                             okText="Uninstall"
                             cancelText="Cancel"
-                            className="Plugins__Popconfirm"
                         >
                             <LemonButton
                                 type="secondary"

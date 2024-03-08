@@ -228,7 +228,6 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                                         onConfirm={() => uninstallPlugin(plugin.id)}
                                         okText="Uninstall"
                                         cancelText="Cancel"
-                                        className="Plugins__Popconfirm"
                                     >
                                         <LemonButton
                                             type="secondary"
