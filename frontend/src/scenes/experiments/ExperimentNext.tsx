@@ -52,19 +52,12 @@ const Header = (): JSX.Element => {
 }
 
 const StepInfo = (): JSX.Element => {
-    const { experiment, props } = useValues(experimentLogic)
-    const { addExperimentGroup, removeExperimentGroup, touchExperimentField } = useActions(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
+    const { addExperimentGroup, removeExperimentGroup, moveToNextFormStep } = useActions(experimentLogic)
 
     return (
-        <>
-            <Form
-                id="experiment-step"
-                logic={experimentLogic}
-                formKey="experiment"
-                props={props}
-                enableFormOnSubmit
-                className="space-y-6 experiment-form"
-            >
+        <div className="flex flex-col h-screen">
+            <div className="flex-auto overflow-auto">
                 <div className="space-y-6 max-w-120">
                     <LemonField name="name" label="Name" help="Set an internal name for this experiment">
                         <LemonInput placeholder="Pricing page conversion" />
@@ -165,20 +158,14 @@ const StepInfo = (): JSX.Element => {
                         </div>
                     </div>
                 </div>
-                <LemonButton
-                    type="primary"
-                    onClick={() => {
-                        touchExperimentField('name')
-                        touchExperimentField('feature_flag_key')
-                        experiment.parameters.feature_flag_variants.forEach((_, i) =>
-                            touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
-                        )
-                    }}
-                >
+            </div>
+            <div className="sticky bottom-0 -mx-4 z-50 bg-bg-3000">
+                <LemonDivider />
+                <LemonButton className="px-4 pt-2 pb-3" type="primary" onClick={() => moveToNextFormStep(0)}>
                     Continue
                 </LemonButton>
-            </Form>
-        </>
+            </div>
+        </div>
     )
 }
 
@@ -191,7 +178,7 @@ const StepCode = (): JSX.Element => {
 }
 
 export function ExperimentNext(): JSX.Element {
-    const { currentFormStep } = useValues(experimentLogic)
+    const { currentFormStep, props } = useValues(experimentLogic)
     const { setCurrentFormStep } = useActions(experimentLogic)
 
     useEffect(() => {
@@ -208,7 +195,16 @@ export function ExperimentNext(): JSX.Element {
     return (
         <div>
             <Header />
-            {CurrentStepComponent}
+            <Form
+                id="experiment-step"
+                logic={experimentLogic}
+                formKey="experiment"
+                props={props}
+                enableFormOnSubmit
+                className="space-y-6 experiment-form"
+            >
+                {CurrentStepComponent}
+            </Form>
         </div>
     )
 }
