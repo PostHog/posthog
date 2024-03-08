@@ -430,6 +430,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
 
     return (
         <div className="space-y-2 relative">
+            {/* TODO: How to get this in the data table? */}
             <div className="absolute top-0 right-0 z-10">
                 <LemonButton
                     key="view-opt-in-session-recordings"
