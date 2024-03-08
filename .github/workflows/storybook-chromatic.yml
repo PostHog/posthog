@@ -155,10 +155,6 @@ jobs:
                   name: failure-screenshots-${{ matrix.browser }}
                   path: frontend/__snapshots__/__failures__/
 
-            - name: If no-update-visual-snapshot label is present, just fail if any snapshots are updated
-              if: contains(github.event.pull_request.labels.*.name, 'no-update-visual-snapshot')
-              run: git diff --exit-code frontend/__snapshots__/ playwright/
-
             - name: Count and optimize updated snapshots
               id: diff
               # Skip on forks
@@ -199,6 +195,10 @@ jobs:
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-modified=$MODIFIED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
+
+            - name: If no-update-visual-snapshot label is present, just fail if any snapshots are updated
+              if: contains(github.event.pull_request.labels.*.name, 'no-update-visual-snapshot')
+              run: git diff --exit-code frontend/__snapshots__/ playwright/
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
