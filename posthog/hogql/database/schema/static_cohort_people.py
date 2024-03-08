@@ -16,7 +16,7 @@ class StaticCohortPeople(Table):
         "cohort_id": IntegerDatabaseField(name="cohort_id"),
         "team_id": IntegerDatabaseField(name="team_id"),
         "person": LazyJoin(
-            from_field="person_id",
+            from_field=["person_id"],
             join_table="persons",
             join_function=join_with_persons_table,
         ),

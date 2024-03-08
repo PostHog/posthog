@@ -14,8 +14,8 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb, PersonType, RecordingSnapshot, ReplayTabs, SessionRecordingType } from '~/types'
 
 import {
+    deduplicateSnapshots,
     parseEncodedSnapshots,
-    prepareRecordingSnapshots,
     sessionRecordingDataLogic,
 } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
@@ -177,7 +177,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 return
             }
 
-            const snapshots = prepareRecordingSnapshots(
+            const snapshots = deduplicateSnapshots(
                 await parseEncodedSnapshots(
                     values.sessionRecording.snapshots,
                     values.sessionRecording.id,
