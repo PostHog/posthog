@@ -3266,23 +3266,19 @@
             table_type: {
               field: "person"
               lazy_join: {
-                from_field: "person_id",
+                from_field: [
+                  "person_id"
+                ],
                 join_function: <function>,
-                join_table: {
-                  fields: {
-                    created_at: {},
-                    id: {},
-                    is_identified: {},
-                    pdi: {},
-                    properties: {},
-                    team_id: {}
-                  }
-                }
+                join_table: "persons",
+                to_field: None
               }
               table_type: {
                 field: "pdi"
                 lazy_join: {
-                  from_field: "distinct_id",
+                  from_field: [
+                    "distinct_id"
+                  ],
                   join_function: <function>,
                   join_table: {
                     fields: {
@@ -3291,7 +3287,8 @@
                       person_id: {},
                       team_id: {}
                     }
-                  }
+                  },
+                  to_field: None
                 }
                 table_type: <recursion ...>
               }
@@ -3402,23 +3399,19 @@
             table_type: {
               field: "person"
               lazy_join: {
-                from_field: "person_id",
+                from_field: [
+                  "person_id"
+                ],
                 join_function: <function>,
-                join_table: {
-                  fields: {
-                    created_at: {},
-                    id: {},
-                    is_identified: {},
-                    pdi: {},
-                    properties: {},
-                    team_id: {}
-                  }
-                }
+                join_table: "persons",
+                to_field: None
               }
               table_type: {
                 field: "pdi"
                 lazy_join: {
-                  from_field: "distinct_id",
+                  from_field: [
+                    "distinct_id"
+                  ],
                   join_function: <function>,
                   join_table: {
                     fields: {
@@ -3427,7 +3420,8 @@
                       person_id: {},
                       team_id: {}
                     }
-                  }
+                  },
+                  to_field: None
                 }
                 table_type: <recursion ...>
               }
@@ -3534,7 +3528,9 @@
             table_type: {
               field: "pdi"
               lazy_join: {
-                from_field: "distinct_id",
+                from_field: [
+                  "distinct_id"
+                ],
                 join_function: <function>,
                 join_table: {
                   fields: {
@@ -3543,7 +3539,8 @@
                     person_id: {},
                     team_id: {}
                   }
-                }
+                },
+                to_field: None
               }
               table_type: <recursion ...>
             }
@@ -3652,7 +3649,9 @@
             table_type: {
               field: "pdi"
               lazy_join: {
-                from_field: "distinct_id",
+                from_field: [
+                  "distinct_id"
+                ],
                 join_function: <function>,
                 join_table: {
                   fields: {
@@ -3661,7 +3660,8 @@
                     person_id: {},
                     team_id: {}
                   }
-                }
+                },
+                to_field: None
               }
               table_type: <recursion ...>
             }
@@ -3741,18 +3741,12 @@
             table_type: {
               field: "person"
               lazy_join: {
-                from_field: "person_id",
+                from_field: [
+                  "person_id"
+                ],
                 join_function: <function>,
-                join_table: {
-                  fields: {
-                    created_at: {},
-                    id: {},
-                    is_identified: {},
-                    pdi: {},
-                    properties: {},
-                    team_id: {}
-                  }
-                }
+                join_table: "persons",
+                to_field: None
               }
               table_type: <recursion ...>
             }
