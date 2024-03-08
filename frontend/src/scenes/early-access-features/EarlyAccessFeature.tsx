@@ -1,24 +1,22 @@
 import { IconFlag, IconQuestion, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSkeleton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { personsLogic, PersonsLogicProps } from 'scenes/persons/personsLogic'
-import { PersonsSearch } from 'scenes/persons/PersonsSearch'
-import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { Query } from '~/queries/Query/Query'
+import { Node, NodeKind, QuerySchema } from '~/queries/schema'
 import {
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
@@ -55,6 +53,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         editFeature,
         updateStage,
         deleteEarlyAccessFeature,
+        toggleImplementOptInInstructionsModal,
     } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
@@ -277,13 +276,24 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <b>Documentation URL</b>
                             <div>
                                 {earlyAccessFeature.documentation_url ? (
-                                    earlyAccessFeature.documentation_url
+                                    <Link to={earlyAccessFeature.documentation_url} target="_blank">
+                                        {earlyAccessFeature.documentation_url}
+                                    </Link>
                                 ) : (
                                     <span className="text-muted">No documentation URL</span>
                                 )}
                             </div>
                         </div>
                     )}
+
+                    <LemonButton
+                        key="help-button"
+                        onClick={toggleImplementOptInInstructionsModal}
+                        sideIcon={<IconQuestion />}
+                        type="secondary"
+                    >
+                        Implement public opt-in
+                    </LemonButton>
                 </div>
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <div className="flex-3 min-w-[15rem]">
@@ -330,7 +340,6 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
     const { toggleImplementOptInInstructionsModal, setActiveTab } = useActions(earlyAccessFeatureLogic)
 
     const { featureFlag } = useValues(featureFlagLogic({ id: earlyAccessFeature.feature_flag.id || 'link' }))
-
     const key = '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
 
     return (
@@ -409,84 +418,31 @@ interface PersonsTableByFilterProps {
     recordingsFilters: Partial<FilterType>
 }
 
-export function PersonsTableByFilter(props: PersonsTableByFilterProps): JSX.Element {
-    const personsLogicProps: PersonsLogicProps = {
-        cohort: undefined,
-        syncWithUrl: false,
-        fixedProperties: props.properties,
-    }
-
-    return (
-        <BindLogic logic={personsLogic} props={personsLogicProps}>
-            <PersonsTableByFilterComponent {...props} />
-        </BindLogic>
-    )
-}
-
-interface PersonsTableByFilterComponentProps {
-    emptyState?: JSX.Element
-    recordingsFilters: Partial<FilterType>
-}
-
-function PersonsTableByFilterComponent({
-    emptyState,
-    recordingsFilters,
-}: PersonsTableByFilterComponentProps): JSX.Element {
-    const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
-
-    const { persons, personsLoading, listFilters } = useValues(personsLogic)
-    const { loadPersons, setListFilters } = useActions(personsLogic)
+function PersonsTableByFilter({ emptyState, recordingsFilters, properties }: PersonsTableByFilterProps): JSX.Element {
+    const [query, setQuery] = useState<Node | QuerySchema>({
+        kind: NodeKind.DataTableNode,
+        source: {
+            kind: NodeKind.PersonsNode,
+            fixedProperties: properties,
+        },
+        full: true,
+        propertiesViaUrl: false,
+    })
 
     return (
         <div className="space-y-2">
-            <div className="flex-col">
-                <PersonsSearch />
-            </div>
             <div className="flex flex-row justify-between">
-                <PropertyFilters
-                    pageKey="persons-list-page"
-                    propertyFilters={listFilters.properties}
-                    onChange={(properties) => {
-                        setListFilters({ properties })
-                        loadPersons()
-                    }}
-                    endpoint="person"
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                    showConditionBadge
-                />
                 <div className="flex flex-row gap-2">
                     <LemonButton
-                        key="help-button"
-                        onClick={toggleImplementOptInInstructionsModal}
-                        sideIcon={<IconQuestion />}
-                    >
-                        Implement public opt-in
-                    </LemonButton>
-                    <LemonButton
                         key="view-opt-in-session-recordings"
-                        onClick={() => {
-                            router.actions.push(urls.replay(ReplayTabs.Recent, recordingsFilters))
-                        }}
+                        to={urls.replay(ReplayTabs.Recent, recordingsFilters)}
                         type="secondary"
-                        disabledReason={
-                            personsLoading ? 'Loading…' : persons.results.length === 0 ? 'No users to view' : undefined
-                        }
                     >
                         View recordings
                     </LemonButton>
                 </div>
             </div>
-            <PersonsTable
-                people={persons.results}
-                loading={personsLoading}
-                hasPrevious={!!persons.previous}
-                hasNext={!!persons.next}
-                loadPrevious={() => loadPersons(persons.previous)}
-                loadNext={() => loadPersons(persons.next)}
-                compact={true}
-                extraColumns={[]}
-                emptyState={emptyState}
-            />
+            <Query query={query} setQuery={setQuery} />
         </div>
     )
 }
