@@ -1,6 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -12,48 +11,33 @@ import {
     PropertyOperator,
 } from '~/types'
 
-function generateFeatureFlag(
+import { featureFlagReleaseConditionsLogic } from './FeatureFlagReleaseConditionsLogic'
+
+function generateFeatureFlagFilters(
     groups: FeatureFlagGroupType[],
-    multivariate?: MultivariateFlagOptions,
-    id: number | null = 123,
-    has_enriched_analytics?: boolean
-): FeatureFlagType {
-    return {
-        id,
-        created_at: null,
-        key: 'beta-feature',
-        name: 'Beta Feature',
-        filters: { groups, multivariate: multivariate ?? null, payloads: {} },
-        deleted: false,
-        active: true,
-        created_by: null,
-        is_simple_flag: false,
-        rollout_percentage: 0,
-        ensure_experience_continuity: false,
-        experiment_set: null,
-        features: [],
-        rollback_conditions: [],
-        performed_rollback: false,
-        can_edit: true,
-        usage_dashboard: 1234,
-        tags: [],
-        has_enriched_analytics,
-        surveys: [],
-    }
+    multivariate?: MultivariateFlagOptions
+): FeatureFlagType['filters'] {
+    return { groups, multivariate: multivariate ?? null, payloads: {} }
 }
 
-describe('the feature flag logic', () => {
-    let logic: ReturnType<typeof featureFlagLogic.build>
+describe('the feature flag release conditions logic', () => {
+    let logic: ReturnType<typeof featureFlagReleaseConditionsLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        logic = featureFlagLogic()
+        logic = featureFlagReleaseConditionsLogic({
+            id: '1234',
+            filters: generateFeatureFlagFilters([
+                {
+                    properties: [],
+                    rollout_percentage: 50,
+                    variant: null,
+                },
+            ]),
+        })
         logic.mount()
 
         useMocks({
-            get: {
-                'api/sentry_stats/': { total_count: 3, sentry_integration_enabled: true },
-            },
             post: {
                 '/api/projects/:team/feature_flags/user_blast_radius': () => [
                     200,
@@ -65,26 +49,29 @@ describe('the feature flag logic', () => {
 
     describe('computing blast radius', () => {
         it('loads when editing a flag', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlag(
-                    generateFeatureFlag([
-                        {
-                            properties: [
-                                {
-                                    key: 'aloha',
-                                    value: 'aloha',
-                                    type: PropertyFilterType.Person,
-                                    operator: PropertyOperator.Exact,
-                                },
-                            ],
-                            rollout_percentage: 50,
-                            variant: null,
-                        },
-                    ])
-                )
-                logic.actions.editFeatureFlag(true)
+            // clear existing logic
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                filters: generateFeatureFlagFilters([
+                    {
+                        properties: [
+                            {
+                                key: 'aloha',
+                                value: 'aloha',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 50,
+                        variant: null,
+                    },
+                ]),
             })
-                .toDispatchActions(['setAffectedUsers', 'setTotalUsers'])
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['calculateBlastRadius', 'setAffectedUsers', 'setTotalUsers'])
                 .toMatchValues({
                     affectedUsers: { 0: 120 },
                     totalUsers: 2000,
@@ -92,54 +79,57 @@ describe('the feature flag logic', () => {
         })
 
         it('loads when editing a flag with multiple conditions', async () => {
+            // clear existing logic
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 86, variant: null },
+                    {
+                        properties: [
+                            {
+                                key: 'aloha',
+                                value: 'aloha',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 50,
+                        variant: null,
+                    },
+                    {
+                        properties: [
+                            {
+                                key: 'aloha',
+                                value: 'aloha2',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 75,
+                        variant: null,
+                    },
+                    {
+                        properties: [
+                            {
+                                key: 'aloha',
+                                value: 'aloha3',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 86,
+                        variant: null,
+                    },
+                ]),
+            })
             await expectLogic(logic, () => {
                 jest.spyOn(api, 'create')
                     .mockReturnValueOnce(Promise.resolve({ users_affected: 140, total_users: 2000 }))
                     .mockReturnValueOnce(Promise.resolve({ users_affected: 240, total_users: 2002 }))
                     .mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 2000 }))
 
-                logic.actions.setFeatureFlag(
-                    generateFeatureFlag([
-                        { properties: [], rollout_percentage: 86, variant: null },
-                        {
-                            properties: [
-                                {
-                                    key: 'aloha',
-                                    value: 'aloha',
-                                    type: PropertyFilterType.Person,
-                                    operator: PropertyOperator.Exact,
-                                },
-                            ],
-                            rollout_percentage: 50,
-                            variant: null,
-                        },
-                        {
-                            properties: [
-                                {
-                                    key: 'aloha',
-                                    value: 'aloha2',
-                                    type: PropertyFilterType.Person,
-                                    operator: PropertyOperator.Exact,
-                                },
-                            ],
-                            rollout_percentage: 75,
-                            variant: null,
-                        },
-                        {
-                            properties: [
-                                {
-                                    key: 'aloha',
-                                    value: 'aloha3',
-                                    type: PropertyFilterType.Person,
-                                    operator: PropertyOperator.Exact,
-                                },
-                            ],
-                            rollout_percentage: 86,
-                            variant: null,
-                        },
-                    ])
-                )
-                logic.actions.editFeatureFlag(true)
+                logic.mount()
             })
                 .toDispatchActions(['setAffectedUsers', 'setAffectedUsers', 'setAffectedUsers', 'setAffectedUsers'])
                 .toMatchValues({
@@ -168,31 +158,10 @@ describe('the feature flag logic', () => {
                 })
         })
 
-        it('loads when creating a new flag', async () => {
-            jest.spyOn(api, 'create')
-            await expectLogic(logic, () => {
-                logic.actions.resetFeatureFlag()
-            }).toMatchValues({
-                affectedUsers: { 0: -1 },
-                totalUsers: null,
-            })
-
-            expect(api.create).not.toHaveBeenCalled()
-        })
-
         it('updates when adding conditions to a flag', async () => {
             jest.spyOn(api, 'create')
                 .mockReturnValueOnce(Promise.resolve({ users_affected: 140, total_users: 2000 }))
                 .mockReturnValueOnce(Promise.resolve({ users_affected: 240, total_users: 2000 }))
-
-            await expectLogic(logic, () => {
-                logic.actions.resetFeatureFlag()
-            }).toMatchValues({
-                affectedUsers: { 0: -1 },
-                totalUsers: null,
-            })
-
-            expect(api.create).not.toHaveBeenCalled()
 
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(0, 20, [
@@ -204,7 +173,10 @@ describe('the feature flag logic', () => {
                     },
                 ])
             })
-                .toDispatchActions(['setAffectedUsers'])
+                // first call is to clear the affected users on mount
+                // second call is to set the affected users for mount logic conditions
+                // third call is to set the affected users for the updateConditionSet action
+                .toDispatchActions(['setAffectedUsers', 'setAffectedUsers', 'setAffectedUsers'])
                 .toMatchValues({
                     affectedUsers: { 0: undefined },
                     totalUsers: null,
@@ -323,11 +295,15 @@ describe('the feature flag logic', () => {
             expect(logic.values.computeBlastRadiusPercentage(100, 2)).toBeCloseTo(25, 2)
         })
 
-        it('doesnt make extra API calls when rollout percentage or variants change', async () => {
-            jest.spyOn(api, 'create')
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlag(
-                    generateFeatureFlag([
+        describe('API calls', () => {
+            beforeEach(() => {
+                jest.spyOn(api, 'create')
+
+                logic?.unmount()
+
+                logic = featureFlagReleaseConditionsLogic({
+                    id: '12345',
+                    filters: generateFeatureFlagFilters([
                         { properties: [], rollout_percentage: undefined, variant: null },
                         {
                             properties: [
@@ -353,40 +329,44 @@ describe('the feature flag logic', () => {
                             rollout_percentage: undefined,
                             variant: null,
                         },
-                    ])
-                )
-                logic.actions.editFeatureFlag(true)
-            })
-                .toDispatchActions([
-                    'setAffectedUsers',
-                    'setAffectedUsers',
-                    'setAffectedUsers',
-                    'setAffectedUsers',
-                    'setAffectedUsers',
-                    'setAffectedUsers',
-                    'setTotalUsers',
-                ])
-                .toMatchValues({
-                    affectedUsers: { 0: -1, 1: 120, 2: 120 },
-                    totalUsers: 2000,
+                    ]),
                 })
+                logic.mount()
+            })
 
-            expect(api.create).toHaveBeenCalledTimes(2)
+            it('doesnt make extra API calls when rollout percentage or variants change', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions([
+                        'setAffectedUsers',
+                        'setAffectedUsers',
+                        'setAffectedUsers',
+                        'setAffectedUsers',
+                        'setAffectedUsers',
+                        'setAffectedUsers',
+                        'setTotalUsers',
+                    ])
+                    .toMatchValues({
+                        affectedUsers: { 0: -1, 1: 120, 2: 120 },
+                        totalUsers: 2000,
+                    })
 
-            await expectLogic(logic, () => {
-                logic.actions.updateConditionSet(0, 20, undefined, undefined)
-            }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
+                expect(api.create).toHaveBeenCalledTimes(2)
 
-            await expectLogic(logic, () => {
-                logic.actions.updateConditionSet(1, 30, undefined, 'test-variant')
-            }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
+                await expectLogic(logic, () => {
+                    logic.actions.updateConditionSet(0, 20, undefined, undefined)
+                }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
 
-            await expectLogic(logic, () => {
-                logic.actions.updateConditionSet(2, undefined, undefined, 'test-variant2')
-            }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
+                await expectLogic(logic, () => {
+                    logic.actions.updateConditionSet(1, 30, undefined, 'test-variant')
+                }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
 
-            // no extra calls when changing rollout percentage
-            expect(api.create).toHaveBeenCalledTimes(2)
+                await expectLogic(logic, () => {
+                    logic.actions.updateConditionSet(2, undefined, undefined, 'test-variant2')
+                }).toNotHaveDispatchedActions(['setAffectedUsers', 'setTotalUsers'])
+
+                // no extra calls when changing rollout percentage
+                expect(api.create).toHaveBeenCalledTimes(2)
+            })
         })
     })
 })

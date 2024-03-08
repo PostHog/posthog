@@ -1,7 +1,7 @@
-import { LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
@@ -50,19 +50,18 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
                 const isExperiment = (featureFlag.experiment_set || []).length > 0
                 return (
-                    <>
-                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
-                            {stringWithWBR(featureFlag.key, 17)}
-                            <LemonTag type={isExperiment ? 'completion' : 'default'} className="ml-2">
-                                {isExperiment ? 'Experiment' : 'Feature flag'}
-                            </LemonTag>
-                        </Link>
-                        {featureFlag.name && (
-                            <LemonMarkdown className="row-description" lowKeyHeadings>
-                                {featureFlag.name}
-                            </LemonMarkdown>
-                        )}
-                    </>
+                    <LemonTableLink
+                        to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}
+                        title={
+                            <>
+                                {stringWithWBR(featureFlag.key, 17)}
+                                <LemonTag type={isExperiment ? 'completion' : 'default'} className="ml-2">
+                                    {isExperiment ? 'Experiment' : 'Feature flag'}
+                                </LemonTag>
+                            </>
+                        }
+                        description={featureFlag.name}
+                    />
                 )
             },
         },

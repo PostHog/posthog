@@ -566,7 +566,7 @@ class CreateBatchExportBackfillInputs:
     team_id: int
     batch_export_id: str
     start_at: str
-    end_at: str
+    end_at: str | None
     status: str
 
 

@@ -50,6 +50,7 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
+    DashboardType,
     FeatureFlagGroupType,
     FeatureFlagType,
     NotebookNodeType,
@@ -94,10 +95,18 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         isEditingFlag,
         recordingFilterForFlag,
         newCohortLoading,
+        activeTab,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate, createStaticCohort } =
-        useActions(featureFlagLogic)
+    const {
+        deleteFeatureFlag,
+        editFeatureFlag,
+        loadFeatureFlag,
+        triggerFeatureFlagUpdate,
+        createStaticCohort,
+        setFeatureFlagFilters,
+        setActiveTab,
+    } = useActions(featureFlagLogic)
 
     const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
@@ -112,7 +121,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    const [activeTab, setActiveTab] = useState(FeatureFlagsTab.OVERVIEW)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
@@ -140,8 +148,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <FeatureFlagRollout readOnly />
-                            {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
-                            <FeatureFlagReleaseConditions readOnly />
+                            {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
+                            {featureFlag.filters.super_groups && (
+                                <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
+                            )}
+                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
                             {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                 <FeatureFlagAutoRollback readOnly />
                             )}
@@ -394,7 +405,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <LemonDivider />
                         <FeatureFlagRollout />
                         <LemonDivider />
-                        <FeatureFlagReleaseConditions />
+                        <FeatureFlagReleaseConditions
+                            id={`${featureFlag.id}`}
+                            filters={featureFlag.filters}
+                            onChange={setFeatureFlagFilters}
+                        />
                         <LemonDivider />
                         <FeatureFlagCodeExample featureFlag={featureFlag} />
                         <LemonDivider />
@@ -489,6 +504,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <ObjectTags
                                                     tags={featureFlag.tags}
                                                     onChange={(_, tags) => {
+                                                        // TODO: Use an existing function instead of this new one for updates
                                                         triggerFeatureFlagUpdate({ tags })
                                                     }}
                                                     saving={featureFlagLoading}
@@ -585,7 +601,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </>
                             }
                         />
-                        <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
+                            tabs={tabs}
+                        />
                     </>
                 )}
             </div>
@@ -601,10 +621,15 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     } = featureFlag
     const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-    const { receivedErrorsFromAPI, dashboard } = useValues(
-        dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
-    )
-    const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
+    let dashboard: DashboardType | null = null
+    let connectedDashboardExists = false
+    if (dashboardId) {
+        const dashboardLogicValues = useValues(
+            dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+        )
+        dashboard = dashboardLogicValues.dashboard
+        connectedDashboardExists = !dashboardLogicValues.receivedErrorsFromAPI
+    }
 
     const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
     const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
@@ -641,7 +666,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                             </Link>
                         </LemonBanner>
                     )}
-                    <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+                    <Dashboard id={dashboardId!.toString()} placement={DashboardPlacement.FeatureFlag} />
                 </>
             ) : (
                 <div>

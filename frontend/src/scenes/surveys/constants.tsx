@@ -1,4 +1,4 @@
-import { FeatureFlagFilters, Survey, SurveyQuestionType, SurveyType, SurveyUrlMatchType } from '~/types'
+import { Survey, SurveyQuestionType, SurveyType, SurveyUrlMatchType } from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
@@ -117,10 +117,10 @@ export interface NewSurvey
         | 'targeting_flag'
         | 'archived'
         | 'appearance'
+        | 'targeting_flag_filters'
     > {
     id: 'new'
     linked_flag_id: number | null
-    targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
 
 export const NEW_SURVEY: NewSurvey = {

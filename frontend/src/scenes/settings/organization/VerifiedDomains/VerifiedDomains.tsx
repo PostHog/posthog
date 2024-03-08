@@ -197,22 +197,38 @@ function VerifiedDomainsTable(): JSX.Element {
             },
         },
         {
+            key: 'verify',
+            width: 32,
+            align: 'center',
+            render: function RenderActions(_, { is_verified, id }) {
+                return is_verified ? (
+                    <></>
+                ) : (
+                    <LemonButton type="primary" onClick={() => setVerifyModal(id)}>
+                        Verify
+                    </LemonButton>
+                )
+            },
+        },
+        {
             key: 'actions',
             width: 32,
             align: 'center',
             render: function RenderActions(_, { is_verified, id, domain }) {
-                return is_verified ? (
+                return (
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    onClick={() => setConfigureSAMLModalId(id)}
-                                    fullWidth
-                                    disabled={!isSAMLAvailable}
-                                    title={isSAMLAvailable ? undefined : 'Upgrade to enable SAML'}
-                                >
-                                    Configure SAML
-                                </LemonButton>
+                                {is_verified && (
+                                    <LemonButton
+                                        onClick={() => setConfigureSAMLModalId(id)}
+                                        fullWidth
+                                        disabled={!isSAMLAvailable}
+                                        title={isSAMLAvailable ? undefined : 'Upgrade to enable SAML'}
+                                    >
+                                        Configure SAML
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
@@ -231,16 +247,13 @@ function VerifiedDomainsTable(): JSX.Element {
                                         })
                                     }
                                     fullWidth
+                                    icon={<IconTrash />}
                                 >
-                                    <IconTrash /> Remove domain
+                                    Remove domain
                                 </LemonButton>
                             </>
                         }
                     />
-                ) : (
-                    <LemonButton type="primary" onClick={() => setVerifyModal(id)}>
-                        Verify
-                    </LemonButton>
                 )
             },
         },
