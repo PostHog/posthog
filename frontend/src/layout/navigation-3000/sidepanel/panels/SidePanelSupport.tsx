@@ -16,8 +16,12 @@ import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useState } from 'react'
+import React from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { SidePanelTab } from '~/types'
+import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -67,6 +71,12 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
+    const { billing } = useValues(billingLogic)
+    const supportResponseTimes = {
+        [AvailableFeature.EMAIL_SUPPORT]: '2-3 days',
+        [AvailableFeature.PRIORITY_SUPPORT]: '4-6 hours',
+    }
+
     return (
         <Section title="Email an engineer">
             <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light">
@@ -75,22 +85,31 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                         <strong>Avg support response times</strong>
                     </div>
                     <div>
-                        <Link to="#">Explore options</Link>
+                        <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
                     </div>
                 </div>
-                <div>Free</div>
-                <div className="">Community support only</div>
-
-                <div className="font-bold">
-                    Pay per use <span className="font-normal opacity-60 text-sm">(your plan)</span>
-                </div>
-                <div className="font-bold">2-3 days</div>
-
-                <div>Teams plan</div>
-                <div>4-6 hours</div>
-
-                <div>Enterprise</div>
-                <div>4-6 hours</div>
+                {billing?.products
+                    ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
+                    ?.plans?.map((plan, i) => (
+                        <React.Fragment key={`support-panel-${plan.plan_key}`}>
+                            <div className={plan.current_plan && 'font-bold'}>
+                                {i == 1 ? 'Pay-per-use' : plan.name}
+                                {plan.current_plan && (
+                                    <>
+                                        {' '}
+                                        <span className="font-normal opacity-60 text-sm">(your plan)</span>
+                                    </>
+                                )}
+                            </div>
+                            <div className={plan.current_plan && 'font-bold'}>
+                                {plan.features.some((f) => f.key == AvailableFeature.PRIORITY_SUPPORT)
+                                    ? supportResponseTimes[AvailableFeature.PRIORITY_SUPPORT]
+                                    : plan.features.some((f) => f.key == AvailableFeature.EMAIL_SUPPORT)
+                                    ? supportResponseTimes[AvailableFeature.EMAIL_SUPPORT]
+                                    : 'Community support only'}
+                            </div>
+                        </React.Fragment>
+                    ))}
             </div>
             <SupportForm />
             <LemonButton
@@ -120,6 +139,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
 export const SidePanelSupport = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelStateLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
     const { title } = useValues(theLogic)
@@ -224,64 +244,62 @@ export const SidePanelSupport = (): JSX.Element => {
                         </ul>
                     </Section>
 
-                    {/* 
-                        sections below are conditional, depending on which type of support they're supposed to get.
-                        See types.tsx: https://github.com/PostHog/posthog/pull/20435/commits/3a3b9f31fc1c672c63dfc8ef02108bc2ee0eb563#diff-19743365133d63884e16c2ed111a9076bb50a34785a3e624bd4abf49d49f814c
-                    */}
-
-                    {/* if free ONLY */}
-
-                    <Section title="Contact support">
-                        <p>
-                            Due to the volume of messages and our limited team size, we're unable to offer email support
-                            about account-specific issues to free plans. But we still want to help!
-                        </p>
-
-                        <ol className="pl-5">
-                            <li>
-                                <strong className="block">Search our docs</strong>
+                    {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
+                        <Section title="More options">
+                            {showSupportForm ? (
+                                <SupportFormBlock onCancel={() => setShowSupportForm(false)} />
+                            ) : (
                                 <p>
-                                    We're constantly updating our docs and tutorials to provide the latest information
-                                    about installing, using, and troubleshooting.
+                                    Can't find what you need in the docs?{' '}
+                                    <Link onClick={() => setShowSupportForm(true)}>Email an engineer</Link>
                                 </p>
-                            </li>
-                            <li>
-                                <strong className="block">Ask a community question</strong>
-                                <p>
-                                    Many common (and niche) questions have already been resolved. (Our own engineers
-                                    also keep an eye on the questions as they have time!){' '}
-                                    <Link to="https://posthog.com/question" className="block">
-                                        Search community questions or ask your own.
-                                    </Link>
-                                </p>
-                            </li>
-                            <li>
-                                <strong className="block">
-                                    Explore <Link to="https://posthog.com/partners">PostHog partners</Link>
-                                </strong>
-                                <p>Third-party providers can help with installation and debugging of data issues.</p>
-                            </li>
-                            <li>
-                                <strong className="block">Upgrade to a paid plan</strong>
-                                <p>
-                                    Our paid plans offer email support.{' '}
-                                    <Link to="https://posthog.com/pricing">Explore options</Link>
-                                </p>
-                            </li>
-                        </ol>
-                    </Section>
-
-                    {/* if paid ONLY */}
-                    <Section title="More options">
-                        {showSupportForm ? (
-                            <SupportFormBlock onCancel={() => setShowSupportForm(false)} />
-                        ) : (
+                            )}
+                        </Section>
+                    ) : (
+                        <Section title="Contact support">
                             <p>
-                                Can't find what you need in the docs?{' '}
-                                <Link onClick={() => setShowSupportForm(true)}>Email an engineer</Link>
+                                Due to our large userbase, we're unable to offer email support to organizations on the
+                                free plan. But we still want to help!
                             </p>
-                        )}
-                    </Section>
+
+                            <ol className="pl-5">
+                                <li>
+                                    <strong className="block">Search our docs</strong>
+                                    <p>
+                                        We're constantly updating our docs and tutorials to provide the latest
+                                        information about installing, using, and troubleshooting.
+                                    </p>
+                                </li>
+                                <li>
+                                    <strong className="block">Ask a community question</strong>
+                                    <p>
+                                        Many common (and niche) questions have already been resolved by users just like
+                                        you. (Our own engineers also keep an eye on the questions as they have time!){' '}
+                                        <Link to="https://posthog.com/question" className="block">
+                                            Search community questions or ask your own.
+                                        </Link>
+                                    </p>
+                                </li>
+                                <li>
+                                    <strong className="block">
+                                        Explore <Link to="https://posthog.com/partners">PostHog partners</Link>
+                                    </strong>
+                                    <p>
+                                        Third-party providers can help with installation and debugging of data issues.
+                                    </p>
+                                </li>
+                                <li>
+                                    <strong className="block">Upgrade to a paid plan</strong>
+                                    <p>
+                                        Our paid plans offer email support.{' '}
+                                        <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
+                                            Explore options
+                                        </Link>
+                                    </p>
+                                </li>
+                            </ol>
+                        </Section>
+                    )}
                 </div>
             </div>
         </>
