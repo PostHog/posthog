@@ -22,8 +22,8 @@ class Command(BaseCommand):
                 Q(filters__insight="FUNNELS")  # funnel insights
                 & (Q(filters__funnel_viz_type="steps") | Q(filters__funnel_viz_type__isnull=True))  # steps viz
                 & (Q(filters__funnel_order_type="ordered") | Q(filters__funnel_order_type__isnull=True))  # ordered
-                & Q(filters__breakdown__isnull=True)  # without breakdown
-                & Q(short_id="NHNKsy9Y")
+                # & Q(filters__breakdown__isnull=True)  # without breakdown
+                # & Q(short_id="hgolkq9q")
                 & Q(team_id=1),
                 saved=True,
                 deleted=False,
@@ -79,39 +79,55 @@ class Command(BaseCommand):
                 all_ok = False
 
             else:
+                assert legacy_results is not None
+                assert hogql_results is not None
+
                 for legacy_result, hogql_result in zip(legacy_results, hogql_results):  # type: ignore
-                    fields = [
-                        "action_id",
-                        "name",
-                        "custom_name",
-                        "order",
-                        "people",
-                        "count",
-                        "type",
-                        "average_conversion_time",
-                        "median_conversion_time",
-                        # "converted_people_url",
-                        # "dropped_people_url",
-                    ]
-                    for field in fields:
-                        legacy = legacy_result.get(field)
-                        hogql = hogql_result.get(field)
+                    if isinstance(legacy_result, list) and isinstance(hogql_result, list):
+                        for sub_legacy_result, sub_hogql_result in zip(legacy_result, hogql_result):
+                            compare_result(insight, sub_legacy_result, sub_hogql_result)
+                    elif isinstance(legacy_result, list) or isinstance(hogql_result, list):
+                        print("Error: Inconsistent data structures.")
+                    else:
+                        compare_result(insight, legacy_result, hogql_result)
 
-                        if legacy != hogql:
-                            # ignore differences in action_id types (stringified numbers in legacy)
-                            if field == "action_id" and int(legacy) == hogql:
-                                continue
-                            # ignore differences after 1 decimal place for average_conversion_time
-                            if field == "average_conversion_time" and round(legacy, 1) == round(hogql, 1):
-                                continue
-
-                            print(  # noqa: T201
-                                f"Insight {BASE_URL}/insights/{insight.short_id}/edit"
-                                f" ({insight.pk}). MISMATCH in {legacy_result.get('order')} field {field}"
-                            )
-                            print("Legacy:", legacy_result.get(field))  # noqa: T201
-                            print("HogQL:", hogql_result.get(field))  # noqa: T201
-                            print("")  # noqa: T201
-                            all_ok = False
             if all_ok:
                 print("ALL OK!")  # noqa: T201
+
+
+def compare_result(insight, legacy_result, hogql_result) -> bool:
+    fields = [
+        "action_id",
+        "name",
+        "custom_name",
+        "order",
+        "people",
+        "count",
+        "type",
+        "average_conversion_time",
+        "median_conversion_time",
+        # "converted_people_url",
+        # "dropped_people_url",
+    ]
+    for field in fields:
+        legacy = legacy_result.get(field)
+        hogql = hogql_result.get(field)
+
+        if legacy != hogql:
+            # ignore differences in action_id types (stringified numbers in legacy)
+            if field == "action_id" and int(legacy) == hogql:
+                continue
+            # ignore differences after 1 decimal place for average_conversion_time
+            if field == "average_conversion_time" and round(legacy, 1) == round(hogql, 1):
+                continue
+
+            print(  # noqa: T201
+                f"Insight {BASE_URL}/insights/{insight.short_id}/edit"
+                f" ({insight.pk}). MISMATCH in {legacy_result.get('order')} field {field}"
+            )
+            print("Legacy:", legacy_result.get(field))  # noqa: T201
+            print("HogQL:", hogql_result.get(field))  # noqa: T201
+            print("")  # noqa: T201
+            return False
+
+    return True
