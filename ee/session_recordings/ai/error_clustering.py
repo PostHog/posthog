@@ -5,9 +5,9 @@ from posthog.models.team import Team
 from sklearn.cluster import DBSCAN
 import pandas as pd
 
-FIND_RECORDING_NEIGHBOURS_TIMING = Histogram(
-    "posthog_session_recordings_find_recording_neighbours",
-    "Time spent finding the most similar recording embeddings for a single session",
+CLUSTER_REPLAY_ERRORS_TIMING = Histogram(
+    "posthog_session_recordings_cluster_replay_errors",
+    "Time spent clustering the embeddings of replay errors",
 )
 
 DBSCAN_EPS = settings.REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_EPS
@@ -20,7 +20,19 @@ def error_clustering(team: Team):
 
     df = pd.DataFrame(results, columns=["session_id", "embeddings"])
     df["cluster"] = cluster_embeddings(results)
-    return df.groupby("cluster").sample(n=DBSCAN_MIN_SAMPLES)
+    return construct_response(df)
+
+
+def construct_response(df):
+    return [
+        {
+            "cluster": cluster,
+            "samples": rows.sample(n=DBSCAN_MIN_SAMPLES)[["session_id", "message"]].to_dict("records"),
+            "occurrences": rows.size,
+            "unique_sessions": rows["session_id"].count(),
+        }
+        for cluster, rows in df.groupby("cluster")
+    ]
 
 
 def fetch_error_embeddings(team_id: int):
@@ -44,5 +56,6 @@ def fetch_error_embeddings(team_id: int):
 
 def cluster_embeddings(embeddings):
     dbscan = DBSCAN(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES)
-    dbscan.fit(embeddings)
+    with CLUSTER_REPLAY_ERRORS_TIMING.time():
+        dbscan.fit(embeddings)
     return dbscan.labels_
