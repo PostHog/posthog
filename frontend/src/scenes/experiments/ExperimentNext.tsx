@@ -6,19 +6,12 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import React, { useEffect } from 'react'
 
 import { experimentLogic } from './experimentLogic'
-
-const CaretRightIcon = ({ fontSize }: { fontSize: number }): JSX.Element => {
-    return (
-        <svg fill="#000000" width={`${fontSize}px`} height={`${fontSize}px`} viewBox="0 0 256 256">
-            <path d="M96,212a4,4,0,0,1-2.82861-6.82837L170.34326,128,93.17139,50.82837a4.00009,4.00009,0,0,1,5.65722-5.65674l80,80a4,4,0,0,1,0,5.65674l-80,80A3.98805,3.98805,0,0,1,96,212Z" />
-        </svg>
-    )
-}
 
 const Header = (): JSX.Element => {
     const { currentFormStep } = useValues(experimentLogic)
@@ -35,7 +28,7 @@ const Header = (): JSX.Element => {
                 <div className="flex items-center justify-end space-x-2">
                     {steps.map((step, index) => (
                         <React.Fragment key={index}>
-                            {index > 0 && <CaretRightIcon fontSize={20} />}
+                            {index > 0 && <IconChevronRight fontSize="24" />}
                             <div
                                 className={`min-w-20 px-4 py-2 text-center cursor-default rounded ${
                                     currentFormStep === index ? 'font-bold' : 'text-muted'
