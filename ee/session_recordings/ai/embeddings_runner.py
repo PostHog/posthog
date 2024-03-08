@@ -98,7 +98,7 @@ class SessionEmbeddingsRunner(ABC):
 
     def __init__(self, team: Team):
         self.team = team
-        self.client = OpenAI()
+        self.openai_client = OpenAI()
 
     def run(self, items: List[Any], embeddings_preparation: type[EmbeddingPreparation]) -> None:
         source_type = embeddings_preparation.source_type
@@ -128,7 +128,7 @@ class SessionEmbeddingsRunner(ABC):
                         )
 
                         with GENERATE_RECORDING_EMBEDDING_TIMING.labels(source_type=source_type).time():
-                            embeddings = self._embed_input(input, source_type=source_type)
+                            embeddings = self._embed(input, source_type=source_type)
 
                         logger.info(
                             f"generated embedding for item",
@@ -167,7 +167,7 @@ class SessionEmbeddingsRunner(ABC):
             logger.error(f"embed items fatal error", flow="embeddings", error=e, source_type=source_type)
             raise e
 
-    def _embed_input(self, input: str, source_type: str):
+    def _embed(self, input: str, source_type: str):
         token_count = self._num_tokens_for_input(input)
         RECORDING_EMBEDDING_TOKEN_COUNT.labels(source_type=source_type).observe(token_count)
         if token_count > MAX_TOKENS_FOR_MODEL:
