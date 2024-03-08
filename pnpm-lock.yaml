@@ -200,8 +200,8 @@ dependencies:
     specifier: ^3.1.5
     version: 3.1.5(react@18.2.0)
   kea-forms:
-    specifier: ^3.1.2
-    version: 3.1.2(kea@3.1.5)
+    specifier: ^3.1.3
+    version: 3.1.3(kea@3.1.5)
   kea-loaders:
     specifier: ^3.0.0
     version: 3.0.0(kea@3.1.5)
@@ -14946,8 +14946,8 @@ packages:
     resolution: {integrity: sha512-WbCVYJ27Sz8zi9Q7Q0xHC+05iwkm3Znipc2XTlrnJbsHMYktW4hPhXUE8Ys1engBrvffoSCqbil1JQAa7clRpA==}
     dev: false
 
-  /kea-forms@3.1.2(kea@3.1.5):
-    resolution: {integrity: sha512-xMGLGG5IZou0RppY1puz9OkeUoGjz41rzSsCH1ytY1v7ycxOvQSQlMvFCc6mtCT/5iaEYtcubBxhSrPXWlGVSg==}
+  /kea-forms@3.1.3(kea@3.1.5):
+    resolution: {integrity: sha512-110muG4hUz/4+hXZ2Wen+anrfS1GFoSRzB3I/83tFaKrcQmKEGvHiowUAKafwl/68cEhIHxyeEuUZYPpDH7uPw==}
     peerDependencies:
       kea: '>= 3.0.1'
     dependencies:
