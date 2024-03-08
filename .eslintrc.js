@@ -119,7 +119,17 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress', 'Radio', 'Divider'],
+                        importNames: [
+                            'Card',
+                            'Col',
+                            'Row',
+                            'Alert',
+                            'Tooltip',
+                            'Progress',
+                            'Radio',
+                            'Divider',
+                            'Popconfirm',
+                        ],
                         message: 'please use the Lemon equivalent instead',
                     },
                 ],
@@ -251,6 +261,10 @@ module.exports = {
                     {
                         element: 'Divider',
                         message: 'use <LemonDivider> instead',
+                    },
+                    {
+                        element: 'Popconfirm',
+                        message: 'use <LemonDialog> instead',
                     },
                 ],
             },
