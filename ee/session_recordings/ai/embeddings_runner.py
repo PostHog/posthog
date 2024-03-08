@@ -86,10 +86,11 @@ class EmbeddingPreparation(ABC):
 
 class SessionEmbeddingsRunner(ABC):
     team: Team
-    client: Any = OpenAI()
+    openai_client: Any
 
     def __init__(self, team: Team):
         self.team = team
+        self.client = OpenAI()
 
     def run(self, items: List[Any], embeddings_preparation: type[EmbeddingPreparation]) -> None:
         source_type = embeddings_preparation.source_type
@@ -174,7 +175,7 @@ class SessionEmbeddingsRunner(ABC):
             return None
 
         return (
-            self.client.embeddings.create(
+            self.openai_client.embeddings.create(
                 input=input,
                 model="text-embedding-3-small",
             )
