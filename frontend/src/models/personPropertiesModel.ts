@@ -9,7 +9,7 @@ import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWare
 import { teamLogic } from 'scenes/teamLogic'
 
 import { updateListOfPropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { PersonProperty } from '~/types'
+import { PersonProperty, PropertyDefinition } from '~/types'
 
 import type { personPropertiesModelType } from './personPropertiesModelType'
 import { PersonPropertiesModelProps } from './types'
@@ -48,7 +48,10 @@ export const personPropertiesModel = kea<personPropertiesModelType>([
     })),
     listeners(() => ({
         loadPersonPropertiesSuccess: ({ personProperties }) => {
-            updateListOfPropertyDefinitions(personProperties, TaxonomicFilterGroupType.PersonProperties)
+            updateListOfPropertyDefinitions(
+                personProperties as PropertyDefinition[],
+                TaxonomicFilterGroupType.PersonProperties
+            )
         },
     })),
     selectors(() => ({
