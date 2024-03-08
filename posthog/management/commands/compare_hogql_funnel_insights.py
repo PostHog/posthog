@@ -23,7 +23,7 @@ class Command(BaseCommand):
                 & (Q(filters__funnel_viz_type="steps") | Q(filters__funnel_viz_type__isnull=True))  # steps viz
                 & (Q(filters__funnel_order_type="ordered") | Q(filters__funnel_order_type__isnull=True))  # ordered
                 # & Q(filters__breakdown__isnull=True)  # without breakdown
-                # & Q(short_id="hgolkq9q")
+                # & Q(short_id="1jrKJ0n7")
                 & Q(team_id=1),
                 saved=True,
                 deleted=False,
@@ -74,7 +74,7 @@ class Command(BaseCommand):
             elif hogql_error is not None:
                 print(  # noqa: T201
                     f"Insight {BASE_URL}/insights/{insight.short_id}/edit"
-                    f" ({insight.pk}). MISMATCH legacy has an error, but hogql has not: {legacy_error}"
+                    f" ({insight.pk}). MISMATCH hogql has an error, but legacy has not: {hogql_error}"
                 )
                 all_ok = False
 
