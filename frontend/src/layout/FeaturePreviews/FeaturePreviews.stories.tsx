@@ -27,7 +27,7 @@ CONSTRAINED_PREVIEWS.add('constrained-test-2' as FeatureFlagKey)
 const Template: StoryFn<StoryProps> = ({ earlyAccessFeatures, enabledFeatureFlags }) => {
     useStorybookMocks({
         get: {
-            'https://app.posthog.com/api/early_access_features/': { earlyAccessFeatures },
+            'https://us.i.posthog.com/api/early_access_features/': { earlyAccessFeatures },
         },
     })
     setFeatureFlags(enabledFeatureFlags)
