@@ -49,6 +49,7 @@ export const OnboardingBillingStep = ({
                         onClick={() => {
                             reportBillingUpgradeClicked(product.type)
                         }}
+                        data-attr="onboarding-subscribe-button"
                     >
                         Subscribe to Paid Plan
                     </LemonButton>

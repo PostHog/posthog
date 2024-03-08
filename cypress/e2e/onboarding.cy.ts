@@ -10,13 +10,8 @@ describe('Onboarding', () => {
                 })
             )
         )
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'product-intro-pages': 'test',
-                })
-            )
-        )
+
+        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-unsubscribed.json' })
     })
 
     it('Navigate between /products to /onboarding to a product intro page', () => {
@@ -28,22 +23,10 @@ describe('Onboarding', () => {
         // Confirm product intro is not included as the first step in the upper right breadcrumbs
         cy.get('[data-attr=onboarding-breadcrumbs] > :first-child > * span').should('not.contain', 'Product Intro')
 
-        // Navigate to the product intro page by clicking the left side bar
-        cy.get('[data-attr=menu-item-replay').click()
+        // Navigate to the product intro page
+        cy.visit('/onboarding/session_replay?step=product_intro')
 
         // Confirm we're on the product_intro page
-        cy.get('[data-attr=top-bar-name] > span').contains('Product intro')
-
-        // Go back to /products
-        cy.visit('/products')
-
-        // Again get started on product analytics onboarding
-        cy.get('[data-attr=product_analytics-get-started-button]').click()
-
-        // Navigate to the product intro page by changing the url
-        cy.visit(urls.onboarding('session_replay', 'product_intro'))
-
-        // Confirm we're on the product intro page
         cy.get('[data-attr=top-bar-name] > span').contains('Product intro')
     })
 
@@ -67,15 +50,16 @@ describe('Onboarding', () => {
         // Continue to plans
         cy.get('[data-attr=onboarding-continue]').click()
 
-        // Click show plans
-        cy.get('[data-attr=show-plans]').click()
-
         // Verify pricing table visible
         cy.get('.BillingHero').should('be.visible')
         cy.get('table.PlanComparison').should('be.visible')
 
+        // Confirm buttons on pricing comparison
+        cy.get('[data-attr=upgrade-Paid] .LemonButton__content').should('have.text', 'Subscribe')
+        cy.get('[data-attr=upgrade-Free] .LemonButton__content').should('have.text', 'Current plan')
+
         // Continue
-        cy.get('[data-attr=onboarding-continue]').click()
+        cy.get('[data-attr=onboarding-skip-button]').click()
 
         // Click back to Install step
         cy.get('[data-attr=onboarding-breadcrumbs] > :first-child > * span').click()
@@ -83,7 +67,7 @@ describe('Onboarding', () => {
         // Continue through to finish
         cy.get('[data-attr=sdk-continue]').click()
         cy.get('[data-attr=onboarding-continue]').click()
-        cy.get('[data-attr=onboarding-continue]').click()
+        cy.get('[data-attr=onboarding-skip-button]').click()
         cy.get('[data-attr=onboarding-continue]').click()
 
         // Confirm we're on the insights list page
@@ -101,11 +85,16 @@ describe('Onboarding', () => {
         cy.visit('/onboarding/product_analytics?step=product_intro')
         cy.get('[data-attr=start-onboarding-sdk]').first().click()
         cy.url().should('contain', 'http://localhost:8080/project/1/onboarding/product_analytics?step=install')
+
+        cy.visit('/products')
+        cy.get('[data-attr=return-to-product_analytics] > svg').click()
+        cy.url().should('contain', 'http://localhost:8080/project/1/insights')
     })
 
     it('Step through SR onboarding', () => {
-        cy.get('[data-attr=menu-item-replay]').click()
-        cy.get('[data-attr=start-onboarding]').first().click()
+        cy.visit('/products')
+        cy.get('[data-attr=session_replay-onboarding-card]').click()
+
         // Installation should be complete
         cy.get('svg.LemonIcon.text-success').should('exist')
         cy.get('svg.LemonIcon.text-success').parent().should('contain', 'Installation complete')
@@ -113,16 +102,17 @@ describe('Onboarding', () => {
         cy.get('[data-attr=sdk-continue]').click()
         // Continue to plans
         cy.get('[data-attr=onboarding-continue]').click()
-        // Go back to intro page
-        cy.visit('/onboarding/session_replay?step=product_intro')
+        // Verify pricing table visible
+        cy.get('.BillingHero').should('be.visible')
+        cy.get('table.PlanComparison').should('be.visible')
+        // Confirm buttons on pricing comparison
+        cy.get('[data-attr=upgrade-Paid] .LemonButton__content').should('have.text', 'Subscribe')
+        cy.get('[data-attr=upgrade-Free] .LemonButton__content').should('have.text', 'Current plan')
         // Continue through to finish
-        cy.get('[data-attr=start-onboarding]').first().click()
-        cy.get('[data-attr=sdk-continue]').click()
-        cy.get('[data-attr=onboarding-continue]').click()
+        cy.get('[data-attr=onboarding-skip-button]').click()
         cy.get('[data-attr=onboarding-continue]').click()
         // Confirm we're on the recordings list page
-        cy.url().should('eq', 'https://localhost:8080/project/1/replay/recent')
-
+        cy.url().should('eq', 'http://localhost:8080/project/1/replay/recent')
         cy.visit('/onboarding/session_replay?step=product_intro')
         cy.get('[data-attr=skip-onboarding]').should('be.visible')
         cy.get('[data-attr=start-onboarding-sdk]').should('not.exist')
@@ -130,12 +120,17 @@ describe('Onboarding', () => {
 
     it('Step through FF onboarding', () => {
         cy.visit('/onboarding/feature_flags?step=product_intro')
-        cy.get('[data-attr=menu-item-featureflags]').click()
         cy.get('[data-attr=start-onboarding-sdk]').first().click()
         cy.get('[data-attr=sdk-continue]').click()
 
         // Confirm the appropriate breadcrumb is highlighted
-        cy.get('[data-attr=onboarding-breadcrumbs] > :nth-child(5) > * span').should('contain', 'Invite teammates')
+        cy.get('[data-attr=onboarding-breadcrumbs] > :nth-child(5) > * span').should('contain', 'Plans')
+        cy.get('[data-attr=onboarding-breadcrumbs] > :nth-child(3) > * span').should('not.have.css', 'text-muted')
+
+        cy.get('[data-attr=onboarding-skip-button]').click()
+        cy.get('[data-attr=onboarding-continue]').click()
+
+        cy.url().should('contain', '/feature_flags')
 
         cy.visit('/onboarding/feature_flags?step=product_intro')
 
@@ -143,7 +138,6 @@ describe('Onboarding', () => {
         cy.get('[data-attr=start-onboarding-sdk]').should('be.visible')
 
         cy.get('[data-attr=skip-onboarding]').first().click()
-        cy.url().should('contain', 'feature_flags/new')
     })
 
     it('Step through Surveys onboarding', () => {
@@ -152,5 +146,28 @@ describe('Onboarding', () => {
         cy.get('[data-attr=start-onboarding-sdk]').should('not.exist')
         cy.get('[data-attr=skip-onboarding]').first().click()
         cy.url().should('contain', 'survey_templates')
+
+        cy.visit('/products')
+        cy.get('[data-attr=surveys-onboarding-card]').click()
+        // Installation should be complete
+        cy.get('svg.LemonIcon.text-success').should('exist')
+        cy.get('svg.LemonIcon.text-success').parent().should('contain', 'Installation complete')
+
+        // Continue to configuration step
+        cy.get('[data-attr=sdk-continue]').click()
+
+        // Verify pricing table visible
+        cy.get('.BillingHero').should('be.visible')
+        cy.get('table.PlanComparison').should('be.visible')
+
+        // Confirm buttons on pricing comparison
+        cy.get('[data-attr=upgrade-Paid] .LemonButton__content').should('have.text', 'Subscribe')
+        cy.get('[data-attr=upgrade-Free] .LemonButton__content').should('have.text', 'Current plan')
+
+        // Continue
+        cy.get('[data-attr=onboarding-skip-button]').click()
+        cy.get('[data-attr=onboarding-continue]').click()
+
+        cy.url().should('contain', '/survey_templates')
     })
 })
