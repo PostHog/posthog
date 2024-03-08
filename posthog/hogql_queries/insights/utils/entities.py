@@ -57,7 +57,7 @@ def is_equal(a: EntityNode, b: EntityNode | ExclusionEntityNode, compare_propert
     return True
 
 
-def is_superset(a: EntityNode | ExclusionEntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
+def is_superset(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
     """Checks if this entity is a superset version of other. The nodes match and the properties of (a) is a subset of the properties of (b)."""
 
     if not is_equal(a, b, compare_properties=False):
