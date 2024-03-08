@@ -129,7 +129,7 @@ const StepInfo = (): JSX.Element => {
                                                 />
                                             </LemonField>
                                             <div className={`${index === 1 && 'invisible'}`}>
-                                                <Tooltip title="Delete this variant" placement="bottomLeft">
+                                                <Tooltip title="Delete this variant" placement="top-start">
                                                     <LemonButton
                                                         size="small"
                                                         icon={<IconTrash />}
