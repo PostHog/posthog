@@ -43,7 +43,7 @@ export function Paths(): JSX.Element {
     }
 
     return (
-        <div className="h-full w-full overflow-auto" id={id}>
+        <div className="w-full h-full overflow-auto" id={id}>
             <div ref={canvasRef} className="Paths" data-attr="paths-viz">
                 {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
                 {!insightDataError &&

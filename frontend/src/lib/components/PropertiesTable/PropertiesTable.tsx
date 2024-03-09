@@ -1,8 +1,8 @@
 import './PropertiesTable.scss'
 
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonDialog, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { Dropdown, Input, Menu } from 'antd'
+import { LemonCheckbox, LemonDialog, LemonDropdown, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Input, Menu } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
@@ -117,7 +117,7 @@ function ValueDisplay({
             {!editing ? (
                 <>
                     {canEdit && boolNullTypes.includes(valueType) ? (
-                        <Dropdown
+                        <LemonDropdown
                             overlay={
                                 <Menu
                                     onClick={({ key }) => {
@@ -139,7 +139,7 @@ function ValueDisplay({
                             }
                         >
                             {valueComponent}
-                        </Dropdown>
+                        </LemonDropdown>
                     ) : (
                         valueComponent
                     )}
@@ -159,7 +159,7 @@ function ValueDisplay({
                             }
                         >
                             <LemonTag
-                                className="font-mono uppercase ml-1"
+                                className="ml-1 font-mono uppercase"
                                 type={isTypeMismatched ? 'danger' : 'muted'}
                                 icon={isTypeMismatched ? <IconWarning /> : undefined}
                             >
@@ -382,7 +382,7 @@ export function PropertiesTable({
         return (
             <>
                 {(searchable || filterable) && (
-                    <div className="flex justify-between items-center gap-2 mb-2">
+                    <div className="flex items-center justify-between gap-2 mb-2">
                         <span className="flex justify-between gap-2">
                             {searchable && (
                                 <LemonInput

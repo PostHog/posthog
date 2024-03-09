@@ -1,10 +1,7 @@
 import './PersonScene.scss'
 
-// eslint-disable-next-line no-restricted-imports
-import { DownOutlined } from '@ant-design/icons'
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { Dropdown, Menu } from 'antd'
+import { IconCopy, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonMenu, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -17,6 +14,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -59,31 +57,20 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 >
                     {person.distinct_ids[0]}
                 </CopyToClipboardInline>
-                {person.distinct_ids.length > 1 && (
-                    <Dropdown
-                        overlay={
-                            <Menu>
-                                {person.distinct_ids.slice(1).map((distinct_id: string) => (
-                                    <Menu.Item key={distinct_id}>
-                                        <CopyToClipboardInline
-                                            description="person distinct ID"
-                                            iconStyle={{ color: 'var(--primary)' }}
-                                        >
-                                            {distinct_id}
-                                        </CopyToClipboardInline>
-                                    </Menu.Item>
-                                ))}
-                            </Menu>
-                        }
-                        trigger={['click']}
-                    >
-                        <LemonTag className="extra-ids space-x-1">
-                            <div>+{person.distinct_ids.length - 1}</div>
-                            <DownOutlined />
-                        </LemonTag>
-                    </Dropdown>
-                )}
             </div>
+            {person.distinct_ids.length > 1 && (
+                <LemonMenu
+                    items={person.distinct_ids.slice(1).map((distinct_id: string) => ({
+                        label: distinct_id,
+                        icon: <IconCopy />,
+                        onClick: async () => await copyToClipboard(distinct_id, 'person distinct ID'),
+                    }))}
+                >
+                    <LemonButton size="small" data-attr="copy-id">
+                        + {person.distinct_ids.length - 1}
+                    </LemonButton>
+                </LemonMenu>
+            )}
             <div>
                 <span className="text-muted">First seen:</span>{' '}
                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
@@ -272,7 +259,7 @@ export function PersonScene(): JSX.Element | null {
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
                               content: (
                                   <>
-                                      <div className="flex space-x-2 items-center mb-2">
+                                      <div className="flex items-center mb-2 space-x-2">
                                           <div className="flex items-center">
                                               Choose ID:
                                               <Tooltip title="Feature flags values can depend on person distincts IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
