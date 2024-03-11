@@ -535,6 +535,40 @@
               "type": "string"
           }
       ],
+      "sessions": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "urls",
+              "type": "array"
+          },
+          {
+              "key": "pageview_count",
+              "type": "integer"
+          },
+          {
+              "key": "autocapture_count",
+              "type": "integer"
+          },
+          {
+              "key": "duration",
+              "type": "integer"
+          }
+      ],
       "raw_session_replay_events": [
           {
               "key": "session_id",
@@ -767,6 +801,36 @@
           },
           {
               "key": "version",
+              "type": "integer"
+          }
+      ],
+      "raw_sessions": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "urls",
+              "type": "array"
+          },
+          {
+              "key": "pageview_count",
+              "type": "integer"
+          },
+          {
+              "key": "autocapture_count",
               "type": "integer"
           }
       ],
@@ -1310,6 +1374,40 @@
               "type": "string"
           }
       ],
+      "sessions": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "urls",
+              "type": "array"
+          },
+          {
+              "key": "pageview_count",
+              "type": "integer"
+          },
+          {
+              "key": "autocapture_count",
+              "type": "integer"
+          },
+          {
+              "key": "duration",
+              "type": "integer"
+          }
+      ],
       "raw_session_replay_events": [
           {
               "key": "session_id",
@@ -1542,6 +1640,36 @@
           },
           {
               "key": "version",
+              "type": "integer"
+          }
+      ],
+      "raw_sessions": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "urls",
+              "type": "array"
+          },
+          {
+              "key": "pageview_count",
+              "type": "integer"
+          },
+          {
+              "key": "autocapture_count",
               "type": "integer"
           }
       ],
