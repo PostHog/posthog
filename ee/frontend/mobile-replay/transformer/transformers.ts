@@ -1379,7 +1379,7 @@ export const makeFullEvent = (
 }
 
 function makeCSSReset(context: ConversionContext): serializedNodeWithId {
-    // we need to normalize CSS so browser's don't do unexpected things
+    // we need to normalize CSS so browsers don't do unexpected things
     return {
         type: NodeType.Element,
         tagName: 'style',
