@@ -167,7 +167,7 @@ async function expectStoryToMatchSceneSnapshot(
 ): Promise<void> {
     // Using .or() because in some cases there's no <main> (primarily logged-out screens)
     await expectLocatorToMatchStorySnapshot(
-        page.locator('main').or(page.locator('body')).first(),
+        page.locator('main').first().or(page.locator('body').first()),
         context,
         browser,
         theme
