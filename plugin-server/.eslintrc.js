@@ -38,9 +38,10 @@ module.exports = {
     },
     overrides: [
         {
-            files: ['**/__tests__/**/*.ts', 'src/celery/**/*.ts'],
+            files: ['**/tests/**/*.ts', 'src/celery/**/*.ts'],
             rules: {
                 '@typescript-eslint/no-explicit-any': 'off',
+                '@typescript-eslint/no-floating-promises': 'off',
             },
         },
     ],
