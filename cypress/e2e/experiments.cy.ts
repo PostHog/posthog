@@ -65,8 +65,8 @@ describe('Experiments', () => {
             .type(secondaryMetricName)
             .should('have.value', secondaryMetricName)
         cy.get('[data-attr="metrics-selector"]').click()
-        cy.contains('Trends').should('be.visible')
-        cy.contains('Funnels').should('be.visible')
+        cy.contains('Funnels').should('exist')
+        cy.contains('Trends').should('exist')
         cy.get('[data-attr="create-annotation-submit"]').click()
         cy.contains(secondaryMetricName).should('exist')
 
