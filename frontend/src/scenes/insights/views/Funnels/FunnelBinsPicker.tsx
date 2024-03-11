@@ -1,7 +1,8 @@
 import { IconGraph } from '@posthog/icons'
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BIN_COUNT_AUTO } from 'lib/constants'
+import { useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -15,7 +16,7 @@ const NUMBER_PRESETS = new Set([5, 15, 25, 50, 90])
 interface BinOption {
     key?: string
     label: string
-    value: BinCountValue | 'custom'
+    value: BinCountValue
     display: boolean
 }
 
@@ -30,67 +31,78 @@ const BIN_OPTIONS: BinOption[] = [
         value: v,
         display: NUMBER_PRESETS.has(v),
     })),
-    {
-        label: 'Custom',
-        value: 'custom',
-        display: true,
-    },
 ]
 
 export function FunnelBinsPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { funnelsFilter, numericBinCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const [visible, setVisible] = useState<boolean>(false)
 
     const setBinCount = (binCount: BinCountValue): void => {
         updateInsightFilter({ binCount: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
     }
 
-    const preferredBins = BIN_OPTIONS.filter((o) => o.display)
-    const preferredBinCounts = preferredBins.map((b) => b.value)
+    const preferredOptions = BIN_OPTIONS.filter((o) => o.display).map((bin) => {
+        return {
+            value: bin.value as BinCountValue,
+            label: bin.label,
+            icon: <IconGraph />,
+        }
+    })
 
-    const options = [
-        {
-            title: 'Bin Count',
-            options: preferredBins.map((bin) => {
-                return {
-                    value: bin.value as BinCountValue,
-                    label: bin.label,
-                    icon: <IconGraph />,
-                }
-            }),
-        },
-    ]
+    const selectedValue = funnelsFilter?.binCount || BIN_COUNT_AUTO
+    const selectedOption = BIN_OPTIONS.find((o) => o.value === selectedValue)
 
-    console.log(preferredBinCounts)
-    console.log(numericBinCount)
+    const overlay = (
+        <div className="space-y-px" onClick={(e) => e.stopPropagation()}>
+            {preferredOptions.map((bin) => (
+                <LemonButton
+                    fullWidth
+                    key={bin.value}
+                    icon={<IconGraph />}
+                    active={bin.value === selectedValue}
+                    onClick={() => {
+                        setVisible(false)
+                        setBinCount(bin.value)
+                    }}
+                >
+                    {bin.label}
+                </LemonButton>
+            ))}
+            <LemonInput
+                type="number"
+                className="funnel-bins-custom-picker"
+                min={MIN}
+                max={MAX}
+                value={numericBinCount}
+                onChange={(count) => {
+                    const parsedCount = typeof count === 'string' ? parseInt(count) : count
+                    if (parsedCount) {
+                        setBinCount(parsedCount)
+                    }
+                }}
+                suffix={<>bins</>}
+            />
+        </div>
+    )
 
     return (
         <>
-            <LemonSelect
+            <LemonDropdown
                 data-attr="funnel-bin-filter"
-                value={funnelsFilter?.binCount || BIN_COUNT_AUTO}
-                onChange={(count) => setBinCount(count === 'custom' ? 0 : count)}
-                dropdownMatchSelectWidth
-                options={options}
-                menu={{ closeParentPopoverOnClickInside: false }}
-            />
-            {!preferredBinCounts.includes(numericBinCount) && (
-                <LemonInput
-                    type="number"
-                    className="funnel-bins-custom-picker"
-                    min={MIN}
-                    max={MAX}
-                    value={numericBinCount}
-                    onChange={(count) => {
-                        const parsedCount = typeof count === 'string' ? parseInt(count) : count
-                        if (parsedCount) {
-                            setBinCount(parsedCount)
-                        }
-                    }}
-                    suffix={<>bins</>}
-                />
-            )}
+                sameWidth
+                visible={visible}
+                closeOnClickInside={false}
+                onClickOutside={() => setVisible(false)}
+                overlay={overlay}
+                className="w-32"
+                placement="bottom-end"
+            >
+                <LemonButton size="small" type="secondary" icon={<IconGraph />} onClick={() => setVisible(true)}>
+                    {selectedOption?.label}
+                </LemonButton>
+            </LemonDropdown>
         </>
     )
 }
