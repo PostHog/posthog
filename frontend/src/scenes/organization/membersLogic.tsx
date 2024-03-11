@@ -94,7 +94,7 @@ export const membersLogic = kea<membersLogicType>([
                 const updatedMembers = [...values.members]
 
                 const existingIndex = values.members.findIndex((m) => m.user.uuid === member.user.uuid)
-                if (existingIndex === -1) {
+                if (existingIndex !== -1) {
                     updatedMembers[existingIndex] = updatedMember
                 }
                 return updatedMembers
