@@ -16,7 +16,7 @@ export function SessionRecordingErrors(): JSX.Element {
     if (!errors) {
         return (
             <LemonButton size="large" type="primary" icon={<IconFeatures />} onClick={() => loadErrorClusters()}>
-                Magically find errors
+                Automagically find errors
             </LemonButton>
         )
     }
