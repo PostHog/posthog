@@ -22,11 +22,8 @@ describe('Billing', () => {
         cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Product analytics')
         cy.contains('.LemonModal .LemonButton', 'Unsubscribe').click()
 
-        cy.wait('@capture').then(async ({ request }) => {
-            const decodedJSON = await getCapturePayload(request)
-            const events = Array.isArray(decodedJSON) ? decodedJSON : [decodedJSON]
-
-            // These should be a 'survey sent' event somewhere in the decodedJSON
+        cy.window().then((win) => {
+            const events = (win as any)._cypress_posthog_captures
             const matchingEvents = events.filter((event) => event.event === 'survey sent')
             expect(matchingEvents.length).to.equal(1)
             const matchingEvent = matchingEvents[0]
@@ -34,6 +31,7 @@ describe('Billing', () => {
             expect(matchingEvent.properties.$survey_response).to.equal('Product analytics')
             expect(matchingEvent.properties.$survey_response_1).to.equal('product_analytics')
         })
+
         cy.get('.LemonModal').should('not.exist')
         cy.wait(['@unsubscribeProductAnalytics'])
     })

@@ -16,6 +16,8 @@ const E2E_TESTING = Cypress.env('E2E_TESTING')
 Cypress.on('window:before:load', (win) => {
     cy.spy(win.console, 'error')
     cy.spy(win.console, 'warn')
+
+    win._cypress_posthog_captures = []
 })
 
 beforeEach(() => {
