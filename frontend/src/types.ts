@@ -300,6 +300,7 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     metadata?: OrganizationMetadata
+    member_count: number
 }
 
 export interface OrganizationDomainType {
@@ -330,7 +331,6 @@ export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
     is_2fa_enabled: boolean
-    has_social_auth: boolean
 }
 
 export interface ExplicitTeamMemberType extends BaseMemberType {
@@ -359,6 +359,12 @@ export interface FusedTeamMemberType extends BaseMemberType {
     organization_level: OrganizationMembershipLevel
     /** Effective level of the user within the project. */
     level: OrganizationMembershipLevel
+}
+
+export interface ListOrganizationMembersParams {
+    offset?: number
+    limit?: number
+    updated_after?: string
 }
 
 export interface APIErrorType {
