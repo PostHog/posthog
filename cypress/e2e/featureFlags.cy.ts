@@ -12,7 +12,7 @@ describe('Feature Flags', () => {
             )
         )
 
-        cy.intercept('/api/projects/1/property_definitions?type=person&search*', {
+        cy.intercept('/api/projects/*/property_definitions?type=person&search*', {
             fixture: 'api/feature-flags/property_definition',
         })
         cy.intercept('/api/person/values/*', {
