@@ -42,14 +42,17 @@ export const OnboardingStep = ({
         <>
             <div className="pb-2">
                 <div
-                    className={`flex justify-between items-center text-muted max-w-screen-lg mx-auto ${
+                    className={`flex justify-between items-start text-muted max-w-screen-lg mx-auto gap-6 ${
                         hideHeader && 'hidden'
                     }`}
                 >
                     <h1 className="font-bold m-0 pl-2">
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
                     </h1>
-                    <div className="flex items-center gap-x-3" data-attr="onboarding-breadcrumbs">
+                    <div
+                        className="flex items-center justify-end gap-x-3 w-2/3 mt-3 shrink-0"
+                        data-attr="onboarding-breadcrumbs"
+                    >
                         {onboardingStepKeys.map((stepName, idx) => {
                             return (
                                 <React.Fragment key={`stepKey-${idx}`}>
