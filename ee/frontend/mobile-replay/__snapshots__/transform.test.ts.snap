@@ -258,7 +258,7 @@ exports[`replay/transform transform can convert navigation bar 1`] = `
                       {
                         "attributes": {
                           "data-rrweb-id": 12345,
-                          "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;display:flex;flex-direction:row;align-items:center;justify-content:space-around;color:white;",
+                          "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;display:flex;flex-direction:row;align-items:center;justify-content:space-around;color:black;",
                         },
                         "childNodes": [
                           {
@@ -6695,7 +6695,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 10,
-            "style": "background-color: #f3f4ef;color: #35373e;width: 100vw;height: 150px;bottom: 0;position: fixed;align-items: center;justify-content: center;display: flex;",
+            "style": "background-color: #ffffff;color: black;width: 100vw;height: 150px;bottom: 0;position: fixed;align-items: center;justify-content: center;display: flex;",
           },
           "childNodes": [
             {
