@@ -1,6 +1,6 @@
 import './RetentionTable.scss'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -15,7 +15,6 @@ import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { EXPORT_MAX_LIMIT, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
-import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { ExporterFormat } from '~/types'
 
@@ -70,17 +69,16 @@ export function RetentionModal(): JSX.Element | null {
                             </LemonButton>
                         )}
                         {!!dataTableNodeQuery && (
-                            <ExportWithConfirmation
-                                key={1}
-                                placement="topRight"
-                                onConfirm={() => {
-                                    dataTableNodeQuery && void startDownload(dataTableNodeQuery, true, startExport)
-                                }}
-                                actor="persons"
-                                limit={EXPORT_MAX_LIMIT}
-                            >
-                                <LemonButton type="secondary">Export all as CSV</LemonButton>
-                            </ExportWithConfirmation>
+                            <Tooltip delayMs={0} title={`CSV export is limited to ${EXPORT_MAX_LIMIT} persons`}>
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        dataTableNodeQuery && void startDownload(dataTableNodeQuery, true, startExport)
+                                    }}
+                                >
+                                    Export all as CSV
+                                </LemonButton>
+                            </Tooltip>
                         )}
                     </div>
                     {exploreUrl && (

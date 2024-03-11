@@ -42,6 +42,7 @@ import {
     GroupListParams,
     InsightModel,
     IntegrationType,
+    ListOrganizationMembersParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,
@@ -49,6 +50,7 @@ import {
     NotebookType,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
+    OrganizationMemberType,
     OrganizationResourcePermissionType,
     OrganizationType,
     PersonalAPIKeyType,
@@ -491,6 +493,15 @@ class ApiRequest {
 
     public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
         return this.roleMemberships(roleId).addPathComponent(userUuid)
+    }
+
+    // # OrganizationMembers
+    public organizationMembers(): ApiRequest {
+        return this.organizations().current().addPathComponent('members')
+    }
+
+    public organizationMember(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
+        return this.organizationMembers().addPathComponent(uuid)
     }
 
     // # Persons
@@ -1298,6 +1309,28 @@ const api = {
     experiments: {
         async get(id: number): Promise<Experiment> {
             return new ApiRequest().experimentsDetail(id).get()
+        },
+    },
+
+    organizationMembers: {
+        async list(params: ListOrganizationMembersParams = {}): Promise<PaginatedResponse<OrganizationMemberType>> {
+            return await new ApiRequest().organizationMembers().withQueryString(params).get()
+        },
+
+        async listAll(params: ListOrganizationMembersParams = {}): Promise<OrganizationMemberType[]> {
+            const url = new ApiRequest().organizationMembers().withQueryString(params).assembleFullUrl()
+            return api.loadPaginatedResults<OrganizationMemberType>(url)
+        },
+
+        async delete(uuid: OrganizationMemberType['user']['uuid']): Promise<PaginatedResponse<void>> {
+            return await new ApiRequest().organizationMember(uuid).delete()
+        },
+
+        async update(
+            uuid: string,
+            data: Partial<Pick<OrganizationMemberType, 'level'>>
+        ): Promise<OrganizationMemberType> {
+            return new ApiRequest().organizationMember(uuid).update({ data })
         },
     },
 

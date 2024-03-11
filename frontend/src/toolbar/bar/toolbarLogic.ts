@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
@@ -6,7 +6,7 @@ import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { inBounds } from '~/toolbar/utils'
+import { inBounds, TOOLBAR_ID } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 
@@ -40,6 +40,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setDragging: (dragging = true) => ({ dragging }),
         setElement: (element: HTMLElement | null) => ({ element }),
         setMenu: (element: HTMLElement | null) => ({ element }),
+        setIsBlurred: (isBlurred: boolean) => ({ isBlurred }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -72,6 +73,14 @@ export const toolbarLogic = kea<toolbarLogicType>([
             { persist: true },
             {
                 toggleMinimized: (state, { minimized }) => minimized ?? !state,
+            },
+        ],
+        // Whether the toolbar is not in focus anymore (typically due to clicking elsewhere)
+        isBlurred: [
+            false,
+            {
+                setIsBlurred: (_, { isBlurred }) => isBlurred,
+                setVisibleMenu: () => false,
             },
         ],
         theme: [
@@ -129,8 +138,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         ],
 
         menuProperties: [
-            (s) => [s.element, s.menu, s.dragPosition, s.windowWidth, s.windowHeight],
-            (element, menu, dragPosition, windowWidth, windowHeight) => {
+            (s) => [s.element, s.menu, s.dragPosition, s.windowWidth, s.windowHeight, s.isBlurred],
+            (element, menu, dragPosition, windowWidth, windowHeight, isBlurred) => {
                 if (!element || !menu) {
                     return {}
                 }
@@ -145,7 +154,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     ? windowHeight - dragPosition.y - elHeight - margin * 2
                     : dragPosition.y - margin * 2
 
-                maxHeight = inBounds(0, maxHeight, windowHeight * 0.6)
+                maxHeight = isBlurred ? 0 : inBounds(0, maxHeight, windowHeight * 0.6)
 
                 const desiredY = isBelow ? dragPosition.y + elHeight + margin : dragPosition.y - margin
                 const desiredX = dragPosition.x + elWidth * 0.5
@@ -257,4 +266,16 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.setVisibleMenu('actions')
         },
     })),
+    afterMount(({ actions, values, cache }) => {
+        cache.clickListener = (e: MouseEvent): void => {
+            const shouldBeBlurred = (e.target as HTMLElement)?.id !== TOOLBAR_ID
+            if (shouldBeBlurred && !values.isBlurred) {
+                actions.setIsBlurred(true)
+            }
+        }
+        window.addEventListener('mousedown', cache.clickListener)
+    }),
+    beforeUnmount(({ cache }) => {
+        window.removeEventListener('mousedown', cache.clickListener)
+    }),
 ])

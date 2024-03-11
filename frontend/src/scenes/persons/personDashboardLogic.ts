@@ -28,10 +28,13 @@ export const personDashboardLogic = kea<personDashboardLogicType>([
         ],
         dashboardLogicProps: [
             (s) => [s.personDashboardId],
-            (personDashboardId): DashboardLogicProps => ({
-                id: personDashboardId ?? undefined,
-                placement: DashboardPlacement.Person,
-            }),
+            (personDashboardId): DashboardLogicProps | null =>
+                personDashboardId
+                    ? {
+                          id: personDashboardId,
+                          placement: DashboardPlacement.Person,
+                      }
+                    : null,
         ],
     })),
 ])
