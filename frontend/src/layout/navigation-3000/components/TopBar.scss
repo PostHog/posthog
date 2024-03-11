@@ -10,10 +10,6 @@
     white-space: nowrap;
     pointer-events: none;
 
-    .storybook-test-runner & {
-        position: relative; // Don't overlap scene content in visual tests
-    }
-
     .EditableField__display {
         text-overflow: ellipsis;
         white-space: nowrap;

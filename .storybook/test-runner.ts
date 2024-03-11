@@ -12,6 +12,7 @@ type SnapshotTheme = 'legacy' | 'light' | 'dark'
 declare module '@storybook/types' {
     interface Parameters {
         options?: any
+        /** @default 'padded' */
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
             /**
@@ -118,7 +119,9 @@ async function expectStoryToMatchSnapshot(
     await waitForPageReady(page)
     await page.evaluate(() => {
         // Stop all animations for consistent snapshots
-        document.body.classList.add('storybook-test-runner')
+        document.body.classList.add(
+            `storybook-test-runner storybook-test-runner--${storyContext.parameters?.layout || 'padded'}`
+        )
     })
     if (waitForLoadersToDisappear) {
         // The timeout is reduced so that we never allow toasts – they usually signify something wrong
@@ -165,10 +168,15 @@ async function expectStoryToMatchSceneSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
-    // If scene element isn't present, let's use body (needed in logged-out screens).
+    // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
     // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
     // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(page.locator('body, .Navigation3000__scene').last(), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(
+        page.locator('body, main').last(),
+        context,
+        browser,
+        theme
+    )
 }
 
 async function expectStoryToMatchComponentSnapshot(

@@ -703,6 +703,10 @@ body {
     }
 }
 
+body.storybook-test-runner--fullscreen {
+    height: fit-content;
+}
+
 .ant-radio-button-wrapper {
     background: var(--secondary-3000);
     border-color: transparent;
