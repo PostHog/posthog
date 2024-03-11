@@ -133,7 +133,7 @@ export const navigationLogic = kea<navigationLogicType>([
                     !currentTeam.ingested_event
                 ) {
                     return ['real_project_with_no_events', true]
-                } else if (!projectNoticesAcknowledged['invite_teammates'] && !memberCount) {
+                } else if (!projectNoticesAcknowledged['invite_teammates'] && memberCount === 1) {
                     return ['invite_teammates', true]
                 }
 

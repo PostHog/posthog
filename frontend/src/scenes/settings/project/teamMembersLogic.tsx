@@ -70,12 +70,12 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
             },
         },
     })),
-    selectors(({ selectors }) => ({
+    selectors(() => ({
         allMembers: [
-            () => [
+            (s) => [
                 teamLogic.selectors.currentTeam,
                 userLogic.selectors.hasAvailableFeature,
-                selectors.explicitMembers,
+                s.explicitMembers,
                 membersLogic.selectors.members,
             ],
             // Explicit project members joined with organization admins and owner (who get project access by default)
@@ -119,28 +119,24 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
             },
         ],
         allMembersLoading: [
-            () => [selectors.explicitMembersLoading, membersLogic.selectors.membersLoading],
+            (s) => [s.explicitMembersLoading, membersLogic.selectors.membersLoading],
             (explicitMembersLoading, organizationMembersLoading) =>
                 explicitMembersLoading || organizationMembersLoading,
         ],
         admins: [
-            () => [selectors.allMembers],
+            (s) => [s.allMembers],
             (allMembers: FusedTeamMemberType[]) => allMembers.filter(({ level }) => level >= TeamMembershipLevel.Admin),
         ],
         plainMembers: [
-            () => [selectors.allMembers],
+            (s) => [s.allMembers],
             (allMembers: FusedTeamMemberType[]) => allMembers.filter(({ level }) => level < TeamMembershipLevel.Admin),
         ],
         addableMembers: [
-            () => [selectors.explicitMembers, membersLogic.selectors.members, userLogic.selectors.user],
+            (s) => [s.explicitMembers, membersLogic.selectors.members, userLogic.selectors.user],
             // Organization members processed to indicate if they can be added to the project or not
-            (
-                explicitMembers: ExplicitTeamMemberType[],
-                organizationMembers: OrganizationMemberType[],
-                currentUser: UserType
-            ): FusedTeamMemberType[] =>
-                organizationMembers
-                    .filter(({ user }) => user.uuid !== currentUser.uuid)
+            (explicitMembers, organizationMembers, currentUser): FusedTeamMemberType[] =>
+                (organizationMembers ?? [])
+                    .filter(({ user }) => user.uuid !== currentUser?.uuid)
                     .map((organizationMember) => {
                         const matchedExplicitMember = explicitMembers.find(
                             (explicitMember) => explicitMember.user.uuid === organizationMember.user.uuid
