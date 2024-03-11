@@ -4,6 +4,7 @@ posthog/temporal/common/utils.py:0: error: Argument 2 to "__get__" of "classmeth
 posthog/hogql/database/argmax.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/database/argmax.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/argmax.py:0: note: Consider using "Sequence" instead, which is covariant
+posthog/hogql/database/argmax.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
 posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/numbers.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
@@ -55,9 +56,11 @@ posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incomp
 posthog/hogql/database/schema/log_entries.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/database/schema/log_entries.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/log_entries.py:0: note: Consider using "Sequence" instead, which is covariant
+posthog/hogql/database/schema/log_entries.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
 posthog/hogql/database/schema/log_entries.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/database/schema/log_entries.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/log_entries.py:0: note: Consider using "Sequence" instead, which is covariant
+posthog/hogql/database/schema/log_entries.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
 posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
@@ -67,24 +70,25 @@ posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instea
 posthog/hogql/resolver_utils.py:0: error: Argument 1 to "lookup_field_by_name" has incompatible type "SelectQueryType | SelectUnionQueryType"; expected "SelectQueryType"  [arg-type]
 posthog/hogql/database/schema/persons.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "settings"  [union-attr]
 posthog/hogql/database/schema/persons.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
-posthog/hogql/database/schema/persons.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql/database/schema/persons.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/persons.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql/parser.py:0: error: Key expression in dictionary comprehension has incompatible type "str"; expected type "Literal['expr', 'order_expr', 'select']"  [misc]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql/database/schema/person_distinct_ids.py:0: error: Argument 1 to "select_from_person_distinct_ids_table" has incompatible type "dict[str, list[str]]"; expected "dict[str, list[str | int]]"  [arg-type]
 posthog/hogql/database/schema/cohort_people.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/database/schema/cohort_people.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/cohort_people.py:0: note: Consider using "Sequence" instead, which is covariant
+posthog/hogql/database/schema/cohort_people.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
 posthog/hogql/database/schema/session_replay_events.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/database/schema/session_replay_events.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/session_replay_events.py:0: note: Consider using "Sequence" instead, which is covariant
+posthog/hogql/database/schema/session_replay_events.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
 posthog/hogql/database/schema/session_replay_events.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/database/schema/session_replay_events.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/session_replay_events.py:0: note: Consider using "Sequence" instead, which is covariant
+posthog/hogql/database/schema/session_replay_events.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
 posthog/hogql/database/schema/event_sessions.py:0: error: Statement is unreachable  [unreachable]
 posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
@@ -243,27 +247,16 @@ posthog/temporal/data_imports/external_data_job.py:0: error: Argument 2 to "Data
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/lazy_tables.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignment (expression has type "dict[Never, Never]", variable has type "list[ConstraintOverride]")  [assignment]
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/lazy_tables.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-posthog/hogql/transforms/lazy_tables.py:0: error: Argument 1 to "append" of "list" has incompatible type "list[FieldType]"; expected "list[FieldType | PropertyType]"  [arg-type]
-posthog/hogql/transforms/lazy_tables.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/transforms/lazy_tables.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql/transforms/lazy_tables.py:0: error: Item "None" of "SelectQuery | SelectUnionQuery | Field | None" has no attribute "type"  [union-attr]
-posthog/hogql/transforms/lazy_tables.py:0: error: Item "None" of "SelectQuery | SelectUnionQuery | Field | None" has no attribute "type"  [union-attr]
+posthog/hogql/transforms/lazy_tables.py:0: error: Non-overlapping equality check (left operand type: "TableType", right operand type: "LazyTableType")  [comparison-overlap]
+posthog/hogql/transforms/lazy_tables.py:0: error: Non-overlapping equality check (left operand type: "TableType", right operand type: "LazyTableType")  [comparison-overlap]
+posthog/hogql/transforms/lazy_tables.py:0: error: Name "chain" already defined on line 0  [no-redef]
+posthog/hogql/transforms/lazy_tables.py:0: error: Subclass of "TableType" and "LazyTableType" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/hogql/transforms/lazy_tables.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/transforms/lazy_tables.py:0: error: Item "None" of "SelectQuery | SelectUnionQuery | Field | None" has no attribute "type"  [union-attr]
-posthog/hogql/transforms/lazy_tables.py:0: error: Item "None" of "SelectQuery | SelectUnionQuery | Field | None" has no attribute "type"  [union-attr]
-posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignment (expression has type "PropertyType | FieldType", variable has type "FieldType")  [assignment]
-posthog/hogql/transforms/lazy_tables.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/transforms/lazy_tables.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/transforms/lazy_tables.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/transforms/lazy_tables.py:0: error: List item 0 has incompatible type "SelectQueryType | None"; expected "SelectQueryType"  [list-item]
-posthog/hogql/transforms/lazy_tables.py:0: error: Item "None" of "SelectQuery | SelectUnionQuery | Field | None" has no attribute "type"  [union-attr]
-posthog/hogql/transforms/lazy_tables.py:0: error: List item 0 has incompatible type "SelectQueryType | None"; expected "SelectQueryType"  [list-item]
-posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignment (expression has type "BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType | None", target has type "BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType")  [assignment]
-posthog/hogql/transforms/lazy_tables.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/transforms/lazy_tables.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible types in assignment (expression has type "BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType", variable has type "SelectQueryAliasType | None")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/in_cohort.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase

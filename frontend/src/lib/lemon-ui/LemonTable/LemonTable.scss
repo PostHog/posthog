@@ -95,23 +95,6 @@
         border-top: 1px solid var(--border);
     }
 
-    .row-name {
-        display: flex;
-        align-items: center;
-        font-size: 0.875rem;
-        font-weight: 600;
-
-        &:not(:last-child) {
-            margin-bottom: 0.125rem;
-        }
-    }
-
-    .row-description {
-        display: inline-block;
-        max-width: 30rem;
-        font-size: 0.75rem;
-    }
-
     a.Link {
         color: var(--default);
 

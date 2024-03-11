@@ -2,6 +2,7 @@ import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns } from '@p
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -22,9 +23,13 @@ export const DataWarehouseJoins = (): JSX.Element => {
             title: 'Description',
             render: (_, join) => {
                 return (
-                    <span className="row-name">
-                        Joining {join.joining_table_name} onto {join.source_table_name}
-                    </span>
+                    <LemonTableLink
+                        title={
+                            <>
+                                Joining {join.joining_table_name} onto {join.source_table_name}
+                            </>
+                        }
+                    />
                 )
             },
         },
