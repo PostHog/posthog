@@ -59,7 +59,7 @@ export function CreateProjectModal({
                     </p>
                     {currentOrganization?.teams?.some((team) => team.name.toLowerCase() === 'default project') && (
                         <p>
-                            <strong>Bonus tip:</strong> You can always rename your "Default Project".
+                            <strong>Bonus tip:</strong> You can always rename your "Default project".
                         </p>
                     )}
                 </>
