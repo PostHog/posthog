@@ -21,7 +21,6 @@ export function SSOSelect({ value, loading, onChange, samlAvailable }: SSOSelect
     }
 
     const authProviders = Object.keys(preflight.available_social_auth_providers) as SSOProvider[]
-
     const options: LemonSelectOptions<SSOProvider | ''> = [{ value: '', label: "Don't enforce" }]
 
     authProviders.forEach((key) => {
