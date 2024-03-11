@@ -4,7 +4,7 @@ describe('Feature Flags', () => {
     let name
 
     beforeEach(() => {
-        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
+        cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({
                     'new-feature-flag-operators': true,
