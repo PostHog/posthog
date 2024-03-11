@@ -8,6 +8,7 @@ import {
 import { isLight } from './colors'
 import {
     _isPositiveInteger,
+    BACKGROUND,
     KEYBOARD_ID,
     makePlaceholderElement,
     NAVIGATION_BAR_ID,
@@ -60,8 +61,8 @@ export function makeNavigationBar(
     const homeCircle = makeFakeNavButton('⚪', context)
     const screenButton = makeFakeNavButton('⬜️', context)
 
-    navigationBackgroundColor = wireframe.style?.backgroundColor || '#ffffff'
-    navigationColor = isLight(navigationBackgroundColor) ? 'black' : 'white'
+    navigationBackgroundColor = wireframe.style?.backgroundColor
+    navigationColor = isLight(navigationBackgroundColor || BACKGROUND) ? 'black' : 'white'
 
     return {
         result: {
@@ -162,7 +163,7 @@ export function makeOpenKeyboardPlaceholder(
                 : '100vw',
             style: {
                 backgroundColor: navigationBackgroundColor,
-                color: navigationColor,
+                color: navigationBackgroundColor ? navigationColor : undefined,
             },
         },
         [],

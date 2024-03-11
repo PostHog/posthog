@@ -6695,7 +6695,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 10,
-            "style": "background-color: #ffffff;color: black;width: 100vw;height: 150px;bottom: 0;position: fixed;align-items: center;justify-content: center;display: flex;",
+            "style": "background-color: #f3f4ef;color: #35373e;width: 100vw;height: 150px;bottom: 0;position: fixed;align-items: center;justify-content: center;display: flex;",
           },
           "childNodes": [
             {

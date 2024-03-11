@@ -56,7 +56,7 @@ import {
     makeStylesString,
 } from './wireframeStyle'
 
-const BACKGROUND = '#f3f4ef'
+export const BACKGROUND = '#f3f4ef'
 const FOREGROUND = '#35373e'
 
 /**
