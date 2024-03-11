@@ -1,5 +1,3 @@
-import { getCapturePayload } from '../support/compression'
-
 const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 
 describe('Billing', () => {
@@ -7,8 +5,6 @@ describe('Billing', () => {
         cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2.json' })
 
         cy.visit('/organization/billing')
-
-        cy.intercept('POST', '**/e/*').as('capture')
     })
 
     it('Show and submit unsubscribe survey', () => {
