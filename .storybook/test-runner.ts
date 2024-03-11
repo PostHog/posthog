@@ -165,13 +165,10 @@ async function expectStoryToMatchSceneSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
-    // Using .or() because in some cases there's no <main> (primarily logged-out screens)
-    await expectLocatorToMatchStorySnapshot(
-        page.locator('main').first().or(page.locator('body').first()),
-        context,
-        browser,
-        theme
-    )
+    // If main isn't present, let's use body (needed in logged-out screens).
+    // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
+    // and not the order of the selectors in the query.
+    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(
