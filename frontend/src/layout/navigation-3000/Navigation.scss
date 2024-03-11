@@ -12,6 +12,10 @@
     overflow: hidden;
     background: var(--bg-3000);
 
+    .storybook-test-runner & {
+        overflow: visible; // Scene screenshots are clipped otherwise
+    }
+
     > main {
         flex: 1;
         min-width: 0;
