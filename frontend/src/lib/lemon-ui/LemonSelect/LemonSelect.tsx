@@ -138,7 +138,6 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 .flatMap((i) => (isLemonMenuSection(i) ? i.items.filter(Boolean) : i))
                 .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
-            closeOnClickInside={false}
         >
             <LemonButton
                 className={clsx(className, 'LemonSelect')}
