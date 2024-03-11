@@ -1,5 +1,5 @@
 import { IconGraph } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { Select } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -22,7 +22,7 @@ interface BinOption {
     display: boolean
 }
 
-const options: BinOption[] = [
+const BIN_OPTIONS: BinOption[] = [
     {
         label: 'Auto bins',
         value: BIN_COUNT_AUTO,
@@ -40,9 +40,7 @@ const options: BinOption[] = [
     },
 ]
 
-type FunnelBinsPickerProps = { disabled?: boolean }
-
-export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Element {
+export function FunnelBinsPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { funnelsFilter, numericBinCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
@@ -51,45 +49,82 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
         updateInsightFilter({ binCount: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
     }
 
+    const options = [
+        {
+            title: 'Bin Count',
+            options: BIN_OPTIONS.filter((option) => option.value != 'custom').map((option) => {
+                return {
+                    value: option.value as BinCountValue,
+                    label: option.label,
+                    icon: <IconGraph />,
+                    className: !option.display ? 'hidden' : '',
+                }
+            }),
+            footer: (
+                <div>
+                    <LemonInput
+                        type="number"
+                        className="funnel-bins-custom-picker"
+                        min={MIN}
+                        max={MAX}
+                        value={numericBinCount}
+                        onChange={(count) => {
+                            const parsedCount = typeof count === 'string' ? parseInt(count) : count
+                            if (parsedCount) {
+                                setBinCount(parsedCount)
+                            }
+                        }}
+                        suffix={<>bins</>}
+                    />
+                </div>
+            ),
+        },
+    ]
+
+    return (
+        <LemonSelect
+            data-attr="funnel-bin-filter"
+            value={funnelsFilter?.binCount || BIN_COUNT_AUTO}
+            onChange={setBinCount}
+            dropdownMatchSelectWidth
+            options={options}
+            menu={{ closeParentPopoverOnClickInside: false }}
+        />
+    )
+
     return (
         <Select
-            id="funnel-bin-filter"
-            dropdownClassName="funnel-bin-filter-dropdown"
-            data-attr="funnel-bin-filter"
-            defaultValue={BIN_COUNT_AUTO}
-            value={funnelsFilter?.binCount || BIN_COUNT_AUTO}
-            onSelect={(count) => setBinCount(count)}
-            dropdownRender={(menu) => {
-                return (
-                    <>
-                        {menu}
-                        <div>
-                            <LemonInput
-                                type="number"
-                                className="funnel-bins-custom-picker"
-                                min={MIN}
-                                max={MAX}
-                                value={numericBinCount}
-                                onChange={(count) => {
-                                    const parsedCount = typeof count === 'string' ? parseInt(count) : count
-                                    if (parsedCount) {
-                                        setBinCount(parsedCount)
-                                    }
-                                }}
-                            />{' '}
-                            bins
-                        </div>
-                    </>
-                )
-            }}
-            listHeight={440}
-            bordered={false}
-            dropdownMatchSelectWidth={false}
-            dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
-            optionLabelProp="label"
-            disabled={disabled}
+        // id="funnel-bin-filter"
+        // dropdownClassName="funnel-bin-filter-dropdown"
+        // data-attr="funnel-bin-filter"
+        // defaultValue={BIN_COUNT_AUTO}
+        // value={funnelsFilter?.binCount || BIN_COUNT_AUTO}
+        // onSelect={(count) => setBinCount(count)}
+        // dropdownRender={(menu) => {
+        //     return (
+        //         <>
+        //             {menu}
+        //             <div>
+        //                 <LemonInput
+        //                     type="number"
+        //                     className="funnel-bins-custom-picker"
+        //                     min={MIN}
+        //                     max={MAX}
+        //                     value={numericBinCount}
+        //                     onChange={(count) => {
+        //                         const parsedCount = typeof count === 'string' ? parseInt(count) : count
+        //                         if (parsedCount) {
+        //                             setBinCount(parsedCount)
+        //                         }
+        //                     }}
+        //                 />{' '}
+        //                 bins
+        //             </div>
+        //         </>
+        //     )
+        // }}
         >
-            <Select.OptGroup label="Bin Count">
+            {/* <Select.OptGroup label="Bin Count">
                 {options.map((option) => {
                     if (option.value === 'custom') {
                         return null
@@ -109,7 +144,7 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
                         </Select.Option>
                     )
                 })}
-            </Select.OptGroup>
+            </Select.OptGroup> */}
         </Select>
     )
 }
