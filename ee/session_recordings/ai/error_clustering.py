@@ -18,31 +18,6 @@ DBSCAN_MIN_SAMPLES = settings.REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_MIN_SAMPLES
 def error_clustering(team: Team):
     results = fetch_error_embeddings(team.pk)
 
-    return [
-        {
-            "cluster": 0,
-            "samples": [
-                {"session_id": "1234567", "message": "this is an error"},
-                {"session_id": "876543", "message": "this is an eror"},
-                {"session_id": "234564321", "message": "this an error"},
-                {"session_id": "324565443", "message": "this is error"},
-            ],
-            "occurrences": 100,
-            "unique_sessions": 12,
-        },
-        {
-            "cluster": 1,
-            "samples": [
-                {"session_id": "09777", "message": "kea problem"},
-                {"session_id": "43545", "message": "kea is a problem"},
-                {"session_id": "34543534", "message": "this is a kea problem"},
-                {"session_id": "4565468", "message": "kea might have a problem"},
-            ],
-            "occurrences": 1000,
-            "unique_sessions": 20,
-        },
-    ]
-
     if not results:
         return []
 
