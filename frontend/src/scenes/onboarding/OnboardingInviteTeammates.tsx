@@ -55,7 +55,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
                 inviteTeamMembers()
             }
         >
-            <div className="mb-6 mt-12">
+            <div className="mb-6 mt-6">
                 <p>
                     ...or maybe even just coworkers. Ya know the ones who like to {likeTo()}?{' '}
                     {preflight?.email_service_available && (

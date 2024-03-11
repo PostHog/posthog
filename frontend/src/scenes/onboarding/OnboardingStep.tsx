@@ -41,16 +41,9 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div
-                    className={`flex justify-between items-start text-muted max-w-screen-lg mx-auto gap-6 ${
-                        hideHeader && 'hidden'
-                    }`}
-                >
-                    <h1 className="font-bold m-0 pl-2">
-                        {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
-                    </h1>
+                <div className={`text-muted max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
                     <div
-                        className="flex items-center justify-end gap-x-3 w-2/3 mt-3 shrink-0"
+                        className="flex items-center justify-center gap-x-3 w-2/3 mt-3 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
                     >
                         {onboardingStepKeys.map((stepName, idx) => {
@@ -79,6 +72,9 @@ export const OnboardingStep = ({
                             )
                         })}
                     </div>
+                    <h1 className="font-bold m-0 pl-2 mt-6 text-center">
+                        {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
+                    </h1>
                 </div>
             </div>
             <div className={`${stepKey !== 'product_intro' && 'p-2 max-w-screen-md mx-auto'}`}>
