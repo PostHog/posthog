@@ -1,5 +1,6 @@
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 from django.db import models
+from django.db import transaction
 from django.core.validators import MinLengthValidator
 
 if TYPE_CHECKING:
@@ -7,16 +8,20 @@ if TYPE_CHECKING:
 
 
 class ProjectManager(models.Manager):
-    def create_with_team(self, *args, team_fields: dict, **kwargs) -> Tuple["Project", "Team"]:
+    def create_with_team(self, team_fields: Optional[dict] = None, **kwargs) -> Tuple["Project", "Team"]:
         from .team import Team
 
-        with models.transaction.atomic():
-            project = self.create(*args, **kwargs)
-            team = Team.objects.create(organization=project.organization, project=project, **team_fields)
+        with transaction.atomic():
+            common_id = Team.objects.increment_id_sequence()
+            project = self.create(id=common_id, **kwargs)
+            team = Team.objects.create(
+                id=common_id, organization=project.organization, project=project, **(team_fields or {})
+            )
             return project, team
 
 
 class Project(models.Model):
+    id: models.BigIntegerField = models.BigIntegerField(primary_key=True, verbose_name="ID")
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -30,4 +35,4 @@ class Project(models.Model):
     )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 
-    objects = ProjectManager()
+    objects: ProjectManager = ProjectManager()

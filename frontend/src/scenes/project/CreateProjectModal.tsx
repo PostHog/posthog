@@ -57,7 +57,7 @@ export function CreateProjectModal({
                             Learn more in PostHog Docs.
                         </Link>
                     </p>
-                    {currentOrganization?.teams?.some((team) => team.name === 'Default Project') && (
+                    {currentOrganization?.teams?.some((team) => team.name.toLowerCase() === 'default project') && (
                         <p>
                             <strong>Bonus tip:</strong> You can always rename your "Default Project".
                         </p>

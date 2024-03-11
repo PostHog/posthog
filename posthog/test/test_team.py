@@ -12,6 +12,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.utils import PersonOnEventsMode
@@ -45,7 +46,7 @@ class TestModelCache(TestCase):
         self.assertEqual(cached_team.api_token, api_token)
         self.assertEqual(cached_team.uuid, str(team.uuid))
         self.assertEqual(cached_team.id, team.id)
-        self.assertEqual(cached_team.name, "Default Project")
+        self.assertEqual(cached_team.name, "Default project")
 
         team.name = "New name"
         team.session_recording_opt_in = True
@@ -165,3 +166,28 @@ class TestTeam(BaseTest):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.DISABLED)
                 mock_feature_enabled.assert_not_called()
+
+    def test_each_team_gets_project_with_default_name_and_same_id(self):
+        # Can be removed once environments are fully rolled out
+        team = Team.objects.create_with_data(organization=self.organization)
+
+        project = Project.objects.filter(id=team.id).first()
+
+        self.assertIsNotNone(project)
+        self.assertEqual(project.name, "Default project")
+
+    def test_each_team_gets_project_with_custom_name_and_same_id(self):
+        # Can be removed once environments are fully rolled out
+        team = Team.objects.create_with_data(organization=self.organization, name="Hogflix")
+
+        project = Project.objects.filter(id=team.id).first()
+
+        self.assertIsNotNone(project)
+        self.assertEqual(project.organization, team.organization)
+        self.assertEqual(project.name, "Hogflix")
+
+    def test_increment_id_sequence(self):
+        initial = Team.objects.increment_id_sequence()
+        subsequent = Team.objects.increment_id_sequence()
+
+        self.assertEqual(subsequent, initial + 1)
