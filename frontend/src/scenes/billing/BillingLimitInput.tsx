@@ -29,8 +29,13 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
             })
         }
 
-        // Nan or undefined or decimal are not acceptable values.
-        if (value === undefined || isNaN(value) || value - Math.floor(value) !== 0) {
+        if (value === undefined) {
+            // unset the limit
+            actuallyUpdateLimit()
+            return
+        }
+        if (isNaN(value) || value - Math.floor(value) !== 0) {
+            // Nan or decimal are not acceptable values.
             setBillingLimitError('Please enter an integer.')
             return
         }

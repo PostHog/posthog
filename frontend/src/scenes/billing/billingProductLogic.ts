@@ -210,7 +210,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.setBillingLimitInput(
                 values.customLimitUsd
                     ? parseInt(values.customLimitUsd)
-                    : props.product.tiers
+                    : props.product.tiers && parseInt(props.product.projected_amount_usd || '0')
                     ? parseInt(props.product.projected_amount_usd || '0') * 1.5
                     : DEFAULT_BILLING_LIMIT
             )
