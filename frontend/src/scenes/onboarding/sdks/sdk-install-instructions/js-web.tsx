@@ -30,7 +30,7 @@ export function SDKInstallJSWebInstructions(): JSX.Element {
         <>
             <h3>Install</h3>
             <JSInstallSnippet />
-            <h3 className="mt-4">Initialize</h3>
+            <h3>Initialize</h3>
             <JSSetupSnippet />
         </>
     )
