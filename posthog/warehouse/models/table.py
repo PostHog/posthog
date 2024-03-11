@@ -31,6 +31,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "String": StringDatabaseField,
     "DateTime64": DateTimeDatabaseField,
     "DateTime32": DateTimeDatabaseField,
+    "DateTime": DateTimeDatabaseField,
     "Date": DateDatabaseField,
     "Date32": DateDatabaseField,
     "UInt8": IntegerDatabaseField,
