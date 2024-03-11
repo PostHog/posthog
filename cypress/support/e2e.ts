@@ -24,7 +24,7 @@ beforeEach(() => {
     Cypress.env('POSTHOG_PROPERTY_GITHUB_ACTION_RUN_URL', process.env.GITHUB_ACTION_RUN_URL)
     cy.useSubscriptionStatus('subscribed')
 
-    cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
+    cy.intercept('https://*.posthog.com/decide/*', (req) =>
         req.reply(
             decideResponse({
                 // set feature flags here e.g.

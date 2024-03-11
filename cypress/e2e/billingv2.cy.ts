@@ -1,4 +1,3 @@
-import * as fflate from 'fflate'
 import { getCapturePayload } from '../support/compression'
 
 const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
@@ -25,9 +24,10 @@ describe('Billing', () => {
 
         cy.wait('@capture').then(async ({ request }) => {
             const decodedJSON = await getCapturePayload(request)
+            const events = Array.isArray(decodedJSON) ? decodedJSON : [decodedJSON]
 
             // These should be a 'survey sent' event somewhere in the decodedJSON
-            const matchingEvents = decodedJSON.filter((event) => event.event === 'survey sent')
+            const matchingEvents = events.filter((event) => event.event === 'survey sent')
             expect(matchingEvents.length).to.equal(1)
             const matchingEvent = matchingEvents[0]
             expect(matchingEvent.properties.$survey_id).to.equal(UNSUBSCRIBE_SURVEY_ID)

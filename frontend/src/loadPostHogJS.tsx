@@ -47,6 +47,7 @@ export function loadPostHogJS(): void {
 
         const Cypress = (window as any).Cypress
         if (Cypress) {
+            posthog.debug()
             Object.entries(Cypress.env()).forEach(([key, value]) => {
                 if (key.startsWith('POSTHOG_PROPERTY_')) {
                     posthog.register_for_session({
