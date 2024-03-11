@@ -165,10 +165,10 @@ async function expectStoryToMatchSceneSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
-    // If main isn't present, let's use body (needed in logged-out screens).
+    // If scene element isn't present, let's use body (needed in logged-out screens).
     // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
     // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page.locator('body, .Navigation3000__scene').last(), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(
