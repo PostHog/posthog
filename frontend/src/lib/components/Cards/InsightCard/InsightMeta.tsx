@@ -261,7 +261,7 @@ export function InsightMeta({
                                     Remove from dashboard
                                 </LemonButton>
                             ) : allInteractionsAllowed ? (
-                                <LemonButton status="danger" onClick={deleteWithUndo} fullWidth>
+                                <LemonButton status="danger" onClick={() => void deleteWithUndo?.()} fullWidth>
                                     Delete insight
                                 </LemonButton>
                             ) : null}
