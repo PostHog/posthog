@@ -32,7 +32,6 @@ module.exports = {
         'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
         'plugin:compat/recommended',
-        'prettier', // Disables any formatting rules to let prettier do its job
     ],
     globals,
     parser: '@typescript-eslint/parser',
