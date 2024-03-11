@@ -105,7 +105,7 @@ export function PluginSource({
                             .
                         </p>
 
-                        {true ? (
+                        {pluginSourceLoading ? (
                             <>
                                 <LemonSkeleton className="h-5 w-1/3 mb-3" />
                                 <LemonSkeleton className="h-4 w-full mb-3" />
