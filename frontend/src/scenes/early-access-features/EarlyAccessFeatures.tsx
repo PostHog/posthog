@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -79,14 +80,11 @@ export function EarlyAccessFeatures(): JSX.Element {
                             key: 'name',
                             render(_, feature) {
                                 return (
-                                    <>
-                                        <Link to={urls.earlyAccessFeature(feature.id)}>
-                                            <div className="row-name">{feature.name}</div>
-                                        </Link>
-                                        {feature.description && (
-                                            <div className="row-description">{feature.description}</div>
-                                        )}
-                                    </>
+                                    <LemonTableLink
+                                        title={feature.name}
+                                        description={feature.description}
+                                        to={urls.earlyAccessFeature(feature.id)}
+                                    />
                                 )
                             },
                             sorter: (a, b) => a.name.localeCompare(b.name),

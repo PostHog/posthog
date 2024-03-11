@@ -114,7 +114,8 @@ class LazyJoin(FieldOrTable):
 
     join_function: Callable[[str, str, Dict[str, Any], "HogQLContext", "SelectQuery"], Any]
     join_table: Table | str
-    from_field: str
+    from_field: List[str | int]
+    to_field: Optional[List[str | int]] = None
 
     def resolve_table(self, context: "HogQLContext") -> Table:
         if isinstance(self.join_table, Table):
@@ -133,7 +134,7 @@ class LazyTable(Table):
 
     model_config = ConfigDict(extra="forbid")
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers) -> Any:
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers) -> Any:
         raise NotImplementedException("LazyTable.lazy_select not overridden")
 
 

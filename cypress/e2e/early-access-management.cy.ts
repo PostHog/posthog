@@ -32,7 +32,7 @@ describe('Early Access Management', () => {
         cy.contains('Create your first feature').should('not.exist')
 
         // edit feature
-        cy.get('a.Link').contains('.row-name', 'Test Feature').click()
+        cy.get('a.Link').contains('Test Feature').click()
         cy.get('[data-attr="edit-feature"]').click()
         cy.get('h1').should('contain', 'Test Feature')
         cy.get('[data-attr="save-feature"]').should('contain.text', 'Save')

@@ -647,7 +647,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.insightTiles[0].insight!.filters.date_from).toEqual('-1d')
             expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('hour')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
-            expect(logic.values.insightTiles[0]!.last_refresh).toEqual('2012-04-01T00:00:00Z')
+            expect(logic.values.insightTiles[0].last_refresh).toEqual('2012-04-01T00:00:00Z')
         })
 
         it('can respond to external insight rename', async () => {

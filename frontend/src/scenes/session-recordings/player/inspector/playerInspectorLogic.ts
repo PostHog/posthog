@@ -134,6 +134,18 @@ function snapshotDescription(snapshot: eventWithTime): string {
     return snapshotTypeName + suffix
 }
 
+function timeRelativeToStart(
+    thingWithTime: eventWithTime | PerformanceEvent | RecordingConsoleLogV2 | RecordingEventType,
+    start: Dayjs | undefined
+): {
+    timeInRecording: number
+    timestamp: dayjs.Dayjs
+} {
+    const timestamp = dayjs(thingWithTime.timestamp)
+    const timeInRecording = timestamp.valueOf() - (start?.valueOf() ?? 0)
+    return { timestamp, timeInRecording }
+}
+
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
     props({} as PlayerInspectorLogicProps),
@@ -244,7 +256,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (start, sessionPlayerData): InspectorListOfflineStatusChange[] => {
                 const logs: InspectorListOfflineStatusChange[] = []
 
-                const startMs = start?.valueOf() ?? 0
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
                     snapshots.forEach((snapshot: eventWithTime) => {
                         if (
@@ -254,8 +265,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             const tag = customEvent.data.tag
 
                             if (['browser offline', 'browser online'].includes(tag)) {
-                                const timestamp = dayjs(snapshot.timestamp)
-                                const timeInRecording = timestamp.valueOf() - startMs
+                                const { timestamp, timeInRecording } = timeRelativeToStart(snapshot, start)
                                 logs.push({
                                     type: 'offline-status',
                                     offline: tag === 'browser offline',
@@ -302,8 +312,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 return
                             }
 
-                            const timestamp = dayjs(snapshot.timestamp)
-                            const timeInRecording = timestamp.valueOf() - (start?.valueOf() ?? 0)
+                            const { timestamp, timeInRecording } = timeRelativeToStart(snapshot, start)
 
                             items.push({
                                 type: SessionRecordingPlayerTab.DOCTOR,
@@ -316,8 +325,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             })
                         }
                         if (isFullSnapshotEvent(snapshot)) {
-                            const timestamp = dayjs(snapshot.timestamp)
-                            const timeInRecording = timestamp.valueOf() - (start?.valueOf() ?? 0)
+                            const { timestamp, timeInRecording } = timeRelativeToStart(snapshot, start)
 
                             items.push({
                                 type: SessionRecordingPlayerTab.DOCTOR,
@@ -427,14 +435,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // WARNING: Be careful of dayjs functions - they can be slow due to the size of the loop.
                 const items: InspectorListItem[] = []
 
-                const startMs = start?.valueOf() ?? 0
-
                 // no conversion needed for offlineStatusChanges, they're ready to roll
                 for (const event of offlineStatusChanges || []) {
                     items.push(event)
                 }
 
-                // no conversion needed fordoctorEvents, they're ready to roll
+                // no conversion needed for doctor events, they're ready to roll
                 for (const event of doctorEvents || []) {
                     items.push(event)
                 }
@@ -442,7 +448,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // PERFORMANCE EVENTS
                 const performanceEventsArr = performanceEvents || []
                 for (const event of performanceEventsArr) {
-                    const timestamp = dayjs(event.timestamp)
                     const responseStatus = event.response_status || 200
 
                     // NOTE: Navigation events are missing the first contentful paint info
@@ -464,10 +469,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         continue
                     }
 
+                    const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
                     items.push({
                         type: SessionRecordingPlayerTab.NETWORK,
                         timestamp,
-                        timeInRecording: timestamp.valueOf() - startMs,
+                        timeInRecording,
                         search: event.name || '',
                         data: event,
                         highlightColor: responseStatus >= 400 ? 'danger' : undefined,
@@ -477,11 +483,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 // CONSOLE LOGS
                 for (const event of consoleLogs || []) {
-                    const timestamp = dayjs(event.timestamp)
+                    const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
                     items.push({
                         type: SessionRecordingPlayerTab.CONSOLE,
                         timestamp,
-                        timeInRecording: timestamp.valueOf() - startMs,
+                        timeInRecording,
                         search: event.content,
                         data: event,
                         highlightColor:
@@ -499,17 +505,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)
                     }
 
-                    const timestamp = dayjs(event.timestamp)
                     const search = `${
                         getCoreFilterDefinition(event.event, TaxonomicFilterGroupType.Events)?.label ??
                         event.event ??
                         ''
                     } ${eventToDescription(event)}`.replace(/['"]+/g, '')
 
+                    const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
                     items.push({
                         type: SessionRecordingPlayerTab.EVENTS,
                         timestamp,
-                        timeInRecording: timestamp.valueOf() - startMs,
+                        timeInRecording,
                         search: search,
                         data: event,
                         highlightColor: isMatchingEvent

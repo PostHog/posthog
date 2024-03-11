@@ -1,7 +1,7 @@
 import { LemonMenuItem, LemonSkeleton, LemonTableColumn } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import api from 'lib/api'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -255,20 +255,13 @@ export function nameColumn<
         sticky: true,
         render: function RenderName(_, pipelineNode) {
             return (
-                <>
-                    <Tooltip title="Click to update configuration, view metrics, and more">
-                        <Link
-                            to={urls.pipelineNode(pipelineNode.stage, pipelineNode.id, PipelineNodeTab.Configuration)}
-                        >
-                            <span className="row-name">{pipelineNode.name}</span>
-                        </Link>
-                    </Tooltip>
-                    {pipelineNode.description && (
-                        <LemonMarkdown className="row-description" lowKeyHeadings>
-                            {pipelineNode.description}
-                        </LemonMarkdown>
-                    )}
-                </>
+                <Tooltip title="Click to update configuration, view metrics, and more">
+                    <LemonTableLink
+                        to={urls.pipelineNode(pipelineNode.stage, pipelineNode.id, PipelineNodeTab.Configuration)}
+                        title={pipelineNode.name}
+                        description={pipelineNode.description}
+                    />
+                </Tooltip>
             )
         },
     }
