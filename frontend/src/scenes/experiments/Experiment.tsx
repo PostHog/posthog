@@ -2,6 +2,7 @@ import './Experiment.scss'
 
 import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import {
+    LemonDialog,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -11,7 +12,6 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { Popconfirm } from 'antd'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -20,6 +20,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -28,6 +29,7 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -43,6 +45,7 @@ import { Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus }
 import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
+import { ExperimentNext } from './ExperimentNext'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentResult } from './ExperimentResult'
 import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
@@ -51,11 +54,20 @@ import { SecondaryMetricsResult } from './SecondaryMetricsResult'
 import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 export const scene: SceneExport = {
-    component: Experiment,
+    component: ExperimentTemporaryWrapper,
     logic: experimentLogic,
     paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({
         experimentId: id === 'new' ? 'new' : parseInt(id),
     }),
+}
+
+function ExperimentTemporaryWrapper(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.NEW_EXPERIMENTS_UI]) {
+        return <ExperimentNext />
+    }
+    return <Experiment />
 }
 
 export function Experiment(): JSX.Element {
@@ -559,25 +571,7 @@ export function Experiment(): JSX.Element {
                                                 />
                                                 <LemonDivider vertical />
                                             </>
-                                            <Popconfirm
-                                                placement="bottomLeft"
-                                                title={
-                                                    <div>
-                                                        Reset this experiment and go back to draft mode?
-                                                        <div className="text-sm text-muted">
-                                                            All collected data so far will be discarded.
-                                                        </div>
-                                                        {experiment.archived && (
-                                                            <div className="text-sm text-muted">
-                                                                Resetting will also unarchive the experiment.
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                }
-                                                onConfirm={() => resetRunningExperiment()}
-                                            >
-                                                <LemonButton type="secondary">Reset</LemonButton>
-                                            </Popconfirm>
+                                            <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
                                             {!experiment.end_date && (
                                                 <LemonButton
                                                     type="secondary"
@@ -843,6 +837,41 @@ export function Experiment(): JSX.Element {
                 <LoadingState />
             )}
         </>
+    )
+}
+
+const ResetButton = ({ experiment, onConfirm }: { experiment: ExperimentType; onConfirm: () => void }): JSX.Element => {
+    const onClickReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset this experiment?',
+            content: (
+                <>
+                    <div className="text-sm text-muted">
+                        All collected data so far will be discarded and the experiment will go back to draft mode.
+                    </div>
+                    {experiment.archived && (
+                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                    )}
+                </>
+            ),
+            primaryButton: {
+                children: 'Confirm',
+                type: 'primary',
+                onClick: onConfirm,
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    return (
+        <LemonButton type="secondary" onClick={onClickReset}>
+            Reset
+        </LemonButton>
     )
 }
 
