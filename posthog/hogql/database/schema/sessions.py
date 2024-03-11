@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, cast
 
 from posthog.hogql.database.models import (
     StringDatabaseField,
@@ -61,7 +61,7 @@ class RawSessionsTable(Table):
         ]
 
 
-def select_from_sessions_table(requested_fields: Dict[str, List[str]]):
+def select_from_sessions_table(requested_fields: Dict[str, List[str | int]]):
     from posthog.hogql import ast
 
     table_name = "raw_sessions"
@@ -118,8 +118,10 @@ def select_from_sessions_table(requested_fields: Dict[str, List[str]]):
         if name in aggregate_fields:
             select_fields.append(ast.Alias(alias=name, expr=aggregate_fields[name]))
         else:
-            select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name] + chain)))
-            group_by_fields.append(ast.Field(chain=[table_name] + chain))
+            select_fields.append(
+                ast.Alias(alias=name, expr=ast.Field(chain=cast(list[str | int], [table_name]) + chain))
+            )
+            group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
     return ast.SelectQuery(
         select=select_fields,
@@ -134,7 +136,7 @@ class SessionsTable(LazyTable):
         "duration": IntegerDatabaseField(name="duration"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
         return select_from_sessions_table(requested_fields)
 
     def to_printed_clickhouse(self, context):
