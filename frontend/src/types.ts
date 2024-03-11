@@ -586,6 +586,7 @@ export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
     FilePlayback = 'file-playback',
+    Errors = 'errors',
 }
 
 export enum ExperimentsTabs {
@@ -888,6 +889,14 @@ export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
 }
+
+type ErrorCluster = {
+    cluster: number
+    samples: { session_id: string; message: string }[]
+    occurrences: number
+    unique_sessions: number
+}
+export type ErrorClusterResponse = ErrorCluster[] | null
 
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 

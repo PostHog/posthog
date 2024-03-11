@@ -26,6 +26,7 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
+    ErrorClusterResponse,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
@@ -1594,6 +1595,10 @@ const api = {
 
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
             return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
+        },
+
+        async errorClusters(refresh?: boolean): Promise<ErrorClusterResponse> {
+            return await new ApiRequest().recordings().withAction('error_clusters').withQueryString({ refresh }).get()
         },
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
