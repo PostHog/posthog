@@ -473,7 +473,7 @@ async def manage_table(
         table_activity_inputs,
         start_to_close_timeout=timedelta(hours=6),
         retry_policy=RetryPolicy(
-            maximum_attempts=100, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
+            maximum_attempts=0, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
         ),
         heartbeat_timeout=timedelta(minutes=2),
     )
@@ -653,7 +653,7 @@ async def submit_and_wait_for_mutation(
         mutation_activity_inputs,
         start_to_close_timeout=timedelta(hours=6),
         retry_policy=RetryPolicy(
-            maximum_attempts=100, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
+            maximum_attempts=0, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
         ),
         heartbeat_timeout=timedelta(minutes=2),
     )
