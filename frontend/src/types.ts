@@ -666,6 +666,7 @@ export interface EventPropertyFilter extends BasePropertyFilter {
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
     operator: PropertyOperator
+    table?: string
 }
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {
@@ -1541,7 +1542,7 @@ export interface InsightModel extends Cacheable {
     created_at: string
     created_by: UserBasicType | null
     is_sample: boolean
-    /** @deprecated Use `dashboard_tiles instead */
+    /** @deprecated Use `dashboard_tiles` instead */
     dashboards: number[] | null
     dashboard_tiles: DashboardTileBasicType[] | null
     updated_at: string
@@ -2789,6 +2790,9 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
+
+    // For Data warehouse person properties
+    table?: string
 }
 
 export enum PropertyDefinitionState {
@@ -2801,9 +2805,10 @@ export enum PropertyDefinitionState {
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
-    id: number
+    id: string | number
     name: string
     count: number
+    table?: string
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
