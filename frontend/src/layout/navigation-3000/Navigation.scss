@@ -13,7 +13,7 @@
     background: var(--bg-3000);
 
     .storybook-test-runner & {
-        overflow: visible; // Scene screenshots are clipped otherwise
+        overflow: visible; // Scene screenshots are clipped in visual tests otherwise
     }
 
     > main {
