@@ -202,14 +202,17 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
     })),
     listeners(({ actions, values, props }) => ({
-        loadBillingSuccess: actions.billingLoaded,
-        updateBillingLimitsSuccess: actions.billingLoaded,
+        updateBillingLimitsSuccess: () => {
+            actions.billingLoaded()
+        },
         billingLoaded: () => {
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
-                parseInt(values.customLimitUsd || '0') ||
-                    (props.product.tiers ? parseInt(props.product.projected_amount_usd || '0') * 1.5 : 0) ||
-                    DEFAULT_BILLING_LIMIT
+                values.customLimitUsd
+                    ? parseInt(values.customLimitUsd)
+                    : props.product.tiers
+                    ? parseInt(props.product.projected_amount_usd || '0') * 1.5
+                    : DEFAULT_BILLING_LIMIT
             )
         },
         reportSurveyShown: ({ surveyID }) => {
@@ -274,6 +277,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     events(({ actions, values }) => ({
         afterMount: () => {
             actions.setScrollToProductKey(values.scrollToProductKey)
+            actions.billingLoaded()
         },
     })),
 ])

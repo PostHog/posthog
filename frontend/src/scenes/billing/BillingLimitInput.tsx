@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
 
@@ -20,16 +20,22 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
     )
     const { setIsEditingBillingLimit, setBillingLimitInput } = useActions(billingProductLogic({ product }))
 
+    const [billinglimitError, setBillingLimitError] = useState('')
+
     const updateBillingLimit = (value: number | undefined): any => {
         const actuallyUpdateLimit = (): void => {
             updateBillingLimits({
                 [product.type]: typeof value === 'number' ? `${value}` : null,
             })
         }
-        if (value === undefined) {
-            return actuallyUpdateLimit()
+
+        // Nan or undefined or decimal are not acceptable values.
+        if (value === undefined || isNaN(value) || value - Math.floor(value) !== 0) {
+            setBillingLimitError('Please enter an integer.')
+            return
         }
 
+        setBillingLimitError('')
         const addonTiers = product.addons
             ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
             ?.map((addon: BillingProductV2AddonType) => addon.tiers)
@@ -93,27 +99,30 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                             >
                                 ${customLimitUsd}
                             </div>
-                            <Tooltip title="Set a billing limit to control your recurring costs. Some features may stop working if your usage exceeds your billing cap.">
+                            <Tooltip title="Set a billing limit to control your recurring costs. Some features may stop working if your usage exceeds your limit.">
                                 <span>{billing?.billing_period?.interval}ly billing limit</span>
                             </Tooltip>
                         </>
                     ) : (
                         <>
-                            <div className="max-w-40">
-                                <LemonInput
-                                    ref={limitInputRef}
-                                    type="number"
-                                    fullWidth={false}
-                                    value={billingLimitInput}
-                                    onChange={setBillingLimitInput}
-                                    prefix={<b>$</b>}
-                                    disabled={billingLoading}
-                                    min={0}
-                                    step={10}
-                                    suffix={<>/{billing?.billing_period?.interval}</>}
-                                    size="small"
-                                />
-                            </div>
+                            <Tooltip title={billinglimitError}>
+                                <div className="max-w-40">
+                                    <LemonInput
+                                        ref={limitInputRef}
+                                        type="number"
+                                        fullWidth={false}
+                                        status={billinglimitError ? 'danger' : 'default'}
+                                        value={billingLimitInput}
+                                        onChange={setBillingLimitInput}
+                                        prefix={<b>$</b>}
+                                        disabled={billingLoading}
+                                        min={0}
+                                        step={10}
+                                        suffix={<>/{billing?.billing_period?.interval}</>}
+                                        size="small"
+                                    />
+                                </div>
+                            </Tooltip>
 
                             <LemonButton
                                 onClick={() => updateBillingLimit(billingLimitInput)}
@@ -124,7 +133,10 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                                 Save
                             </LemonButton>
                             <LemonButton
-                                onClick={() => setIsEditingBillingLimit(false)}
+                                onClick={() => {
+                                    setIsEditingBillingLimit(false)
+                                    setBillingLimitError('')
+                                }}
                                 disabled={billingLoading}
                                 type="secondary"
                                 size="small"
@@ -136,7 +148,10 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                                     status="danger"
                                     size="small"
                                     tooltip="Remove billing limit"
-                                    onClick={() => updateBillingLimit(undefined)}
+                                    onClick={() => {
+                                        updateBillingLimit(undefined)
+                                        setBillingLimitError('')
+                                    }}
                                 >
                                     Remove limit
                                 </LemonButton>
