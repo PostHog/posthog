@@ -4,6 +4,7 @@ import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
@@ -15,7 +16,6 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, 
 
 import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
-import { UNSUBSCRIBE_SURVEY_ID } from './BillingProduct'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
