@@ -32,11 +32,13 @@ module.exports = {
         'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
         'plugin:compat/recommended',
+        'prettier',
     ],
     globals,
     parser: '@typescript-eslint/parser',
     parserOptions: {
-        project: 'tsconfig.json',
+        project: true,
+        tsconfigRootDir: __dirname,
     },
     plugins: [
         'react',
