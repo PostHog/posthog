@@ -173,7 +173,7 @@ class TestTeam(BaseTest):
 
         project = Project.objects.filter(id=team.id).first()
 
-        self.assertIsNotNone(project)
+        assert project is not None
         self.assertEqual(project.name, "Default project")
 
     def test_each_team_gets_project_with_custom_name_and_same_id(self):
@@ -182,7 +182,7 @@ class TestTeam(BaseTest):
 
         project = Project.objects.filter(id=team.id).first()
 
-        self.assertIsNotNone(project)
+        assert project is not None
         self.assertEqual(project.organization, team.organization)
         self.assertEqual(project.name, "Hogflix")
 
