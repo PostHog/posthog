@@ -131,7 +131,7 @@ class LazyTable(Table):
 
     model_config = ConfigDict(extra="forbid")
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers) -> Any:
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers, node) -> Any:
         raise NotImplementedException("LazyTable.lazy_select not overridden")
 
 

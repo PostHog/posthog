@@ -1,5 +1,6 @@
 from typing import Dict, List, cast
 
+from posthog.hogql import ast
 from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
@@ -62,7 +63,7 @@ class RawSessionsTable(Table):
         ]
 
 
-def select_from_sessions_table(requested_fields: Dict[str, List[str | int]]):
+def select_from_sessions_table(requested_fields: Dict[str, List[str | int]], node: ast.SelectQuery):
     from posthog.hogql import ast
 
     table_name = "raw_sessions"
@@ -148,8 +149,9 @@ class SessionsTable(LazyTable):
         "channel_type": StringDatabaseField(name="channel_type"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
-        return select_from_sessions_table(requested_fields)
+
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers, node: ast.SelectQuery):
+        return select_from_sessions_table(requested_fields, node)
 
     def to_printed_clickhouse(self, context):
         return "sessions"
