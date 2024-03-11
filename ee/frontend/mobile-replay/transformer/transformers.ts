@@ -1349,7 +1349,7 @@ export const makeFullEvent = (
                                 tagName: 'head',
                                 attributes: { 'data-rrweb-id': HEAD_ID },
                                 id: HEAD_ID,
-                                childNodes: [],
+                                childNodes: [makeCSSReset(conversionContext)],
                             },
                             {
                                 type: NodeType.Element,
@@ -1375,5 +1375,42 @@ export const makeFullEvent = (
                 left: 0,
             },
         },
+    }
+}
+
+function makeCSSReset(context: ConversionContext): serializedNodeWithId {
+    // we need to normalize CSS so browsers don't do unexpected things
+    return {
+        type: NodeType.Element,
+        tagName: 'style',
+        attributes: {
+            type: 'text/css',
+        },
+        id: context.idSequence.next().value,
+        childNodes: [
+            {
+                type: NodeType.Text,
+                textContent: `
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                `,
+                id: context.idSequence.next().value,
+            },
+        ],
     }
 }

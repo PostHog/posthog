@@ -7,10 +7,10 @@ import { DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -79,39 +79,36 @@ export function DashboardsTable({
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(name, { id, description, is_shared, effective_privilege_level }) {
+            render: function Render(_, { id, name, description, is_shared, effective_privilege_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
                 const canEditDashboard = effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
                 return (
-                    <div>
-                        <div className="row-name">
-                            <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
-                                {name || 'Untitled'}
-                            </Link>
-                            {is_shared && (
-                                <Tooltip title="This dashboard is shared publicly.">
-                                    <IconShare className="ml-1 text-base text-link" />
-                                </Tooltip>
-                            )}
-                            {!canEditDashboard && (
-                                <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
-                                    <IconLock className="ml-1 text-base text-muted" />
-                                </Tooltip>
-                            )}
-                            {isPrimary && (
-                                <Tooltip title="The primary dashboard is shown on the project home page.">
-                                    <span>
-                                        <IconHome className="ml-1 text-base text-warning" />
-                                    </span>
-                                </Tooltip>
-                            )}
-                        </div>
-                        {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && description && (
-                            <LemonMarkdown className="row-description max-w-100" lowKeyHeadings>
-                                {description}
-                            </LemonMarkdown>
-                        )}
-                    </div>
+                    <LemonTableLink
+                        to={urls.dashboard(id)}
+                        title={
+                            <>
+                                <span data-attr="dashboard-name">{name || 'Untitled'}</span>
+                                {is_shared && (
+                                    <Tooltip title="This dashboard is shared publicly.">
+                                        <IconShare className="ml-1 text-base text-link" />
+                                    </Tooltip>
+                                )}
+                                {!canEditDashboard && (
+                                    <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
+                                        <IconLock className="ml-1 text-base text-muted" />
+                                    </Tooltip>
+                                )}
+                                {isPrimary && (
+                                    <Tooltip title="The primary dashboard is shown on the project home page.">
+                                        <span>
+                                            <IconHome className="ml-1 text-base text-warning" />
+                                        </span>
+                                    </Tooltip>
+                                )}
+                            </>
+                        }
+                        description={hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) ? description : undefined}
+                    />
                 )
             },
             sorter: nameCompareFunction,

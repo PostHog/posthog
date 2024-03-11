@@ -6,7 +6,7 @@ import {
     snapshotsAsRealTimeJSONPayload,
 } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import {
-    prepareRecordingSnapshots,
+    deduplicateSnapshots,
     sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -302,7 +302,7 @@ describe('sessionRecordingDataLogic', () => {
 
             expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
 
-            expect(prepareRecordingSnapshots(snapshots)).toEqual(prepareRecordingSnapshots(snapshotsWithDuplicates))
+            expect(deduplicateSnapshots(snapshots)).toEqual(deduplicateSnapshots(snapshotsWithDuplicates))
         })
 
         it('should cope with two not duplicate snapshots with the same timestamp and delay', () => {
@@ -326,13 +326,13 @@ describe('sessionRecordingDataLogic', () => {
                 },
             ]
             // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
-            expect(prepareRecordingSnapshots(verySimilarSnapshots, verySimilarSnapshots)).toEqual(verySimilarSnapshots)
+            expect(deduplicateSnapshots(verySimilarSnapshots, verySimilarSnapshots)).toEqual(verySimilarSnapshots)
         })
 
         it('should match snapshot', () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
 
-            expect(prepareRecordingSnapshots(snapshots)).toMatchSnapshot()
+            expect(deduplicateSnapshots(snapshots)).toMatchSnapshot()
         })
     })
 
