@@ -22,7 +22,7 @@ export function SSOSelect({ value, loading, onChange, samlAvailable }: SSOSelect
 
     const authProviders = Object.keys(preflight.available_social_auth_providers) as SSOProvider[]
 
-    const options: LemonSelectOptions<'' | SSOProvider> = [{ value: '', label: "Don't enforce" }]
+    const options: LemonSelectOptions<SSOProvider | ''> = [{ value: '', label: "Don't enforce" }]
 
     authProviders.forEach((key) => {
         options.push({
@@ -31,7 +31,7 @@ export function SSOSelect({ value, loading, onChange, samlAvailable }: SSOSelect
             disabledReason: preflight.available_social_auth_providers[key]
                 ? undefined
                 : 'This provider is not configured.',
-            icon: SocialLoginIcon(key as SSOProvider),
+            icon: <SocialLoginIcon provider={key} className="w-4 h-4" />,
         })
     })
 
@@ -39,13 +39,13 @@ export function SSOSelect({ value, loading, onChange, samlAvailable }: SSOSelect
         value: 'saml',
         label: SSO_PROVIDER_NAMES['saml'],
         disabledReason: !samlAvailable ? 'This provider is not configured.' : undefined,
-        icon: SocialLoginIcon('saml'),
+        icon: <SocialLoginIcon provider="saml" className="w-4 h-4" />,
     })
 
     return (
         <LemonSelect
             value={value}
-            options={[{ value: '', label: "Don't enforce" }]}
+            options={options}
             loading={loading}
             disabledReason={loading ? 'Cannot change while loading' : undefined}
             fullWidth
