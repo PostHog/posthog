@@ -90,7 +90,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             result = sync_execute(
                 """DESCRIBE TABLE (
                 SELECT * FROM
-                    s3Cluster('posthog', %(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)
+                    s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)
                 LIMIT 1
             )""",
                 {
