@@ -7,15 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
-import {
-    AvailableFeature,
-    BaseMemberType,
-    ExplicitTeamMemberType,
-    FusedTeamMemberType,
-    OrganizationMemberType,
-    UserBasicType,
-    UserType,
-} from '~/types'
+import { AvailableFeature, BaseMemberType, ExplicitTeamMemberType, FusedTeamMemberType, UserBasicType } from '~/types'
 
 import { teamLogic } from '../../teamLogic'
 import { userLogic } from '../../userLogic'
