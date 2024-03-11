@@ -4,7 +4,7 @@ describe('Feature Flags', () => {
     let name
 
     beforeEach(() => {
-        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
+        cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({
                     'new-feature-flag-operators': true,
@@ -12,7 +12,7 @@ describe('Feature Flags', () => {
             )
         )
 
-        cy.intercept('/api/projects/1/property_definitions?type=person*', {
+        cy.intercept('/api/projects/*/property_definitions?type=person*', {
             fixture: 'api/feature-flags/property_definition',
         })
         cy.intercept('/api/person/values/*', {
