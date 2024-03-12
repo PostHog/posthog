@@ -135,6 +135,7 @@ export class SessionRecordingIngesterV3 {
          * That way when shutting down we can wait for all promises to finish before exiting.
          */
         this.promises.add(promise)
+
         promise.finally(() => this.promises.delete(promise))
 
         return promise

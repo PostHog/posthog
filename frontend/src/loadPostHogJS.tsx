@@ -42,10 +42,15 @@ export function loadPostHogJS(): void {
                 autocapture: {
                     capture_copied_text: true,
                 },
+                // Helper to capture events for assertions in Cypress
+                _onCapture: (window as any)._cypress_posthog_captures
+                    ? (_, event) => (window as any)._cypress_posthog_captures.push(event)
+                    : undefined,
             })
         )
 
         const Cypress = (window as any).Cypress
+
         if (Cypress) {
             Object.entries(Cypress.env()).forEach(([key, value]) => {
                 if (key.startsWith('POSTHOG_PROPERTY_')) {
