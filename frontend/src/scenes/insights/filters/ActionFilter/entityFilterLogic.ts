@@ -61,8 +61,8 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
 }
 
 export interface EntityFilterProps {
-    setFilters: (filters: FilterType) => void
-    filters: Record<string, any>
+    setFilters?: (filters: FilterType) => void
+    filters?: Record<string, any>
     typeKey: string
     singleMode?: boolean
     addFilterDefaultOptions?: Record<string, any>
