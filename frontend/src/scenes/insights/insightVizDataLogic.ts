@@ -348,24 +348,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             actions.updateInsightFilter({ display })
         },
         updateQuerySource: ({ querySource }) => {
-            interface NodeWithSource {
-                kind: NodeKind
-                source: QuerySourceUpdate
-            }
-
-            const newQuery = {
+            actions.setQuery({
                 ...values.query,
                 source: {
                     ...values.querySource,
                     ...handleQuerySourceUpdateSideEffects(querySource, values.querySource as InsightQueryNode),
                 },
-            } as NodeWithSource
-
-            if (querySource['aggregation_group_type_index'] === undefined) {
-                delete newQuery.source['aggregation_group_type_index']
-            }
-
-            actions.setQuery(newQuery)
+            } as Node)
         },
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
