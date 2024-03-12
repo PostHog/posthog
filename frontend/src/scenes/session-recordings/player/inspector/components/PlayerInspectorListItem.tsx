@@ -180,9 +180,7 @@ export function PlayerInspectorListItem({
                         {item.offline ? 'Browser went offline' : 'Browser returned online'}
                     </div>
                 ) : item.type === 'browser-visibility' ? (
-                    <div className="flex items-start p-2 text-xs">
-                        <span>Window became</span> {item.status}
-                    </div>
+                    <div className="flex items-start p-2 text-xs">Window became {item.status}</div>
                 ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
                     <ItemDoctor item={item} {...itemProps} />
                 ) : null}
