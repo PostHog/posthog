@@ -13,6 +13,7 @@ import {
     EntityType,
     EntityTypes,
     FilterType,
+    InsightShortId,
 } from '~/types'
 
 import type { entityFilterLogicType } from './entityFilterLogicType'
@@ -71,9 +72,10 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     props({} as EntityFilterProps),
     key((props) => props.typeKey),
     path((key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key]),
-    connect({
+    connect((props: EntityFilterProps) => ({
         logic: [eventUsageLogic],
-    }),
+        actions: [insightDataLogic({ dashboardItemId: props.typeKey as InsightShortId }), ['loadData']],
+    })),
     actions({
         selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
         updateFilterMath: (
@@ -180,10 +182,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
 
             await breakpoint(100)
 
-            const dataLogic = insightDataLogic.findMounted({
-                dashboardItemId: props.typeKey,
-            })
-            dataLogic?.actions?.loadData(true)
+            actions.loadData(true)
         },
         hideModal: () => {
             actions.selectFilter(null)
