@@ -419,6 +419,18 @@ class HogQLQueryModifiers(BaseModel):
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
 
+    dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
+
+
+class DataWarehouseEventsModifier(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    table_name: str
+    timestamp_field: str
+    distinct_id_field: str
+    id_field: str
+
 
 class Compare(str, Enum):
     current = "current"

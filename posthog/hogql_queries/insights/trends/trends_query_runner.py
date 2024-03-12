@@ -31,7 +31,6 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.trends.data_warehouse_trends_query_builder import DataWarehouseTrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -61,6 +60,7 @@ from posthog.schema import (
     TrendsQuery,
     TrendsQueryResponse,
     HogQLQueryModifiers,
+    DataWarehouseEventsModifier,
 )
 from posthog.utils import format_label_date
 
@@ -123,25 +123,14 @@ class TrendsQueryRunner(QueryRunner):
                     query_date_range = self.query_previous_date_range
 
                 query_builder: TrendsQueryBuilderAbstract
-
-                if isinstance(series.series, DataWarehouseNode):
-                    query_builder = DataWarehouseTrendsQueryBuilder(
-                        trends_query=series.overriden_query or self.query,
-                        team=self.team,
-                        query_date_range=query_date_range,
-                        series=series.series,
-                        timings=self.timings,
-                        modifiers=self.modifiers,
-                    )
-                else:
-                    query_builder = TrendsQueryBuilder(
-                        trends_query=series.overriden_query or self.query,
-                        team=self.team,
-                        query_date_range=query_date_range,
-                        series=series.series,
-                        timings=self.timings,
-                        modifiers=self.modifiers,
-                    )
+                query_builder = TrendsQueryBuilder(
+                    trends_query=series.overriden_query or self.query,
+                    team=self.team,
+                    query_date_range=query_date_range,
+                    series=series.series,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                )
 
                 queries.append(query_builder.build_query())
 
@@ -563,6 +552,20 @@ class TrendsQueryRunner(QueryRunner):
             and not any(value == "all" for value in self.query.breakdownFilter.breakdown)
         ):
             self.modifiers.inCohortVia = InCohortVia.leftjoin_conjoined
+
+        datawarehouse_modifiers = []
+        for series in self.query.series:
+            if isinstance(series, DataWarehouseNode):
+                datawarehouse_modifiers.append(
+                    DataWarehouseEventsModifier(
+                        table_name=series.table_name,
+                        timestamp_field=series.timestamp_field,
+                        id_field=series.id_field,
+                        distinct_id_field="customer_email",
+                    )
+                )
+
+        self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
 
     def setup_series(self) -> List[SeriesWithExtras]:
         series_with_extras = [

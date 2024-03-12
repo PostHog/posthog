@@ -146,6 +146,16 @@ class VirtualTable(Table):
     model_config = ConfigDict(extra="forbid")
 
 
+class ProxyTable(Table):
+    table_name: str
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return self.table_name
+
+    def to_printed_hogql(self) -> str:
+        return self.table_name
+
+
 class FunctionCallTable(Table):
     """
     A table that returns a function call, e.g. numbers(...) or s3(...). The team_id guard is NOT added for these.

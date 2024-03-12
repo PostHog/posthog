@@ -198,6 +198,26 @@ def create_hogql_database(
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
 
+    if modifiers.dataWarehouseEventsModifiers:
+        for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
+            if "id" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["id"] = ExpressionField(
+                    name="id",
+                    expr=parse_expr(warehouse_modifier.id_field),
+                )
+
+            if "timestamp" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                    name="timestamp",
+                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                )
+
+            if "distinct_id" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
+                    name="distinct_id",
+                    expr=parse_expr(warehouse_modifier.distinct_id_field),
+                )
+
     for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[saved_query.name] = saved_query.hogql_definition()
 

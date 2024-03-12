@@ -181,11 +181,12 @@ class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
                 """
                 SELECT
                     {aggregation_operation} AS total
-                FROM events AS e
-                SAMPLE {sample}
+                FROM {event_table} AS e
+
                 WHERE {events_filter}
             """,
                 placeholders={
+                    "event_table": ast.Field(chain=["test_stripe_charge"]),
                     "events_filter": events_filter,
                     "aggregation_operation": self._aggregation_operation.select_aggregation(),
                     "sample": self._sample_value(),
