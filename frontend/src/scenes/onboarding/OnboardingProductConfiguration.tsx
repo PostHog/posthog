@@ -26,7 +26,13 @@ type ConfigOption =
           onChange: (newValue: boolean) => void
       }
 
-const pluginContentMapping = {
+interface PluginContent {
+    title: string
+    description: string
+}
+type PluginContentMapping = Record<number, PluginContent>
+const pluginContentMapping: PluginContentMapping = {
+    // 1 is the id of the GEO IP plugin
     1: {
         title: 'Capture location information',
         description:
@@ -95,7 +101,6 @@ export const OnboardingProductConfiguration = ({
                             <div className="flex justify-end">
                                 {item.type === 'toggle' ? (
                                     <LemonSwitch
-                                        data-attr="opt-in-session-recording-switch"
                                         onChange={item.onChange}
                                         className="justify-end"
                                         fullWidth={true}
@@ -103,7 +108,6 @@ export const OnboardingProductConfiguration = ({
                                     />
                                 ) : item.type === 'plugin' ? (
                                     <LemonSwitch
-                                        data-attr="opt-in-session-recording-switch"
                                         onChange={item.onChange}
                                         className="justify-end"
                                         fullWidth={true}
