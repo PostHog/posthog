@@ -75,6 +75,7 @@ def property_to_expr(
         try:
             property = Property(**property)
         # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
+        # TODO: revert this when removing legacy insights?
         except ValueError:
             return ast.Constant(value=True)
         except TypeError:
@@ -122,6 +123,7 @@ def property_to_expr(
             property = Property(**property.dict())
         except ValueError:
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
+            # TODO: revert this when removing legacy insights?
             return ast.Constant(value=True)
     else:
         raise NotImplementedException(

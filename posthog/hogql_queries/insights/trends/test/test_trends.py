@@ -487,11 +487,69 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][5], 1.0)
 
     # just make sure this doesn't error
-    def test_no_props(self):
+    def test_no_props_string(self):
         PropertyDefinition.objects.create(
             team=self.team,
             name="$some_property",
             property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "$some_property",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                            },
+                            {"id": "no events"},
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+    def test_no_props_numeric(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$some_property",
+            property_type="Numeric",
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "$some_property",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                            },
+                            {"id": "no events"},
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+    def test_no_props_boolean(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$some_property",
+            property_type="Boolean",
             type=PropertyDefinition.Type.EVENT,
         )
 

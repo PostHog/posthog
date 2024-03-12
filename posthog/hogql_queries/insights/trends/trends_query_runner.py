@@ -368,7 +368,8 @@ class TrendsQueryRunner(QueryRunner):
                 raise Exception("Column not found in hogql results")
             if response.columns is None:
                 raise Exception("No columns returned from hogql results")
-
+            if name not in response.columns:
+                return None
             index = response.columns.index(name)
             return val[index]
 
