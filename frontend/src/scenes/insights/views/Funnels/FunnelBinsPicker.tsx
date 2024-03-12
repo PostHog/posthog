@@ -60,7 +60,6 @@ export function FunnelBinsPicker(): JSX.Element {
                 <LemonButton
                     fullWidth
                     key={bin.value}
-                    icon={<IconGraph />}
                     active={bin.value === selectedValue}
                     onClick={() => {
                         setVisible(false)
