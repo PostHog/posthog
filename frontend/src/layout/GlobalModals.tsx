@@ -67,7 +67,7 @@ export function GlobalModals(): JSX.Element {
                     <Setup2FA
                         onSuccess={() => {
                             userLogic.actions.loadUser()
-                            membersLogic.actions.loadMembers()
+                            membersLogic.actions.loadAllMembers()
                         }}
                     />
                 </LemonModal>

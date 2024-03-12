@@ -122,7 +122,7 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<any>> => 
 }
 
 export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybackLogicType>([
-    path(['scenes', 'session-recordings', 'detail', 'sessionRecordingDetailLogic']),
+    path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackLogic']),
     connect({
         actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
         values: [featureFlagLogic, ['featureFlags']],
@@ -214,7 +214,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             (): Breadcrumb[] => [
                 {
                     key: Scene.Replay,
-                    name: `Session replay`,
+                    name: 'Session replay',
                     path: urls.replay(),
                 },
                 {

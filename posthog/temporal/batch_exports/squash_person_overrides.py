@@ -93,7 +93,7 @@ WHERE
 KILL_MUTATION_IN_PROGRESS_ON_CLUSTER = """
 KILL MUTATION ON CLUSTER {cluster}
 WHERE is_done = 0
-WHERE table = '{table}'
+AND table = '{table}'
 AND database = '{database}'
 AND command LIKE %(query)s
 """
@@ -464,7 +464,7 @@ async def manage_table(
         create_table,
         table_activity_inputs,
         start_to_close_timeout=timedelta(minutes=5),
-        retry_policy=RetryPolicy(maximum_attempts=10, initial_interval=timedelta(seconds=20)),
+        retry_policy=RetryPolicy(maximum_attempts=1),
         heartbeat_timeout=timedelta(minutes=1),
     )
 
@@ -472,7 +472,9 @@ async def manage_table(
         wait_for_table,
         table_activity_inputs,
         start_to_close_timeout=timedelta(hours=6),
-        retry_policy=RetryPolicy(maximum_attempts=20, initial_interval=timedelta(seconds=20)),
+        retry_policy=RetryPolicy(
+            maximum_attempts=0, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
+        ),
         heartbeat_timeout=timedelta(minutes=2),
     )
 
@@ -483,7 +485,9 @@ async def manage_table(
             drop_table,
             table_activity_inputs,
             start_to_close_timeout=timedelta(hours=1),
-            retry_policy=RetryPolicy(maximum_attempts=1, initial_interval=timedelta(seconds=20)),
+            retry_policy=RetryPolicy(
+                maximum_attempts=2, initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=10)
+            ),
             heartbeat_timeout=timedelta(minutes=1),
         )
 
@@ -493,7 +497,9 @@ async def manage_table(
             table_activity_inputs,
             # Assuming clean-up should be relatively fast.
             start_to_close_timeout=timedelta(minutes=3),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(
+                maximum_attempts=2, initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=10)
+            ),
             heartbeat_timeout=timedelta(seconds=20),
         )
 
@@ -646,7 +652,9 @@ async def submit_and_wait_for_mutation(
         wait_for_mutation,
         mutation_activity_inputs,
         start_to_close_timeout=timedelta(hours=6),
-        retry_policy=RetryPolicy(maximum_attempts=20, initial_interval=timedelta(seconds=20)),
+        retry_policy=RetryPolicy(
+            maximum_attempts=0, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
+        ),
         heartbeat_timeout=timedelta(minutes=2),
     )
 
