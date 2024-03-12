@@ -1,7 +1,8 @@
+import { IconPlay } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconPause, IconPlay } from 'lib/lemon-ui/icons'
+import { IconPause } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
 

@@ -1,10 +1,9 @@
-import { IconDatabase } from '@posthog/icons'
+import { IconBrackets, IconDatabase } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconDataObject } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { urls } from 'scenes/urls'
@@ -98,7 +97,7 @@ export const DataWarehouseTables = (): JSX.Element => {
                 name: 'Views',
                 items: savedQueriesFormatted.map((table) => ({
                     table: table,
-                    icon: <IconDataObject />,
+                    icon: <IconBrackets />,
                 })),
             })
         }

@@ -79,7 +79,7 @@ class AggregationOperations:
         elif self.series.math == "total":
             return parse_expr("count({id_field})", placeholders={"id_field": self._id_field})
         elif self.series.math == "dau":
-            actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person.id"
+            actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
             return parse_expr(f"count(DISTINCT {actor})")
         elif self.series.math == "weekly_active":
             return ast.Placeholder(field="replaced")  # This gets replaced when doing query orchestration
@@ -114,7 +114,7 @@ class AggregationOperations:
     def actor_id(self) -> ast.Expr:
         if self.series.math == "unique_group" and self.series.math_group_type_index is not None:
             return parse_expr(f'e."$group_{int(self.series.math_group_type_index)}"')
-        return parse_expr("e.person.id")
+        return parse_expr("e.person_id")
 
     def requires_query_orchestration(self) -> bool:
         math_to_return_true = [
@@ -356,9 +356,7 @@ class AggregationOperations:
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,
                     "person_field": ast.Field(
-                        chain=["e", "distinct_id"]
-                        if self.team.aggregate_users_by_distinct_id
-                        else ["e", "person", "id"]
+                        chain=["e", "distinct_id"] if self.team.aggregate_users_by_distinct_id else ["e", "person_id"]
                     ),
                 },
             )
@@ -386,7 +384,7 @@ class AggregationOperations:
                 "events_where_clause": where_clause_combined,
                 "sample": sample_value,
                 "person_field": ast.Field(
-                    chain=["e", "distinct_id"] if self.team.aggregate_users_by_distinct_id else ["e", "person", "id"]
+                    chain=["e", "distinct_id"] if self.team.aggregate_users_by_distinct_id else ["e", "person_id"]
                 ),
             },
         )

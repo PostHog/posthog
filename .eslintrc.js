@@ -32,12 +32,13 @@ module.exports = {
         'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
         'plugin:compat/recommended',
-        'prettier', // Disables any formatting rules to let prettier do its job
+        'prettier',
     ],
     globals,
     parser: '@typescript-eslint/parser',
     parserOptions: {
-        project: 'tsconfig.json',
+        project: true,
+        tsconfigRootDir: __dirname,
     },
     plugins: [
         'react',
@@ -119,7 +120,17 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress', 'Radio', 'Divider'],
+                        importNames: [
+                            'Card',
+                            'Col',
+                            'Row',
+                            'Alert',
+                            'Tooltip',
+                            'Progress',
+                            'Radio',
+                            'Divider',
+                            'Popconfirm',
+                        ],
                         message: 'please use the Lemon equivalent instead',
                     },
                 ],
@@ -251,6 +262,10 @@ module.exports = {
                     {
                         element: 'Divider',
                         message: 'use <LemonDivider> instead',
+                    },
+                    {
+                        element: 'Popconfirm',
+                        message: 'use <LemonDialog> instead',
                     },
                 ],
             },

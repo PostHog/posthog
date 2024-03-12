@@ -1,9 +1,9 @@
-import { IconCrown, IconLock, IconUnlock } from '@posthog/icons'
+import { IconCrown, IconLeave, IconLock, IconUnlock } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
-import { IconCancel, IconLogout } from 'lib/lemon-ui/icons'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -125,7 +125,7 @@ function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
             data-attr="delete-team-membership"
             tooltip={isSelf ? 'Leave project' : 'Remove from project'}
         >
-            {isSelf ? <IconLogout /> : <IconCancel />}
+            {isSelf ? <IconLeave /> : <IconCancel />}
         </LemonButton>
     ) : null
 }

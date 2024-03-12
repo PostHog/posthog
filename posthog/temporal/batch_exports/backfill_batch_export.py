@@ -5,6 +5,7 @@ import datetime as dt
 import json
 import typing
 
+from asgiref.sync import sync_to_async
 import temporalio
 import temporalio.activity
 import temporalio.client
@@ -14,7 +15,7 @@ import temporalio.workflow
 from django.conf import settings
 
 from posthog.batch_exports.models import BatchExportBackfill
-from posthog.batch_exports.service import BackfillBatchExportInputs
+from posthog.batch_exports.service import BackfillBatchExportInputs, unpause_batch_export
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportBackfillInputs,
@@ -37,6 +38,8 @@ class HeartbeatDetails(typing.NamedTuple):
 
     schedule_id: str
     start_at: str
+    # Note that this `end_at` is not optional, because heartbeats details describe the last concrete
+    # period of time we were waiting to backfill, and not the entire backfill job itself.
     end_at: str
     wait_start_at: str
 
@@ -106,10 +109,16 @@ class BackfillScheduleInputs:
 
     schedule_id: str
     start_at: str
-    end_at: str
+    end_at: str | None
     frequency_seconds: float
     buffer_limit: int = 1
     wait_delay: float = 5.0
+
+
+def get_utcnow():
+    """Return the current time in UTC. This function is only required for mocking during tests,
+    because mocking the global datetime breaks Temporal."""
+    return dt.datetime.now(dt.timezone.utc)
 
 
 @temporalio.activity.defn
@@ -122,7 +131,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     This activity heartbeats while waiting to allow cancelling an ongoing backfill.
     """
     start_at = dt.datetime.fromisoformat(inputs.start_at)
-    end_at = dt.datetime.fromisoformat(inputs.end_at)
+    end_at = dt.datetime.fromisoformat(inputs.end_at) if inputs.end_at else None
 
     client = await connect(
         settings.TEMPORAL_HOST,
@@ -163,7 +172,13 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     full_backfill_range = backfill_range(start_at, end_at, frequency * inputs.buffer_limit)
 
     for backfill_start_at, backfill_end_at in full_backfill_range:
-        utcnow = dt.datetime.now(dt.timezone.utc)
+        utcnow = get_utcnow()
+
+        if end_at is None and backfill_end_at >= utcnow:
+            # This backfill (with no `end_at`) has caught up with real time and should unpause the
+            # underlying batch export and exit.
+            await sync_to_async(unpause_batch_export)(client, inputs.schedule_id)
+            return
 
         if jitter is not None:
             backfill_end_at = backfill_end_at + jitter
@@ -286,15 +301,15 @@ async def check_temporal_schedule_exists(client: temporalio.client.Client, sched
 
 
 def backfill_range(
-    start_at: dt.datetime, end_at: dt.datetime, step: dt.timedelta
+    start_at: dt.datetime, end_at: dt.datetime | None, step: dt.timedelta
 ) -> typing.Generator[tuple[dt.datetime, dt.datetime], None, None]:
     """Generate range of dates between start_at and end_at."""
     current = start_at
 
-    while current < end_at:
+    while end_at is None or current < end_at:
         current_end = current + step
 
-        if current_end > end_at:
+        if end_at and current_end > end_at:
             # Do not yield a range that is less than step.
             # Same as built-in range.
             break
@@ -354,8 +369,18 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=0),
         )
 
-        backfill_duration = dt.datetime.fromisoformat(inputs.end_at) - dt.datetime.fromisoformat(inputs.start_at)
-        number_of_expected_runs = backfill_duration / dt.timedelta(seconds=frequency_seconds)
+        # Temporal requires that we set a timeout.
+        if inputs.end_at is None:
+            # Set timeout to a month for now, as unending backfills are an internal feature we are
+            # testing for HTTP-based migrations. We'll need to pick a more realistic timeout
+            # if we release this to customers.
+            start_to_close_timeout = dt.timedelta(days=31)
+        else:
+            # Allocate 5 minutes per expected number of runs to backfill as a timeout.
+            # The 5 minutes are just an assumption and we may tweak this in the future
+            backfill_duration = dt.datetime.fromisoformat(inputs.end_at) - dt.datetime.fromisoformat(inputs.start_at)
+            number_of_expected_runs = backfill_duration / dt.timedelta(seconds=frequency_seconds)
+            start_to_close_timeout = dt.timedelta(minutes=5 * number_of_expected_runs)
 
         backfill_schedule_inputs = BackfillScheduleInputs(
             schedule_id=inputs.batch_export_id,
@@ -374,10 +399,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                     maximum_interval=dt.timedelta(seconds=60),
                     non_retryable_error_types=["TemporalScheduleNotFoundError"],
                 ),
-                # Temporal requires that we set a timeout.
-                # Allocate 5 minutes per expected number of runs to backfill as a timeout.
-                # The 5 minutes are just an assumption and we may tweak this in the future
-                start_to_close_timeout=dt.timedelta(minutes=5 * number_of_expected_runs),
+                start_to_close_timeout=start_to_close_timeout,
                 heartbeat_timeout=dt.timedelta(minutes=2),
             )
 

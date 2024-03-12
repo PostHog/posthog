@@ -9,7 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 export function TwoFactorAuthentication(): JSX.Element {
     const { user } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
-    const { loadMembers } = useActions(membersLogic)
+    const { loadMemberUpdates } = useActions(membersLogic)
     const [modalVisible, setModalVisible] = useState(false)
 
     return (
@@ -24,7 +24,7 @@ export function TwoFactorAuthentication(): JSX.Element {
                             onSuccess={() => {
                                 setModalVisible(false)
                                 updateUser({})
-                                loadMembers()
+                                loadMemberUpdates()
                             }}
                         />
                     </>

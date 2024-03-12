@@ -497,6 +497,10 @@ def redirect_to_website(request):
             strapi_id = json_data["user"]["id"]
             request.user.strapi_id = strapi_id
             request.user.save()
+        else:
+            error_message = response.json()["error"]["message"]
+            if response.text and error_message == "Email or Username are already taken":
+                return redirect("https://posthog.com/auth?error=emailIsTaken")
     else:
         token = jwt.encode(
             {

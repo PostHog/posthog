@@ -1,13 +1,14 @@
 /*
 Scene to request a password reset email.
 */
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -34,7 +35,7 @@ export function PasswordReset(): JSX.Element {
             ) : (
                 requestPasswordResetSucceeded && (
                     <div className="text-center">
-                        <IconCheckCircleOutline className="text-5xl text-success" />
+                        <IconCheckCircle className="text-5xl text-success" />
                     </div>
                 )
             )}

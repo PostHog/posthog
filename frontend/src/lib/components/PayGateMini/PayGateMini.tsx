@@ -41,10 +41,10 @@ export function PayGateMini({
     const { billing } = useValues(billingLogic)
     const { hideUpgradeModal } = useActions(sceneLogic)
 
-    const product = billing?.products.find((product) => product.features.some((f) => f.key === feature))
+    const product = billing?.products.find((product) => product.features?.some((f) => f.key === feature))
     const featureInfo = product?.features.find((f) => f.key === feature)
     const featureDetailsWithLimit = availableFeature(feature)
-    const minimumPlan = product?.plans.find((plan) => plan.features.some((f) => f.key === feature))
+    const minimumPlan = product?.plans.find((plan) => plan.features?.some((f) => f.key === feature))
 
     let gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null = null
     if (!overrideShouldShowGate && !hasAvailableFeature(feature, currentUsage)) {
