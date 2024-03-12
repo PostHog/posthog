@@ -43,7 +43,7 @@ export const OnboardingStep = ({
             <div className="pb-2">
                 <div className={`text-muted max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
                     <div
-                        className="flex items-center justify-center gap-x-3 w-2/3 mt-3 shrink-0 w-full"
+                        className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
                     >
                         {onboardingStepKeys.map((stepName, idx) => {
@@ -72,7 +72,7 @@ export const OnboardingStep = ({
                             )
                         })}
                     </div>
-                    <h1 className="font-bold m-0 pl-2 mt-6 text-center">
+                    <h1 className="font-bold m-0 mt-3 px-2">
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
                     </h1>
                 </div>
