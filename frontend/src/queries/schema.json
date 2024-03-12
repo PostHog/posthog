@@ -1063,6 +1063,46 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
+        "EventDefinition": {
+            "additionalProperties": false,
+            "properties": {
+                "elements": {
+                    "items": {},
+                    "type": "array"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "properties": {
+                    "type": "object"
+                }
+            },
+            "required": ["event", "properties", "elements"],
+            "type": "object"
+        },
+        "EventOddsRatioSerialized": {
+            "additionalProperties": false,
+            "properties": {
+                "correlation_type": {
+                    "enum": ["success", "failure"],
+                    "type": "string"
+                },
+                "event": {
+                    "$ref": "#/definitions/EventDefinition"
+                },
+                "failure_count": {
+                    "type": "integer"
+                },
+                "odds_ratio": {
+                    "type": "number"
+                },
+                "success_count": {
+                    "type": "integer"
+                }
+            },
+            "required": ["event", "success_count", "failure_count", "odds_ratio", "correlation_type"],
+            "type": "object"
+        },
         "EventPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -1522,6 +1562,114 @@
         },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
+            "type": "string"
+        },
+        "FunnelCorrelationQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelCorrelationEventExcludePropertyNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationEventNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationExcludeEventNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationExcludeNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationType": {
+                    "$ref": "#/definitions/FunnelCorrelationResultsType"
+                },
+                "kind": {
+                    "const": "FunnelCorrelationQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/FunnelCorrelationResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/FunnelsActorsQuery"
+                }
+            },
+            "required": ["kind", "source", "funnelCorrelationType"],
+            "type": "object"
+        },
+        "FunnelCorrelationResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "results": {
+                    "$ref": "#/definitions/FunnelCorrelationResult"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "FunnelCorrelationResult": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/EventOddsRatioSerialized"
+                    },
+                    "type": "array"
+                },
+                "skewed": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["events", "skewed"],
+            "type": "object"
+        },
+        "FunnelCorrelationResultsType": {
+            "enum": ["events", "properties", "event_with_properties"],
             "type": "string"
         },
         "FunnelExclusion": {
@@ -2983,6 +3131,7 @@
                 "LifecycleQuery",
                 "InsightActorsQuery",
                 "InsightActorsQueryOptions",
+                "FunnelCorrelationQuery",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -4089,6 +4238,44 @@
                     "type": "object"
                 },
                 {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "offset": {
+                            "type": "integer"
+                        },
+                        "results": {
+                            "$ref": "#/definitions/FunnelCorrelationResult"
+                        },
+                        "timings": {
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
                     "additionalProperties": {
                         "items": {
                             "$ref": "#/definitions/DatabaseSchemaQueryResponseField"
@@ -4181,6 +4368,9 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelCorrelationQuery"
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaQuery"

@@ -70,6 +70,7 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
+    FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -138,6 +139,7 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | FunnelCorrelationQuery
 
     // Misc
     | DatabaseSchemaQuery
@@ -1101,6 +1103,61 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     funnelTrendsDropOff?: boolean
     /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
     funnelTrendsEntrancePeriodStart?: string
+}
+
+export interface EventDefinition {
+    event: string
+    properties: Record<string, any>
+    elements: any[]
+}
+
+export interface EventOddsRatioSerialized {
+    event: EventDefinition
+    success_count: integer
+    failure_count: integer
+    odds_ratio: number
+    correlation_type: 'success' | 'failure'
+}
+
+export interface FunnelCorrelationResult {
+    events: EventOddsRatioSerialized[]
+    skewed: boolean
+}
+
+export interface FunnelCorrelationResponse {
+    results: FunnelCorrelationResult
+    columns?: any[]
+    types?: string[]
+    hogql?: string
+    timings?: QueryTiming[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export enum FunnelCorrelationResultsType {
+    Events = 'events',
+    Properties = 'properties',
+    EventWithProperties = 'event_with_properties',
+}
+
+export interface FunnelCorrelationQuery {
+    kind: NodeKind.FunnelCorrelationQuery
+    source: FunnelsActorsQuery
+    funnelCorrelationType: FunnelCorrelationResultsType
+
+    /* Events */
+    funnelCorrelationExcludeEventNames?: string[]
+
+    /* Events with properties */
+    funnelCorrelationEventNames?: string[]
+    funnelCorrelationEventExcludePropertyNames?: string[]
+
+    /* Properties */
+    funnelCorrelationNames?: string[]
+    funnelCorrelationExcludeNames?: string[]
+
+    response?: FunnelCorrelationResponse
 }
 
 export type BreakdownValueInt = integer
