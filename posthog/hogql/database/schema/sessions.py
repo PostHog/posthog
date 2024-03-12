@@ -10,6 +10,7 @@ from posthog.hogql.database.models import (
     DatabaseField,
     LazyTable,
 )
+from posthog.hogql.database.schema.channel_type import create_channel_type_expr
 from posthog.schema import HogQLQueryModifiers
 
 
@@ -33,6 +34,7 @@ SESSIONS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
     "event_count_map": DatabaseField(name="event_count_map"),
     "pageview_count": IntegerDatabaseField(name="pageview_count"),
     "autocapture_count": IntegerDatabaseField(name="autocapture_count"),
+    "channel_type": StringDatabaseField(name="channel_type"),
 }
 
 
@@ -108,6 +110,16 @@ def select_from_sessions_table(requested_fields: Dict[str, List[str | int]]):
                 ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
                 ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
             ],
+        ),
+        "channel_type": create_channel_type_expr(
+            campaign=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]),
+            medium=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
+            source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
+            referring_domain=ast.Call(
+                name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
+            ),
+            gclid=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
+            gad_source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
         ),
     }
 
