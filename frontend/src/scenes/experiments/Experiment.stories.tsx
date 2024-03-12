@@ -1260,7 +1260,7 @@ export const RunningTrendExperiment: StoryFn = () => {
 }
 RunningTrendExperiment.parameters = {
     testOptions: {
-        waitForSelector: '.card-secondary',
+        waitForSelector: '.LemonBanner .LemonIcon',
     },
 }
 
@@ -1273,7 +1273,7 @@ export const RunningTrendExperimentManyVariants: StoryFn = () => {
 }
 RunningTrendExperimentManyVariants.parameters = {
     testOptions: {
-        waitForSelector: '.card-secondary',
+        waitForSelector: '.LemonBanner .LemonIcon',
     },
 }
 
