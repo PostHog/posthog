@@ -49,7 +49,7 @@ export function PathNodeCardButton({
     }
     const openModal = (): void => openPersonsModal({ path_end_key: name })
 
-    const isTruncatedPath = name.endsWith('...')
+    const isTruncatedPath = name.slice(1) === '_...'
 
     return (
         <div className="flex justify-between items-center w-full">
