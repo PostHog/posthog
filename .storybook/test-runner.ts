@@ -117,12 +117,12 @@ async function expectStoryToMatchSnapshot(
     }
 
     await waitForPageReady(page)
-    await page.evaluate(() => {
+    await page.evaluate((layout: string) => {
         // Stop all animations for consistent snapshots
         document.body.classList.add(
-            `storybook-test-runner storybook-test-runner--${storyContext.parameters?.layout || 'padded'}`
+            `storybook-test-runner storybook-test-runner--${layout}`
         )
-    })
+    }, storyContext.parameters?.layout || 'padded')
     if (waitForLoadersToDisappear) {
         // The timeout is reduced so that we never allow toasts – they usually signify something wrong
         await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 1000 })
