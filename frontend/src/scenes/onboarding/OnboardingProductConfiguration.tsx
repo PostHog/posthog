@@ -26,6 +26,14 @@ type ConfigOption =
           onChange: (newValue: boolean) => void
       }
 
+const pluginContentMapping = {
+    1: {
+        title: 'Capture location information',
+        description:
+            'Enrich PostHog events and persons with IP location data. This is useful for understanding where your users are coming from. This setting can be found under the data pipelines apps.',
+    },
+}
+
 export const OnboardingProductConfiguration = ({
     stepKey = OnboardingStepKey.PRODUCT_CONFIGURATION,
     options,
@@ -55,18 +63,21 @@ export const OnboardingProductConfiguration = ({
                 )
             },
         })),
-        ...defaultEnabledPlugins.map((plugin) => ({
-            title: plugin.name,
-            description: plugin.description,
-            type: 'plugin' as PluginType,
-            value: plugin.pluginConfig?.enabled || false,
-            onChange: (newValue: boolean) => {
-                toggleEnabled({
-                    id: plugin.pluginConfig?.id,
-                    enabled: newValue,
-                })
-            },
-        })),
+        ...defaultEnabledPlugins.map((plugin) => {
+            const pluginContent = pluginContentMapping[plugin.id]
+            return {
+                title: pluginContent?.title || plugin.name,
+                description: pluginContent?.description || plugin.description,
+                type: 'plugin' as PluginType,
+                value: plugin.pluginConfig?.enabled || false,
+                onChange: (newValue: boolean) => {
+                    toggleEnabled({
+                        id: plugin.pluginConfig?.id,
+                        enabled: newValue,
+                    })
+                },
+            }
+        }),
     ]
 
     return combinedList.length > 0 ? (
