@@ -3,11 +3,14 @@ from django.contrib import admin
 from django.utils.html import format_html
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.organization_team_inline import OrganizationTeamInline
+from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 
 from posthog.models.organization import Organization
 
 
 class OrganizationAdmin(admin.ModelAdmin):
+    show_full_result_count = False  # prevent count() queries to show the no of filtered results
+    paginator = NoCountPaginator  # prevent count() queries and return a fix page count instead
     date_hierarchy = "created_at"
     fields = [
         "name",
