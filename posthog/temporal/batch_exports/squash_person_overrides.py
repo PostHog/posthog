@@ -695,10 +695,11 @@ class SquashPersonOverridesInputs:
             yield month.strftime("%Y%m")
 
     def iter_last_n_months(self) -> collections.abc.Iterator[date]:
-        """Iterate over the last N months.
+        """Iterate over beginning of the month dates of the last N months.
 
-        Returns the first day of the last N months. The current month
-        counts as the first month.
+        If `self.offset` is 0, then the first day of the current month will be the
+        first month yielded. Otherwise, `self.offset` will be subtracted from the
+        current month to land on the first month to yield.
         """
         now = date.today()
         start_month = (now.month - self.offset) % 12
