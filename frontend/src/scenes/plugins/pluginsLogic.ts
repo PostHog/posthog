@@ -577,7 +577,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
         defaultEnabledPlugins: [
             (s) => [s.filteredEnabledPlugins, s.filteredDisabledPlugins],
             (filteredEnabledPlugins, filteredDisabledPlugins) => {
-                const defaultEnabledPluginIds = [1]
+                const defaultEnabledPluginIds = [1] // GEO IP plugin
                 return filteredEnabledPlugins
                     .concat(filteredDisabledPlugins)
                     .filter((plugin) => defaultEnabledPluginIds.includes(plugin.id))
