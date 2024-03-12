@@ -1,6 +1,14 @@
 from django.conf import settings
 from dlt.common.schema.typing import TSchemaTables
 from dlt.common.data_types.typing import TDataType
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DatabaseField,
+    DateTimeDatabaseField,
+    IntegerDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+)
 
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
@@ -18,40 +26,40 @@ from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
 from asgiref.sync import sync_to_async
-from typing import Dict
+from typing import Dict, Type
 
 
-def dlt_to_clickhouse_type(dlt_type: TDataType, nullable: bool) -> str:
-    clickhouse_type = ""
-    if dlt_type == "text":
-        clickhouse_type = "String"
+def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
+    hogql_type: Type[DatabaseField] = DatabaseField
+
+    if dlt_type is None:
+        hogql_type = StringDatabaseField
+    elif dlt_type == "text":
+        hogql_type = StringDatabaseField
     elif dlt_type == "double":
-        clickhouse_type = "Decimal"
+        hogql_type = IntegerDatabaseField
     elif dlt_type == "bool":
-        clickhouse_type = "Boolean"
+        hogql_type = BooleanDatabaseField
     elif dlt_type == "timestamp":
-        clickhouse_type = "DateTime"
+        hogql_type = DateTimeDatabaseField
     elif dlt_type == "bigint":
-        clickhouse_type = "Int64"
+        hogql_type = IntegerDatabaseField
     elif dlt_type == "binary":
         raise Exception("DLT type 'binary' is not a supported column type")
     elif dlt_type == "complex":
-        clickhouse_type = "JSON"
+        hogql_type = StringJSONDatabaseField
     elif dlt_type == "decimal":
-        clickhouse_type = "Decimal"
+        hogql_type = IntegerDatabaseField
     elif dlt_type == "wei":
         raise Exception("DLT type 'wei' is not a supported column type")
     elif dlt_type == "date":
-        clickhouse_type = "Date"
+        hogql_type = DateTimeDatabaseField
     elif dlt_type == "time":
-        clickhouse_type = "DateTime"
+        hogql_type = DateTimeDatabaseField
     else:
         raise Exception(f"DLT type '{dlt_type}' is not a supported column type")
 
-    if nullable:
-        return f"Nullable({clickhouse_type})"
-
-    return clickhouse_type
+    return hogql_type.__name__
 
 
 async def validate_schema(
@@ -146,20 +154,24 @@ async def validate_schema_and_update_table(
         for schema in table_schema.values():
             if schema.get("resource") == _schema_name:
                 schema_columns = schema.get("columns") or {}
+                db_columns: Dict[str, str] = await sync_to_async(table_created.get_columns)()
+
                 columns = {}
-                for column_name, column_detail in schema_columns.items():
-                    data_type = column_detail.get("data_type", "text")
-                    is_nullable = column_detail.get("nullable", False)
+                for column_name, db_column_type in db_columns.items():
+                    dlt_column = schema_columns.get(column_name)
+                    if dlt_column is not None:
+                        dlt_data_type = dlt_column.get("data_type")
+                        hogql_type = dlt_to_hogql_type(dlt_data_type)
+                    else:
+                        hogql_type = dlt_to_hogql_type(None)
 
-                    assert data_type is not None
-                    assert is_nullable is not None
-
-                    clickhouse_type = dlt_to_clickhouse_type(data_type, is_nullable)
-                    columns[column_name] = clickhouse_type
+                    columns[column_name] = {
+                        "clickhouse": db_column_type,
+                        "hogql": hogql_type,
+                    }
                 table_created.columns = columns
                 break
 
-        # table_created.columns = await sync_to_async(table_created.get_columns)()
         await asave_datawarehousetable(table_created)
 
         # schema could have been deleted by this point
