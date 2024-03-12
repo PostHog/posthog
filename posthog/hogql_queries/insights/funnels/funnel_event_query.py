@@ -134,8 +134,11 @@ class FunnelEventQuery:
             if isinstance(node, EventsNode) or isinstance(node, FunnelExclusionEventsNode):
                 events.add(node.event)
             elif isinstance(node, ActionsNode) or isinstance(node, FunnelExclusionActionsNode):
-                action = Action.objects.get(pk=int(node.id), team=team)
-                events.update(action.get_step_events())
+                try:
+                    action = Action.objects.get(pk=int(node.id), team=team)
+                    events.update(action.get_step_events())
+                except Action.DoesNotExist:
+                    raise ValidationError(f"Action ID {node.id} does not exist!")
             else:
                 raise ValidationError("Series and exclusions must be compose of action and event nodes")
 
