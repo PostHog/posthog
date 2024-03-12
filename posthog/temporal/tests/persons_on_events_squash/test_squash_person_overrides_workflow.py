@@ -72,6 +72,18 @@ def test_workflow_inputs_yields_partition_ids(inputs, expected):
             ["202209", "202208", "202207"],
         ),
         (
+            {"partition_ids": None, "last_n_months": 1, "offset": 12},
+            ["202203"],
+        ),
+        (
+            {"partition_ids": None, "last_n_months": 1, "offset": 24},
+            ["202103"],
+        ),
+        (
+            {"partition_ids": None, "last_n_months": 1, "offset": 638},
+            ["197001"],
+        ),
+        (
             {"partition_ids": ["202303", "202302"], "last_n_months": 3, "offset": 6},
             ["202303", "202302"],
         ),
