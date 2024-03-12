@@ -11,7 +11,6 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -46,6 +45,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         isEarlyAccessFeatureSubmitting,
         isEditingFeature,
         earlyAccessFeatureMissing,
+        implementOptInInstructionsModal,
     } = useValues(earlyAccessFeatureLogic)
     const {
         submitEarlyAccessFeatureRequest,
@@ -327,6 +327,14 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     </>
                 )}
             </div>
+
+            {'id' in earlyAccessFeature ? (
+                <InstructionsModal
+                    flag={earlyAccessFeature.feature_flag.key}
+                    visible={implementOptInInstructionsModal}
+                    onClose={toggleImplementOptInInstructionsModal}
+                />
+            ) : null}
         </Form>
     )
 }
@@ -362,10 +370,9 @@ function featureFlagEnrolmentFilter(earlyAccessFeature: EarlyAccessFeatureType, 
 }
 
 export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
-    const { implementOptInInstructionsModal, activeTab } = useValues(earlyAccessFeatureLogic)
-    const { toggleImplementOptInInstructionsModal, setActiveTab } = useActions(earlyAccessFeatureLogic)
+    const { activeTab } = useValues(earlyAccessFeatureLogic)
+    const { setActiveTab } = useActions(earlyAccessFeatureLogic)
 
-    const { featureFlag } = useValues(featureFlagLogic({ id: earlyAccessFeature.feature_flag.id || 'link' }))
     const key = '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
 
     return (
@@ -412,12 +419,6 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                     },
                 ]}
             />
-
-            <InstructionsModal
-                featureFlag={featureFlag}
-                visible={implementOptInInstructionsModal}
-                onClose={toggleImplementOptInInstructionsModal}
-            />
         </>
     )
 }
@@ -440,7 +441,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
 
     return (
         <div className="relative">
-            {/* TODO: How to get this in the data table? */}
+            {/* NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query */}
             <div className="absolute top-0 right-0 z-10">
                 <LemonButton
                     key="view-opt-in-session-recordings"
