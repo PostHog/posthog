@@ -1,16 +1,26 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
-import { FunnelsActorsQuery, NodeKind } from '~/queries/schema'
 import {
+    EventsNode,
+    FunnelCorrelationActorsQuery,
+    FunnelCorrelationQuery,
+    FunnelsActorsQuery,
+    NodeKind,
+} from '~/queries/schema'
+import {
+    AnyPropertyFilter,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelStep,
     FunnelStepWithConversionMetrics,
     InsightLogicProps,
+    PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
@@ -99,7 +109,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             // openPersonsModalForStep is for the baseline - for breakdown series use openPersonsModalForSeries
             if (values.hogQLInsightsFunnelsFlagEnabled) {
                 const query: FunnelsActorsQuery = {
-                    kind: NodeKind.InsightActorsQuery,
+                    kind: NodeKind.FunnelsActorsQuery,
                     source: values.querySource!,
                     funnelStep: converted ? stepNo : -stepNo,
                     includeRecordings: true,
@@ -131,10 +141,10 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             // Version of openPersonsModalForStep that accurately handles breakdown series
             if (values.hogQLInsightsFunnelsFlagEnabled) {
                 const query: FunnelsActorsQuery = {
-                    kind: NodeKind.InsightActorsQuery,
+                    kind: NodeKind.FunnelsActorsQuery,
                     source: values.querySource!,
                     funnelStep: converted ? stepNo : -stepNo,
-                    funnelStepBreakdown: series.breakdown_value,
+                    funnelStepBreakdown: series.breakdown_value === 'Baseline' ? null : series.breakdown_value,
                     includeRecordings: true,
                 }
                 openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
@@ -152,26 +162,142 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
 
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
-                openPersonsModal({
-                    url: success ? correlation.success_people_url : correlation.failure_people_url,
-                    title: funnelTitle({
-                        converted: success,
-                        step: values.steps.length,
-                        breakdown_value,
-                        label: breakdown,
-                    }),
+                const title = funnelTitle({
+                    converted: success,
+                    step: values.steps.length,
+                    breakdown_value,
+                    label: breakdown,
                 })
+
+                if (values.hogQLInsightsFunnelsFlagEnabled) {
+                    // properties
+                    const [propertyName, propertyValue] = correlation.event.event.split('::')
+                    const propType = values.querySource?.aggregation_group_type_index ? 'group' : 'person'
+                    const actorsQuery: FunnelsActorsQuery = {
+                        kind: NodeKind.FunnelsActorsQuery,
+                        source: values.querySource!,
+                        funnelStep: 1,
+                        includeRecordings: true,
+                    }
+                    const correlationQuery: FunnelCorrelationQuery = {
+                        kind: NodeKind.FunnelCorrelationQuery,
+                        source: actorsQuery,
+                        funnelCorrelationType: correlation.result_type,
+                    }
+                    const query: FunnelCorrelationActorsQuery = {
+                        kind: NodeKind.FunnelCorrelationActorsQuery,
+                        source: correlationQuery,
+                        funnelCorrelationPersonConverted: success,
+                        funnelCorrelationPropertyValues: [
+                            {
+                                key: propertyName,
+                                value: propertyValue,
+                                type: propType === 'person' ? PropertyFilterType.Person : PropertyFilterType.Group,
+                                operator: PropertyOperator.Exact,
+                                group_type_index: values.querySource?.aggregation_group_type_index,
+                            },
+                        ],
+                    }
+                    openPersonsModal({
+                        title,
+                        query,
+                        additionalSelect: { matched_recordings: 'matched_recordings' },
+                    })
+                } else {
+                    openPersonsModal({
+                        url: success ? correlation.success_people_url : correlation.failure_people_url,
+                        title,
+                    })
+                }
             } else {
                 const { name } = parseEventAndProperty(correlation.event)
-
-                openPersonsModal({
-                    url: success ? correlation.success_people_url : correlation.failure_people_url,
-                    title: funnelTitle({
-                        converted: success,
-                        step: values.steps.length,
-                        label: name,
-                    }),
+                const title = funnelTitle({
+                    converted: success,
+                    step: values.steps.length,
+                    label: name,
                 })
+
+                if (values.hogQLInsightsFunnelsFlagEnabled) {
+                    const actorsQuery: FunnelsActorsQuery = {
+                        kind: NodeKind.FunnelsActorsQuery,
+                        source: values.querySource!,
+                        funnelStep: 1,
+                        includeRecordings: true,
+                    }
+                    const correlationQuery: FunnelCorrelationQuery = {
+                        kind: NodeKind.FunnelCorrelationQuery,
+                        source: actorsQuery,
+                        funnelCorrelationType: correlation.result_type,
+                    }
+
+                    let entity: EventsNode
+                    if (correlation.result_type === FunnelCorrelationResultsType.Events) {
+                        // events
+                        entity = {
+                            event: correlation.event.event,
+                            kind: NodeKind.EventsNode,
+                        }
+                    } else {
+                        // events with properties
+                        const eventName = correlation.event.event.split('::')[0]
+
+                        let properties: AnyPropertyFilter[]
+                        if (eventName === '$autocapture') {
+                            // If we have an $autocapture event, we need to
+                            // convert the `elements` chain into an "action".
+                            const elements = correlation.event.elements
+                            const elementsAsAction = elementsToAction(elements)
+                            properties = Object.entries(elementsAsAction)
+                                .map(([propertyKey, propertyValue]) => {
+                                    if (propertyValue !== null) {
+                                        return {
+                                            key: propertyKey,
+                                            value: [propertyValue],
+                                            type: 'element',
+                                            operator: 'exact',
+                                        }
+                                    }
+                                })
+                                .filter(Boolean) as AnyPropertyFilter[]
+                        } else {
+                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                            const [_, propertyName, propertyValue] = correlation.event.event.split('::')
+
+                            properties = [
+                                {
+                                    key: propertyName,
+                                    value: propertyValue,
+                                    type: PropertyFilterType.Event,
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ]
+                        }
+
+                        entity = {
+                            kind: NodeKind.EventsNode,
+                            event: eventName,
+                            properties,
+                        }
+                    }
+
+                    const query: FunnelCorrelationActorsQuery = {
+                        kind: NodeKind.FunnelCorrelationActorsQuery,
+                        source: correlationQuery,
+                        funnelCorrelationPersonConverted: success,
+                        funnelCorrelationPersonEntity: entity,
+                    }
+
+                    openPersonsModal({
+                        title,
+                        query,
+                        additionalSelect: { matched_recordings: 'matched_recordings' },
+                    })
+                } else {
+                    openPersonsModal({
+                        url: success ? correlation.success_people_url : correlation.failure_people_url,
+                        title,
+                    })
+                }
             }
         },
     })),

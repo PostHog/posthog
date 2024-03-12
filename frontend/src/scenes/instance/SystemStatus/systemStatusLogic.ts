@@ -174,19 +174,15 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
         },
         saveInstanceConfig: async (_, breakpoint) => {
             actions.setUpdatedInstanceConfigCount(0)
-            Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
-                try {
+            await Promise.all(
+                Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
                     await api.update(`api/instance_settings/${key}`, {
                         value,
                     })
                     eventUsageLogic.actions.reportInstanceSettingChange(key, value)
                     actions.increaseUpdatedInstanceConfigCount()
-                } catch {
-                    lemonToast.error('There was an error updating instance settings – please try again')
-                    await breakpoint(1000)
-                    actions.loadInstanceSettings()
-                }
-            })
+                })
+            )
             await breakpoint(1000)
             if (values.updatedInstanceConfigCount === Object.keys(values.instanceConfigEditingState).length) {
                 actions.loadInstanceSettings()

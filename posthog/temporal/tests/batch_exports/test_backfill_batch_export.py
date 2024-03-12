@@ -1,4 +1,5 @@
 import datetime as dt
+from unittest import mock
 import uuid
 
 import pytest
@@ -24,6 +25,7 @@ from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
     afetch_batch_export_backfills,
+    afetch_batch_export,
 )
 
 pytestmark = [pytest.mark.asyncio]
@@ -31,25 +33,16 @@ pytestmark = [pytest.mark.asyncio]
 
 @pytest_asyncio.fixture
 async def temporal_schedule(temporal_client, team):
-    """Manage a test Temopral Schedule yielding its handle."""
-    destination_data = {
-        "type": "NoOp",
-        "config": {},
-    }
-
-    interval = "every 1 minutes"
-    batch_export_data = {
-        "name": "no-op-export",
-        "destination": destination_data,
-        "interval": interval,
-        "paused": True,
-    }
-
+    """Manage a test Temporal Schedule yielding its handle."""
     batch_export = await acreate_batch_export(
         team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
+        name="no-op-export",
+        destination_data={
+            "type": "NoOp",
+            "config": {},
+        },
+        interval="every 1 minutes",
+        paused=True,
     )
 
     handle = temporal_client.get_schedule_handle(str(batch_export.id))
@@ -209,6 +202,61 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
 
     backfill = backfills.pop()
     assert backfill.status == "Completed"
+
+
+@pytest.mark.django_db(transaction=True)
+@mock.patch("posthog.temporal.batch_exports.backfill_batch_export.get_utcnow")
+async def test_backfill_batch_export_workflow_no_end_at(
+    mock_utcnow, temporal_worker, temporal_schedule, temporal_client, team
+):
+    """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
+
+    # Note the mocked time here, we should stop backfilling at 8 minutes and unpause the job.
+    mock_utcnow.return_value = dt.datetime(2023, 1, 1, 0, 8, 12, tzinfo=dt.timezone.utc)
+
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    end_at = None
+
+    desc = await temporal_schedule.describe()
+
+    workflow_id = str(uuid.uuid4())
+    inputs = BackfillBatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=desc.id,
+        start_at=start_at.isoformat(),
+        end_at=end_at,
+        buffer_limit=2,
+        wait_delay=0.1,
+    )
+
+    batch_export = await afetch_batch_export(desc.id)
+    assert batch_export.paused is True
+
+    handle = await temporal_client.start_workflow(
+        BackfillBatchExportWorkflow.run,
+        inputs,
+        id=workflow_id,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        execution_timeout=dt.timedelta(minutes=1),
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+    )
+    await handle.result()
+
+    desc = await temporal_schedule.describe()
+    result = desc.info.num_actions
+    expected = 8
+
+    assert result == expected
+
+    backfills = await afetch_batch_export_backfills(batch_export_id=desc.id)
+
+    assert len(backfills) == 1, "Expected one backfill to have been created"
+
+    backfill = backfills.pop()
+    assert backfill.status == "Completed"
+
+    batch_export = await afetch_batch_export(desc.id)
+    assert batch_export.paused is False
 
 
 @pytest.mark.django_db(transaction=True)

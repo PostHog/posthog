@@ -1,6 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useEffect } from 'react'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -12,14 +13,16 @@ interface ActionsListViewProps {
 
 export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element {
     const { allActionsLoading, searchTerm } = useValues(actionsLogic)
+    const { getActions } = useActions(actionsLogic)
     const { selectAction } = useActions(actionsTabLogic)
+
+    useEffect(() => {
+        getActions()
+    }, [])
+
     return (
         <div className="flex flex-col h-full overflow-y-scoll space-y-px">
-            {allActionsLoading ? (
-                <div className="flex items-center">
-                    <Spinner className="text-4xl" />
-                </div>
-            ) : actions.length ? (
+            {actions.length ? (
                 actions.map((action, index) => (
                     <>
                         <Link
@@ -35,6 +38,10 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                         </Link>
                     </>
                 ))
+            ) : allActionsLoading ? (
+                <div className="flex items-center">
+                    <Spinner className="text-4xl" />
+                </div>
             ) : (
                 <div className="p-2">No {searchTerm.length ? 'matching ' : ''}actions found.</div>
             )}

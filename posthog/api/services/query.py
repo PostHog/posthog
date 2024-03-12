@@ -6,6 +6,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.metadata import get_hogql_metadata
@@ -15,6 +16,7 @@ from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
+    FunnelCorrelationQuery,
     FunnelsQuery,
     HogQLAutocomplete,
     HogQLMetadata,
@@ -46,6 +48,7 @@ QUERY_WITH_RUNNER = (
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | FunnelCorrelationQuery
     | WebOverviewQuery
     | WebTopClicksQuery
     | WebStatsTableQuery
@@ -91,7 +94,8 @@ def process_query_model(
         result = metadata_response
     elif isinstance(query, DatabaseSchemaQuery):
         database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
-        result = serialize_database(database)
+        context = HogQLContext(team_id=team.pk, team=team, database=database)
+        result = serialize_database(context)
     elif isinstance(query, TimeToSeeDataSessionsQuery):
         sessions_query_serializer = SessionsQuerySerializer(data=query)
         sessions_query_serializer.is_valid(raise_exception=True)
