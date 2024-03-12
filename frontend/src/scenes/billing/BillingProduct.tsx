@@ -606,7 +606,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     >
                         <div>
                             <h4 className={`${!upgradePlan ? 'text-success-dark' : 'text-warning-dark'}`}>
-                                You're on the {currentPlan.name} plan for {product.name}.
+                                You're on the {currentPlan?.name} plan for {product?.name}.
                             </h4>
                             {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
                                 <>
