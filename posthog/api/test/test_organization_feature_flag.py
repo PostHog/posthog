@@ -3,7 +3,7 @@ from posthog.models.cohort.util import sort_cohorts_topologically
 from posthog.models.user import User
 from posthog.models.team.team import Team
 from posthog.models.cohort import Cohort
-from ee.models.organization_resource_access import OrganizationResourceAccess
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag
 from posthog.models.experiment import Experiment

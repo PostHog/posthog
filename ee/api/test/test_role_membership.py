@@ -1,7 +1,7 @@
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.models.role import Role, RoleMembership
+from ee.models.rbac.role import Role, RoleMembership
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 

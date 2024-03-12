@@ -6,7 +6,7 @@ def can_user_edit_feature_flag(request, feature_flag):
     # self hosted check for enterprise models that may not exist
     try:
         from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
-        from ee.models.organization_resource_access import OrganizationResourceAccess
+        from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
     except:
         return True
     else:
