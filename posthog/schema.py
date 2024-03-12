@@ -210,6 +210,31 @@ class EntityType(str, Enum):
     new_entity = "new_entity"
 
 
+class EventDefinition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    elements: List
+    event: str
+    properties: Dict[str, Any]
+
+
+class CorrelationType(str, Enum):
+    success = "success"
+    failure = "failure"
+
+
+class EventOddsRatioSerialized(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    correlation_type: CorrelationType
+    event: EventDefinition
+    failure_count: int
+    odds_ratio: float
+    success_count: int
+
+
 class Person(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -272,6 +297,20 @@ class FunnelConversionWindowTimeUnit(str, Enum):
     day = "day"
     week = "week"
     month = "month"
+
+
+class FunnelCorrelationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: List[EventOddsRatioSerialized]
+    skewed: bool
+
+
+class FunnelCorrelationResultsType(str, Enum):
+    events = "events"
+    properties = "properties"
+    event_with_properties = "event_with_properties"
 
 
 class FunnelExclusionLegacy(BaseModel):
@@ -499,6 +538,8 @@ class NodeKind(str, Enum):
     HogQLMetadata = "HogQLMetadata"
     HogQLAutocomplete = "HogQLAutocomplete"
     ActorsQuery = "ActorsQuery"
+    FunnelsActorsQuery = "FunnelsActorsQuery"
+    FunnelCorrelationActorsQuery = "FunnelCorrelationActorsQuery"
     SessionsTimelineQuery = "SessionsTimelineQuery"
     DataTableNode = "DataTableNode"
     DataVisualizationNode = "DataVisualizationNode"
@@ -512,6 +553,7 @@ class NodeKind(str, Enum):
     LifecycleQuery = "LifecycleQuery"
     InsightActorsQuery = "InsightActorsQuery"
     InsightActorsQueryOptions = "InsightActorsQueryOptions"
+    FunnelCorrelationQuery = "FunnelCorrelationQuery"
     WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
@@ -1131,6 +1173,20 @@ class FeaturePropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
+class FunnelCorrelationResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    results: FunnelCorrelationResult
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
 class FunnelsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1446,6 +1502,20 @@ class QueryResponseAlternative13(BaseModel):
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative17(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    results: FunnelCorrelationResult
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
 
 
 class RetentionFilter(BaseModel):
@@ -2152,6 +2222,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative12,
             QueryResponseAlternative13,
             QueryResponseAlternative14,
+            QueryResponseAlternative17,
             Dict[str, List[DatabaseSchemaQueryResponseField]],
         ]
     ]
@@ -2172,6 +2243,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative12,
         QueryResponseAlternative13,
         QueryResponseAlternative14,
+        QueryResponseAlternative17,
         Dict[str, List[DatabaseSchemaQueryResponseField]],
     ]
 
@@ -2668,7 +2740,7 @@ class FunnelsActorsQuery(BaseModel):
         description="Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal.",
     )
     includeRecordings: Optional[bool] = None
-    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
     response: Optional[ActorsQueryResponse] = None
     source: FunnelsQuery
 
@@ -2697,6 +2769,21 @@ class InsightVizNode(BaseModel):
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
+class FunnelCorrelationQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelCorrelationEventExcludePropertyNames: Optional[List[str]] = None
+    funnelCorrelationEventNames: Optional[List[str]] = None
+    funnelCorrelationExcludeEventNames: Optional[List[str]] = None
+    funnelCorrelationExcludeNames: Optional[List[str]] = None
+    funnelCorrelationNames: Optional[List[str]] = None
+    funnelCorrelationType: FunnelCorrelationResultsType
+    kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
+    response: Optional[FunnelCorrelationResponse] = None
+    source: FunnelsActorsQuery
+
+
 class InsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2717,13 +2804,42 @@ class InsightActorsQuery(BaseModel):
     status: Optional[str] = None
 
 
+class FunnelCorrelationActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelCorrelationPersonConverted: Optional[bool] = None
+    funnelCorrelationPersonEntity: Optional[Union[EventsNode, ActionsNode, DataWarehouseNode]] = None
+    funnelCorrelationPropertyValues: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+            ]
+        ]
+    ] = None
+    includeRecordings: Optional[bool] = None
+    kind: Literal["FunnelCorrelationActorsQuery"] = "FunnelCorrelationActorsQuery"
+    response: Optional[ActorsQueryResponse] = None
+    source: FunnelCorrelationQuery
+
+
 class InsightActorsQueryOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
     response: Optional[InsightActorsQueryOptionsResponse] = None
-    source: Union[InsightActorsQuery, FunnelsActorsQuery]
+    source: Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery]
 
 
 class ActorsQuery(BaseModel):
@@ -2771,7 +2887,7 @@ class ActorsQuery(BaseModel):
     response: Optional[ActorsQueryResponse] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
     select: Optional[List[str]] = None
-    source: Optional[Union[InsightActorsQuery, FunnelsActorsQuery, HogQLQuery]] = None
+    source: Optional[Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, HogQLQuery]] = None
 
 
 class DataTableNode(BaseModel):
@@ -2909,6 +3025,7 @@ class QueryRequest(BaseModel):
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,
+        FunnelCorrelationQuery,
         DatabaseSchemaQuery,
     ] = Field(
         ...,
@@ -2947,6 +3064,7 @@ class QuerySchemaRoot(
             PathsQuery,
             StickinessQuery,
             LifecycleQuery,
+            FunnelCorrelationQuery,
             DatabaseSchemaQuery,
         ]
     ]
@@ -2978,6 +3096,7 @@ class QuerySchemaRoot(
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,
+        FunnelCorrelationQuery,
         DatabaseSchemaQuery,
     ] = Field(..., discriminator="kind")
 

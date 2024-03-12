@@ -237,9 +237,10 @@ class TrendsQueryRunner(QueryRunner):
             if is_histogram_breakdown:
                 buckets = breakdown._get_breakdown_histogram_buckets()
                 breakdown_values = [f"[{t[0]},{t[1]}]" for t in buckets]
+                # TODO: append this only if needed
                 breakdown_values.append('["",""]')
             else:
-                breakdown_values = breakdown._get_breakdown_values
+                breakdown_values = breakdown._breakdown_values
 
             for value in breakdown_values:
                 if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown_type == "cohort":
@@ -367,7 +368,8 @@ class TrendsQueryRunner(QueryRunner):
                 raise Exception("Column not found in hogql results")
             if response.columns is None:
                 raise Exception("No columns returned from hogql results")
-
+            if name not in response.columns:
+                return None
             index = response.columns.index(name)
             return val[index]
 

@@ -3,14 +3,22 @@ import { IconGitlab, IconGoogle, IconKey } from 'lib/lemon-ui/icons'
 
 import { SSOProvider } from '~/types'
 
-export const SocialLoginIcon = (provider: SSOProvider): JSX.Element | undefined => {
+export const SocialLoginIcon = ({
+    provider,
+    ...props
+}: {
+    provider: SSOProvider
+    className?: string
+}): JSX.Element | null => {
     if (provider === 'google-oauth2') {
-        return <IconGoogle />
+        return <IconGoogle {...props} />
     } else if (provider === 'github') {
-        return <IconGithub />
+        return <IconGithub {...props} />
     } else if (provider === 'gitlab') {
-        return <IconGitlab />
+        return <IconGitlab {...props} />
     } else if (provider === 'saml') {
-        return <IconKey />
+        return <IconKey {...props} />
+    } else {
+        return null
     }
 }

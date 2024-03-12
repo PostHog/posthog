@@ -226,6 +226,8 @@ export class SessionRecordingIngester {
          * That way when shutting down we can wait for all promises to finish before exiting.
          */
         this.promises.add(promise)
+
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         promise.finally(() => this.promises.delete(promise))
 
         return promise
