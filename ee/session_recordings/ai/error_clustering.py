@@ -70,7 +70,7 @@ def construct_response(df):
     return [
         {
             "cluster": cluster,
-            "samples": rows.sample(n=DBSCAN_MIN_SAMPLES)[["session_id", "message"]].to_dict("records"),
+            "samples": rows.sample(n=DBSCAN_MIN_SAMPLES)[["session_id", "input"]].to_dict("records"),
             "occurrences": rows.size,
             "unique_sessions": rows["session_id"].count(),
         }
