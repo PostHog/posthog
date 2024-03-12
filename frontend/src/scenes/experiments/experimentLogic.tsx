@@ -377,9 +377,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
-                    aggregation_group_type_index: aggregationGroupTypeIndex,
-                    ...filters,
+                    ...(aggregationGroupTypeIndex !== undefined && {
+                        aggregation_group_type_index: aggregationGroupTypeIndex,
+                    }),
                 })
+                // console.log('new', newInsightFilters)
             }
 
             actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
