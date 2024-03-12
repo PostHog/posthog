@@ -204,9 +204,6 @@ export const userLogic = kea<userLogicType>([
                     const availableProductFeatures = user?.organization?.available_product_features
                     if (availableProductFeatures && availableProductFeatures.length > 0) {
                         const availableFeature = availableProductFeatures.find((obj) => obj.key === feature)
-                        if (feature == AvailableFeature.TWOFA_ENFORCEMENT) {
-                            console.log(availableProductFeatures)
-                        }
                         return availableFeature
                             ? currentUsage
                                 ? availableFeature?.limit
