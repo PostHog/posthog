@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Sequence
 
 import structlog
 from django.core.management.base import BaseCommand, CommandError
@@ -14,10 +15,12 @@ logger = structlog.get_logger(__name__)
 
 
 @dataclass
-class BackfillQuery:
+class Backfill:
     team_id: int
 
     def execute(self, dry_run: bool = False) -> None:
+        logger.info("Starting %r...", self)
+
         query = """
             SELECT
                 team_id,
@@ -51,20 +54,47 @@ class BackfillQuery:
                 parameters,
             )
 
+            update_query = Team.objects.raw(
+                """
+                UPDATE posthog_team
+                SET extra_settings = COALESCE(extra_settings, '{}'::jsonb) || jsonb_build_object('distinct_id_overrides_backfilled', true)
+                WHERE id = %s
+                RETURNING id
+                """,
+                [self.team_id],
+            )
+            logger.info("Completed %r, marked %s team as backfilled.", self, len(update_query))
+
 
 class Command(BaseCommand):
     help = "Backfill person_distinct_id_overrides records."
 
     def add_arguments(self, parser):
-        parser.add_argument("--team-id", required=True, type=int, help="team to backfill for")
+        parser.add_argument(
+            "--team-id",
+            required=False,
+            type=int,
+            dest="team_id_list",
+            action="append",
+            help="team(s) to backfill (defaults to all un-backfilled teams)",
+        )
         parser.add_argument(
             "--live-run", action="store_true", help="actually execute INSERT queries (default is dry-run)"
         )
 
-    def handle(self, *, live_run: bool, team_id: int, **options):
+    def handle(self, *, live_run: bool, team_id_list: Sequence[int] | None, **options):
         logger.setLevel(logging.INFO)
 
-        if not Team.objects.filter(id=team_id).exists():
-            raise CommandError(f"Team with id={team_id!r} does not exist")
+        if team_id_list is not None:
+            team_ids = set(team_id_list)
+            existing_team_ids = set(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
+            if existing_team_ids != team_ids:
+                raise CommandError(f"Teams with ids {team_ids - existing_team_ids!r} do not exist")
+        else:
+            team_ids = set(
+                Team.objects.exclude(extra_settings__distinct_id_overrides_backfilled=True).values_list("id", flat=True)
+            )
 
-        BackfillQuery(team_id).execute(dry_run=not live_run)
+        logger.info("Starting backfill for %s teams...", len(team_ids))
+        for team_id in team_ids:
+            Backfill(team_id).execute(dry_run=not live_run)
