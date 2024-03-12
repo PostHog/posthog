@@ -381,7 +381,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         aggregation_group_type_index: aggregationGroupTypeIndex,
                     }),
                 })
-                // console.log('new', newInsightFilters)
             }
 
             actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
