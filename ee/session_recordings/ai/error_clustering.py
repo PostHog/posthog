@@ -1,14 +1,24 @@
 from prometheus_client import Histogram
 from django.conf import settings
+from structlog import get_logger
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
 from sklearn.cluster import DBSCAN
 import pandas as pd
 
+logger = get_logger(__name__)
+
 CLUSTER_REPLAY_ERRORS_TIMING = Histogram(
     "posthog_session_recordings_cluster_replay_errors",
     "Time spent clustering the embeddings of replay errors",
     buckets=[0.5, 1, 2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60],
+)
+
+CLUSTER_REPLAY_ERRORS_CLUSTER_COUNT = Histogram(
+    "posthog_session_recordings_errors_cluster_count",
+    "Count of clusters identified from error messages per team",
+    buckets=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 45, 50],
+    labelnames=["team_id"],
 )
 
 DBSCAN_EPS = settings.REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_EPS
@@ -21,10 +31,12 @@ def error_clustering(team: Team):
     if not results:
         return []
 
-    cluster_embeddings(results)
-
     df = pd.DataFrame(results, columns=["session_id", "embeddings"])
-    df["cluster"] = cluster_embeddings(results)
+
+    df["cluster"] = cluster_embeddings(df["embeddings"].tolist())
+
+    CLUSTER_REPLAY_ERRORS_CLUSTER_COUNT.labels(team_id=team.pk).observe(df["cluster"].nunique())
+
     return construct_response(df)
 
 
