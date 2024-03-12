@@ -236,7 +236,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 <ConfigProvider
                     renderEmpty={() =>
                         loadedEventCorrelationsTableOnce ? (
-                            <Empty />
+                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No correlated events found." />
                         ) : (
                             <>
                                 {/* eslint-disable-next-line react/forbid-dom-props */}
