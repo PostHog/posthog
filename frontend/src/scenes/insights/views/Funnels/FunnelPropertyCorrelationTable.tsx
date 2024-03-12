@@ -206,7 +206,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 <ConfigProvider
                     renderEmpty={() =>
                         loadedPropertyCorrelationsTableOnce ? (
-                            <Empty />
+                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No correlated properties found." />
                         ) : (
                             <>
                                 {/* eslint-disable-next-line react/forbid-dom-props */}

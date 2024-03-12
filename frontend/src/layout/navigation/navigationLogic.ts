@@ -24,7 +24,7 @@ export type ProjectNoticeVariant =
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
     connect(() => ({
-        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['memberCount']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
@@ -99,9 +99,8 @@ export const navigationLogic = kea<navigationLogicType>([
                 teamLogic.selectors.currentTeam,
                 preflightLogic.selectors.preflight,
                 userLogic.selectors.user,
+                s.memberCount,
                 apiStatusLogic.selectors.internetConnectionIssue,
-                s.members,
-                s.membersLoading,
                 s.projectNoticesAcknowledged,
             ],
             (
@@ -109,9 +108,8 @@ export const navigationLogic = kea<navigationLogicType>([
                 currentTeam,
                 preflight,
                 user,
+                memberCount,
                 internetConnectionIssue,
-                members,
-                membersLoading,
                 projectNoticesAcknowledged
             ): [ProjectNoticeVariant, boolean] | null => {
                 if (!organization) {
@@ -135,7 +133,7 @@ export const navigationLogic = kea<navigationLogicType>([
                     !currentTeam.ingested_event
                 ) {
                     return ['real_project_with_no_events', true]
-                } else if (!projectNoticesAcknowledged['invite_teammates'] && !membersLoading && members.length <= 1) {
+                } else if (!projectNoticesAcknowledged['invite_teammates'] && memberCount === 1) {
                     return ['invite_teammates', true]
                 }
 

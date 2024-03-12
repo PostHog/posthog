@@ -69,7 +69,7 @@ describe('funnelCorrelationDetailsLogic', () => {
     describe('correlationMatrixAndScore', () => {
         it('returns calculated values based on selected details', async () => {
             await expectLogic(logic, () =>
-                logic.actions.setFunnelCorrelationDetails({
+                logic.actions.openCorrelationDetailsModal({
                     event: { event: 'some event', elements: [], properties: {} },
                     success_people_url: '',
                     failure_people_url: '',

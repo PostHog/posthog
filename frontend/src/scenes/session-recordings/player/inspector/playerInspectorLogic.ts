@@ -406,7 +406,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // but we decided to instead store them in the recording data
                 // we gather more info than rrweb, so we mix the two back together here
 
-                return matchNetworkEvents(sessionPlayerData.snapshotsByWindowId)
+                return filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
             },
         ],
 
@@ -915,3 +915,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         }
     }),
 ])
+
+function filterUnwanted(events: PerformanceEvent[]): PerformanceEvent[] {
+    // the browser can provide network events that we're not interested in,
+    // like a navigation to "about:blank"
+    return events.filter((event) => {
+        return !(event.entry_type === 'navigation' && event.name && event.name === 'about:blank')
+    })
+}

@@ -26,7 +26,7 @@ export function ErrorProjectUnavailable(): JSX.Element {
         }
         options.push(<>reach out to your administrator for access</>)
         setOptions(options)
-    })
+    }, [])
 
     const listOptions = (): JSX.Element => (
         <>
