@@ -121,6 +121,9 @@
                             "$ref": "#/definitions/FunnelsActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/FunnelCorrelationActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
@@ -1564,6 +1567,38 @@
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
+        "FunnelCorrelationActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelCorrelationPersonConverted": {
+                    "type": "boolean"
+                },
+                "funnelCorrelationPersonEntity": {
+                    "$ref": "#/definitions/AnyEntityNode"
+                },
+                "funnelCorrelationPropertyValues": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "FunnelCorrelationActorsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/FunnelCorrelationQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "FunnelCorrelationQuery": {
             "additionalProperties": false,
             "properties": {
@@ -1643,9 +1678,7 @@
                     "type": "array"
                 },
                 "types": {
-                    "items": {
-                        "type": "string"
-                    },
+                    "items": {},
                     "type": "array"
                 }
             },
@@ -1983,7 +2016,7 @@
                     "type": "boolean"
                 },
                 "kind": {
-                    "const": "InsightActorsQuery",
+                    "const": "FunnelsActorsQuery",
                     "type": "string"
                 },
                 "response": {
@@ -2663,6 +2696,9 @@
                         },
                         {
                             "$ref": "#/definitions/FunnelsActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelCorrelationActorsQuery"
                         }
                     ]
                 }
@@ -3118,6 +3154,8 @@
                 "HogQLMetadata",
                 "HogQLAutocomplete",
                 "ActorsQuery",
+                "FunnelsActorsQuery",
+                "FunnelCorrelationActorsQuery",
                 "SessionsTimelineQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -4266,9 +4304,7 @@
                             "type": "array"
                         },
                         "types": {
-                            "items": {
-                                "type": "string"
-                            },
+                            "items": {},
                             "type": "array"
                         }
                     },

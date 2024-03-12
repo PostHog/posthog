@@ -4,6 +4,7 @@ from typing import List, Literal, Optional, Any, Dict, Set, TypedDict, cast
 
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
 from posthog.hogql_queries.insights.funnels.funnel_strict_persons import FunnelStrictActors
@@ -29,6 +30,7 @@ from posthog.schema import (
     CorrelationType,
     EventDefinition,
     EventsNode,
+    FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
     FunnelCorrelationResult,
@@ -87,6 +89,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     query_type = FunnelCorrelationQuery
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery
+    correlation_actors_query: Optional[FunnelCorrelationActorsQuery]
 
     _funnel_actors_generator: FunnelActors | FunnelStrictActors | FunnelUnorderedActors
 
@@ -334,6 +337,131 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             return self.get_event_property_query()
 
         return self.get_event_query()
+
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        assert self.correlation_actors_query is not None
+
+        if self.query.funnelCorrelationType == FunnelCorrelationResultsType.properties:
+            # Filtering on persons / groups properties can be pushed down to funnel events query
+            if (
+                self.correlation_actors_query.funnelCorrelationPropertyValues
+                and len(self.correlation_actors_query.funnelCorrelationPropertyValues) > 0
+            ):
+                self.context.query.properties = [
+                    *(self.context.query.properties or []),
+                    *self.correlation_actors_query.funnelCorrelationPropertyValues,
+                ]
+            return self.properties_actor_query()
+        else:
+            return self.events_actor_query()
+
+    def events_actor_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        assert self.correlation_actors_query is not None
+
+        if not self.correlation_actors_query.funnelCorrelationPersonEntity:
+            raise ValidationError("No entity for persons specified")
+
+        assert isinstance(self.correlation_actors_query.funnelCorrelationPersonEntity, EventsNode)
+
+        target_step = self.context.max_steps
+        target_event = self.correlation_actors_query.funnelCorrelationPersonEntity.event
+        funnel_step_names = self._get_funnel_step_names()
+        funnel_persons_query = self.get_funnel_actors_cte()
+        funnel_event_query = FunnelEventQuery(context=self.context)
+        date_from = funnel_event_query._date_range().date_from_as_hogql()
+        date_to = funnel_event_query._date_range().date_to_as_hogql()
+
+        properties = self.correlation_actors_query.funnelCorrelationPersonEntity.properties
+        prop_query = None
+        if properties is not None and properties != []:
+            prop_query = property_to_expr(properties, self.team)
+
+        conversion_filter = (
+            f'AND funnel_actors.steps {"=" if self.correlation_actors_query.funnelCorrelationPersonConverted else "<>"} target_step'
+            if self.correlation_actors_query.funnelCorrelationPersonConverted is not None
+            else ""
+        )
+
+        event_join_query = self._get_events_join_query()
+
+        recording_event_select_statement = (
+            ", any(funnel_actors.matching_events) AS matching_events" if self.actors_query.includeRecordings else ""
+        )
+
+        query = parse_select(
+            f"""
+            WITH
+                funnel_actors as (
+                    {{funnel_persons_query}}
+                ),
+                {{date_from}} AS date_from,
+                {{date_to}} AS date_to,
+                {target_step} AS target_step,
+                {funnel_step_names} AS funnel_step_names
+            SELECT
+                funnel_actors.actor_id AS actor_id
+                {recording_event_select_statement}
+            FROM events AS event
+                {event_join_query}
+                AND event.event = '{target_event}'
+                {conversion_filter}
+            GROUP BY actor_id
+            ORDER BY actor_id
+        """,
+            placeholders={
+                "funnel_persons_query": funnel_persons_query,
+                "date_from": date_from,
+                "date_to": date_to,
+            },
+        )
+
+        if prop_query:
+            assert isinstance(query, ast.SelectQuery)
+            assert isinstance(query.where, ast.And)
+            query.where.exprs = [*query.where.exprs, prop_query]
+
+        return query
+
+    def properties_actor_query(
+        self,
+    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        assert self.correlation_actors_query is not None
+
+        if not self.correlation_actors_query.funnelCorrelationPropertyValues:
+            raise ValidationError("Property Correlation expects atleast one Property to get persons for")
+
+        target_step = self.context.max_steps
+        funnel_persons_query = self.get_funnel_actors_cte()
+
+        conversion_filter = (
+            f'funnel_actors.steps {"=" if self.correlation_actors_query.funnelCorrelationPersonConverted else "<>"} target_step'
+            if self.correlation_actors_query.funnelCorrelationPersonConverted is not None
+            else ""
+        )
+
+        recording_event_select_statement = (
+            ", any(funnel_actors.matching_events) AS matching_events" if self.actors_query.includeRecordings else ""
+        )
+
+        query = parse_select(
+            f"""
+            WITH
+                funnel_actors as (
+                    {{funnel_persons_query}}
+                ),
+                {target_step} AS target_step
+            SELECT
+                funnel_actors.actor_id AS actor_id
+                {recording_event_select_statement}
+            FROM funnel_actors
+            WHERE {conversion_filter}
+            GROUP BY funnel_actors.actor_id
+            ORDER BY funnel_actors.actor_id
+        """,
+            placeholders={"funnel_persons_query": funnel_persons_query},
+        )
+
+        return query
 
     def get_event_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         funnel_persons_query = self.get_funnel_actors_cte()
