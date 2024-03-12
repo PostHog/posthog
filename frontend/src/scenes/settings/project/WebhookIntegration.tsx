@@ -42,7 +42,7 @@ export function WebhookIntegration(): JSX.Element {
                 Send notifications when selected actions are performed by users.
                 <br />
                 Guidance on integrating with webhooks available in our docs,{' '}
-                <Link to="https://posthog.com/docs/integrate/third-party/slack">for Slack</Link> and{' '}
+                <Link to="https://posthog.com/docs/webhooks/slack">for Slack</Link> and{' '}
                 <Link to="https://posthog.com/docs/webhooks/microsoft-teams">for Microsoft Teams</Link>. Discord is also
                 supported.
             </p>
