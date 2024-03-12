@@ -5,7 +5,7 @@ import contextlib
 import json
 import typing
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -93,7 +93,7 @@ WHERE
 KILL_MUTATION_IN_PROGRESS_ON_CLUSTER = """
 KILL MUTATION ON CLUSTER {cluster}
 WHERE is_done = 0
-WHERE table = '{table}'
+AND table = '{table}'
 AND database = '{database}'
 AND command LIKE %(query)s
 """
@@ -464,7 +464,7 @@ async def manage_table(
         create_table,
         table_activity_inputs,
         start_to_close_timeout=timedelta(minutes=5),
-        retry_policy=RetryPolicy(maximum_attempts=10, initial_interval=timedelta(seconds=20)),
+        retry_policy=RetryPolicy(maximum_attempts=1),
         heartbeat_timeout=timedelta(minutes=1),
     )
 
@@ -472,7 +472,9 @@ async def manage_table(
         wait_for_table,
         table_activity_inputs,
         start_to_close_timeout=timedelta(hours=6),
-        retry_policy=RetryPolicy(maximum_attempts=20, initial_interval=timedelta(seconds=20)),
+        retry_policy=RetryPolicy(
+            maximum_attempts=0, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
+        ),
         heartbeat_timeout=timedelta(minutes=2),
     )
 
@@ -483,7 +485,9 @@ async def manage_table(
             drop_table,
             table_activity_inputs,
             start_to_close_timeout=timedelta(hours=1),
-            retry_policy=RetryPolicy(maximum_attempts=1, initial_interval=timedelta(seconds=20)),
+            retry_policy=RetryPolicy(
+                maximum_attempts=2, initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=10)
+            ),
             heartbeat_timeout=timedelta(minutes=1),
         )
 
@@ -493,7 +497,9 @@ async def manage_table(
             table_activity_inputs,
             # Assuming clean-up should be relatively fast.
             start_to_close_timeout=timedelta(minutes=3),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(
+                maximum_attempts=2, initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=10)
+            ),
             heartbeat_timeout=timedelta(seconds=20),
         )
 
@@ -646,7 +652,9 @@ async def submit_and_wait_for_mutation(
         wait_for_mutation,
         mutation_activity_inputs,
         start_to_close_timeout=timedelta(hours=6),
-        retry_policy=RetryPolicy(maximum_attempts=20, initial_interval=timedelta(seconds=20)),
+        retry_policy=RetryPolicy(
+            maximum_attempts=0, initial_interval=timedelta(seconds=20), maximum_interval=timedelta(minutes=2)
+        ),
         heartbeat_timeout=timedelta(minutes=2),
     )
 
@@ -656,9 +664,10 @@ class SquashPersonOverridesInputs:
     """Inputs for the SquashPersonOverrides workflow.
 
     Attributes:
-        team_ids: List of team ids to squash. If None, will squash all.
-        partition_ids: Partitions to squash, preferred over last_n_months.
-        last_n_months: Execute the squash on the partitions for the last_n_months.
+        team_ids: List of team ids to squash. If `None`, will squash all.
+        partition_ids: Partitions to squash, preferred over `last_n_months`.
+        last_n_months: Execute the squash on the last n month partitions.
+        offset: Start from offset month when generating partitions to squash with `last_n_months`
         delete_grace_period_seconds: Number of seconds until an override can be deleted. This grace
             period works on top of checking if the override was applied to all partitions. Defaults
             to 24h.
@@ -668,6 +677,7 @@ class SquashPersonOverridesInputs:
     team_ids: list[int] = field(default_factory=list)
     partition_ids: list[str] | None = None
     last_n_months: int = 1
+    offset: int = 0
     delete_grace_period_seconds: int = 24 * 3600
     dry_run: bool = True
 
@@ -684,20 +694,24 @@ class SquashPersonOverridesInputs:
         for month in self.iter_last_n_months():
             yield month.strftime("%Y%m")
 
-    def iter_last_n_months(self) -> collections.abc.Iterator[datetime]:
-        """Iterate over the last N months.
+    def iter_last_n_months(self) -> collections.abc.Iterator[date]:
+        """Iterate over beginning of the month dates of the last N months.
 
-        Returns the first day of the last N months. The current month
-        counts as the first month.
+        If `self.offset` is 0, then the first day of the current month will be the
+        first month yielded. Otherwise, `self.offset` will be subtracted from the
+        current month to land on the first month to yield.
         """
-        current_month = datetime.now()
+        now = date.today()
+        start_month = (now.month - self.offset) % 12
+        start_year = now.year + (now.month - self.offset) // 12
+        current_date = date(year=start_year, month=start_month, day=1)
 
-        for _ in range(self.last_n_months):
-            current_month = current_month.replace(day=1)
+        for _ in range(0, self.last_n_months):
+            current_date = current_date.replace(day=1)
 
-            yield current_month
+            yield current_date
 
-            current_month = current_month - timedelta(days=1)
+            current_date = current_date - timedelta(days=1)
 
 
 @workflow.defn(name="squash-person-overrides")

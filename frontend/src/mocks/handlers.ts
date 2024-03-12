@@ -100,7 +100,7 @@ export const defaultMocks: Mocks = {
         // We don't want to show the "new version available" banner in tests
         'https://api.github.com/repos/posthog/posthog-js/tags': () => [200, []],
         'https://www.gravatar.com/avatar/:gravatar_id': () => [404, ''],
-        'https://app.posthog.com/api/early_access_features': {
+        'https://us.i.posthog.com/api/early_access_features': {
             earlyAccessFeatures: [],
         },
         '/api/billing-v2/': {
@@ -108,11 +108,11 @@ export const defaultMocks: Mocks = {
         },
     },
     post: {
-        'https://app.posthog.com/e/': (): MockSignature => [200, 'ok'],
+        'https://us.i.posthog.com/e/': (): MockSignature => [200, 'ok'],
         '/e/': (): MockSignature => [200, 'ok'],
-        'https://app.posthog.com/decide/': (): MockSignature => [200, 'ok'],
+        'https://us.i.posthog.com/decide/': (): MockSignature => [200, 'ok'],
         '/decide/': (): MockSignature => [200, 'ok'],
-        'https://app.posthog.com/engage/': (): MockSignature => [200, 'ok'],
+        'https://us.i.posthog.com/engage/': (): MockSignature => [200, 'ok'],
         '/api/projects/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
     },
 }

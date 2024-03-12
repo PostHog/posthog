@@ -78,7 +78,10 @@ export const insight = {
         const networkInterceptAlias = interceptInsightLoad(tabName)
 
         cy.get(`[data-attr="insight-${(tabName === 'PATHS' ? 'PATH' : tabName).toLowerCase()}-tab"]`).click()
-        cy.wait(`@${networkInterceptAlias}`)
+        if (tabName !== 'FUNNELS') {
+            // funnel insights require two steps before making an api call
+            cy.wait(`@${networkInterceptAlias}`)
+        }
     },
     newInsight: (insightType: string = 'TRENDS'): void => {
         const networkInterceptAlias = interceptInsightLoad(insightType)
@@ -94,7 +97,10 @@ export const insight = {
             cy.get(`[data-attr-insight-type="${insightType}"]`).click()
         }
 
-        cy.wait(`@${networkInterceptAlias}`)
+        if (insightType !== 'FUNNELS') {
+            // funnel insights require two steps before making an api call
+            cy.wait(`@${networkInterceptAlias}`)
+        }
     },
     visitInsight: (insightName: string): void => {
         cy.clickNavMenu('savedinsights')
