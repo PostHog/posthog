@@ -204,8 +204,11 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
 
     return (
         <div className="insight-empty-state funnels-empty-state">
-            <div className="empty-state-inner py-4">
-                <h2 className="text-xl leading-tight funnels-empty-state__title">Add another step</h2>
+            <div className="empty-state-inner">
+                <div className="illustration-main">
+                    <PlusCircleOutlined />
+                </div>
+                <h2 className="text-xl leading-tight funnels-empty-state__title">Add another step!</h2>
                 <p className="text-sm text-center text-balance">
                     You’re almost there! Funnels require at least two steps before calculating.
                     {actionable &&
