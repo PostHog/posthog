@@ -664,9 +664,10 @@ class SquashPersonOverridesInputs:
     """Inputs for the SquashPersonOverrides workflow.
 
     Attributes:
-        team_ids: List of team ids to squash. If None, will squash all.
-        partition_ids: Partitions to squash, preferred over last_n_months.
-        last_n_months: Execute the squash on the partitions for the last_n_months.
+        team_ids: List of team ids to squash. If `None`, will squash all.
+        partition_ids: Partitions to squash, preferred over `last_n_months`.
+        last_n_months: Execute the squash on the last n month partitions.
+        offset: Start from offset month when generating partitions to squash with `last_n_months`
         delete_grace_period_seconds: Number of seconds until an override can be deleted. This grace
             period works on top of checking if the override was applied to all partitions. Defaults
             to 24h.
@@ -676,6 +677,7 @@ class SquashPersonOverridesInputs:
     team_ids: list[int] = field(default_factory=list)
     partition_ids: list[str] | None = None
     last_n_months: int = 1
+    offset: int = 0
     delete_grace_period_seconds: int = 24 * 3600
     dry_run: bool = True
 
@@ -700,10 +702,11 @@ class SquashPersonOverridesInputs:
         """
         current_month = datetime.now()
 
-        for _ in range(self.last_n_months):
+        for n_month in range(0, self.offset + self.last_n_months):
             current_month = current_month.replace(day=1)
 
-            yield current_month
+            if n_month >= self.offset:
+                yield current_month
 
             current_month = current_month - timedelta(days=1)
 
