@@ -1,50 +1,30 @@
 import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import React, { useEffect } from 'react'
-import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
-
-import { PluginType } from '~/types'
 
 import { OnboardingStepKey } from './onboardingLogic'
 import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingStep } from './OnboardingStep'
 
-function AppView({ plugin }: { plugin: PluginTypeWithConfig | PluginType | PluginRepositoryEntry }): JSX.Element {
-    const { toggleEnabled } = useActions(pluginsLogic)
-
-    const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
-
-    return (
-        <div className="grid gap-4 grid-cols-3">
-            <div className="flex items-center gap-4 col-span-2">
-                <PluginImage plugin={plugin} />
-                <div>
-                    <div className="flex gap-2 items-center">
-                        <span className="text-base font-semibold">{plugin.name}</span>
-                    </div>
-                    <div className="prompt-text ml-0 mb-0">{plugin.description}</div>
-                </div>
-            </div>
-
-            <div className="flex gap-2 whitespace-nowrap items-center justify-end">
-                <LemonSwitch
-                    data-attr="opt-in-session-recording-switch"
-                    onChange={(checked) => {
-                        toggleEnabled({
-                            id: pluginConfig?.id,
-                            enabled: checked,
-                        })
-                    }}
-                    className="justify-end"
-                    fullWidth={true}
-                    checked={pluginConfig?.enabled || false}
-                />
-            </div>
-        </div>
-    )
-}
+type ConfigType = 'toggle' | 'select'
+type PluginType = 'plugin'
+type ConfigOption =
+    | {
+          title: string
+          description?: string
+          type: ConfigType
+          selectOptions?: { label: string; value: string | number }[]
+          value: boolean | string | number
+          onChange: (newValue: boolean | string | number) => void
+      }
+    | {
+          title: string
+          description?: string
+          type: PluginType
+          value: boolean
+          onChange: (newValue: boolean) => void
+      }
 
 export const OnboardingProductConfiguration = ({
     stepKey = OnboardingStepKey.PRODUCT_CONFIGURATION,
@@ -56,63 +36,83 @@ export const OnboardingProductConfiguration = ({
     const { configOptions } = useValues(onboardingProductConfigurationLogic)
     const { defaultEnabledPlugins } = useValues(pluginsLogic)
     const { setConfigOptions, saveConfiguration } = useActions(onboardingProductConfigurationLogic)
+    const { toggleEnabled } = useActions(pluginsLogic)
 
     useEffect(() => {
         setConfigOptions(options)
     }, [])
 
-    return configOptions ? (
-        <OnboardingStep title="Set up your configuration" stepKey={stepKey} continueAction={saveConfiguration}>
-            <h2 className="pt-2">Options</h2>
-            {configOptions?.map((option: ProductConfigOption, idx) => (
-                <React.Fragment key={idx}>
-                    <LemonDivider className="my-4" />
-                    <div className="grid gap-4 grid-cols-3">
-                        <div className="col-span-2">
-                            <label className="text-base font-semibold">{option.title}</label>
-                            <p className="prompt-text ml-0 mb-0">{option.description}</p>
-                        </div>
-                        <div className="flex justify-end">
-                            {option.type == 'toggle' ? (
-                                <LemonSwitch
-                                    data-attr="opt-in-session-recording-switch"
-                                    onChange={(checked) => {
-                                        setConfigOptions(
-                                            configOptions.map((o) =>
-                                                o.teamProperty === option.teamProperty ? { ...o, value: checked } : o
-                                            )
-                                        )
-                                    }}
-                                    className="justify-end"
-                                    fullWidth={true}
-                                    checked={option.value || false}
-                                />
-                            ) : (
-                                <div className="flex justify-between items-center mb-1 gap-x-4">
-                                    <LemonSelect
-                                        dropdownMatchSelectWidth={false}
-                                        onChange={(v) => {
-                                            setConfigOptions(
-                                                configOptions.map((o) =>
-                                                    o.teamProperty === option.teamProperty ? { ...o, value: v } : o
-                                                )
-                                            )
-                                        }}
-                                        options={option.selectOptions || []}
-                                        value={option.value}
-                                    />
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </React.Fragment>
-            ))}
+    const combinedList: ConfigOption[] = [
+        ...configOptions.map((option) => ({
+            title: option.title,
+            description: option.description,
+            type: option.type as ConfigType,
+            selectOptions: option.selectOptions,
+            value: option.value,
+            onChange: (newValue: boolean | string | number) => {
+                setConfigOptions(
+                    configOptions.map((o) => (o.teamProperty === option.teamProperty ? { ...o, value: newValue } : o))
+                )
+            },
+        })),
+        ...defaultEnabledPlugins.map((plugin) => ({
+            title: plugin.name,
+            description: plugin.description,
+            type: 'plugin' as PluginType,
+            value: plugin.pluginConfig?.enabled || false,
+            onChange: (newValue: boolean) => {
+                toggleEnabled({
+                    id: plugin.pluginConfig?.id,
+                    enabled: newValue,
+                })
+            },
+        })),
+    ]
 
-            <h2 className="mt-8">Plugins</h2>
-            <LemonDivider className="my-4" />
-            {defaultEnabledPlugins.map((plugin, idx) => (
-                <AppView key={idx} plugin={plugin} />
-            ))}
+    return combinedList.length > 0 ? (
+        <OnboardingStep title="Set up your configuration" stepKey={stepKey} continueAction={saveConfiguration}>
+            <div className="mt-6">
+                <h2 className="pt-2">Options</h2>
+                {combinedList.map((item, idx) => (
+                    <React.Fragment key={idx}>
+                        <LemonDivider className="my-4" />
+                        <div className="grid gap-4 grid-cols-3">
+                            <div className="col-span-2">
+                                <label className="text-base font-semibold">{item.title}</label>
+                                <p className="prompt-text mt-2 mb-0 ">{item.description}</p>
+                            </div>
+                            <div className="flex justify-end">
+                                {item.type === 'toggle' ? (
+                                    <LemonSwitch
+                                        data-attr="opt-in-session-recording-switch"
+                                        onChange={item.onChange}
+                                        className="justify-end"
+                                        fullWidth={true}
+                                        checked={(item.value as boolean) || false}
+                                    />
+                                ) : item.type === 'plugin' ? (
+                                    <LemonSwitch
+                                        data-attr="opt-in-session-recording-switch"
+                                        onChange={item.onChange}
+                                        className="justify-end"
+                                        fullWidth={true}
+                                        checked={item.value || false}
+                                    />
+                                ) : (
+                                    <div className="flex justify-between items-center mb-1 gap-x-4">
+                                        <LemonSelect
+                                            dropdownMatchSelectWidth={false}
+                                            onChange={item.onChange}
+                                            options={item.selectOptions || []}
+                                            value={item.value}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </React.Fragment>
+                ))}
+            </div>
         </OnboardingStep>
     ) : null
 }
