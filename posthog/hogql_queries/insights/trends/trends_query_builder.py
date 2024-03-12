@@ -13,7 +13,14 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, TrendsQuery, ChartDisplayType
+from posthog.schema import (
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    HogQLQueryModifiers,
+    TrendsQuery,
+    ChartDisplayType,
+)
 from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
 
 
@@ -21,7 +28,7 @@ class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
-    series: EventsNode | ActionsNode
+    series: EventsNode | ActionsNode | DataWarehouseNode
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
 
@@ -30,7 +37,7 @@ class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
         trends_query: TrendsQuery,
         team: Team,
         query_date_range: QueryDateRange,
-        series: EventsNode | ActionsNode,
+        series: EventsNode | ActionsNode | DataWarehouseNode,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
     ):
@@ -179,14 +186,21 @@ class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
             ast.SelectQuery,
             parse_select(
                 """
-                SELECT
-                    {aggregation_operation} AS total
-                FROM {event_table} AS e
-
-                WHERE {events_filter}
-            """,
+                    SELECT
+                        {aggregation_operation} AS total
+                    FROM {table} AS e
+                    WHERE {events_filter}
+                """
+                if isinstance(self.series, DataWarehouseNode)
+                else """
+                    SELECT
+                        {aggregation_operation} AS total
+                    FROM {table} AS e
+                    SAMPLE {sample}
+                    WHERE {events_filter}
+                """,
                 placeholders={
-                    "event_table": ast.Field(chain=["test_stripe_charge"]),
+                    "table": self._table_expr,
                     "events_filter": events_filter,
                     "aggregation_operation": self._aggregation_operation.select_aggregation(),
                     "sample": self._sample_value(),
@@ -581,3 +595,10 @@ class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
             else None
         )
         return TrendsDisplay(display)
+
+    @cached_property
+    def _table_expr(self) -> ast.Field:
+        if isinstance(self.series, DataWarehouseNode):
+            return ast.Field(chain=[self.series.table_name])
+
+        return ast.Field(chain=["events"])
