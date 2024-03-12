@@ -32,6 +32,7 @@ from posthog.warehouse.models import (
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from posthog.models import Team
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline
 from temporalio.testing import WorkflowEnvironment
 from temporalio.common import RetryPolicy
@@ -118,7 +119,7 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
-async def _create_schema(schema_name: str, source: ExternalDataSource, team: int, table_id: Optional[str] = None):
+async def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, table_id: Optional[str] = None):
     return await sync_to_async(ExternalDataSchema.objects.create)(
         name=schema_name,
         team_id=team.id,
