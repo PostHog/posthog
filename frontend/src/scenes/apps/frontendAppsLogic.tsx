@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { FrontendApp, FrontendAppConfig } from '~/types'
 
-import { frontendAppRequire } from './frontendAppRequire'
+// import { frontendAppRequire } from './frontendAppRequire'
 import type { frontendAppsLogicType } from './frontendAppsLogicType'
 
 /** Manages the loading and lifecycle of frontend apps. */
@@ -56,7 +56,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                         `${siteUrl}/api/plugin_config/${id}/frontend${reload ? '?_=' + new Date().valueOf() : ''}`
                     )
                     if ('getFrontendApp' in exports) {
-                        const app = exports.getFrontendApp(frontendAppRequire)
+                        const app = exports.getFrontendApp()
                         if ('scene' in app) {
                             if (app.scene.onInit) {
                                 window.setTimeout(() => app.scene.onInit(values.appConfigs[id]), 0)
