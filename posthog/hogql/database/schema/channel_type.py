@@ -1,5 +1,7 @@
+from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.parser import parse_expr
+
 
 # Create a virtual field that categories the type of channel that a user was acquired through. Use GA4's definitions as
 # a starting point, but also add some custom logic to handle some edge cases that GA4 doesn't handle.
@@ -22,11 +24,16 @@ def create_initial_domain_type(name: str):
         expr=parse_expr(
             """
 if(
-    properties.$initial_referring_domain = '$direct',
+    {referring_domain} = '$direct',
     '$direct',
-    hogql_lookupDomainType(properties.$initial_referring_domain)
+    hogql_lookupDomainType({referring_domain})
 )
-"""
+""",
+            {
+                "referring_domain": ast.Call(
+                    name="toString", args=[ast.Field(chain=["properties", "$initial_referring_domain"])]
+                )
+            },
         ),
     )
 
@@ -37,28 +44,28 @@ def create_initial_channel_type(name: str):
         expr=parse_expr(
             """
 multiIf(
-    match(properties.$initial_utm_campaign, 'cross-network'),
+    match({campaign}, 'cross-network'),
     'Cross Network',
 
     (
-        match(properties.$initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
-        properties.$initial_gclid IS NOT NULL OR
-        properties.$initial_gad_source IS NOT NULL
+        match({medium}, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
+        {gclid} IS NOT NULL OR
+        {gad_source} IS NOT NULL
     ),
     coalesce(
-        hogql_lookupPaidSourceType(properties.$initial_utm_source),
-        hogql_lookupPaidDomainType(properties.$initial_referring_domain),
+        hogql_lookupPaidSourceType({source}),
+        hogql_lookupPaidDomainType({referring_domain}),
         if(
-            match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+            match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Paid Shopping',
             NULL
         ),
-        hogql_lookupPaidMediumType(properties.$initial_utm_medium),
+        hogql_lookupPaidMediumType({medium}),
         multiIf (
-            properties.$initial_gad_source = '1',
+            {gad_source} = '1',
             'Paid Search',
 
-            match(properties.$initial_utm_campaign, '^(.*video.*)$'),
+            match({campaign}, '^(.*video.*)$'),
             'Paid Video',
 
             'Paid Other'
@@ -66,26 +73,26 @@ multiIf(
     ),
 
     (
-        properties.$initial_referring_domain = '$direct'
-        AND (properties.$initial_utm_medium IS NULL OR properties.$initial_utm_medium = '')
-        AND (properties.$initial_utm_source IS NULL OR properties.$initial_utm_source IN ('', '(direct)', 'direct'))
+        {referring_domain} = '$direct'
+        AND ({medium} IS NULL OR {medium} = '')
+        AND ({source} IS NULL OR {source} IN ('', '(direct)', 'direct'))
     ),
     'Direct',
 
     coalesce(
-        hogql_lookupOrganicSourceType(properties.$initial_utm_source),
-        hogql_lookupOrganicDomainType(properties.$initial_referring_domain),
+        hogql_lookupOrganicSourceType({source}),
+        hogql_lookupOrganicDomainType({referring_domain}),
         if(
-            match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+            match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Organic Shopping',
             NULL
         ),
-        hogql_lookupOrganicMediumType(properties.$initial_utm_medium),
+        hogql_lookupOrganicMediumType({medium}),
         multiIf(
-            match(properties.$initial_utm_campaign, '^(.*video.*)$'),
+            match({campaign}, '^(.*video.*)$'),
             'Organic Video',
 
-            match(properties.$initial_utm_medium, 'push$'),
+            match({medium}, 'push$'),
             'Push',
 
             'Other'
@@ -93,5 +100,15 @@ multiIf(
     )
 )""",
             start=None,
+            placeholders={
+                "campaign": ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_campaign"])]),
+                "medium": ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_medium"])]),
+                "source": ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_source"])]),
+                "referring_domain": ast.Call(
+                    name="toString", args=[ast.Field(chain=["properties", "$initial_referring_domain"])]
+                ),
+                "gclid": ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gclid"])]),
+                "gad_source": ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gad_source"])]),
+            },
         ),
     )
