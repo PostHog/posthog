@@ -123,7 +123,7 @@ WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND {where}
             date = self.start_date + timedelta(days=i)
             logging.info("Writing the sessions for day %s", date.strftime("%Y-%m-%d"))
             sync_execute(
-                query=f"""INSERT INTO writable_sessions {select_query(select_date=date)}""",
+                query=f"""INSERT INTO writable_sessions {select_query(select_date=date)} SETTINGS max_execution_time=3600""",
                 workload=Workload.OFFLINE if self.use_offline_workload else Workload.DEFAULT,
             )
 
