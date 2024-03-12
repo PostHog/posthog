@@ -37,7 +37,7 @@ class CreateExternalDataJobInputs:
 
 
 @activity.defn
-async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) -> Tuple[str, list[str]]:
+async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) -> Tuple[str, list[Tuple[str, str]]]:
     run = await sync_to_async(create_external_data_job)(
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
@@ -105,7 +105,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 class ValidateSchemaInputs:
     run_id: str
     team_id: int
-    schemas: list[str]
+    schemas: list[Tuple[str, str]]
 
 
 @activity.defn
@@ -133,7 +133,7 @@ class ExternalDataJobInputs:
     team_id: int
     source_id: uuid.UUID
     run_id: str
-    schemas: list[str]
+    schemas: list[Tuple[str, str]]
 
 
 @activity.defn
@@ -153,6 +153,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         dataset_name=model.folder_path,
     )
 
+    endpoints = [schema[1] for schema in inputs.schemas]
+
     source = None
     if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
         from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
@@ -162,7 +164,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
         source = stripe_source(
             api_key=stripe_secret_key,
-            endpoints=tuple(inputs.schemas),
+            endpoints=tuple(endpoints),
             team_id=inputs.team_id,
             job_id=inputs.run_id,
         )
@@ -181,7 +183,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         source = hubspot(
             api_key=hubspot_access_code,
             refresh_token=refresh_token,
-            endpoints=tuple(inputs.schemas),
+            endpoints=tuple(endpoints),
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
         from posthog.temporal.data_imports.pipelines.postgres import postgres_source
@@ -201,7 +203,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
             database=database,
             sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
             schema=schema,
-            table_names=inputs.schemas,
+            table_names=endpoints,
         )
 
     else:

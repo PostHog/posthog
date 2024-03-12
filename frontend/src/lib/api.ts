@@ -26,6 +26,7 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
+    ErrorClusterResponse,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
@@ -1629,6 +1630,10 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
         },
 
+        async errorClusters(refresh?: boolean): Promise<ErrorClusterResponse> {
+            return await new ApiRequest().recordings().withAction('error_clusters').withQueryString({ refresh }).get()
+        },
+
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
         },
@@ -1923,13 +1928,10 @@ const api = {
             password: string,
             schema: string
         ): Promise<ExternalDataPostgresSchema[]> {
-            const queryParams = toParams({ host, port, dbname, user, password, schema })
-
             return await new ApiRequest()
                 .externalDataSources()
                 .withAction('database_schema')
-                .withQueryString(queryParams)
-                .get()
+                .create({ data: { host, port, dbname, user, password, schema } })
         },
     },
 

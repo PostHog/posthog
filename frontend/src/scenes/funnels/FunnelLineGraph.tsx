@@ -91,7 +91,7 @@ export function FunnelLineGraph({
 
                               if (hogQLInsightsFunnelsFlagEnabled) {
                                   const query: FunnelsActorsQuery = {
-                                      kind: NodeKind.InsightActorsQuery,
+                                      kind: NodeKind.FunnelsActorsQuery,
                                       source: querySource,
                                       funnelTrendsDropOff: false,
                                       funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),

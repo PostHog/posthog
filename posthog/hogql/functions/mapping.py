@@ -493,6 +493,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "JSONExtractKeys": HogQLFunctionMeta("JSONExtractKeys", 1, None),
     "JSONExtractRaw": HogQLFunctionMeta("JSONExtractRaw", 1, None),
     "JSONExtractArrayRaw": HogQLFunctionMeta("JSONExtractArrayRaw", 1, None),
+    "JSONExtractKeysAndValues": HogQLFunctionMeta("JSONExtractKeysAndValues", 1, 3),
     "JSONExtractKeysAndValuesRaw": HogQLFunctionMeta("JSONExtractKeysAndValuesRaw", 1, None),
     # in
     "in": HogQLFunctionMeta("in", 2, 2),
@@ -578,6 +579,7 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
     "count": HogQLFunctionMeta("count", 0, 1, aggregate=True),
     "COUNT": HogQLFunctionMeta("count", 0, 1, aggregate=True),
     "countIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
+    "countDistinctIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
     "min": HogQLFunctionMeta("min", 1, 1, aggregate=True),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True),
