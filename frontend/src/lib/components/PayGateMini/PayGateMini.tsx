@@ -5,15 +5,17 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lowercaseFirstLetter } from 'lib/utils'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
 import { PayGateMiniButton } from './PayGateMiniButton'
+import { payGateMiniLogic } from './payGateMiniLogic'
 
 export interface PayGateMiniProps {
     feature: AvailableFeature
@@ -39,29 +41,23 @@ export function PayGateMini({
     background = true,
     isGrandfathered,
 }: PayGateMiniProps): JSX.Element | null {
-    const { preflight, isCloudOrDev } = useValues(preflightLogic)
-    const { hasAvailableFeature, availableFeature } = useValues(userLogic)
+    const { product, featureInfo, featureDetailsWithLimit, gateVariant } = useValues(
+        payGateMiniLogic({ featureKey: feature, currentUsage })
+    )
+    const { preflight } = useValues(preflightLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { hideUpgradeModal } = useActions(sceneLogic)
 
-    const product = billing?.products.find((product) => product.features?.some((f) => f.key === feature))
-    const featureInfo = product?.features.find((f) => f.key === feature)
-    const featureDetailsWithLimit = availableFeature(feature)
-    const minimumPlan = product?.plans.find((plan) => plan.features?.some((f) => f.key === feature))
-
-    let gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null = null
-    if (!overrideShouldShowGate && !hasAvailableFeature(feature, currentUsage)) {
-        if (isCloudOrDev) {
-            if (!minimumPlan || minimumPlan.contact_support) {
-                gateVariant = 'contact-sales'
-            } else {
-                gateVariant = 'add-card'
-            }
-        } else {
-            gateVariant = 'move-to-cloud'
+    useEffect(() => {
+        if (gateVariant) {
+            posthog.capture('pay gate shown', {
+                product_key: product?.type,
+                feature: feature,
+                gate_variant: gateVariant,
+            })
         }
-    }
+    }, [gateVariant])
 
     if (billingLoading) {
         return null
@@ -72,7 +68,7 @@ export function PayGateMini({
     }
 
     return featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' ? (
-        gateVariant && product && featureInfo ? (
+        gateVariant && product && featureInfo && !overrideShouldShowGate ? (
             <div
                 className={clsx(
                     className,
@@ -141,7 +137,7 @@ export function PayGateMini({
         ) : (
             <div className={className}>{children}</div>
         )
-    ) : gateVariant && product && featureInfo ? (
+    ) : gateVariant && product && featureInfo && !overrideShouldShowGate ? (
         <div
             className={clsx(
                 className,
