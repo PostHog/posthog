@@ -212,6 +212,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total", "breakdown_value"})
+        assert len(response.results) == 4
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
         assert response.results[0][2] == "a"
 
@@ -223,9 +224,6 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
 
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
-
-        assert response.results[4][1] == [0, 0, 0, 0, 0, 0, 0]
-        assert response.results[4][2] == "$$_posthog_breakdown_other_$$"
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_with_property(self):
@@ -244,11 +242,9 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total", "breakdown_value"})
+        assert len(response.results) == 1
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
         assert response.results[0][2] == "a"
-
-        assert response.results[1][1] == [0, 0, 0, 0, 0, 0, 0]
-        assert response.results[1][2] == "$$_posthog_breakdown_other_$$"
 
     def assert_column_names_with_display_type(self, display_type: ChartDisplayType):
         # KLUDGE: creating data on every variant
