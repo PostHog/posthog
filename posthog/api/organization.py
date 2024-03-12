@@ -10,7 +10,7 @@ from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -66,6 +66,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
+    member_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
@@ -84,6 +85,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "metadata",
             "customer_id",
             "enforce_2fa",
+            "member_count",
         ]
         read_only_fields = [
             "id",
@@ -97,6 +99,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "available_product_features",
             "metadata",
             "customer_id",
+            "member_count",
         ]
         extra_kwargs = {
             "slug": {
@@ -123,6 +126,16 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         return {
             "instance_tag": settings.INSTANCE_TAG,
         }
+
+    def get_member_count(self, organization: Organization):
+        return (
+            OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+            .filter(
+                user__is_active=True,
+            )
+            .filter(organization=organization)
+            .count()
+        )
 
 
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

@@ -8,11 +8,11 @@ describe('Experiments', () => {
             fixture: 'api/experiments/user',
         })
 
-        cy.intercept('/api/projects/1/experiments?limit=1000', {
+        cy.intercept('/api/projects/*/experiments?limit=1000', {
             fixture: 'api/experiments/experiments',
         })
 
-        cy.intercept('/api/projects/1/experiments/1234/', {
+        cy.intercept('/api/projects/*/experiments/1234/', {
             fixture: 'api/experiments/new-experiment',
         })
 

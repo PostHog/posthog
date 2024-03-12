@@ -42,7 +42,7 @@ import {
     wireframeText,
     wireframeToggle,
 } from '../mobile.types'
-import { makeNavigationBar, makeStatusBar } from './screen-chrome'
+import { makeNavigationBar, makeOpenKeyboardPlaceholder, makeStatusBar } from './screen-chrome'
 import { ConversionContext, ConversionResult } from './types'
 import {
     asStyleString,
@@ -56,7 +56,7 @@ import {
     makeStylesString,
 } from './wireframeStyle'
 
-const BACKGROUND = '#f3f4ef'
+export const BACKGROUND = '#f3f4ef'
 const FOREGROUND = '#35373e'
 
 /**
@@ -93,7 +93,7 @@ const NAVIGATION_BAR_PARENT_ID = 7
 export const NAVIGATION_BAR_ID = 8
 // the keyboard so that it is still before the nav bar
 const KEYBOARD_PARENT_ID = 9
-const KEYBOARD_ID = 10
+export const KEYBOARD_ID = 10
 export const STATUS_BAR_PARENT_ID = 11
 export const STATUS_BAR_ID = 12
 
@@ -124,28 +124,10 @@ export const makeCustomEvent = (
         const adds: addedNodeMutation[] = []
         const removes = []
         if (mobileCustomEvent.data.payload.open) {
-            const shouldAbsolutelyPosition =
-                _isPositiveInteger(mobileCustomEvent.data.payload.x) ||
-                _isPositiveInteger(mobileCustomEvent.data.payload.y)
-            const keyboardPlaceHolder = makePlaceholderElement(
-                {
-                    id: KEYBOARD_ID,
-                    type: 'placeholder',
-                    label: 'keyboard',
-                    height: mobileCustomEvent.data.payload.height,
-                    width: _isPositiveInteger(mobileCustomEvent.data.payload.width)
-                        ? mobileCustomEvent.data.payload.width
-                        : '100vw',
-                },
-                [],
-                {
-                    timestamp: mobileCustomEvent.timestamp,
-                    idSequence: globalIdSequence,
-                    styleOverride: {
-                        ...(shouldAbsolutelyPosition ? {} : { bottom: true }),
-                    },
-                }
-            )
+            const keyboardPlaceHolder = makeOpenKeyboardPlaceholder(mobileCustomEvent, {
+                timestamp: mobileCustomEvent.timestamp,
+                idSequence: globalIdSequence,
+            })
             if (keyboardPlaceHolder) {
                 adds.push({
                     parentId: KEYBOARD_PARENT_ID,
@@ -272,7 +254,7 @@ function makeWebViewElement(
     return makePlaceholderElement(labelledWireframe, children, context)
 }
 
-function makePlaceholderElement(
+export function makePlaceholderElement(
     wireframe: wireframe,
     children: serializedNodeWithId[],
     context: ConversionContext
@@ -1349,7 +1331,7 @@ export const makeFullEvent = (
                                 tagName: 'head',
                                 attributes: { 'data-rrweb-id': HEAD_ID },
                                 id: HEAD_ID,
-                                childNodes: [],
+                                childNodes: [makeCSSReset(conversionContext)],
                             },
                             {
                                 type: NodeType.Element,
@@ -1375,5 +1357,42 @@ export const makeFullEvent = (
                 left: 0,
             },
         },
+    }
+}
+
+function makeCSSReset(context: ConversionContext): serializedNodeWithId {
+    // we need to normalize CSS so browsers don't do unexpected things
+    return {
+        type: NodeType.Element,
+        tagName: 'style',
+        attributes: {
+            type: 'text/css',
+        },
+        id: context.idSequence.next().value,
+        childNodes: [
+            {
+                type: NodeType.Text,
+                textContent: `
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                `,
+                id: context.idSequence.next().value,
+            },
+        ],
     }
 }
