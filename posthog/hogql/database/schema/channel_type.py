@@ -24,7 +24,7 @@ def create_initial_domain_type(name: str):
 if(
     properties.$initial_referring_domain = '$direct',
     '$direct',
-    hogql_lookupDomainType(properties.$initial_referring_domain)
+    hogql_lookupDomainType(toString(properties.$initial_referring_domain))
 )
 """
         ),
@@ -37,28 +37,28 @@ def create_initial_channel_type(name: str):
         expr=parse_expr(
             """
 multiIf(
-    match(properties.$initial_utm_campaign, 'cross-network'),
+    match(toString(properties.$initial_utm_campaign), 'cross-network'),
     'Cross Network',
 
     (
-        match(properties.$initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
+        match(toString(properties.$initial_utm_medium), '^(.*cp.*|ppc|retargeting|paid.*)$') OR
         properties.$initial_gclid IS NOT NULL OR
         properties.$initial_gad_source IS NOT NULL
     ),
     coalesce(
-        hogql_lookupPaidSourceType(properties.$initial_utm_source),
-        hogql_lookupPaidDomainType(properties.$initial_referring_domain),
+        hogql_lookupPaidSourceType(toString(properties.$initial_utm_source)),
+        hogql_lookupPaidDomainType(toString(properties.$initial_referring_domain)),
         if(
-            match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+            match(toString(properties.$initial_utm_campaign), '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Paid Shopping',
             NULL
         ),
-        hogql_lookupPaidMediumType(properties.$initial_utm_medium),
+        hogql_lookupPaidMediumType(toString(properties.$initial_utm_medium)),
         multiIf (
-            properties.$initial_gad_source = '1',
+            toString(properties.$initial_gad_source) = '1',
             'Paid Search',
 
-            match(properties.$initial_utm_campaign, '^(.*video.*)$'),
+            match(toString(properties.$initial_utm_campaign), '^(.*video.*)$'),
             'Paid Video',
 
             'Paid Other'
@@ -73,19 +73,19 @@ multiIf(
     'Direct',
 
     coalesce(
-        hogql_lookupOrganicSourceType(properties.$initial_utm_source),
-        hogql_lookupOrganicDomainType(properties.$initial_referring_domain),
+        hogql_lookupOrganicSourceType(toString(properties.$initial_utm_source)),
+        hogql_lookupOrganicDomainType(toString(properties.$initial_referring_domain)),
         if(
-            match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+            match(toString(properties.$initial_utm_campaign), '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Organic Shopping',
             NULL
         ),
-        hogql_lookupOrganicMediumType(properties.$initial_utm_medium),
+        hogql_lookupOrganicMediumType(toString(properties.$initial_utm_medium)),
         multiIf(
-            match(properties.$initial_utm_campaign, '^(.*video.*)$'),
+            match(toString(properties.$initial_utm_campaign), '^(.*video.*)$'),
             'Organic Video',
 
-            match(properties.$initial_utm_medium, 'push$'),
+            match(toString(properties.$initial_utm_medium), 'push$'),
             'Push',
 
             'Other'
