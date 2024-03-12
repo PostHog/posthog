@@ -113,7 +113,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         ? 'have this event property'
                         : 'do this event'}
                 </div>
-                <CorrelationMatrix />
             </>
         )
     }
@@ -233,6 +232,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         </div>
                     </span>
                 </span>
+                <CorrelationMatrix />
                 <ConfigProvider
                     renderEmpty={() =>
                         loadedEventCorrelationsTableOnce ? (
