@@ -211,7 +211,14 @@ export function PayGateMini({
                 }
                 type="primary"
                 center
-                onClick={hideUpgradeModal}
+                onClick={() => {
+                    hideUpgradeModal()
+                    posthog.capture('pay gate CTA clicked', {
+                        product_key: product?.type,
+                        feature: feature,
+                        gate_variant: gateVariant,
+                    })
+                }}
             >
                 {gateVariant === 'add-card'
                     ? billing?.has_active_subscription
