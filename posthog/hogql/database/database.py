@@ -220,6 +220,31 @@ def create_hogql_database(
             join_function=join.join_function,
         )
 
+        if join.source_table_name == "persons":
+            person_field = database.events.fields["person"]
+            if isinstance(person_field, ast.FieldTraverser):
+                table_or_field: ast.FieldOrTable = database.events
+                for chain in person_field.chain:
+                    if isinstance(table_or_field, ast.LazyJoin):
+                        table_or_field = table_or_field.resolve_table(HogQLContext(team_id=team_id, database=database))
+                        if table_or_field.has_field(chain):
+                            table_or_field = table_or_field.get_field(chain)
+                            if isinstance(table_or_field, ast.LazyJoin):
+                                table_or_field = table_or_field.resolve_table(
+                                    HogQLContext(team_id=team_id, database=database)
+                                )
+                    elif isinstance(table_or_field, ast.Table):
+                        table_or_field = table_or_field.get_field(chain)
+
+                assert isinstance(table_or_field, ast.Table)
+
+                table_or_field.fields[join.field_name] = LazyJoin(
+                    from_field=from_field,
+                    to_field=to_field,
+                    join_table=joining_table,
+                    join_function=join.join_function,
+                )
+
     return database
 
 
