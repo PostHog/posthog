@@ -4,6 +4,14 @@ from posthog.models.organization import Organization
 
 
 class AccessControl(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "resource", "resource_id", "team", "organization_membership", "role"],
+                name="unique resource per target",
+            )
+        ]
+
     organization: models.ForeignKey = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="access_controls"
     )
@@ -47,11 +55,3 @@ class AccessControl(models.Model):
     )
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["organization", "resource", "resource_id", "team", "organization_membership", "role"],
-                name="unique resource per target",
-            )
-        ]
