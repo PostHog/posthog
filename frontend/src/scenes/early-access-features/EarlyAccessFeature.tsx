@@ -307,7 +307,8 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <div>
                                 <h3>Users</h3>
                                 <p>
-                                    Users who opt in or out of the feature will be listed here. You can choose to{' '}
+                                    When a user opts in or out of the feature they will be listed here. You can choose
+                                    to{' '}
                                     <Link onClick={toggleImplementOptInInstructionsModal}>
                                         implement your own opt-in interface or use our provided app.
                                     </Link>
