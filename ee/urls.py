@@ -7,6 +7,7 @@ from django.urls.conf import path
 from rest_framework_extensions.routers import NestedRegistryItem
 
 from ee.api import integration, time_to_see_data
+from .api.rbac import organization_resource_access, role, access_control
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from .api import (
@@ -18,8 +19,6 @@ from .api import (
     feature_flag_role_access,
     hooks,
     license,
-    organization_resource_access,
-    role,
     sentry_stats,
     subscription,
 )
@@ -51,6 +50,14 @@ def extend_api_router(
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
+    organizations_router.register(
+        r"access_controls",
+        access_control.AccessControlViewSet,
+        "organization_access_controls",
+        ["organization_id"],
+    )
+
+    # ROUTES TO BE DEPRECATED
     project_feature_flags_router.register(
         r"role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
@@ -63,6 +70,8 @@ def extend_api_router(
         "organization_resource_access",
         ["organization_id"],
     )
+    # END ROUTES TO BE DEPRECATED
+
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
     projects_router.register(
         r"explicit_members",

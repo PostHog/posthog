@@ -2,6 +2,8 @@ from django.db import models
 
 from posthog.models.organization import Organization
 
+# NOTE: This will be deprecated in favour of the AccessControl model
+
 
 class OrganizationResourceAccess(models.Model):
     class AccessLevel(models.IntegerChoices):

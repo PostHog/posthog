@@ -1,6 +1,9 @@
 from django.db import models
 
 
+# NOTE: This will be deprecated in favour of the AccessControl model
+
+
 class FeatureFlagRoleAccess(models.Model):
     feature_flag: models.ForeignKey = models.ForeignKey(
         "posthog.FeatureFlag",

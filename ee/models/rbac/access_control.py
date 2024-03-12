@@ -5,7 +5,7 @@ from posthog.models.organization import Organization
 
 class AccessControl(models.Model):
     organization: models.ForeignKey = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="access_control"
+        Organization, on_delete=models.CASCADE, related_name="access_controls"
     )
 
     # Configuration of what we are accessing
@@ -13,21 +13,30 @@ class AccessControl(models.Model):
     resource_id: models.CharField = models.CharField(max_length=36)
     access_level: models.CharField = models.CharField(max_length=32)
 
+    # Optional scoping of the resource to a specific team
+    team: models.ForeignKey = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="access_controls",
+        related_query_name="access_controls",
+        null=True,
+    )
+
     # Optional which organization membership does this apply to
     organization_membership: models.ForeignKey = models.ForeignKey(
         "posthog.OrganizationMembership",
         on_delete=models.CASCADE,
-        related_name="access_control",
-        related_query_name="access_control",
+        related_name="access_controls",
+        related_query_name="access_controls",
         null=True,
     )
 
-    # Optional which role does this apply to?
+    # Optional which role does this apply to
     role: models.ForeignKey = models.ForeignKey(
         "Role",
         on_delete=models.CASCADE,
-        related_name="access_control",
-        related_query_name="access_control",
+        related_name="access_controls",
+        related_query_name="access_controls",
         null=True,
     )
 
@@ -42,7 +51,7 @@ class AccessControl(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "resource", "user", "role"],
-                name="unique resource per organization",
+                fields=["organization", "resource", "resource_id", "team", "organization_membership", "role"],
+                name="unique resource per target",
             )
         ]

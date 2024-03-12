@@ -71,15 +71,7 @@ class RoleSerializer(serializers.ModelSerializer):
         return RoleMembershipSerializer(members, many=True).data
 
 
-class RoleViewSet(
-    TeamAndOrgViewSetMixin,
-    mixins.ListModelMixin,
-    mixins.CreateModelMixin,
-    mixins.RetrieveModelMixin,
-    mixins.UpdateModelMixin,
-    mixins.DestroyModelMixin,
-    viewsets.GenericViewSet,
-):
+class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     permission_classes = [RolePermissions]
     serializer_class = RoleSerializer
