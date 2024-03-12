@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { LemonButton } from '../LemonButton'
 import { LemonTable, LemonTableProps } from './LemonTable'
+import { LemonTableLink } from './LemonTableLink'
 
 type Story = StoryObj<typeof LemonTable>
 const meta: Meta<typeof LemonTable> = {
@@ -267,6 +268,74 @@ export const WithStickyFirstColumn = (): JSX.Element => {
                     title: 'Name',
                     dataIndex: 'name',
                     sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
+                },
+                {
+                    title: 'Occupation',
+                    dataIndex: 'occupation',
+                    tooltip: 'What they are primarily working on.',
+                    sorter: (a, b) => a.occupation.localeCompare(b.occupation),
+                },
+                {
+                    title: 'Age',
+                    key: 'age',
+                    render: (_, person) => `${person.name.length * 12} years`,
+                },
+                {
+                    title: 'Zodiac sign',
+                    key: 'zodiac',
+                    render: () => 'Gemini',
+                },
+                {
+                    title: 'Favorite color',
+                    key: 'color',
+                    render: (_, person) => (person.occupation === 'Engineer' ? 'Blue' : 'Red'),
+                },
+            ]}
+            dataSource={
+                [
+                    {
+                        name: 'Werner C.',
+                        occupation: 'Engineer',
+                    },
+                    {
+                        name: 'Ursula Z.',
+                        occupation: 'Retired',
+                    },
+                    {
+                        name: 'Ludwig A.',
+                        occupation: 'Painter',
+                    },
+                    {
+                        name: 'Arnold S.',
+                        occupation: 'Body-builder',
+                    },
+                    {
+                        name: 'Franz B.',
+                        occupation: 'Teacher',
+                    },
+                ] as MockPerson[]
+            }
+        />
+    )
+}
+
+export const WithLink = (): JSX.Element => {
+    return (
+        <LemonTable
+            columns={[
+                {
+                    title: 'Name',
+                    dataIndex: 'name',
+                    sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
+                    render: (_, item) => (
+                        <LemonTableLink
+                            title={item.name}
+                            to="/test"
+                            description={`${item.name} is a ${item.occupation.toLowerCase()} who is ${
+                                item.name.length * 12
+                            } years old.`}
+                        />
+                    ),
                 },
                 {
                     title: 'Occupation',

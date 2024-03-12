@@ -7,7 +7,7 @@ from posthog.hogql.database.models import (
     LazyJoin,
     FieldOrTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons import join_with_persons_table
 
 
 class StaticCohortPeople(Table):
@@ -16,8 +16,8 @@ class StaticCohortPeople(Table):
         "cohort_id": IntegerDatabaseField(name="cohort_id"),
         "team_id": IntegerDatabaseField(name="team_id"),
         "person": LazyJoin(
-            from_field="person_id",
-            join_table=PersonsTable(),
+            from_field=["person_id"],
+            join_table="persons",
             join_function=join_with_persons_table,
         ),
     }

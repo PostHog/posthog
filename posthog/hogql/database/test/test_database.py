@@ -24,19 +24,25 @@ class TestDatabase(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
-            serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
+            serialized_database = serialize_database(
+                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+            )
             assert json.dumps(serialized_database, indent=4) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_with_person_on_events_enabled(self):
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
-            serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
+            serialized_database = serialize_database(
+                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+            )
             assert json.dumps(serialized_database, indent=4) == self.snapshot
 
     @parameterized.expand([False, True])
     def test_can_select_from_each_table_at_all(self, poe_enabled: bool) -> None:
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=poe_enabled):
-            serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
+            serialized_database = serialize_database(
+                HogQLContext(team_id=self.team.pk, database=create_hogql_database(team_id=self.team.pk))
+            )
             for table, possible_columns in serialized_database.items():
                 if table == "numbers":
                     execute_hogql_query(
@@ -79,7 +85,7 @@ class TestDatabase(BaseTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
         )
 
     def test_database_group_type_mappings(self):

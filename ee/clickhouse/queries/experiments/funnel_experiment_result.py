@@ -79,6 +79,9 @@ class ClickhouseFunnelExperimentResult:
                 "properties": [],
                 # :TRICKY: We don't use properties set on filters, as these
                 # correspond to feature flag properties, not the funnel properties.
+                # This is also why we simplify only right now so new properties (from test account filters)
+                # are added appropriately.
+                "is_simplified": False,
             }
         )
         self.funnel = funnel_class(query_filter, team)

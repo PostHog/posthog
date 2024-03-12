@@ -1,17 +1,18 @@
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import type { PostHog } from 'posthog-js'
 
 import { posthog as posthogJS } from '~/toolbar/posthog'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
-import type { featureFlagsLogicType } from './featureFlagsLogicType'
+import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
 
-export const featureFlagsLogic = kea<featureFlagsLogicType>([
-    path(['toolbar', 'flags', 'featureFlagsLogic']),
+export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
+    path(['toolbar', 'flags', 'flagsToolbarLogic']),
     connect(() => ({
         values: [toolbarConfigLogic, ['posthog']],
     })),
@@ -130,12 +131,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             }
         },
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.getUserFlags()
-            actions.checkLocalOverrides()
-        },
-    })),
+    permanentlyMount(),
 ])
 
 function getGroups(posthogInstance: PostHog | null): Record<string, any> {

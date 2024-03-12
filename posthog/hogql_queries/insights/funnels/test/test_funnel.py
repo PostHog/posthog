@@ -3,6 +3,7 @@ from typing import cast
 import uuid
 from django.test import override_settings
 from freezegun import freeze_time
+from rest_framework.exceptions import ValidationError
 from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
@@ -1765,69 +1766,70 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 ids_to_compare,
             )
 
-        # def test_funnel_exclusions_invalid_params(self):
-        #     filters = {
-        #         "events": [
-        #             {"id": "user signed up", "type": "events", "order": 0},
-        #             {"id": "paid", "type": "events", "order": 1},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "funnel_window_days": 14,
-        #         "date_from": "2021-05-01 00:00:00",
-        #         "date_to": "2021-05-14 00:00:00",
-        #         "exclusions": [
-        #             {
-        #                 "id": "x",
-        #                 "type": "events",
-        #                 "funnel_from_step": 1,
-        #                 "funnel_to_step": 1,
-        #             }
-        #         ],
-        #     }
-        #     filter = Filter(data=filters)
-        #     self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
+        def test_funnel_exclusions_invalid_params(self):
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "paid", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_days": 14,
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-14 00:00:00",
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 1,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
 
-        #     filter = filter.shallow_clone(
-        #         {
-        #             "exclusions": [
-        #                 {
-        #                     "id": "x",
-        #                     "type": "events",
-        #                     "funnel_from_step": 1,
-        #                     "funnel_to_step": 2,
-        #                 }
-        #             ]
-        #         }
-        #     )
-        #     self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            self.assertRaises(ValidationError, lambda: FunnelsQueryRunner(query=query, team=self.team).calculate())
 
-        #     filter = filter.shallow_clone(
-        #         {
-        #             "exclusions": [
-        #                 {
-        #                     "id": "x",
-        #                     "type": "events",
-        #                     "funnel_from_step": 2,
-        #                     "funnel_to_step": 1,
-        #                 }
-        #             ]
-        #         }
-        #     )
-        #     self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
+            filters = {
+                **filters,
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 1,
+                        "funnel_to_step": 2,
+                    }
+                ],
+            }
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            self.assertRaises(ValidationError, lambda: FunnelsQueryRunner(query=query, team=self.team).calculate())
 
-        #     filter = filter.shallow_clone(
-        #         {
-        #             "exclusions": [
-        #                 {
-        #                     "id": "x",
-        #                     "type": "events",
-        #                     "funnel_from_step": 0,
-        #                     "funnel_to_step": 2,
-        #                 }
-        #             ]
-        #         }
-        #     )
-        #     self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
+            filters = {
+                **filters,
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 2,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            self.assertRaises(ValidationError, lambda: FunnelsQueryRunner(query=query, team=self.team).calculate())
+
+            filters = {
+                **filters,
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 2,
+                    }
+                ],
+            }
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            self.assertRaises(ValidationError, lambda: FunnelsQueryRunner(query=query, team=self.team).calculate())
 
         def test_funnel_exclusion_no_end_event(self):
             filters = {

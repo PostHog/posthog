@@ -49,6 +49,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from ee.session_recordings.ai.similar_recordings import similar_recordings
+from ee.session_recordings.ai.error_clustering import error_clustering
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
     convert_original_version_lts_recording,
 )
@@ -581,6 +582,34 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # let the browser cache for half the time we cache on the server
         r = Response(recordings, headers={"Cache-Control": "max-age=15"})
+        return r
+
+    @action(methods=["GET"], detail=False)
+    def error_clusters(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        refresh_clusters = request.GET.get("refresh")
+
+        cache_key = f"cluster_errors_{self.team.pk}"
+        # Check if the response is cached
+        cached_response = cache.get(cache_key)
+        if cached_response and not refresh_clusters:
+            return Response(cached_response)
+
+        user = cast(User, request.user)
+
+        if not posthoganalytics.feature_enabled("session-replay-error-clustering", str(user.distinct_id)):
+            raise exceptions.ValidationError("clustered errors is not enabled for this user")
+
+        # Clustering will eventually be done during a scheduled background task
+        clusters = error_clustering(self.team)
+
+        if clusters:
+            cache.set(cache_key, clusters, timeout=30)
+
+        # let the browser cache for half the time we cache on the server
+        r = Response(clusters, headers={"Cache-Control": "max-age=15"})
         return r
 
 
