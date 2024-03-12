@@ -13,20 +13,21 @@ from posthog.hogql.database.models import (
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
     get_or_create_datawarehouse_credential,
-    get_table_by_url_pattern_and_source,
     DataWarehouseTable,
     DataWarehouseCredential,
-    aget_schema_if_exists,
     get_external_data_job,
     asave_datawarehousetable,
     acreate_datawarehousetable,
     asave_external_data_schema,
+    get_table_by_schema_id,
+    aget_schema_by_id,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
 from asgiref.sync import sync_to_async
-from typing import Dict, Type
+from typing import Dict, Tuple, Type
+from posthog.utils import camel_to_snake_case
 
 
 def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
@@ -86,7 +87,7 @@ async def validate_schema(
 
 
 async def validate_schema_and_update_table(
-    run_id: str, team_id: int, schemas: list[str], table_schema: TSchemaTables
+    run_id: str, team_id: int, schemas: list[Tuple[str, str]]), table_schema: TSchemaTables
 ) -> None:
     """
 
@@ -110,9 +111,12 @@ async def validate_schema_and_update_table(
         access_secret=settings.AIRBYTE_BUCKET_SECRET,
     )
 
-    for _schema_name in schemas:
+    for _schema in schemas:
+        _schema_id = _schema[0]
+        _schema_name = _schema[1]
+
         table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
-        new_url_pattern = job.url_pattern_by_schema(_schema_name)
+        new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
 
         # Check
         try:
@@ -137,11 +141,10 @@ async def validate_schema_and_update_table(
         # create or update
         table_created = None
         if last_successful_job:
-            old_url_pattern = last_successful_job.url_pattern_by_schema(_schema_name)
             try:
-                table_created = await get_table_by_url_pattern_and_source(
-                    team_id=job.team_id, source_id=job.pipeline.id, url_pattern=old_url_pattern
-                )
+                table_created = await get_table_by_schema_id(_schema_id, team_id)
+                if not table_created:
+                    raise DataWarehouseTable.DoesNotExist
             except Exception:
                 table_created = None
             else:
@@ -175,9 +178,7 @@ async def validate_schema_and_update_table(
         await asave_datawarehousetable(table_created)
 
         # schema could have been deleted by this point
-        schema_model = await aget_schema_if_exists(
-            schema_name=_schema_name, team_id=job.team_id, source_id=job.pipeline.id
-        )
+        schema_model = await aget_schema_by_id(schema_id=_schema_id, team_id=job.team_id)
 
         if schema_model:
             schema_model.table = table_created

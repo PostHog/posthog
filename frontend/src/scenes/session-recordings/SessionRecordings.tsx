@@ -6,6 +6,7 @@ import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/Au
 import { PageHeader } from 'lib/components/PageHeader'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -20,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
+import { SessionRecordingErrors } from './errors/SessionRecordingErrors'
 import { SessionRecordingFilePlayback } from './file-playback/SessionRecordingFilePlayback'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
@@ -36,6 +38,7 @@ export function SessionsRecordings(): JSX.Element {
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+    const hasErrorClustering = useFeatureFlag('REPLAY_ERROR_CLUSTERING')
 
     const theAuthorizedUrlsLogic = authorizedUrlListLogic({
         actionId: null,
@@ -124,10 +127,14 @@ export function SessionsRecordings(): JSX.Element {
             <LemonTabs
                 activeKey={tab}
                 onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-                tabs={Object.values(ReplayTabs).map((replayTab) => ({
-                    label: humanFriendlyTabName(replayTab),
-                    key: replayTab,
-                }))}
+                tabs={Object.values(ReplayTabs)
+                    .filter((tab) => tab != ReplayTabs.Errors || hasErrorClustering)
+                    .map((replayTab) => {
+                        return {
+                            label: humanFriendlyTabName(replayTab),
+                            key: replayTab,
+                        }
+                    })}
             />
             <div className="space-y-2">
                 <VersionCheckerBanner />
@@ -172,6 +179,8 @@ export function SessionsRecordings(): JSX.Element {
                     <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
                 ) : tab === ReplayTabs.FilePlayback ? (
                     <SessionRecordingFilePlayback />
+                ) : tab === ReplayTabs.Errors ? (
+                    <SessionRecordingErrors />
                 ) : null}
             </div>
         </div>

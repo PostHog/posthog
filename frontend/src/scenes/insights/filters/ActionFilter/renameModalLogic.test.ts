@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 import { initKeaTests } from '~/test/init'
@@ -11,18 +12,21 @@ import filtersJson from './__mocks__/filters.json'
 describe('renameModalLogic', () => {
     let logic: ReturnType<typeof renameModalLogic.build>
     let relevantEntityFilterLogic: ReturnType<typeof entityFilterLogic.build>
+    let someInsightDataLogic: ReturnType<typeof insightDataLogic.build>
 
     beforeEach(() => {
         initKeaTests()
+        someInsightDataLogic = insightDataLogic({ dashboardItemId: 'new' })
+        someInsightDataLogic.mount()
         relevantEntityFilterLogic = entityFilterLogic({
             setFilters: jest.fn(),
             filters: filtersJson,
-            typeKey: 'logic_test',
+            typeKey: 'new',
         })
         relevantEntityFilterLogic.mount()
         logic = renameModalLogic({
             filter: filtersJson.events[0] as EntityFilter,
-            typeKey: 'logic_test',
+            typeKey: 'new',
         })
         logic.mount()
     })

@@ -73,8 +73,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         ],
     }),
     afterMount(({ actions, values }) => {
+        actions.loadDatabase()
         if (values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
-            actions.loadDatabase()
+            actions.loadDataWarehouse()
         }
     }),
 ])
