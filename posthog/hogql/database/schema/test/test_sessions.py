@@ -24,6 +24,6 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(
-            len(response.results),
+            len(response.results or []),
             1,
         )
