@@ -118,10 +118,9 @@ async function expectStoryToMatchSnapshot(
 
     await waitForPageReady(page)
     await page.evaluate((layout: string) => {
-        // Stop all animations for consistent snapshots
-        document.body.classList.add(
-            `storybook-test-runner storybook-test-runner--${layout}`
-        )
+        // Stop all animations for consistent snapshots, and adjust other styles
+        document.body.classList.add('storybook-test-runner')
+        document.body.classList.add(`storybook-test-runner--${layout}`)
     }, storyContext.parameters?.layout || 'padded')
     if (waitForLoadersToDisappear) {
         // The timeout is reduced so that we never allow toasts – they usually signify something wrong
@@ -171,12 +170,7 @@ async function expectStoryToMatchSceneSnapshot(
     // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
     // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
     // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(
-        page.locator('body, main').last(),
-        context,
-        browser,
-        theme
-    )
+    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(
