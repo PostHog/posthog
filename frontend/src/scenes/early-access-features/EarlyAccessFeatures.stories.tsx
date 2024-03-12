@@ -110,7 +110,6 @@ const meta: Meta = {
     title: 'Scenes-App/Features',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {},
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
     },

@@ -19,7 +19,6 @@ const meta: Meta = {
     ],
     parameters: {
         layout: 'fullscreen',
-        testOptions: {},
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
     },

@@ -17,7 +17,6 @@ const meta: Meta = {
     title: 'Scenes-App/Saved Insights',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {},
         viewMode: 'story',
         mockDate: '2023-02-18',
     },

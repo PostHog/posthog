@@ -11,7 +11,6 @@ const meta: Meta = {
     title: 'Scenes-App/Apps',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {},
         viewMode: 'story',
     },
 }
