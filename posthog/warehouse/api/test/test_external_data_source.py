@@ -243,7 +243,7 @@ class TestSavedQuery(APIBaseTest):
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 
-            response = self.client.get(
+            response = self.client.post(
                 f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
                 data={
                     "host": "172.16.0.0",
