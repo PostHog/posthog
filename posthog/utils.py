@@ -1329,3 +1329,7 @@ def label_for_team_id_to_track(team_id: int) -> str:
             pass
 
     return "unknown"
+
+
+def camel_to_snake_case(name: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
