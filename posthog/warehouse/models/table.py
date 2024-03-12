@@ -93,7 +93,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         default=dict,
         null=True,
         blank=True,
-        help_text="Dict of all columns with Clickhouse type (including Nullable()) and HogQL database type",
+        help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
     __repr__ = sane_repr("name")
