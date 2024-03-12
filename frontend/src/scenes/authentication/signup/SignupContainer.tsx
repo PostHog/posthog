@@ -68,7 +68,7 @@ export function SignupLeftContainer(): JSX.Element {
         ? [
               {
                   benefit: 'Free usage every month - even on paid plans',
-                  description: '1M free events, 15K free session recordings, and more. Every month. Forever.',
+                  description: '1M free events, 5K free session recordings, and more. Every month. Forever.',
               },
               {
                   benefit: 'Start collecting data immediately',

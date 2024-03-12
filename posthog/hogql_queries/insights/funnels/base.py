@@ -54,6 +54,28 @@ class FunnelBase(ABC):
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
 
+        # validate exclusions
+        if self.context.funnelsFilter.exclusions is not None:
+            for exclusion in self.context.funnelsFilter.exclusions:
+                if exclusion.funnelFromStep >= exclusion.funnelToStep:
+                    raise ValidationError(
+                        "Exclusion event range is invalid. End of range should be greater than start."
+                    )
+
+                if exclusion.funnelFromStep >= len(self.context.query.series) - 1:
+                    raise ValidationError(
+                        "Exclusion event range is invalid. Start of range is greater than number of steps."
+                    )
+
+                if exclusion.funnelToStep > len(self.context.query.series) - 1:
+                    raise ValidationError(
+                        "Exclusion event range is invalid. End of range is greater than number of steps."
+                    )
+
+                for entity in self.context.query.series[exclusion.funnelFromStep : exclusion.funnelToStep + 1]:
+                    if is_equal(entity, exclusion) or is_superset(entity, exclusion):
+                        raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
+
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
@@ -247,6 +269,8 @@ class FunnelBase(ABC):
             self.context.breakdownFilter,
         )
 
+        assert breakdown is not None
+
         if breakdownType == "person":
             properties_column = "person.properties"
             return get_breakdown_expr(breakdown, properties_column)
@@ -262,7 +286,7 @@ class FunnelBase(ABC):
         elif breakdownType == "hogql":
             return ast.Alias(
                 alias="value",
-                expr=parse_expr(str(breakdown)),
+                expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
             )
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")

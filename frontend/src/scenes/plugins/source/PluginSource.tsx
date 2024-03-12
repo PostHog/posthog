@@ -1,8 +1,7 @@
 import './PluginSource.scss'
 
 import { useMonaco } from '@monaco-editor/react'
-import { Link } from '@posthog/lemon-ui'
-import { Skeleton } from 'antd'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeEditor } from 'lib/components/CodeEditors'
@@ -81,7 +80,7 @@ export function PluginSource({
             title={pluginSourceLoading ? 'Loading...' : `Edit App: ${name}`}
             placement={placement ?? 'left'}
             footer={
-                <div className="text-right space-x-2">
+                <div className="flex text-right space-x-2">
                     <LemonButton onClick={closePluginSource}>Close</LemonButton>
                     <LemonButton type="primary" loading={isPluginSourceSubmitting} onClick={submitPluginSource}>
                         Save
@@ -107,8 +106,12 @@ export function PluginSource({
                         </p>
 
                         {pluginSourceLoading ? (
-                            // eslint-disable-next-line react/forbid-elements
-                            <Skeleton />
+                            <>
+                                <LemonSkeleton className="h-5 w-1/3 mb-3" />
+                                <LemonSkeleton className="h-4 w-full mb-3" />
+                                <LemonSkeleton className="h-4 w-full mb-3" />
+                                <LemonSkeleton className="h-4 w-1/2" />
+                            </>
                         ) : (
                             <>
                                 <PluginSourceTabs logic={logic} />
