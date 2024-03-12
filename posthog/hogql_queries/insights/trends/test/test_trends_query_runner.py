@@ -1172,7 +1172,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.event),
         )
         query = query_runner.to_queries()[0]
-        assert query.limit == ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+        assert isinstance(query, ast.SelectQuery) and query.limit == ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
 
         response = query_runner.calculate()
         assert len(response.results) == 250
