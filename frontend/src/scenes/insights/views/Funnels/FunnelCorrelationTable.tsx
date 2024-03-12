@@ -154,6 +154,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             <div className="p-4">
                 <h4 className="pl-4">Correlated properties</h4>
                 <LemonTable
+                    id={`event-correlation__${eventName}`}
                     dataSource={eventWithPropertyCorrelationsValues[eventName]}
                     rowKey={(record: FunnelCorrelation) => 'nested' + record.event.event}
                     pagination={{
@@ -235,6 +236,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 <CorrelationMatrix />
 
                 <LemonTable
+                    id="event-correlation"
                     embedded
                     columns={[
                         {

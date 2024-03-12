@@ -214,6 +214,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 </div>
 
                 <LemonTable
+                    id="property-correlation"
                     embedded
                     columns={[
                         {
