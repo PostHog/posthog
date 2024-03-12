@@ -87,7 +87,7 @@ async def validate_schema(
 
 
 async def validate_schema_and_update_table(
-    run_id: str, team_id: int, schemas: list[Tuple[str, str]]), table_schema: TSchemaTables
+    run_id: str, team_id: int, schemas: list[Tuple[str, str]], table_schema: TSchemaTables
 ) -> None:
     """
 
