@@ -264,6 +264,9 @@ export function formatBreakdownLabel(
             breakdown,
             breakdown_type
         )
+        if (formattedBucketStart === formattedBucketEnd) {
+            return formattedBucketStart
+        }
         return `${formattedBucketStart} – ${formattedBucketEnd}`
     }
     if (breakdown_type === 'cohort') {
