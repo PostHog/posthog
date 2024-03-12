@@ -195,11 +195,6 @@ export const NewSurvey: StoryFn = () => {
     }, [])
     return <App />
 }
-NewSurvey.parameters = {
-    testOptions: {
-        waitForSelector: '.LemonBanner .LemonIcon',
-    },
-}
 
 export const NewSurveyCustomisationSection: StoryFn = () => {
     useEffect(() => {
@@ -235,6 +230,11 @@ export const NewSurveyTargetingSection: StoryFn = () => {
         })
     }, [])
     return <App />
+}
+NewSurveyTargetingSection.parameters = {
+    testOptions: {
+        waitForSelector: '.LemonBanner .LemonIcon',
+    },
 }
 
 export const NewSurveyAppearanceSection: StoryFn = () => {
