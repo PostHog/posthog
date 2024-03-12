@@ -105,7 +105,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 class ValidateSchemaInputs:
     run_id: str
     team_id: int
-    schemas: list[str]
+    schemas: list[tuple[str, str]]
 
 
 @activity.defn
@@ -133,7 +133,7 @@ class ExternalDataJobInputs:
     team_id: int
     source_id: uuid.UUID
     run_id: str
-    schemas: list[str]
+    schemas: list[tuple[str, str]]
 
 
 @activity.defn
