@@ -120,11 +120,13 @@ class S3MultiPartUpload:
         kms_key_id: str | None,
         aws_access_key_id: str | None = None,
         aws_secret_access_key: str | None = None,
+        endpoint_url: str | None = None,
     ):
         self._session = aioboto3.Session()
         self.region_name = region_name
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
+        self.endpoint_url = endpoint_url
         self.bucket_name = bucket_name
         self.key = key
         self.encryption = encryption
@@ -154,11 +156,13 @@ class S3MultiPartUpload:
     @contextlib.asynccontextmanager
     async def s3_client(self):
         """Asynchronously yield an S3 client."""
+
         async with self._session.client(
             "s3",
             region_name=self.region_name,
             aws_access_key_id=self.aws_access_key_id,
             aws_secret_access_key=self.aws_secret_access_key,
+            endpoint_url=self.endpoint_url,
         ) as client:
             yield client
 
@@ -306,6 +310,7 @@ class S3InsertInputs:
     encryption: str | None = None
     kms_key_id: str | None = None
     batch_export_schema: BatchExportSchema | None = None
+    endpoint_url: str | None = None
 
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -321,6 +326,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
         region_name=inputs.region,
         aws_access_key_id=inputs.aws_access_key_id,
         aws_secret_access_key=inputs.aws_secret_access_key,
+        endpoint_url=inputs.endpoint_url,
     )
 
     details = activity.info().heartbeat_details
@@ -555,6 +561,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
+            endpoint_url=inputs.endpoint_url,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             compression=inputs.compression,
