@@ -202,7 +202,11 @@ class BreakdownValues:
                 all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
                 all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values)
 
-                if all_values_are_ints_or_none or all_values_are_floats_or_none:
+                if all_values_are_string_or_none:
+                    values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
+                    if needs_other:
+                        values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
+                elif all_values_are_ints_or_none or all_values_are_floats_or_none:
                     if all_values_are_ints_or_none:
                         values = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values]
                         if needs_other:
@@ -211,10 +215,6 @@ class BreakdownValues:
                         values = [float(BREAKDOWN_NULL_NUMERIC_LABEL) if value is None else value for value in values]
                         if needs_other:
                             values.insert(0, float(BREAKDOWN_OTHER_NUMERIC_LABEL))
-                elif all_values_are_string_or_none:
-                    values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
-                    if needs_other:
-                        values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
 
         if len(values) == 0:
             values.insert(0, None)

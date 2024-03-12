@@ -243,6 +243,11 @@ class Breakdown:
     @cached_property
     def _breakdown_values(self) -> List[str | int | float]:
         values = self._all_breakdown_values
+        if len(values) == 0:
+            return []
+        if all(value is None for value in values):
+            return [BREAKDOWN_NULL_STRING_LABEL]
+
         if None in values:
             all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
             all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
