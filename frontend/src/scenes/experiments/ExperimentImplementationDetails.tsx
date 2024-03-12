@@ -31,7 +31,7 @@ const OPTIONS = [
     },
     {
         value: 'ReactNative',
-        documentationLink: `${DOC_BASE_URL}client/react-native${UTM_TAGS}${FF_ANCHOR}`,
+        documentationLink: `${DOC_BASE_URL}libraries/react-native${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconJavascript,
         Snippet: RNSnippet,
     },
