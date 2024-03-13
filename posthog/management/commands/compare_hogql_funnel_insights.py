@@ -155,7 +155,15 @@ class Command(BaseCommand):
                 assert legacy_results is not None
                 assert hogql_results is not None
 
-                for legacy_result, hogql_result in zip(legacy_results, hogql_results):  # type: ignore
+                sorted_legacy_results = legacy_results
+                sorted_hogql_results = hogql_results
+
+                if isinstance(legacy_results[0], list):
+                    sorter = lambda step: (step[0]["breakdown_value"])
+                    sorted_legacy_results = sorted(legacy_results, key=sorter)
+                    sorted_hogql_results = sorted(hogql_results, key=sorter)
+
+                for legacy_result, hogql_result in zip(sorted_legacy_results, sorted_hogql_results):  # type: ignore
                     if isinstance(legacy_result, list) and isinstance(hogql_result, list):
                         for sub_legacy_result, sub_hogql_result in zip(legacy_result, hogql_result):
                             if compare_result(insight, sub_legacy_result, sub_hogql_result) is False:
@@ -184,6 +192,8 @@ def compare_result(insight, legacy_result, hogql_result) -> bool:
         "median_conversion_time",
         # "converted_people_url",
         # "dropped_people_url",
+        "breakdown",
+        "breakdown_value",
     ]
     for field in fields:
         legacy = legacy_result.get(field)
