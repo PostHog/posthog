@@ -38,9 +38,7 @@ anyio==4.2.0
 asgiref==3.7.2
     # via django
 asn1crypto==1.5.1
-    # via
-    #   oscrypto
-    #   snowflake-connector-python
+    # via snowflake-connector-python
 astunparse==1.6.3
     # via dlt
 async-generator==1.10
@@ -400,8 +398,6 @@ orjson==3.9.15
     # via
     #   -r requirements.in
     #   dlt
-oscrypto==1.3.0
-    # via snowflake-connector-python
 outcome==1.1.0
     # via trio
 packaging==23.1
@@ -430,6 +426,8 @@ pickleshare==0.7.5
     # via -r requirements.in
 pillow==10.2.0
     # via -r requirements.in
+platformdirs==3.11.0
+    # via snowflake-connector-python
 ply==3.11
     # via jsonpath-ng
 posthoganalytics==3.5.0
@@ -468,8 +466,6 @@ pyasn1-modules==0.3.0
     # via google-auth
 pycparser==2.20
     # via cffi
-pycryptodomex==3.18.0
-    # via snowflake-connector-python
 pydantic==2.5.3
     # via
     #   -r requirements.in
@@ -614,7 +610,7 @@ sniffio==1.2.0
     #   httpx
     #   openai
     #   trio
-snowflake-connector-python==3.0.4
+snowflake-connector-python==3.6.0
     # via -r requirements.in
 social-auth-app-django==5.0.0
     # via -r requirements.in
@@ -653,7 +649,9 @@ tiktoken==0.6.0
 token-bucket==0.3.0
     # via -r requirements.in
 tomlkit==0.12.3
-    # via dlt
+    # via
+    #   dlt
+    #   snowflake-connector-python
 toronado==0.1.0
     # via -r requirements.in
 tqdm==4.64.1
@@ -709,7 +707,6 @@ urllib3[secure,socks]==1.26.18
     #   requests
     #   selenium
     #   sentry-sdk
-    #   snowflake-connector-python
     #   urllib3
 urllib3-secure-extra==0.1.0
     # via urllib3
