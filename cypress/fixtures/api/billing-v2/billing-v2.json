@@ -1367,7 +1367,7 @@
             "screenshot_url": "https://posthog.com/images/products/session-replay/screenshot-session-replay.png",
             "icon_key": "IconRewindPlay",
             "docs_url": "https://posthog.com/docs/session-replay",
-            "subscribed": false,
+            "subscribed": true,
             "plans": [
                 {
                     "plan_key": "free-20231218",
