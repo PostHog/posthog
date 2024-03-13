@@ -3,6 +3,8 @@ from typing import Dict, List, Optional
 from unittest.mock import patch
 from django.test import override_settings
 from freezegun import freeze_time
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.cohort.cohort import Cohort
@@ -1115,7 +1117,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_breakdown_values_world_map_limit(self):
         PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
 
-        for value in list(range(30)):
+        for value in list(range(250)):
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -1124,7 +1126,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 properties={"breakdown_value": f"{value}"},
             )
 
-        response = self._run_trends_query(
+        query_runner = self._create_query_runner(
             "2020-01-09",
             "2020-01-20",
             IntervalType.day,
@@ -1132,8 +1134,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(display=ChartDisplayType.WorldMap),
             BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.event),
         )
+        query = query_runner.to_queries()[0]
+        assert isinstance(query, ast.SelectQuery) and query.limit == ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
 
-        assert len(response.results) == 30
+        response = query_runner.calculate()
+        assert len(response.results) == 250
 
     def test_previous_period_with_number_display(self):
         self._create_test_events()
