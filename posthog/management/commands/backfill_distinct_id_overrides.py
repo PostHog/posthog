@@ -54,16 +54,21 @@ class Backfill:
                 parameters,
             )
 
-            update_query = Team.objects.raw(
-                """
-                UPDATE posthog_team
-                SET extra_settings = COALESCE(extra_settings, '{}'::jsonb) || jsonb_build_object('distinct_id_overrides_backfilled', true)
-                WHERE id = %s
-                RETURNING id
-                """,
-                [self.team_id],
+            # XXX: The RETURNING set isn't really useful here, but this QuerySet
+            # needs to be iterated over to force execution, so we might as well
+            # return something...
+            updated_teams = list(
+                Team.objects.raw(
+                    """
+                    UPDATE posthog_team
+                    SET extra_settings = COALESCE(extra_settings, '{}'::jsonb) || jsonb_build_object('distinct_id_overrides_backfilled', true)
+                    WHERE id = %s
+                    RETURNING *
+                    """,
+                    [self.team_id],
+                )
             )
-            logger.info("Completed %r, marked %s team as backfilled.", self, len(update_query))
+            logger.info("Completed %r, marked %s team as backfilled.", self, len(updated_teams))
 
 
 class Command(BaseCommand):
