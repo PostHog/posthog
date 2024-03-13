@@ -28,7 +28,7 @@ def error_clustering(team: Team):
     if not results:
         return []
 
-    df = pd.DataFrame(results, columns=["session_id", "embeddings"])
+    df = pd.DataFrame(results, columns=["session_id", "input", "embeddings"])
 
     df["cluster"] = cluster_embeddings(df["embeddings"].tolist())
 
