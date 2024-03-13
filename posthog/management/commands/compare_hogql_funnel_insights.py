@@ -117,7 +117,7 @@ class Command(BaseCommand):
                     FunnelsQueryRunner(query=query, team=insight.team, modifiers=modifiers).calculate().results
                 )
             except ValidationError as e:
-                if e.get_full_details()['message'] == "Funnels require at least two steps before calculating."
+                if e.get_full_details()["message"] == "Funnels require at least two steps before calculating.":
                     print("Funnels require at least two steps before calculating.")
                     continue
                 hogql_error = e
@@ -158,11 +158,13 @@ class Command(BaseCommand):
                 for legacy_result, hogql_result in zip(legacy_results, hogql_results):  # type: ignore
                     if isinstance(legacy_result, list) and isinstance(hogql_result, list):
                         for sub_legacy_result, sub_hogql_result in zip(legacy_result, hogql_result):
-                            compare_result(insight, sub_legacy_result, sub_hogql_result)
+                            if compare_result(insight, sub_legacy_result, sub_hogql_result) is False:
+                                all_ok = False
                     elif isinstance(legacy_result, list) or isinstance(hogql_result, list):
                         print("Error: Inconsistent data structures.")
                     else:
-                        compare_result(insight, legacy_result, hogql_result)
+                        if compare_result(insight, legacy_result, hogql_result) is False:
+                            all_ok = False
 
             if all_ok:
                 print("ALL OK!")  # noqa: T201
