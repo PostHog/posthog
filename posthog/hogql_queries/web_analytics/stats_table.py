@@ -1,5 +1,6 @@
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.schema.channel_type import create_channel_type_expr
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.ctes import (
@@ -273,72 +274,17 @@ FROM
     (SELECT
 
 
-        multiIf(
-            match(initial_utm_campaign, 'cross-network'),
-            'Cross Network',
-
-            (
-                match(initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
-                initial_gclid IS NOT NULL OR
-                initial_gad_source IS NOT NULL
-            ),
-            coalesce(
-                hogql_lookupPaidSourceType(initial_utm_source),
-                hogql_lookupPaidDomainType(initial_referring_domain),
-                if(
-                    match(initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
-                    'Paid Shopping',
-                    NULL
-                ),
-                hogql_lookupPaidMediumType(initial_utm_medium),
-                multiIf (
-                    initial_gad_source = '1',
-                    'Paid Search',
-
-                    match(initial_utm_campaign, '^(.*video.*)$'),
-                    'Paid Video',
-
-                    'Paid Other'
-                )
-            ),
-
-            (
-                initial_referring_domain = '$direct'
-                AND (initial_utm_medium IS NULL OR initial_utm_medium = '')
-                AND (initial_utm_source IS NULL OR initial_utm_source IN ('', '(direct)', 'direct'))
-            ),
-            'Direct',
-
-            coalesce(
-                hogql_lookupOrganicSourceType(initial_utm_source),
-                hogql_lookupOrganicDomainType(initial_referring_domain),
-                if(
-                    match(initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
-                    'Organic Shopping',
-                    NULL
-                ),
-                hogql_lookupOrganicMediumType(initial_utm_medium),
-                multiIf(
-                    match(initial_utm_campaign, '^(.*video.*)$'),
-                    'Organic Video',
-
-                    match(initial_utm_medium, 'push$'),
-                    'Push',
-
-                    'Other'
-                )
-            )
-        ) AS breakdown_value,
+        {channel_type} AS breakdown_value,
         count() as total_pageviews,
         uniq(pid) as unique_visitors
     FROM
         (SELECT
-            person.properties.$initial_utm_campaign AS initial_utm_campaign,
-            person.properties.$initial_utm_medium AS initial_utm_medium,
-            person.properties.$initial_utm_source AS initial_utm_source,
-            person.properties.$initial_referring_domain AS initial_referring_domain,
-            person.properties.$initial_gclid AS initial_gclid,
-            person.properties.$initial_gad_source AS initial_gad_source,
+            toString(person.properties.$initial_utm_campaign) AS initial_utm_campaign,
+            toString(person.properties.$initial_utm_medium) AS initial_utm_medium,
+            toString(person.properties.$initial_utm_source) AS initial_utm_source,
+            toString(person.properties.$initial_referring_domain) AS initial_referring_domain,
+            toString(person.properties.$initial_gclid) AS initial_gclid,
+            toString(person.properties.$initial_gad_source) AS initial_gad_source,
             person_id AS pid
         FROM events
         SAMPLE {sample_rate}
@@ -361,6 +307,16 @@ ORDER BY
                     "counts_where": self.events_where(),
                     "where_breakdown": self.where_breakdown(),
                     "sample_rate": self._sample_ratio,
+                    "channel_type": create_channel_type_expr(
+                        campaign=ast.Call(name="toString", args=[ast.Field(chain=["initial_utm_campaign"])]),
+                        medium=ast.Call(name="toString", args=[ast.Field(chain=["initial_utm_medium"])]),
+                        source=ast.Call(name="toString", args=[ast.Field(chain=["initial_utm_source"])]),
+                        referring_domain=ast.Call(
+                            name="toString", args=[ast.Field(chain=["initial_referring_domain"])]
+                        ),
+                        gclid=ast.Call(name="toString", args=[ast.Field(chain=["initial_gclid"])]),
+                        gad_source=ast.Call(name="toString", args=[ast.Field(chain=["initial_gad_source"])]),
+                    ),
                 },
             )
 
