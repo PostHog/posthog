@@ -1,7 +1,7 @@
 // eslint-disable-next-line no-restricted-imports
 import { CloseOutlined, SyncOutlined } from '@ant-design/icons'
 import { IconPlus } from '@posthog/icons'
-import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { Select } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -129,6 +129,9 @@ export function ObjectTags({
                     >
                         Add tag
                     </LemonTag>
+
+                    {/* <LemonSelect size="small" data-attr="new-tag-input" allowClear /> */}
+
                     {addingNewTag && (
                         <SelectGradientOverflow
                             size="small"

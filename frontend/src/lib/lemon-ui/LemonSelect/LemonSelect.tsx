@@ -110,6 +110,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
     className,
     menu,
     renderButtonContent,
+    children,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -139,31 +140,35 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
-            <LemonButton
-                className={clsx(className, 'LemonSelect')}
-                icon={activeLeaf?.icon}
-                type="secondary"
-                sideAction={
-                    isClearButtonShown
-                        ? {
-                              icon: <IconX />,
-                              divider: false,
-                              onClick: () => {
-                                  onChange?.(null as T)
-                              },
-                          }
-                        : null
-                }
-                {...buttonProps}
-            >
-                <span className="flex flex-1">
-                    {renderButtonContent
-                        ? renderButtonContent(activeLeaf)
-                        : activeLeaf
-                        ? activeLeaf.label
-                        : value ?? <span className="text-muted">{placeholder}</span>}
-                </span>
-            </LemonButton>
+            {children ? (
+                children
+            ) : (
+                <LemonButton
+                    className={clsx(className, 'LemonSelect')}
+                    icon={activeLeaf?.icon}
+                    type="secondary"
+                    sideAction={
+                        isClearButtonShown
+                            ? {
+                                  icon: <IconX />,
+                                  divider: false,
+                                  onClick: () => {
+                                      onChange?.(null as T)
+                                  },
+                              }
+                            : null
+                    }
+                    {...buttonProps}
+                >
+                    <span className="flex flex-1">
+                        {renderButtonContent
+                            ? renderButtonContent(activeLeaf)
+                            : activeLeaf
+                            ? activeLeaf.label
+                            : value ?? <span className="text-muted">{placeholder}</span>}
+                    </span>
+                </LemonButton>
+            )}
         </LemonMenu>
     )
 }

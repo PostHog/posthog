@@ -124,9 +124,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 </div>
                 <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
                     {addon.docs_url && (
-                        <Tooltip title="Read the docs">
-                            <LemonButton icon={<IconDocument />} size="small" to={addon.docs_url} />
-                        </Tooltip>
+                        <LemonButton icon={<IconDocument />} size="small" to={addon.docs_url} title="Read the docs" />
                     )}
                     {addon.subscribed ? (
                         <>
@@ -349,14 +347,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                         <div className="flex grow justify-end gap-x-2 items-center">
                             {product.docs_url && (
-                                <Tooltip title="Read the docs">
-                                    <LemonButton
-                                        icon={<IconDocument />}
-                                        size="small"
-                                        to={product.docs_url}
-                                        className="justify-end"
-                                    />
-                                </Tooltip>
+                                <LemonButton
+                                    icon={<IconDocument />}
+                                    size="small"
+                                    to={product.docs_url}
+                                    className="justify-end"
+                                    tooltip="Read the docs"
+                                />
                             )}
                             {product.contact_support ? (
                                 <>
