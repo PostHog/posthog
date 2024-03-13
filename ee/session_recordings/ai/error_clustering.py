@@ -1,12 +1,9 @@
 from prometheus_client import Histogram
 from django.conf import settings
-from structlog import get_logger
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
 from sklearn.cluster import DBSCAN
 import pandas as pd
-
-logger = get_logger(__name__)
 
 CLUSTER_REPLAY_ERRORS_TIMING = Histogram(
     "posthog_session_recordings_cluster_replay_errors",
