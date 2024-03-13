@@ -1,3 +1,4 @@
+from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
@@ -19,7 +20,7 @@ class TestTable(BaseTest):
     #     )
     #     table.get_columns()
 
-    def test_hogql_definition(self):
+    def test_hogql_definition_old_style(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="bla",
@@ -37,6 +38,46 @@ class TestTable(BaseTest):
         self.assertEqual(
             list(table.hogql_definition().fields.keys()),
             ["id", "timestamp", "mrr", "offset"],
+        )
+
+        self.assertEqual(
+            list(table.hogql_definition().fields.values()),
+            [
+                StringDatabaseField(name="id"),
+                DateTimeDatabaseField(name="timestamp"),
+                IntegerDatabaseField(name="mrr"),
+                IntegerDatabaseField(name="offset"),
+            ],
+        )
+
+    def test_hogql_definition_new_style(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="bla",
+            url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "timestamp": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "mrr": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+                "offset": {"clickhouse": "UInt32", "hogql": "IntegerDatabaseField"},
+            },
+            credential=credential,
+        )
+        self.assertEqual(
+            list(table.hogql_definition().fields.keys()),
+            ["id", "timestamp", "mrr", "offset"],
+        )
+
+        self.assertEqual(
+            list(table.hogql_definition().fields.values()),
+            [
+                StringDatabaseField(name="id"),
+                DateTimeDatabaseField(name="timestamp"),
+                IntegerDatabaseField(name="mrr"),
+                IntegerDatabaseField(name="offset"),
+            ],
         )
 
     def test_hogql_definition_tuple_patch(self):

@@ -50,6 +50,9 @@ services:
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
         extra_hosts:
             - 'host.docker.internal:host-gateway'
+        depends_on:
+            - kafka
+            - zookeeper
 
     zookeeper:
         extends:
@@ -64,6 +67,8 @@ services:
             service: kafka
         ports:
             - '9092:9092'
+        depends_on:
+            - zookeeper
 
     kafka_ui:
         extends:
@@ -71,6 +76,8 @@ services:
             service: kafka_ui
         ports:
             - '9093:8080'
+        depends_on:
+            - kafka
 
     object_storage:
         extends:
@@ -98,6 +105,9 @@ services:
             - 3000:3000
         environment:
             - DEBUG=1
+        depends_on:
+            - redis
+            - kafka
 
     # Temporal containers
     elasticsearch:
@@ -111,15 +121,18 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal
-        ports:
-            - 7233:7233
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml
             service: temporal-admin-tools
+        depends_on:
+            - temporal
     temporal-ui:
         extends:
             file: docker-compose.base.yml
             service: temporal-ui
-        ports:
-            - 8081:8080
+        depends_on:
+            temporal:
+                condition: service_started
+            db:
+                condition: service_healthy

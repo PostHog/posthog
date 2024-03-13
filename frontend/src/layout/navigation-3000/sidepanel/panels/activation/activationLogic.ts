@@ -48,7 +48,7 @@ export const activationLogic = kea<activationLogicType>([
             teamLogic,
             ['currentTeam'],
             membersLogic,
-            ['members'],
+            ['memberCount'],
             inviteLogic,
             ['invites'],
             pluginsLogic,
@@ -59,8 +59,6 @@ export const activationLogic = kea<activationLogicType>([
             ['rawDashboards'],
         ],
         actions: [
-            membersLogic,
-            ['loadMembersSuccess', 'loadMembersFailure'],
             inviteLogic,
             ['showInviteModal', 'loadInvitesSuccess', 'loadInvitesFailure'],
             pluginsLogic,
@@ -89,13 +87,6 @@ export const activationLogic = kea<activationLogicType>([
                 addSkippedTask: (state, { teamId, taskId }) => {
                     return { ...state, [teamId]: [...(state[teamId] ?? []), taskId] }
                 },
-            },
-        ],
-        areMembersLoaded: [
-            false,
-            {
-                loadMembersSuccess: () => true,
-                loadMembersFailure: () => false,
             },
         ],
         areInvitesLoaded: [
@@ -162,7 +153,7 @@ export const activationLogic = kea<activationLogicType>([
         isReady: [
             (s) => [
                 s.currentTeam,
-                s.areMembersLoaded,
+                s.memberCount,
                 s.areInvitesLoaded,
                 s.areDashboardsLoaded,
                 s.arePluginsLoaded,
@@ -171,18 +162,18 @@ export const activationLogic = kea<activationLogicType>([
             ],
             (
                 currentTeam,
-                areMembersLoaded,
+                memberCount,
                 areInvitesLoaded,
                 areDashboardsLoaded,
                 arePluginsLoaded,
                 areCustomEventsLoaded,
                 areInsightsLoaded
-            ) => {
+            ): boolean => {
                 return (
                     !!currentTeam &&
                     areCustomEventsLoaded &&
                     areInsightsLoaded &&
-                    areMembersLoaded &&
+                    !!memberCount &&
                     areInvitesLoaded &&
                     areDashboardsLoaded &&
                     arePluginsLoaded
@@ -196,7 +187,7 @@ export const activationLogic = kea<activationLogicType>([
         tasks: [
             (s) => [
                 s.currentTeam,
-                s.members,
+                s.memberCount,
                 s.invites,
                 s.insights,
                 s.rawDashboards,
@@ -206,7 +197,7 @@ export const activationLogic = kea<activationLogicType>([
             ],
             (
                 currentTeam,
-                members,
+                memberCount,
                 invites,
                 insights,
                 dashboards,
@@ -232,7 +223,7 @@ export const activationLogic = kea<activationLogicType>([
                                 id: ActivationTasks.InviteTeamMember,
                                 name: 'Invite a team member',
                                 description: 'Everyone in your organization can benefit from PostHog',
-                                completed: members.length > 1 || invites.length > 0,
+                                completed: memberCount > 1 || invites.length > 0,
                                 canSkip: true,
                                 skipped: skippedTasks.includes(ActivationTasks.InviteTeamMember),
                             })

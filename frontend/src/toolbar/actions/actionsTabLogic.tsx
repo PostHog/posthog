@@ -292,7 +292,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             }
         },
         showButtonActions: () => {
-            actionsLogic.actions.getActions()
             posthog.capture('toolbar mode triggered', { mode: 'actions', enabled: true })
         },
         hideButtonActions: () => {

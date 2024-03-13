@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 
 import { BillingUpgradeCTA } from '../BillingUpgradeCTA'
+import { PayGateMiniButton } from './PayGateMiniButton'
 
 export interface PayGateMiniProps {
     feature: AvailableFeature
@@ -42,7 +43,8 @@ export function PayGateMini({
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { hasAvailableFeature, availableFeature } = useValues(userLogic)
-    const { billing } = useValues(billingLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { hideUpgradeModal } = useActions(sceneLogic)
 
     const product = billing?.products.find((product) => product.features?.some((f) => f.key === feature))
@@ -63,11 +65,85 @@ export function PayGateMini({
         }
     }
 
+    if (billingLoading) {
+        return null
+    }
+
     if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {
         return null // Don't show anything if paid features are explicitly disabled
     }
 
-    return gateVariant && product && featureInfo ? (
+    return featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' ? (
+        gateVariant && product && featureInfo ? (
+            <div
+                className={clsx(
+                    className,
+                    background && 'bg-side border border-border',
+                    'PayGateMini rounded flex flex-col items-center p-4 text-center'
+                )}
+            >
+                <div className="flex text-4xl text-warning">{getProductIcon(product.name, featureInfo.icon_key)}</div>
+                <h3>{featureInfo.name}</h3>
+                {featureDetailsWithLimit?.limit && gateVariant !== 'move-to-cloud' ? (
+                    <div>
+                        <p>
+                            You've reached your usage limit for{' '}
+                            <Tooltip title={featureInfo.description}>
+                                <span>
+                                    <b>{featureInfo.name}</b>
+                                    <IconInfo className="ml-0.5 text-muted" />
+                                </span>
+                            </Tooltip>
+                            .
+                        </p>
+                        <p className="border border-border bg-side rounded p-4">
+                            <b>Your current plan limit:</b>{' '}
+                            <span>
+                                {featureDetailsWithLimit.limit} {featureDetailsWithLimit.unit}
+                            </span>
+                        </p>
+                        <p>
+                            Please upgrade your <b>{product.name}</b> plan to create more {featureInfo.name}
+                        </p>
+                    </div>
+                ) : (
+                    <>
+                        <p>{featureInfo.description}</p>
+                        <p>
+                            {gateVariant === 'move-to-cloud' ? (
+                                <>This feature is only available on PostHog Cloud.</>
+                            ) : (
+                                <>
+                                    Upgrade your <b>{product?.name}</b> plan to use this feature.
+                                </>
+                            )}
+                        </p>
+                    </>
+                )}
+                {isGrandfathered && (
+                    <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
+                        <IconInfo className="text-muted text-2xl" />
+                        <p className="text-muted mb-0">
+                            Your plan does not include this feature, but previously set settings may remain. Please
+                            upgrade your plan to regain access.
+                        </p>
+                    </div>
+                )}
+                {featureInfo.docsUrl && (
+                    <div className="mb-4">
+                        <>
+                            <Link to={featureInfo.docsUrl} target="_blank">
+                                Learn more in PostHog Docs.
+                            </Link>
+                        </>
+                    </div>
+                )}
+                <PayGateMiniButton product={product} featureInfo={featureInfo} gateVariant={gateVariant} />
+            </div>
+        ) : (
+            <div className={className}>{children}</div>
+        )
+    ) : gateVariant && product && featureInfo ? (
         <div
             className={clsx(
                 className,

@@ -6,7 +6,7 @@ module.exports = {
         tsconfigRootDir: __dirname,
         project: ['./tsconfig.eslint.json'],
     },
-    plugins: ['@typescript-eslint', 'simple-import-sort', 'prettier', 'no-only-tests'],
+    plugins: ['@typescript-eslint', 'simple-import-sort', 'no-only-tests'],
     extends: ['plugin:@typescript-eslint/recommended', 'plugin:eslint-comments/recommended', 'prettier'],
     ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl'],
     rules: {
@@ -38,9 +38,10 @@ module.exports = {
     },
     overrides: [
         {
-            files: ['**/__tests__/**/*.ts', 'src/celery/**/*.ts'],
+            files: ['**/tests/**/*.ts', 'src/celery/**/*.ts'],
             rules: {
                 '@typescript-eslint/no-explicit-any': 'off',
+                '@typescript-eslint/no-floating-promises': 'off',
             },
         },
     ],

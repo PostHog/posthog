@@ -1,7 +1,7 @@
 import './CorrelationMatrix.scss'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { Button, Modal } from 'antd'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -22,22 +22,20 @@ import { FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { correlationsLoading } = useValues(funnelCorrelationLogic(insightProps))
-    const { funnelCorrelationDetails, correlationMatrixAndScore } = useValues(
+    const { correlationDetailsModalOpen, correlationDetails, correlationMatrixAndScore } = useValues(
         funnelCorrelationDetailsLogic(insightProps)
     )
-    const { setFunnelCorrelationDetails } = useActions(funnelCorrelationDetailsLogic(insightProps))
+    const { closeCorrelationDetailsModal } = useActions(funnelCorrelationDetailsLogic(insightProps))
     const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
 
-    const actor = funnelCorrelationDetails?.result_type === FunnelCorrelationResultsType.Events ? 'event' : 'property'
+    const actor = correlationDetails?.result_type === FunnelCorrelationResultsType.Events ? 'event' : 'property'
     const action =
-        funnelCorrelationDetails?.result_type === FunnelCorrelationResultsType.Events
-            ? 'performed event'
-            : 'have property'
+        correlationDetails?.result_type === FunnelCorrelationResultsType.Events ? 'performed event' : 'have property'
 
     let displayName = <></>
 
-    if (funnelCorrelationDetails) {
-        const { first_value, second_value } = parseDisplayNameForCorrelation(funnelCorrelationDetails)
+    if (correlationDetails) {
+        const { first_value, second_value } = parseDisplayNameForCorrelation(correlationDetails)
         displayName = (
             <>
                 <PropertyKeyInfo value={first_value} />
@@ -63,16 +61,11 @@ export function CorrelationMatrix(): JSX.Element {
             <IconErrorOutline className="text-danger" />
         )
 
-    const dismiss = (): void => setFunnelCorrelationDetails(null)
-
     return (
-        <Modal
-            className="correlation-matrix"
-            visible={!!funnelCorrelationDetails}
-            onCancel={dismiss}
-            destroyOnClose
-            footer={<Button onClick={dismiss}>Dismiss</Button>}
-            width={600}
+        <LemonModal
+            isOpen={correlationDetailsModalOpen}
+            onClose={closeCorrelationDetailsModal}
+            footer={<LemonButton onClick={closeCorrelationDetailsModal}>Dismiss</LemonButton>}
             title="Correlation details"
         >
             <div className="correlation-table-wrapper">
@@ -80,7 +73,7 @@ export function CorrelationMatrix(): JSX.Element {
                     <div className="mt-4 text-center">
                         <Spinner className="text-4xl" />
                     </div>
-                ) : funnelCorrelationDetails ? (
+                ) : correlationDetails ? (
                     <>
                         <p className="text-muted-alt mb-4">
                             The table below displays the correlation details for users who {action} <b>{displayName}</b>
@@ -93,7 +86,7 @@ export function CorrelationMatrix(): JSX.Element {
                                 </tr>
                                 <tr>
                                     <td>
-                                        {funnelCorrelationDetails?.result_type === FunnelCorrelationResultsType.Events
+                                        {correlationDetails?.result_type === FunnelCorrelationResultsType.Events
                                             ? 'Performed event'
                                             : 'Has property'}
                                     </td>
@@ -119,7 +112,7 @@ export function CorrelationMatrix(): JSX.Element {
                                         ) : (
                                             <Link
                                                 onClick={() => {
-                                                    openCorrelationPersonsModal(funnelCorrelationDetails, true)
+                                                    openCorrelationPersonsModal(correlationDetails, true)
                                                 }}
                                             >
                                                 {pluralize(truePositive, 'user', undefined, true)}
@@ -141,7 +134,7 @@ export function CorrelationMatrix(): JSX.Element {
                                         ) : (
                                             <Link
                                                 onClick={() => {
-                                                    openCorrelationPersonsModal(funnelCorrelationDetails, false)
+                                                    openCorrelationPersonsModal(correlationDetails, false)
                                                 }}
                                             >
                                                 {pluralize(falseNegative, 'user', undefined, true)}
@@ -188,9 +181,8 @@ export function CorrelationMatrix(): JSX.Element {
                             </tbody>
                         </table>
                         <div className="mt-4 text-center">
-                            {capitalizeFirstLetter(funnelCorrelationDetails?.result_type || '')} <b>{displayName}</b>{' '}
-                            has a{' '}
-                            {funnelCorrelationDetails?.correlation_type === FunnelCorrelationType.Success ? (
+                            {capitalizeFirstLetter(correlationDetails?.result_type || '')} <b>{displayName}</b> has a{' '}
+                            {correlationDetails?.correlation_type === FunnelCorrelationType.Success ? (
                                 <Tooltip
                                     title={`Positive correlation means this ${actor} is correlated with a successful conversion.`}
                                 >
@@ -231,6 +223,6 @@ export function CorrelationMatrix(): JSX.Element {
                     </LemonBanner>
                 )}
             </div>
-        </Modal>
+        </LemonModal>
     )
 }

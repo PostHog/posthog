@@ -3,9 +3,14 @@ from typing import Any, List
 import structlog
 from celery import shared_task
 
-from ee.session_recordings.ai.generate_embeddings import (
+from ee.session_recordings.ai.embeddings_queries import (
+    fetch_errors_by_session_without_embeddings,
     fetch_recordings_without_embeddings,
-    embed_batch_of_recordings,
+)
+from ee.session_recordings.ai.embeddings_runner import (
+    SessionEmbeddingsRunner,
+    ErrorEmbeddingsPreparation,
+    SessionEventsEmbeddingsPreparation,
 )
 from posthog import settings
 from posthog.models import Team
@@ -19,7 +24,17 @@ logger = structlog.get_logger(__name__)
 # to much less than that
 @shared_task(ignore_result=False, queue=CeleryQueue.SESSION_REPLAY_EMBEDDINGS.value, rate_limit="75/m")
 def embed_batch_of_recordings_task(recordings: List[Any], team_id: int) -> None:
-    embed_batch_of_recordings(recordings, team_id)
+    try:
+        team = Team.objects.get(id=team_id)
+        runner = SessionEmbeddingsRunner(team=team)
+
+        runner.run(recordings, embeddings_preparation=SessionEventsEmbeddingsPreparation)
+
+        results = fetch_errors_by_session_without_embeddings(team.pk)
+        runner.run(results, embeddings_preparation=ErrorEmbeddingsPreparation)
+    except Team.DoesNotExist:
+        logger.info(f"[embed_batch_of_recordings_task] Team {team} does not exist. Skipping.")
+        pass
 
 
 @shared_task(ignore_result=True)
@@ -39,18 +54,18 @@ def generate_recordings_embeddings_batch() -> None:
     #
     # so, for now, we'll do that naively
 
-    for team in settings.REPLAY_EMBEDDINGS_ALLOWED_TEAMS:
+    for team_id in settings.REPLAY_EMBEDDINGS_ALLOWED_TEAMS:
         try:
-            recordings = fetch_recordings_without_embeddings(int(team))
+            recordings = fetch_recordings_without_embeddings(int(team_id))
             logger.info(
                 f"[generate_recordings_embeddings_batch] Fetched {len(recordings)} recordings",
                 recordings=recordings,
                 flow="embeddings",
-                team_id=team,
+                team_id=team_id,
             )
-            embed_batch_of_recordings_task.si(recordings, int(team)).apply_async()
+            embed_batch_of_recordings_task.si(recordings, int(team_id)).apply_async()
         except Team.DoesNotExist:
-            logger.info(f"[generate_recordings_embeddings_batch] Team {team} does not exist. Skipping.")
+            logger.info(f"[generate_recordings_embeddings_batch] Team {team_id} does not exist. Skipping.")
             pass
         except Exception as e:
             logger.error(f"[generate_recordings_embeddings_batch] Error: {e}.", exc_info=True, error=e)

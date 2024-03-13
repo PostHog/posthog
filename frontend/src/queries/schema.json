@@ -121,6 +121,9 @@
                             "$ref": "#/definitions/FunnelsActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/FunnelCorrelationActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
@@ -1063,6 +1066,46 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
+        "EventDefinition": {
+            "additionalProperties": false,
+            "properties": {
+                "elements": {
+                    "items": {},
+                    "type": "array"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "properties": {
+                    "type": "object"
+                }
+            },
+            "required": ["event", "properties", "elements"],
+            "type": "object"
+        },
+        "EventOddsRatioSerialized": {
+            "additionalProperties": false,
+            "properties": {
+                "correlation_type": {
+                    "enum": ["success", "failure"],
+                    "type": "string"
+                },
+                "event": {
+                    "$ref": "#/definitions/EventDefinition"
+                },
+                "failure_count": {
+                    "type": "integer"
+                },
+                "odds_ratio": {
+                    "type": "number"
+                },
+                "success_count": {
+                    "type": "integer"
+                }
+            },
+            "required": ["event", "success_count", "failure_count", "odds_ratio", "correlation_type"],
+            "type": "object"
+        },
         "EventPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -1524,6 +1567,144 @@
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
+        "FunnelCorrelationActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelCorrelationPersonConverted": {
+                    "type": "boolean"
+                },
+                "funnelCorrelationPersonEntity": {
+                    "$ref": "#/definitions/AnyEntityNode"
+                },
+                "funnelCorrelationPropertyValues": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "FunnelCorrelationActorsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/FunnelCorrelationQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "FunnelCorrelationQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelCorrelationEventExcludePropertyNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationEventNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationExcludeEventNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationExcludeNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelCorrelationType": {
+                    "$ref": "#/definitions/FunnelCorrelationResultsType"
+                },
+                "kind": {
+                    "const": "FunnelCorrelationQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/FunnelCorrelationResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/FunnelsActorsQuery"
+                }
+            },
+            "required": ["kind", "source", "funnelCorrelationType"],
+            "type": "object"
+        },
+        "FunnelCorrelationResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "results": {
+                    "$ref": "#/definitions/FunnelCorrelationResult"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "FunnelCorrelationResult": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/EventOddsRatioSerialized"
+                    },
+                    "type": "array"
+                },
+                "skewed": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["events", "skewed"],
+            "type": "object"
+        },
+        "FunnelCorrelationResultsType": {
+            "enum": ["events", "properties", "event_with_properties"],
+            "type": "string"
+        },
         "FunnelExclusion": {
             "anyOf": [
                 {
@@ -1835,7 +2016,7 @@
                     "type": "boolean"
                 },
                 "kind": {
-                    "const": "InsightActorsQuery",
+                    "const": "FunnelsActorsQuery",
                     "type": "string"
                 },
                 "response": {
@@ -2515,6 +2696,9 @@
                         },
                         {
                             "$ref": "#/definitions/FunnelsActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelCorrelationActorsQuery"
                         }
                     ]
                 }
@@ -2970,6 +3154,8 @@
                 "HogQLMetadata",
                 "HogQLAutocomplete",
                 "ActorsQuery",
+                "FunnelsActorsQuery",
+                "FunnelCorrelationActorsQuery",
                 "SessionsTimelineQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -2983,6 +3169,7 @@
                 "LifecycleQuery",
                 "InsightActorsQuery",
                 "InsightActorsQueryOptions",
+                "FunnelCorrelationQuery",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -3237,6 +3424,9 @@
                 },
                 "operator": {
                     "$ref": "#/definitions/PropertyOperator"
+                },
+                "table": {
+                    "type": "string"
                 },
                 "type": {
                     "const": "person",
@@ -4086,6 +4276,42 @@
                     "type": "object"
                 },
                 {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "offset": {
+                            "type": "integer"
+                        },
+                        "results": {
+                            "$ref": "#/definitions/FunnelCorrelationResult"
+                        },
+                        "timings": {
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
                     "additionalProperties": {
                         "items": {
                             "$ref": "#/definitions/DatabaseSchemaQueryResponseField"
@@ -4178,6 +4404,9 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelCorrelationQuery"
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaQuery"
@@ -5214,6 +5443,9 @@
                         }
                     },
                     "type": "object"
+                },
+                "useSessionsTable": {
+                    "type": "boolean"
                 }
             },
             "required": ["properties"],
@@ -5275,6 +5507,9 @@
                         }
                     },
                     "type": "object"
+                },
+                "useSessionsTable": {
+                    "type": "boolean"
                 }
             },
             "required": ["kind", "properties"],
@@ -5376,6 +5611,9 @@
                         }
                     },
                     "type": "object"
+                },
+                "useSessionsTable": {
+                    "type": "boolean"
                 }
             },
             "required": ["breakdownBy", "kind", "properties"],
@@ -5457,6 +5695,9 @@
                         }
                     },
                     "type": "object"
+                },
+                "useSessionsTable": {
+                    "type": "boolean"
                 }
             },
             "required": ["kind", "properties"],

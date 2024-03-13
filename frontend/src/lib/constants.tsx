@@ -98,6 +98,7 @@ export const INSTANTLY_AVAILABLE_PROPERTIES = [
     '$group_key',
     'distinct_id',
 ]
+export const MAX_EXPERIMENT_VARIANTS = 10
 
 // Event constants
 export const ACTION_TYPE = 'action_type'
@@ -202,10 +203,13 @@ export const FEATURE_FLAGS = {
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     EXPORTS_SIDEPANEL: 'exports-sidepanel', // owner: #team-product-analytics
     BILLING_UPGRADE_LANGUAGE: 'billing-upgrade-language', // owner: @biancayang
+    NEW_EXPERIMENTS_UI: 'new-experiments-ui', // owner: @jurajmajerik #team-feature-success
     SESSION_REPLAY_V3_INGESTION_PLAYBACK: 'session-replay-v3-ingestion-playback', // owner: @benjackwhite
     SESSION_REPLAY_FILTER_ORDERING: 'session-replay-filter-ordering', // owner: #team-replay
     SESSION_REPLAY_LINKED_VARIANTS: 'session-replay-linked-variants', // owner: #team-replay
+    REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
+    SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -285,3 +289,5 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
         value: 15000,
     },
 ]
+
+export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'

@@ -1,6 +1,6 @@
 import { hide } from '@floating-ui/react'
 import { IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -73,27 +73,27 @@ export function VerifiedDefinitionCheckbox({
         : 'Verified events are prioritized in filters and other selection components. Verifying an event is a signal to collaborators that this event should be used in favor of similar events.'
 
     return (
-        <div className="border p-2 rounded">
-            <LemonCheckbox
+        <>
+            {!compact && <p>{copy}</p>}
+
+            <LemonSwitch
                 checked={verified}
                 onChange={() => {
                     onChange(!verified)
                 }}
+                bordered
                 label={
                     <>
-                        <span className="flex items-center font-semibold">
-                            Verified {isProperty ? 'property' : 'event'}
-                            {compact && (
-                                <Tooltip title={copy}>
-                                    <IconInfo className="ml-2 text-muted text-xl shrink-0" />
-                                </Tooltip>
-                            )}
-                        </span>
-                        {!compact && <div className="text-muted mt-1">{copy}</div>}
+                        Mark as verified {isProperty ? 'property' : 'event'}
+                        {compact && (
+                            <Tooltip title={copy}>
+                                <IconInfo className="ml-2 text-muted text-xl shrink-0" />
+                            </Tooltip>
+                        )}
                     </>
                 }
             />
-        </div>
+        </>
     )
 }
 

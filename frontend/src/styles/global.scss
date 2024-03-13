@@ -640,10 +640,6 @@ body {
         z-index: var(--z-ant-select-dropdown);
     }
 
-    .ant-popconfirm {
-        z-index: var(--z-bottom-notice);
-    }
-
     .ant-card-bordered {
         border-color: var(--border);
     }
@@ -682,19 +678,6 @@ body {
 
     .ant-tooltip {
         max-width: 350px;
-    }
-
-    .ant-table-thead > tr > th,
-    .ant-table-small .ant-table-thead > tr > th {
-        background: var(--mid);
-    }
-
-    .ant-table-tbody > tr > td {
-        border-bottom-color: var(--border);
-    }
-
-    .ant-table-tbody > tr.ant-table-placeholder:hover > td {
-        background: inherit;
     }
 
     @include common-variables;
