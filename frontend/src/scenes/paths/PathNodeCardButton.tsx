@@ -52,7 +52,7 @@ export function PathNodeCardButton({
     const isTruncatedPath = name.slice(1) === '_...'
 
     return (
-        <div className="flex justify-between items-center w-full">
+        <div className="flex justify-between items-center w-full" data-attr="path-node-card-button">
             <div className="font-semibold overflow-hidden max-h-16">
                 <span className="text-xxs text-muted mr-1">{`0${name[0]}`}</span>
                 <span className="text-xs break-words">{pageUrl(node, isPath)}</span>

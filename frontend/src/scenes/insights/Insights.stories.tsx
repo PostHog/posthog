@@ -385,10 +385,10 @@ StickinessEdit.parameters = {
 export const UserPaths: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json')
 )
-UserPaths.parameters = { testOptions: { waitForSelector: '[data-attr=paths-viz] > svg' } }
+UserPaths.parameters = { testOptions: { waitForSelector: '[data-attr=path-node-card-button]:nth-child(9)' } }
 export const UserPathsEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
     'edit'
 )
-UserPathsEdit.parameters = { testOptions: { waitForSelector: '[data-attr=paths-viz] > svg' } }
+UserPaths.parameters = { testOptions: { waitForSelector: '[data-attr=path-node-card-button]:nth-child(9)' } }
 /* eslint-enable @typescript-eslint/no-var-requires */
