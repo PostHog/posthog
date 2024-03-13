@@ -681,7 +681,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             Get in touch
                                         </LemonButton>
                                     ) : (
-                                        upgradePlan.included_if !== 'has_subscription' && (
+                                        upgradePlan.included_if !== 'has_subscription' &&
+                                        !upgradePlan.unit_amount_usd && (
                                             <LemonButton
                                                 to={getUpgradeProductLink(
                                                     product,
