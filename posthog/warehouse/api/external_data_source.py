@@ -316,15 +316,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.save()
         return Response(status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
-        host = request.query_params.get("host")
-        port = request.query_params.get("port")
-        database = request.query_params.get("dbname")
+        host = request.data.get("host", None)
+        port = request.data.get("port", None)
+        database = request.data.get("dbname", None)
 
-        user = request.query_params.get("user")
-        password = request.query_params.get("password")
-        schema = request.query_params.get("schema")
+        user = request.data.get("user", None)
+        password = request.data.get("password", None)
+        schema = request.data.get("schema", None)
 
         if not host or not port or not database or not user or not password or not schema:
             return Response(

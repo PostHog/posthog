@@ -77,7 +77,7 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
                     try {
                         if (values.hogQLInsightsFunnelsFlagEnabled) {
                             const actorsQuery: FunnelsActorsQuery = {
-                                kind: NodeKind.InsightActorsQuery,
+                                kind: NodeKind.FunnelsActorsQuery,
                                 source: values.querySource!,
                             }
                             const query: FunnelCorrelationQuery = {
