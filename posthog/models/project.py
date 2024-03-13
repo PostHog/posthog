@@ -21,6 +21,11 @@ class ProjectManager(models.Manager):
 
 
 class Project(models.Model):
+    """DO NOT USE YET - you probably mean the `Team` model instead.
+
+    `Project` is part of the environemnts feature, which is a work in progress.
+    """
+
     id: models.BigIntegerField = models.BigIntegerField(primary_key=True, verbose_name="ID")
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
