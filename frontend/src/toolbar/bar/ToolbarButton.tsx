@@ -1,8 +1,8 @@
 import './ToolbarButton.scss'
 
-import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { FunctionComponent, useEffect } from 'react'
 import React from 'react'

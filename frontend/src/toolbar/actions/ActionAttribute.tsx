@@ -1,5 +1,5 @@
-import { Link } from '@posthog/lemon-ui'
 import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 
 function SelectorString({ value }: { value: string }): JSX.Element {
     const [last, ...rest] = value.split(' ').reverse()
