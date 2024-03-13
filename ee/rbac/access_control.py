@@ -7,6 +7,22 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 
+def access_controls_for_resource(
+    user: User,
+    organization: Organization,
+    resource: str,
+    team: Optional[Team] = None,
+) -> Sequence[AccessControl]:
+    return AccessControl.objects.filter(
+        # Access controls applying to this user
+        Q(organization=organization, organization_membership__user=user, resource=resource, resource_id=None)
+        # Access controls applying to this team
+        | Q(organization=organization, team=team, resource=resource, resource_id=None)
+        # Access controls applying to this user's roles
+        | Q(organization=organization, role__in=user.roles, resource=resource, resource_id=None)
+    )
+
+
 def access_controls_for_object(
     user: User,
     organization: Organization,
@@ -24,6 +40,7 @@ def access_controls_for_object(
     )
 
 
+# Used for getting the access level for a specific object (i.e. when performing operations on it)
 def access_level_for_object(
     user: User,
     organization: Organization,
@@ -36,22 +53,25 @@ def access_level_for_object(
     return [access_control.access_level for access_control in access_controls]
 
 
-def access_controls_for_resource(
-    user: User,
-    organization: Organization,
-    resource: str,
-    team: Optional[Team] = None,
-) -> Sequence[AccessControl]:
-    return AccessControl.objects.filter(
-        # Access controls applying to this user
-        Q(organization=organization, organization_membership__user=user, resource=resource, resource_id=None)
-        # Access controls applying to this team
-        | Q(organization=organization, team=team, resource=resource, resource_id=None)
-        # Access controls applying to this user's roles
-        | Q(organization=organization, role__in=user.roles, resource=resource, resource_id=None)
-    )
+# Used for generally checking access to a resource (analogous to API Scopes)
+def has_object_permission() -> QuerySet:
+    # 1. Get all access controls for the object and its type
+    # 2. Check if the user has access to the object for read operations
+    # 3. Check if the user has access to the object for write operations
+
+    pass
 
 
+# Used for generally checking access to a resource (analogous to API Scopes)
+def has_permission() -> QuerySet:
+    # 1. Get the scope for the view
+    # 2. Get the relevant access controls for the user and that resource
+    # 3. Check if the user has access to the resource + method
+
+    pass
+
+
+# Used for filtering a queryset by access level
 def filter_queryset_by_access_level(user: User, queryset: QuerySet) -> QuerySet:
     """
     For a given resource there is a bunch of things we need to check...

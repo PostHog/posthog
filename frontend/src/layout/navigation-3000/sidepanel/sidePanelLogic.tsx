@@ -17,6 +17,7 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.Activity,
     SidePanelTab.Status,
     SidePanelTab.Exports,
+    SidePanelTab.AccessControl,
 ]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -66,6 +67,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 if (isCloudOrDev && featureflags[FEATURE_FLAGS.SIDEPANEL_STATUS]) {
                     tabs.push(SidePanelTab.Status)
+                }
+
+                if (featureflags[FEATURE_FLAGS.ACCESS_CONTROL]) {
+                    tabs.push(SidePanelTab.AccessControl)
                 }
 
                 return tabs

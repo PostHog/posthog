@@ -3799,4 +3799,5 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
+    AccessControl = 'access-control',
 }
