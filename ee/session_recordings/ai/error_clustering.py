@@ -28,7 +28,7 @@ def error_clustering(team: Team):
     if not results:
         return []
 
-    df = pd.DataFrame(results, columns=["session_id", "embeddings"])
+    df = pd.DataFrame(results, columns=["session_id", "input", "embeddings"])
 
     df["cluster"] = cluster_embeddings(df["embeddings"].tolist())
 
@@ -40,7 +40,7 @@ def error_clustering(team: Team):
 def fetch_error_embeddings(team_id: int):
     query = """
             SELECT
-                session_id, embeddings
+                session_id, input, embeddings
             FROM
                 session_replay_embeddings
             WHERE
