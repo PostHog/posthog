@@ -574,6 +574,15 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 )
             },
         ],
+        defaultEnabledPlugins: [
+            (s) => [s.filteredEnabledPlugins, s.filteredDisabledPlugins],
+            (filteredEnabledPlugins, filteredDisabledPlugins) => {
+                const defaultEnabledPluginIds = ['GeoIP']
+                return filteredEnabledPlugins
+                    .concat(filteredDisabledPlugins)
+                    .filter((plugin) => defaultEnabledPluginIds.includes(plugin.name))
+            },
+        ],
         pluginUrlToMaintainer: [
             (s) => [s.repository],
             (repository) => {

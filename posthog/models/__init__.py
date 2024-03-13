@@ -56,6 +56,7 @@ from .plugin import (
     PluginLogEntry,
     PluginSourceFile,
 )
+from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
 from .sharing_configuration import SharingConfiguration
@@ -122,6 +123,7 @@ __all__ = [
     "PluginConfig",
     "PluginLogEntry",
     "PluginSourceFile",
+    "Project",
     "Property",
     "PropertyDefinition",
     "RetentionFilter",

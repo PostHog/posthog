@@ -11,6 +11,13 @@ CLUSTER_REPLAY_ERRORS_TIMING = Histogram(
     buckets=[0.5, 1, 2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60],
 )
 
+CLUSTER_REPLAY_ERRORS_CLUSTER_COUNT = Histogram(
+    "posthog_session_recordings_errors_cluster_count",
+    "Count of clusters identified from error messages per team",
+    buckets=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 45, 50],
+    labelnames=["team_id"],
+)
+
 DBSCAN_EPS = settings.REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_EPS
 DBSCAN_MIN_SAMPLES = settings.REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_MIN_SAMPLES
 
@@ -21,17 +28,19 @@ def error_clustering(team: Team):
     if not results:
         return []
 
-    cluster_embeddings(results)
+    df = pd.DataFrame(results, columns=["session_id", "input", "embeddings"])
 
-    df = pd.DataFrame(results, columns=["session_id", "embeddings"])
-    df["cluster"] = cluster_embeddings(results)
+    df["cluster"] = cluster_embeddings(df["embeddings"].tolist())
+
+    CLUSTER_REPLAY_ERRORS_CLUSTER_COUNT.labels(team_id=team.pk).observe(df["cluster"].nunique())
+
     return construct_response(df)
 
 
 def fetch_error_embeddings(team_id: int):
     query = """
             SELECT
-                session_id, embeddings
+                session_id, input, embeddings
             FROM
                 session_replay_embeddings
             WHERE
@@ -58,7 +67,7 @@ def construct_response(df):
     return [
         {
             "cluster": cluster,
-            "samples": rows.sample(n=DBSCAN_MIN_SAMPLES)[["session_id", "message"]].to_dict("records"),
+            "samples": rows.sample(n=DBSCAN_MIN_SAMPLES)[["session_id", "input"]].to_dict("records"),
             "occurrences": rows.size,
             "unique_sessions": rows["session_id"].count(),
         }
