@@ -151,6 +151,16 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
+class DataWarehouseEventsModifier(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id_field: str
+    id_field: str
+    table_name: str
+    timestamp_field: str
+
+
 class DatabaseSchemaQueryResponseField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -414,22 +424,11 @@ class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataWarehouseEventsModifiers: Optional[List[DataWarehouseEventsModifier]] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
-
-    dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
-
-
-class DataWarehouseEventsModifier(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    table_name: str
-    timestamp_field: str
-    distinct_id_field: str
-    id_field: str
 
 
 class Compare(str, Enum):
