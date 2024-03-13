@@ -561,7 +561,7 @@ class TrendsQueryRunner(QueryRunner):
                         table_name=series.table_name,
                         timestamp_field=series.timestamp_field,
                         id_field=series.id_field,
-                        distinct_id_field="customer_email",
+                        distinct_id_field=series.distinct_id_field,
                     )
                 )
 

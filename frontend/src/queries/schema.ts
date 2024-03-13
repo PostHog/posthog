@@ -384,6 +384,7 @@ export interface DataWarehouseNode extends EntityNode {
     id_field: string
     table_name: string
     timestamp_field: string
+    distinct_id_field: string
 }
 
 export interface ActionsNode extends EntityNode {

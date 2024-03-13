@@ -789,6 +789,9 @@
                 "custom_name": {
                     "type": "string"
                 },
+                "distinct_id_field": {
+                    "type": "string"
+                },
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
                     "items": {
@@ -856,7 +859,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "id_field", "kind", "table_name", "timestamp_field"],
+            "required": ["distinct_id_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
             "type": "object"
         },
         "DataWarehousePropertyFilter": {

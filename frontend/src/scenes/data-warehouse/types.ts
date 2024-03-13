@@ -34,6 +34,7 @@ export interface DataWarehouseTableBaseType {
     // used for selecting in trends series
     id_field?: string
     timestamp_field?: string
+    distinct_id_field?: string
 }
 
 export interface DataWarehousePostHogTableType extends DataWarehouseTableBaseType {

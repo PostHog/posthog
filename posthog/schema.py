@@ -1751,6 +1751,7 @@ class DataWarehouseNode(BaseModel):
         extra="forbid",
     )
     custom_name: Optional[str] = None
+    distinct_id_field: str
     fixedProperties: Optional[
         List[
             Union[

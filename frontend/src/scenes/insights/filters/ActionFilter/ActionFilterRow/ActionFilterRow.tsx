@@ -239,6 +239,7 @@ export function ActionFilterRow({
                         name: item?.name ?? '',
                         id_field: item?.id_field,
                         timestamp_field: item?.timestamp_field,
+                        distinct_id_field: item?.distinct_id_field,
                         table_name: item?.name,
                         index,
                     })
