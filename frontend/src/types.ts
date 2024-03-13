@@ -1470,7 +1470,7 @@ export interface BillingV2PlanType {
     note: string | null
     unit: string | null
     product_key: ProductKeyUnion
-    current_plan?: BillingPlanV2Type | null
+    current_plan?: BillingV2PlanType | null
     tiers?: BillingV2TierType[] | null
     unit_amount_usd?: string
     included_if?: 'no_active_subscription' | 'has_subscription' | null
