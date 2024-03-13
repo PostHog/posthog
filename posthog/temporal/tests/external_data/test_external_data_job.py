@@ -511,7 +511,18 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
         mock_get_columns.return_value = {"id": "string"}
         await activity_environment.run(
             validate_schema_activity,
-            ValidateSchemaInputs(run_id=new_job.pk, team_id=team.id, schemas=schemas),
+            ValidateSchemaInputs(
+                run_id=new_job.pk,
+                team_id=team.id,
+                schemas=schemas,
+                table_schema={
+                    "test-1": {"name": "test-1", "resource": "test-1", "columns": {"id": {"data_type": "text"}}},
+                    "test-2": {"name": "test-2", "resource": "test-2", "columns": {"id": {"data_type": "text"}}},
+                    "test-3": {"name": "test-3", "resource": "test-3", "columns": {"id": {"data_type": "text"}}},
+                    "test-4": {"name": "test-4", "resource": "test-4", "columns": {"id": {"data_type": "text"}}},
+                    "test-5": {"name": "test-5", "resource": "test-5", "columns": {"id": {"data_type": "text"}}},
+                },
+            ),
         )
 
         assert mock_get_columns.call_count == 10
@@ -584,7 +595,18 @@ async def test_validate_schema_and_update_table_activity_with_existing(activity_
         mock_get_columns.return_value = {"id": "string"}
         await activity_environment.run(
             validate_schema_activity,
-            ValidateSchemaInputs(run_id=new_job.pk, team_id=team.id, schemas=schemas),
+            ValidateSchemaInputs(
+                run_id=new_job.pk,
+                team_id=team.id,
+                schemas=schemas,
+                table_schema={
+                    "test-1": {"name": "test-1", "resource": "test-1", "columns": {"id": {"data_type": "text"}}},
+                    "test-2": {"name": "test-2", "resource": "test-2", "columns": {"id": {"data_type": "text"}}},
+                    "test-3": {"name": "test-3", "resource": "test-3", "columns": {"id": {"data_type": "text"}}},
+                    "test-4": {"name": "test-4", "resource": "test-4", "columns": {"id": {"data_type": "text"}}},
+                    "test-5": {"name": "test-5", "resource": "test-5", "columns": {"id": {"data_type": "text"}}},
+                },
+            ),
         )
 
         assert mock_get_columns.call_count == 10
@@ -640,7 +662,23 @@ async def test_validate_schema_and_update_table_activity_half_run(activity_envir
 
         await activity_environment.run(
             validate_schema_activity,
-            ValidateSchemaInputs(run_id=new_job.pk, team_id=team.id, schemas=schemas),
+            ValidateSchemaInputs(
+                run_id=new_job.pk,
+                team_id=team.id,
+                schemas=schemas,
+                table_schema={
+                    "broken_schema": {
+                        "name": "broken_schema",
+                        "resource": "broken_schema",
+                        "columns": {"id": {"data_type": "text"}},
+                    },
+                    "test_schema": {
+                        "name": "test_schema",
+                        "resource": "test_schema",
+                        "columns": {"id": {"data_type": "text"}},
+                    },
+                },
+            ),
         )
 
         assert mock_get_columns.call_count == 1
@@ -688,7 +726,18 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         mock_get_columns.return_value = {"id": "string"}
         await activity_environment.run(
             validate_schema_activity,
-            ValidateSchemaInputs(run_id=new_job.pk, team_id=team.id, schemas=schemas),
+            ValidateSchemaInputs(
+                run_id=new_job.pk,
+                team_id=team.id,
+                schemas=schemas,
+                table_schema={
+                    "test-1": {"name": "test-1", "resource": "test-1", "columns": {"id": {"data_type": "text"}}},
+                    "test-2": {"name": "test-2", "resource": "test-2", "columns": {"id": {"data_type": "text"}}},
+                    "test-3": {"name": "test-3", "resource": "test-3", "columns": {"id": {"data_type": "text"}}},
+                    "test-4": {"name": "test-4", "resource": "test-4", "columns": {"id": {"data_type": "text"}}},
+                    "test-5": {"name": "test-5", "resource": "test-5", "columns": {"id": {"data_type": "text"}}},
+                },
+            ),
         )
 
         assert mock_get_columns.call_count == 10

@@ -1,3 +1,4 @@
+from typing import Dict
 from django.db import models
 
 from posthog.client import sync_execute
@@ -54,6 +55,16 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Decimal": IntegerDatabaseField,
 }
 
+STR_TO_HOGQL_MAPPING = {
+    "BooleanDatabaseField": BooleanDatabaseField,
+    "DateDatabaseField": DateDatabaseField,
+    "DateTimeDatabaseField": DateTimeDatabaseField,
+    "IntegerDatabaseField": IntegerDatabaseField,
+    "StringArrayDatabaseField": StringArrayDatabaseField,
+    "StringDatabaseField": StringDatabaseField,
+    "StringJSONDatabaseField": StringJSONDatabaseField,
+}
+
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
 }
@@ -87,7 +98,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     __repr__ = sane_repr("name")
 
-    def get_columns(self, safe_expose_ch_error=True):
+    def get_columns(self, safe_expose_ch_error=True) -> Dict[str, str]:
         try:
             result = sync_execute(
                 """DESCRIBE TABLE (
@@ -118,17 +129,29 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         fields = {}
         structure = []
         for column, type in self.columns.items():
-            if type.startswith("Nullable("):
-                type = type.replace("Nullable(", "")[:-1]
+            # Support for 'old' style columns
+            if isinstance(type, str):
+                clickhouse_type = type
+            else:
+                clickhouse_type = type["clickhouse"]
+
+            if clickhouse_type.startswith("Nullable("):
+                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
-            if type.startswith("Array("):
-                type = remove_named_tuples(type)
+            if clickhouse_type.startswith("Array("):
+                clickhouse_type = remove_named_tuples(clickhouse_type)
 
-            structure.append(f"{column} {type}")
-            type = type.partition("(")[0]
-            type = CLICKHOUSE_HOGQL_MAPPING[type]
-            fields[column] = type(name=column)
+            structure.append(f"{column} {clickhouse_type}")
+
+            # Support for 'old' style columns
+            if isinstance(type, str):
+                hogql_type_str = clickhouse_type.partition("(")[0]
+                hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
+            else:
+                hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+
+            fields[column] = hogql_type(name=column)
 
         return S3Table(
             name=self.name,

@@ -41,8 +41,29 @@ if(
 def create_initial_channel_type(name: str):
     return ExpressionField(
         name=name,
-        expr=parse_expr(
-            """
+        expr=create_channel_type_expr(
+            campaign=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_campaign"])]),
+            medium=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_medium"])]),
+            source=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_source"])]),
+            referring_domain=ast.Call(
+                name="toString", args=[ast.Field(chain=["properties", "$initial_referring_domain"])]
+            ),
+            gclid=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gclid"])]),
+            gad_source=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gad_source"])]),
+        ),
+    )
+
+
+def create_channel_type_expr(
+    campaign: ast.Expr,
+    medium: ast.Expr,
+    source: ast.Expr,
+    referring_domain: ast.Expr,
+    gclid: ast.Expr,
+    gad_source: ast.Expr,
+) -> ast.Expr:
+    return parse_expr(
+        """
 multiIf(
     match({campaign}, 'cross-network'),
     'Cross Network',
@@ -99,16 +120,13 @@ multiIf(
         )
     )
 )""",
-            start=None,
-            placeholders={
-                "campaign": ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_campaign"])]),
-                "medium": ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_medium"])]),
-                "source": ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_source"])]),
-                "referring_domain": ast.Call(
-                    name="toString", args=[ast.Field(chain=["properties", "$initial_referring_domain"])]
-                ),
-                "gclid": ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gclid"])]),
-                "gad_source": ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gad_source"])]),
-            },
-        ),
+        start=None,
+        placeholders={
+            "campaign": campaign,
+            "medium": medium,
+            "source": source,
+            "referring_domain": referring_domain,
+            "gclid": gclid,
+            "gad_source": gad_source,
+        },
     )
