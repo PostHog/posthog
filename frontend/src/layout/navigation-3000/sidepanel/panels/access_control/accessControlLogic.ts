@@ -1,144 +1,84 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
+import { TeamMembershipLevel } from 'lib/constants'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
-import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
+import { AccessControlType, AccessLevel, Resource, RoleMemberType, RoleType } from '~/types'
 
-export const accessControlLogic = kea([
-    path(['scenes', 'accessControl', 'accessControlLogic']),
+import type { accessControlLogicType } from './accessControlLogicType'
+
+export type AccessControlLogicProps = {
+    resource: string
+    resource_id?: string
+}
+
+export type RoleWithAccess = {
+    role: RoleType
+    level: TeamMembershipLevel
+}
+
+export const accessControlLogic = kea<accessControlLogicType>([
+    props({} as AccessControlLogicProps),
+    key((props) => `${props.resource}-${props.resource_id}`),
+    path((key) => ['scenes', 'accessControl', 'accessControlLogic', key]),
     connect({
-        values: [teamMembersLogic, ['allMembers']],
+        values: [membersLogic, ['sortedMembers']],
     }),
     actions({
-        setCreateRoleModalShown: (shown: boolean) => ({ shown }),
-        setRoleInFocus: (role: null | RoleType) => ({ role }),
-        setRoleMembersInFocus: (roleMembers: RoleMemberType[]) => ({ roleMembers }),
-        setRoleMembersToAdd: (uuids: string[]) => ({ uuids }),
-        openCreateRoleModal: true,
-        setPermission: (resource: Resource, access: AccessLevel) => ({ resource, access }),
-        clearPermission: true,
-        updateRole: (role: RoleType) => ({ role }),
+        updateAccessControl: (
+            accessControl: Pick<AccessControlType, 'access_level' | 'organization_membership' | 'team' | 'role'>
+        ) => ({ accessControl }),
     }),
-    reducers({
-        createRoleModalShown: [
-            false,
+    loaders(({ props }) => ({
+        accessControls: [
+            null as AccessControlType[] | null,
             {
-                setCreateRoleModalShown: (_, { shown }) => shown,
-            },
-        ],
-        roleInFocus: [
-            null as null | RoleType,
-            {
-                setRoleInFocus: (_, { role }) => role,
-            },
-        ],
-        roleMembersInFocus: [
-            [] as RoleMemberType[],
-            {
-                setRoleMembersInFocus: (_, { roleMembers }) => roleMembers,
-            },
-        ],
-        roleMembersToAdd: [
-            [] as string[],
-            {
-                setRoleMembersToAdd: (_, { uuids }) => uuids,
+                loadAccessControls: async () => {
+                    const response = await api.accessControls.list({
+                        resource: props.resource,
+                        resource_id: props.resource_id,
+                    })
+                    return response?.results || []
+                },
+
+                updateAccessControl: async ({ accessControl }) => {
+                    console.log('accessControl', accessControl)
+                    const params = {
+                        resource: props.resource,
+                        resource_id: props.resource_id,
+                    }
+
+                    const response = await api.accessControls.update(params)
+                    return response?.results || []
+                },
             },
         ],
         roles: [
-            [] as RoleType[],
+            null as RoleType[] | null,
             {
-                updateRole: (state, { role: newRole }) => {
-                    return state.map((role) => (role.id == newRole.id ? newRole : role))
-                },
-            },
-        ],
-    }),
-    loaders(({ values, actions, asyncActions }) => ({
-        roles: {
-            loadRoles: async () => {
-                const response = await api.roles.list()
-                return response?.results || []
-            },
-            createRole: async (roleName: string) => {
-                const { roles, roleMembersToAdd } = values
-                const newRole = await api.roles.create(roleName)
-                await asyncActions.addRoleMembers({ role: newRole, membersToAdd: roleMembersToAdd })
-                eventUsageLogic.actions.reportRoleCreated(roleName)
-                actions.setRoleMembersInFocus([])
-                actions.setRoleMembersToAdd([])
-                actions.clearPermission()
-                actions.setCreateRoleModalShown(false)
-                return [newRole, ...roles]
-            },
-            deleteRole: async (role: RoleType) => {
-                await api.roles.delete(role.id)
-                return values.roles.filter((currRoles) => currRoles.id !== role.id)
-            },
-        },
-        roleMembersInFocus: [
-            [] as RoleMemberType[],
-            {
-                loadRoleMembers: async ({ roleId }) => {
-                    const response = await api.roles.members.list(roleId)
+                loadRoles: async () => {
+                    const response = await api.roles.list()
                     return response?.results || []
                 },
-                addRoleMembers: async ({ role, membersToAdd }) => {
-                    const newMembers = await Promise.all(
-                        membersToAdd.map(async (userUuid: string) => await api.roles.members.create(role.id, userUuid))
-                    )
-                    actions.setRoleMembersToAdd([])
-                    return [...values.roleMembersInFocus, ...newMembers]
-                },
-                deleteRoleMember: async ({ roleMemberUuid }) => {
-                    values.roleInFocus && (await api.roles.members.delete(values.roleInFocus.id, roleMemberUuid))
-                    return values.roleMembersInFocus.filter((member) => member.id !== roleMemberUuid)
-                },
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
-        setRoleInFocus: ({ role }) => {
-            role && actions.loadRoleMembers({ roleId: role.id })
-            actions.setCreateRoleModalShown(true)
-        },
-        openCreateRoleModal: () => {
-            actions.setRoleInFocus(null)
-            actions.setRoleMembersInFocus([])
-            actions.setCreateRoleModalShown(true)
-        },
-        setCreateRoleModalShown: () => {
-            if (values.roleInFocus) {
-                actions.setPermission(Resource.FEATURE_FLAGS, values.roleInFocus.feature_flags_access_level)
-            } else {
-                actions.setPermission(Resource.FEATURE_FLAGS, AccessLevel.WRITE)
-            }
-        },
-        deleteRoleSuccess: () => {
-            actions.setCreateRoleModalShown(false)
-        },
-    })),
     selectors({
-        addableMembers: [
-            (s) => [s.allMembers, s.roleMembersInFocus],
-            (allMembers, roleMembersInFocus): UserBasicType[] => {
-                const addableMembers: UserBasicType[] = []
-                for (const member of allMembers) {
-                    if (
-                        !roleMembersInFocus.some(
-                            (roleMember: RoleMemberType) => roleMember.user.uuid === member.user.uuid
-                        )
-                    ) {
-                        addableMembers.push(member.user)
+        rolesWithAccess: [
+            (s) => [s.roles],
+            (roles): RoleWithAccess[] => {
+                return (roles || [])?.map((role) => {
+                    return {
+                        role,
+                        level: TeamMembershipLevel.Member,
                     }
-                }
-                addableMembers.sort((a, b) => a.first_name.localeCompare(b.first_name))
-                return addableMembers
+                })
             },
         ],
     }),
     afterMount(({ actions }) => {
         actions.loadRoles()
+        actions.loadAccessControls()
     }),
 ])

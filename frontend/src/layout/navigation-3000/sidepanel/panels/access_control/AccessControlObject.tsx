@@ -7,7 +7,7 @@ import {
     LemonSnack,
     LemonTable,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -25,29 +25,24 @@ import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from 'scenes/settings
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { FusedTeamMemberType, RoleType } from '~/types'
+import { FusedTeamMemberType } from '~/types'
 
-export type AccessControlObjectProps = {
-    resource: string
-}
+import { accessControlLogic, AccessControlLogicProps, RoleWithAccess } from './accessControlLogic'
 
-type RoleWithAccess = {
-    role: RoleType
-    level: TeamMembershipLevel
-}
-
-export function AccessControlObject({ resource }: AccessControlObjectProps): JSX.Element | null {
+export function AccessControlObject({ resource }: AccessControlLogicProps): JSX.Element | null {
     return (
-        <div className="space-y-4">
-            <h3>Default access to this {resource}</h3>
-            <AccessControlObjectDefaults />
+        <BindLogic logic={accessControlLogic} props={{ resource }}>
+            <div className="space-y-4">
+                <h3>Default access to this {resource}</h3>
+                <AccessControlObjectDefaults />
 
-            <h3>Members with explicit access to this {resource}</h3>
-            <AccessControlObjectUsers />
+                <h3>Members with explicit access to this {resource}</h3>
+                <AccessControlObjectUsers />
 
-            <h3>Roles with explicit access to this {resource}</h3>
-            <AccessControlObjectRoles />
-        </div>
+                <h3>Roles with explicit access to this {resource}</h3>
+                <AccessControlObjectRoles />
+            </div>
+        </BindLogic>
     )
 }
 
@@ -161,15 +156,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
 }
 
 function AccessControlObjectRoles(): JSX.Element | null {
-    const rolesWithAccess: RoleWithAccess[] = [
-        {
-            role: {
-                id: 'admin',
-                name: 'Admin',
-            } as any,
-            level: TeamMembershipLevel.Admin,
-        },
-    ]
+    const { rolesWithAccess, rolesLoading } = useValues(accessControlLogic)
 
     const columns: LemonTableColumns<RoleWithAccess> = [
         {
@@ -205,7 +192,12 @@ function AccessControlObjectRoles(): JSX.Element | null {
                     Add
                 </LemonButton>
             </div>
-            <LemonTable columns={columns} dataSource={rolesWithAccess} data-attr="team-members-table" />
+            <LemonTable
+                columns={columns}
+                dataSource={rolesWithAccess}
+                loading={rolesLoading}
+                data-attr="team-members-table"
+            />
         </div>
     )
 }

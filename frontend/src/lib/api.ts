@@ -10,6 +10,7 @@ import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { QuerySchema, QueryStatus } from '~/queries/schema'
 import {
+    AccessControlType,
     ActionType,
     ActivityScope,
     BatchExportConfiguration,
@@ -494,6 +495,15 @@ class ApiRequest {
 
     public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
         return this.roleMemberships(roleId).addPathComponent(userUuid)
+    }
+
+    // # AccessControls
+    public accessControls(): ApiRequest {
+        return this.organizations().current().addPathComponent('access_controls')
+    }
+
+    public accessControl(id: AccessControlType['id']): ApiRequest {
+        return this.accessControls().addPathComponent(id)
     }
 
     // # OrganizationMembers
@@ -1394,6 +1404,20 @@ const api = {
             async delete(roleId: RoleType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().roleMembershipsDetail(roleId, userUuid).delete()
             },
+        },
+    },
+
+    accessControls: {
+        async list(
+            params: Pick<AccessControlType, 'resource' | 'resource_id'>
+        ): Promise<PaginatedResponse<AccessControlType>> {
+            return await new ApiRequest().accessControls().withQueryString(params).get()
+        },
+
+        async update(
+            params: Omit<AccessControlType, 'created_by' | 'updated_at' | 'created_at'>
+        ): Promise<PaginatedResponse<AccessControlType>> {
+            return await new ApiRequest().accessControls().update({ data: params })
         },
     },
 

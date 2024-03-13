@@ -3354,14 +3354,6 @@ export interface RolesListParams {
     feature_flags_access_level?: AccessLevel
 }
 
-export interface FeatureFlagAssociatedRoleType {
-    id: string
-    feature_flag: FeatureFlagType | null
-    role: RoleType
-    updated_at: string
-    added_at: string
-}
-
 export interface RoleMemberType {
     id: string
     user: UserBaseType
@@ -3371,6 +3363,28 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
+export interface AccessControlType {
+    resource: string // TODO: Change to enum
+    resource_id?: string | null
+    access_level?: string | null // TODO: Change to enum
+    team?: TeamType | null
+    organization_membership?: OrganizationMemberType | null
+    role?: RoleType | null
+
+    created_by: UserBasicType | null
+    created_at: string
+    updated_at: string
+}
+
+// TODO: To be deprecated
+export interface FeatureFlagAssociatedRoleType {
+    id: string
+    feature_flag: FeatureFlagType | null
+    role: RoleType
+    updated_at: string
+    added_at: string
+}
+// TODO: To be deprecated
 export interface OrganizationResourcePermissionType {
     id: string
     resource: Resource
