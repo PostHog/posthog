@@ -346,6 +346,14 @@ class AggregationOperations:
                 """
                     SELECT
                         count({id_field}) AS total
+                    FROM {table} AS e
+                    WHERE {events_where_clause}
+                    GROUP BY {person_field}
+                """
+                if isinstance(self.series, DataWarehouseNode)
+                else """
+                    SELECT
+                        count({id_field}) AS total
                     FROM events AS e
                     SAMPLE {sample}
                     WHERE {events_where_clause}
@@ -353,6 +361,7 @@ class AggregationOperations:
                 """,
                 placeholders={
                     "id_field": self._id_field,
+                    "table": self._table_expr,
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,
                     "person_field": ast.Field(
@@ -412,3 +421,10 @@ class AggregationOperations:
                 return parent_select
 
         return QueryOrchestrator()
+
+    @cached_property
+    def _table_expr(self) -> ast.Field:
+        if isinstance(self.series, DataWarehouseNode):
+            return ast.Field(chain=[self.series.table_name])
+
+        return ast.Field(chain=["events"])

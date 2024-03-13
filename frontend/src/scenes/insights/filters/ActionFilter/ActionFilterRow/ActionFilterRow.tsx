@@ -162,8 +162,6 @@ export function ActionFilterRow({
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
-    const mathDisabledReason =
-        filter.type === EntityTypes.DATA_WAREHOUSE ? 'Data Warehouse Series only supports total counts' : ''
 
     let name: string | null | undefined, value: PropertyFilterValue
     const {
@@ -376,7 +374,6 @@ export function ActionFilterRow({
                                         index={index}
                                         onMathSelect={onMathSelect}
                                         disabled={readOnly}
-                                        disabledReason={mathDisabledReason}
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                         mathAvailability={mathAvailability}
                                     />

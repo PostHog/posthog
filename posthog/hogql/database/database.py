@@ -200,6 +200,7 @@ def create_hogql_database(
 
     if modifiers.dataWarehouseEventsModifiers:
         for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
+            # TODO: add all field mappings
             if "id" not in tables[warehouse_modifier.table_name].fields.keys():
                 tables[warehouse_modifier.table_name].fields["id"] = ExpressionField(
                     name="id",
@@ -212,9 +213,16 @@ def create_hogql_database(
                     expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
                 )
 
+            # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
             if "distinct_id" not in tables[warehouse_modifier.table_name].fields.keys():
                 tables[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
                     name="distinct_id",
+                    expr=parse_expr(warehouse_modifier.distinct_id_field),
+                )
+
+            if "person_id" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+                    name="person_id",
                     expr=parse_expr(warehouse_modifier.distinct_id_field),
                 )
 
