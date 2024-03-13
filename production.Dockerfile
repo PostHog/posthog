@@ -23,7 +23,7 @@
 #
 FROM node:18.12.1-bullseye-slim AS frontend-build
 WORKDIR /code
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml ./
 COPY patches/ patches/
@@ -44,7 +44,7 @@ RUN pnpm build
 #
 FROM node:18.12.1-bullseye-slim AS plugin-server-build
 WORKDIR /code/plugin-server
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
@@ -85,7 +85,7 @@ RUN corepack enable && \
 #
 FROM python:3.10.10-slim-bullseye AS posthog-build
 WORKDIR /code
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Python dependencies.
 # We install those dependencies on a custom folder that we will
@@ -120,7 +120,7 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collec
 #
 FROM debian:bullseye-slim AS fetch-geoip-db
 WORKDIR /code
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
 RUN apt-get update && \
@@ -237,7 +237,7 @@ CMD ["unitd", "--no-daemon", "--control", "unix:/var/run/control.unit.sock"]
 #
 FROM unit-131-python-310
 WORKDIR /code
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
 
 # Install OS runtime dependencies.
