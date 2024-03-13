@@ -2,21 +2,30 @@ import './Experiment.scss'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import React, { useEffect } from 'react'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { capitalizeFirstLetter } from 'lib/utils'
+import React from 'react'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { Query } from '~/queries/Query/Query'
+import { InsightType } from '~/types'
+
+import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { experimentLogic } from './experimentLogic'
+import { ExperimentInsightCreator } from './MetricSelector'
 
 const Header = (): JSX.Element => {
     const { currentFormStep } = useValues(experimentLogic)
 
-    const steps = ['Info', 'Goal', 'Code']
+    const steps = ['Info', 'Goal']
 
     return (
         <div className="flex justify-between mb-6">
@@ -165,41 +174,157 @@ const StepInfo = (): JSX.Element => {
 }
 
 const StepGoal = (): JSX.Element => {
-    return <div>Goal</div>
-}
+    const { experiment, exposureAndSampleSize, experimentInsightType, groupTypes, aggregationLabel } =
+        useValues(experimentLogic)
+    const { setExperiment, setNewExperimentInsight, createExperiment } = useActions(experimentLogic)
 
-const StepCode = (): JSX.Element => {
-    return <div>Code</div>
+    // insightLogic
+    const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
+    const { insightProps } = useValues(logic)
+
+    // insightDataLogic
+    const { query } = useValues(insightDataLogic(insightProps))
+
+    return (
+        <div className="flex flex-col h-screen">
+            <div className="flex-auto space-y-8">
+                <div>
+                    <h3>Participant type</h3>
+                    <div>
+                        This sets default aggregation type for all metrics and feature flags. You can change this at any
+                        time by updating the metric or feature flag.
+                    </div>
+                    <LemonDivider />
+                    <LemonRadio
+                        value={
+                            experiment.parameters.aggregation_group_type_index != undefined
+                                ? experiment.parameters.aggregation_group_type_index
+                                : -1
+                        }
+                        onChange={(rawGroupTypeIndex) => {
+                            const groupTypeIndex = rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
+
+                            setExperiment({
+                                parameters: {
+                                    ...experiment.parameters,
+                                    aggregation_group_type_index: groupTypeIndex ?? undefined,
+                                },
+                            })
+                            setNewExperimentInsight()
+                        }}
+                        options={[
+                            { value: -1, label: 'Persons' },
+                            ...Array.from(groupTypes.values()).map((groupType) => ({
+                                value: groupType.group_type_index,
+                                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                            })),
+                        ]}
+                    />
+                </div>
+                <div>
+                    <h3>Goal type</h3>
+                    <LemonDivider />
+                    <LemonRadio
+                        className="space-y-2 -mt-2"
+                        value={experimentInsightType}
+                        onChange={(val) => {
+                            val &&
+                                setNewExperimentInsight({
+                                    insight: val,
+                                    properties: experiment?.filters?.properties,
+                                })
+                        }}
+                        options={[
+                            {
+                                value: InsightType.FUNNELS,
+                                label: (
+                                    <div className="translate-y-2">
+                                        <div>Conversion funnel</div>
+                                        <div className="text-xs text-muted">
+                                            Track how many people complete a sequence of actions and/or events
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                            {
+                                value: InsightType.TRENDS,
+                                label: (
+                                    <div className="translate-y-2">
+                                        <div>Trend</div>
+                                        <div className="text-xs text-muted">
+                                            Track a cumulative total count of a specific event or action
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
+                <div>
+                    <h3>Goal criteria</h3>
+                    <div>
+                        {experimentInsightType === InsightType.FUNNELS
+                            ? "Create the funnel where you'd like to see an increased conversion rate."
+                            : 'Create a trend goal to track change in a single metric.'}
+                    </div>
+                    <LemonDivider />
+                    <div className="p-4 border rounded mt-4 w-full lg:w-3/4 bg-white">
+                        <ExperimentInsightCreator insightProps={insightProps} />
+                    </div>
+                </div>
+                <div className="pb-4">
+                    <h3>Goal preview</h3>
+                    <div className="mt-4 w-full lg:w-3/4">
+                        <BindLogic logic={insightLogic} props={insightProps}>
+                            <Query query={query} context={{ insightProps }} readOnly />
+                        </BindLogic>
+                    </div>
+                </div>
+            </div>
+            <div className="sticky bottom-0 -mx-4 z-50 pt-1 border-t bg-bg-3000">
+                <LemonButton
+                    className="px-4 pt-3 pb-4"
+                    type="primary"
+                    onClick={() => {
+                        const { exposure, sampleSize } = exposureAndSampleSize
+                        createExperiment(true, exposure, sampleSize)
+                    }}
+                >
+                    Create experiment
+                </LemonButton>
+            </div>
+        </div>
+    )
 }
 
 export function ExperimentNext(): JSX.Element {
-    const { currentFormStep, props } = useValues(experimentLogic)
-    const { setCurrentFormStep } = useActions(experimentLogic)
-
-    useEffect(() => {
-        setCurrentFormStep(0)
-    }, [])
+    const { experimentId, editingExistingExperiment, currentFormStep, props } = useValues(experimentLogic)
 
     const stepComponents = {
         0: <StepInfo />,
         1: <StepGoal />,
-        2: <StepCode />,
     }
     const CurrentStepComponent = (currentFormStep && stepComponents[currentFormStep]) || <StepInfo />
 
     return (
-        <div>
-            <Header />
-            <Form
-                id="experiment-step"
-                logic={experimentLogic}
-                formKey="experiment"
-                props={props}
-                enableFormOnSubmit
-                className="space-y-6 experiment-form"
-            >
-                {CurrentStepComponent}
-            </Form>
-        </div>
+        <>
+            {experimentId === 'new' || editingExistingExperiment ? (
+                <div>
+                    <Header />
+                    <Form
+                        id="experiment-step"
+                        logic={experimentLogic}
+                        formKey="experiment"
+                        props={props}
+                        enableFormOnSubmit
+                        className="space-y-6 experiment-form"
+                    >
+                        {CurrentStepComponent}
+                    </Form>
+                </div>
+            ) : (
+                <h2>{`Experiment ${experimentId} draft/results`}</h2>
+            )}
+        </>
     )
 }
