@@ -117,7 +117,7 @@ class Command(BaseCommand):
                     FunnelsQueryRunner(query=query, team=insight.team, modifiers=modifiers).calculate().results
                 )
             except ValidationError as e:
-                if e.get_full_details()["message"] == "Funnels require at least two steps before calculating.":
+                if e.get_full_details()[0]["message"] == "Funnels require at least two steps before calculating.":
                     print("Funnels require at least two steps before calculating.")
                     continue
                 hogql_error = e
