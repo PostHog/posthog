@@ -102,7 +102,8 @@ class TeamManager(models.Manager):
         from ..project import Project
 
         with transaction.atomic():
-            kwargs["id"] = kwargs.get("id") or self.increment_id_sequence()
+            if "id" not in kwargs:
+                kwargs["id"] = self.increment_id_sequence()
             if kwargs.get("project") is None and kwargs.get("project_id") is None:
                 # If a parent project is not provided for this team, ensure there is one
                 # This should be removed once environments are fully rolled out
@@ -144,7 +145,6 @@ class TeamManager(models.Manager):
 
         Use only when actually neeeded to avoid wasting sequence values."""
         cursor = connection.cursor()
-        # Note that `public.posthog_team_id_seq` is an implicit sequence, created via `GENERATED AS IDENTITY`
         cursor.execute("SELECT nextval('posthog_team_id_seq')")
         result = cursor.fetchone()
         return result[0]
