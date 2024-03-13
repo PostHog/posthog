@@ -44,7 +44,6 @@ export function PayGateMini({
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { hasAvailableFeature, availableFeature } = useValues(userLogic)
     const { billing, billingLoading } = useValues(billingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { hideUpgradeModal } = useActions(sceneLogic)
 
     const product = billing?.products.find((product) => product.features?.some((f) => f.key === feature))
@@ -224,15 +223,7 @@ export function PayGateMini({
                 onClick={hideUpgradeModal}
             >
                 {gateVariant === 'add-card'
-                    ? featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
-                        ? `Subscribe to ${product.name}`
-                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                          !billing?.has_active_subscription
-                        ? 'Add credit card'
-                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                          billing?.has_active_subscription
-                        ? `Add paid plan for ${product.name}`
-                        : `Upgrade ${product.name}`
+                    ? `Upgrade ${product.name}`
                     : gateVariant === 'contact-sales'
                     ? 'Contact sales'
                     : 'Move to PostHog Cloud'}
