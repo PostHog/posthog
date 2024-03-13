@@ -50,7 +50,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        result = response.results[0]
+        result = (response.results or [])[0]
         self.assertEqual(
             result[0],
             "Paid Search",
