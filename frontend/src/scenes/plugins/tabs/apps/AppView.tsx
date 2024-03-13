@@ -12,9 +12,13 @@ import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/type
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, PluginType } from '~/types'
+import { AvailableFeature, PluginInstallationType, PluginType } from '~/types'
 
 import { PluginTags } from './components'
+
+function isLocalPlugin(plugin: PluginType | PluginRepositoryEntry): boolean {
+    return 'plugin_type' in plugin && plugin.plugin_type === PluginInstallationType.Local
+}
 
 export function AppView({
     plugin,
@@ -30,7 +34,8 @@ export function AppView({
 
     // If pluginConfig is enabled always show it regardless of the feature availability
     // So self-hosted users who were using the plugins in the past can continue to use them
-    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES) && !pluginConfig?.enabled) {
+    // if plugin is local always show it so developers can test their plugins
+    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES) && !pluginConfig?.enabled && !isLocalPlugin(plugin)) {
         // If the app isn't in the allowed apps list don't show it
         if (!plugin.url || !PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES.has(plugin.url)) {
             return <></>
