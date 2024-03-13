@@ -1713,7 +1713,7 @@
   sumIf(1, event='$autocapture') as autocapture_count
   
   FROM posthog_test.sharded_events
-  WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND toStartOfDay(timestamp) >= '2024-03-08'
+  WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
   GROUP BY `$session_id`, team_id
   
   '''

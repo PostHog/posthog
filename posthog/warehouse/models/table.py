@@ -20,6 +20,7 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.warehouse.models.util import remove_named_tuples
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from django.db.models import Q
 from .credential import DataWarehouseCredential
 from uuid import UUID
@@ -152,6 +153,11 @@ def get_table_by_url_pattern_and_source(url_pattern: str, source_id: UUID, team_
     return DataWarehouseTable.objects.filter(Q(deleted=False) | Q(deleted__isnull=True)).get(
         team_id=team_id, external_data_source_id=source_id, url_pattern=url_pattern
     )
+
+
+@database_sync_to_async
+def get_table_by_schema_id(schema_id: str, team_id: int):
+    return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id).table
 
 
 @database_sync_to_async

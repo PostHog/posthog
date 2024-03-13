@@ -1,6 +1,6 @@
 import uuid
 from unittest import mock
-
+from typing import Optional
 import pytest
 from asgiref.sync import sync_to_async
 from django.test import override_settings
@@ -32,6 +32,7 @@ from posthog.warehouse.models import (
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from posthog.models import Team
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline
 from temporalio.testing import WorkflowEnvironment
 from temporalio.common import RetryPolicy
@@ -116,6 +117,15 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     yield connection
 
     await connection.close()
+
+
+async def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, table_id: Optional[str] = None):
+    return await sync_to_async(ExternalDataSchema.objects.create)(
+        name=schema_name,
+        team_id=team.id,
+        source_id=source.pk,
+        table_id=table_id,
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -232,7 +242,9 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
 
-        schemas = ["Customer"]
+        customer_schema = await _create_schema("Customer", new_source, team)
+        schemas = [(customer_schema.id, "Customer")]
+
         inputs = ExternalDataJobInputs(
             team_id=team.id,
             run_id=new_job.pk,
@@ -262,7 +274,9 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
 
-        schemas = ["Customer", "Invoice"]
+        customer_schema = await _create_schema("Customer", new_source, team)
+        invoice_schema = await _create_schema("Invoice", new_source, team)
+        schemas = [(customer_schema.id, "Customer"), (invoice_schema.id, "Invoice")]
         inputs = ExternalDataJobInputs(
             team_id=team.id,
             run_id=new_job.pk,
@@ -350,7 +364,8 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
 
-        schemas = ["Customer"]
+        customer_schema = await _create_schema("Customer", new_source, team)
+        schemas = [(customer_schema.id, "Customer")]
         inputs = ExternalDataJobInputs(
             team_id=team.id,
             run_id=new_job.pk,
@@ -414,7 +429,8 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
 
-        schemas = ["Customer"]
+        customer_schema = await _create_schema("Customer", new_source, team)
+        schemas = [(customer_schema.id, "Customer")]
         inputs = ExternalDataJobInputs(
             team_id=team.id,
             run_id=new_job.pk,
@@ -476,15 +492,26 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
         rows_synced=0,
     )
 
+    test_1_schema = await _create_schema("test-1", new_source, team)
+    test_2_schema = await _create_schema("test-2", new_source, team)
+    test_3_schema = await _create_schema("test-3", new_source, team)
+    test_4_schema = await _create_schema("test-4", new_source, team)
+    test_5_schema = await _create_schema("test-5", new_source, team)
+    schemas = [
+        (test_1_schema.id, "test-1"),
+        (test_2_schema.id, "test-2"),
+        (test_3_schema.id, "test-3"),
+        (test_4_schema.id, "test-4"),
+        (test_5_schema.id, "test-5"),
+    ]
+
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
     ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
         mock_get_columns.return_value = {"id": "string"}
         await activity_environment.run(
             validate_schema_activity,
-            ValidateSchemaInputs(
-                run_id=new_job.pk, team_id=team.id, schemas=["test-1", "test-2", "test-3", "test-4", "test-5"]
-            ),
+            ValidateSchemaInputs(run_id=new_job.pk, team_id=team.id, schemas=schemas),
         )
 
         assert mock_get_columns.call_count == 10
@@ -504,6 +531,7 @@ async def test_validate_schema_and_update_table_activity_with_existing(activity_
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
+        prefix="stripe_",
     )
 
     old_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
@@ -521,7 +549,7 @@ async def test_validate_schema_and_update_table_activity_with_existing(activity_
 
     url_pattern = await sync_to_async(old_job.url_pattern_by_schema)("test-1")
 
-    await sync_to_async(DataWarehouseTable.objects.create)(
+    existing_table = await sync_to_async(DataWarehouseTable.objects.create)(
         credential=old_credential,
         name="stripe_test-1",
         format="Parquet",
@@ -537,15 +565,26 @@ async def test_validate_schema_and_update_table_activity_with_existing(activity_
         rows_synced=0,
     )
 
+    test_1_schema = await _create_schema("test-1", new_source, team, table_id=existing_table.id)
+    test_2_schema = await _create_schema("test-2", new_source, team)
+    test_3_schema = await _create_schema("test-3", new_source, team)
+    test_4_schema = await _create_schema("test-4", new_source, team)
+    test_5_schema = await _create_schema("test-5", new_source, team)
+    schemas = [
+        (test_1_schema.id, "test-1"),
+        (test_2_schema.id, "test-2"),
+        (test_3_schema.id, "test-3"),
+        (test_4_schema.id, "test-4"),
+        (test_5_schema.id, "test-5"),
+    ]
+
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
     ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
         mock_get_columns.return_value = {"id": "string"}
         await activity_environment.run(
             validate_schema_activity,
-            ValidateSchemaInputs(
-                run_id=new_job.pk, team_id=team.id, schemas=["test-1", "test-2", "test-3", "test-4", "test-5"]
-            ),
+            ValidateSchemaInputs(run_id=new_job.pk, team_id=team.id, schemas=schemas),
         )
 
         assert mock_get_columns.call_count == 10
@@ -595,9 +634,13 @@ async def test_validate_schema_and_update_table_activity_half_run(activity_envir
             },
         ]
 
+        broken_schema = await _create_schema("broken_schema", new_source, team)
+        test_schema = await _create_schema("test_schema", new_source, team)
+        schemas = [(broken_schema.id, "broken_schema"), (test_schema.id, "test_schema")]
+
         await activity_environment.run(
             validate_schema_activity,
-            ValidateSchemaInputs(run_id=new_job.pk, team_id=team.id, schemas=["broken_schema", "test_schema"]),
+            ValidateSchemaInputs(run_id=new_job.pk, team_id=team.id, schemas=schemas),
         )
 
         assert mock_get_columns.call_count == 1
@@ -626,15 +669,26 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         rows_synced=0,
     )
 
+    test_1_schema = await _create_schema("test-1", new_source, team)
+    test_2_schema = await _create_schema("test-2", new_source, team)
+    test_3_schema = await _create_schema("test-3", new_source, team)
+    test_4_schema = await _create_schema("test-4", new_source, team)
+    test_5_schema = await _create_schema("test-5", new_source, team)
+    schemas = [
+        (test_1_schema.id, "test-1"),
+        (test_2_schema.id, "test-2"),
+        (test_3_schema.id, "test-3"),
+        (test_4_schema.id, "test-4"),
+        (test_5_schema.id, "test-5"),
+    ]
+
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
     ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
         mock_get_columns.return_value = {"id": "string"}
         await activity_environment.run(
             validate_schema_activity,
-            ValidateSchemaInputs(
-                run_id=new_job.pk, team_id=team.id, schemas=["test-1", "test-2", "test-3", "test-4", "test-5"]
-            ),
+            ValidateSchemaInputs(run_id=new_job.pk, team_id=team.id, schemas=schemas),
         )
 
         assert mock_get_columns.call_count == 10
@@ -802,7 +856,8 @@ async def test_run_postgres_job(
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
 
-        schemas = ["posthog_test"]
+        posthog_test_schema = await _create_schema("posthog_test", new_source, team)
+        schemas = [(posthog_test_schema.id, "posthog_test")]
         inputs = ExternalDataJobInputs(
             team_id=team.id,
             run_id=new_job.pk,

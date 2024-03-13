@@ -40,7 +40,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLoaded: true,
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
         toggleIsPricingModalOpen: true,
-        toggleIsPlanComparisonModalOpen: true,
+        toggleIsPlanComparisonModalOpen: (highlightedFeatureKey?: string) => ({ highlightedFeatureKey }),
         setSurveyResponse: (surveyResponse: string, key: string) => ({ surveyResponse, key }),
         reportSurveyShown: (surveyID: string, productType: string) => ({ surveyID, productType }),
         reportSurveySent: (surveyID: string, surveyResponse: Record<string, string>) => ({
@@ -99,6 +99,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             '',
             {
                 setSurveyID: (_, { surveyID }) => surveyID,
+            },
+        ],
+        comparisonModalHighlightedFeatureKey: [
+            null as string | null,
+            {
+                toggleIsPlanComparisonModalOpen: (_, { highlightedFeatureKey }) => highlightedFeatureKey || null,
             },
         ],
     }),
