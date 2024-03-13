@@ -1,4 +1,4 @@
-import { IconCrown, IconLeave } from '@posthog/icons'
+import { IconCrown } from '@posthog/icons'
 import {
     LemonButton,
     LemonSelect,
@@ -9,19 +9,17 @@ import {
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
-import { IconCancel } from 'lib/lemon-ui/icons'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
     teamMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
 import { useState } from 'react'
-import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
+import { teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -32,16 +30,18 @@ import { accessControlLogic, AccessControlLogicProps } from './accessControlLogi
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { resource } = props
 
+    const suffix = props.resource_id ? `this ${resource}` : `all ${resource}s`
+
     return (
         <BindLogic logic={accessControlLogic} props={props}>
             <div className="space-y-4">
-                <h3>Default access to this {resource}</h3>
+                <h3>Default access to {suffix}</h3>
                 <AccessControlObjectDefaults />
 
-                <h3>Members with explicit access to this {resource}</h3>
+                <h3>Members with explicit access to {suffix}</h3>
                 <AccessControlObjectUsers />
 
-                <h3>Roles with explicit access to this {resource}</h3>
+                <h3>Roles with explicit access to {suffix}</h3>
                 <AccessControlObjectRoles />
             </div>
         </BindLogic>

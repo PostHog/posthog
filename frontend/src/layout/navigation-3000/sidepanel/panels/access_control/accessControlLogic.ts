@@ -19,6 +19,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
     path((key) => ['scenes', 'accessControl', 'accessControlLogic', key]),
     connect({
         values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam']],
+        actions: [membersLogic, ['ensureAllMembersLoaded']],
     }),
     actions({
         updateAccessControl: (
@@ -147,6 +148,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
         addableMembers: [
             (s) => [s.sortedMembers, s.accessControlMembers],
             (members, accessControlMembers): any[] => {
+                console.log({ members, accessControlMembers })
                 return members
                     ? members.filter(
                           (member) => !accessControlMembers.find((ac) => ac.organization_membership?.id === member.id)
@@ -158,5 +160,6 @@ export const accessControlLogic = kea<accessControlLogicType>([
     afterMount(({ actions }) => {
         actions.loadRoles()
         actions.loadAccessControls()
+        actions.ensureAllMembersLoaded()
     }),
 ])
