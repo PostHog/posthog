@@ -383,9 +383,15 @@ export function ActionFilterRow({
                                             <TaxonomicStringPopover
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 groupTypes={[
+                                                    TaxonomicFilterGroupType.DataWarehouseProperties,
                                                     TaxonomicFilterGroupType.NumericalEventProperties,
                                                     TaxonomicFilterGroupType.Sessions,
                                                 ]}
+                                                schemaColumns={
+                                                    filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                                                        ? externalTablesMap[filter.name]?.columns
+                                                        : []
+                                                }
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
