@@ -21,9 +21,9 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:18.12.1-bullseye-slim AS frontend-build
+FROM node:18.19.1-bullseye-slim AS frontend-build
 WORKDIR /code
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml ./
 COPY patches/ patches/
@@ -42,9 +42,9 @@ RUN pnpm build
 #
 # ---------------------------------------------------------
 #
-FROM node:18.12.1-bullseye-slim AS plugin-server-build
+FROM node:18.19.1-bullseye-slim AS plugin-server-build
 WORKDIR /code/plugin-server
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
@@ -85,7 +85,7 @@ RUN corepack enable && \
 #
 FROM python:3.10.10-slim-bullseye AS posthog-build
 WORKDIR /code
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Python dependencies.
 # We install those dependencies on a custom folder that we will
@@ -120,7 +120,7 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collec
 #
 FROM debian:bullseye-slim AS fetch-geoip-db
 WORKDIR /code
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
 RUN apt-get update && \
@@ -166,19 +166,19 @@ RUN set -ex \
     && CC_OPT="$(DEB_BUILD_MAINT_OPTIONS="hardening=+all,-pie" DEB_CFLAGS_MAINT_APPEND="-Wp,-D_FORTIFY_SOURCE=2 -fPIC" dpkg-buildflags --get CFLAGS)" \
     && LD_OPT="$(DEB_BUILD_MAINT_OPTIONS="hardening=+all,-pie" DEB_LDFLAGS_MAINT_APPEND="-Wl,--as-needed -pie" dpkg-buildflags --get LDFLAGS)" \
     && CONFIGURE_ARGS_MODULES="--prefix=/usr \
-                --statedir=/var/lib/unit \
-                --control=unix:/var/run/control.unit.sock \
-                --runstatedir=/var/run \
-                --pid=/var/run/unit.pid \
-                --logdir=/var/log \
-                --log=/var/log/unit.log \
-                --tmpdir=/var/tmp \
-                --user=unit \
-                --group=unit \
-                --openssl \
-                --libdir=/usr/lib/$DEB_HOST_MULTIARCH" \
+    --statedir=/var/lib/unit \
+    --control=unix:/var/run/control.unit.sock \
+    --runstatedir=/var/run \
+    --pid=/var/run/unit.pid \
+    --logdir=/var/log \
+    --log=/var/log/unit.log \
+    --tmpdir=/var/tmp \
+    --user=unit \
+    --group=unit \
+    --openssl \
+    --libdir=/usr/lib/$DEB_HOST_MULTIARCH" \
     && CONFIGURE_ARGS="$CONFIGURE_ARGS_MODULES \
-                --njs" \
+    --njs" \
     && make -j $NCPU -C pkg/contrib .njs \
     && export PKG_CONFIG_PATH=$(pwd)/pkg/contrib/njs/build \
     && ./configure $CONFIGURE_ARGS --cc-opt="$CC_OPT" --ld-opt="$LD_OPT" --modulesdir=/usr/lib/unit/debug-modules --debug \
@@ -200,8 +200,8 @@ RUN set -ex \
     && cd \
     && rm -rf /usr/src/unit \
     && for f in /usr/sbin/unitd /usr/lib/unit/modules/*.unit.so; do \
-        ldd $f | awk '/=>/{print $(NF-1)}' | while read n; do dpkg-query -S $n; done | sed 's/^\([^:]\+\):.*$/\1/' | sort | uniq >> /requirements.apt; \
-       done \
+    ldd $f | awk '/=>/{print $(NF-1)}' | while read n; do dpkg-query -S $n; done | sed 's/^\([^:]\+\):.*$/\1/' | sort | uniq >> /requirements.apt; \
+    done \
     && apt-mark showmanual | xargs apt-mark auto > /dev/null \
     && { [ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; } \
     && /bin/true \
@@ -209,13 +209,13 @@ RUN set -ex \
     && mkdir -p /docker-entrypoint.d/ \
     && groupadd --gid 998 unit \
     && useradd \
-         --uid 998 \
-         --gid unit \
-         --no-create-home \
-         --home /nonexistent \
-         --comment "unit user" \
-         --shell /bin/false \
-         unit \
+    --uid 998 \
+    --gid unit \
+    --no-create-home \
+    --home /nonexistent \
+    --comment "unit user" \
+    --shell /bin/false \
+    unit \
     && apt-get update \
     && apt-get --no-install-recommends --no-install-suggests -y install curl $(cat /requirements.apt) \
     && apt-get purge -y --auto-remove build-essential \
@@ -237,7 +237,7 @@ CMD ["unitd", "--no-daemon", "--control", "unix:/var/run/control.unit.sock"]
 #
 FROM unit-131-python-310
 WORKDIR /code
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
 
 # Install OS runtime dependencies.

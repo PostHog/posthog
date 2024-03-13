@@ -101,6 +101,22 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             self.team,
         )
 
+    def sessions_table_properties(self, include_previous_period: Optional[bool] = None):
+        properties = [
+            parse_expr(
+                "sessions.min_timestamp >= {date_from}",
+                placeholders={
+                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
+                    if include_previous_period
+                    else self.query_date_range.date_from_as_hogql(),
+                },
+            )
+        ]
+        return property_to_expr(
+            properties,
+            self.team,
+        )
+
     def events_where(self):
         properties = [self.events_where_data_range(), self.query.properties, self._test_account_filters]
 

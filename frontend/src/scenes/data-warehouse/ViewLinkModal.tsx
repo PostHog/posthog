@@ -18,7 +18,7 @@ import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
-import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
+import { DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 
 export function ViewLinkModal(): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
@@ -45,7 +45,6 @@ export function ViewLinkModal(): JSX.Element {
 export function ViewLinkForm(): JSX.Element {
     const {
         tableOptions,
-        selectedJoiningTable,
         selectedJoiningTableName,
         selectedSourceTableName,
         sourceTableKeys,
@@ -116,6 +115,7 @@ export function ViewLinkForm(): JSX.Element {
                                     <HogQLDropdown
                                         hogQLValue={selectedSourceKey ?? ''}
                                         onHogQLValueChange={selectSourceKey}
+                                        tableName={selectedSourceTableName ?? ''}
                                     />
                                 )}
                             </>
@@ -132,7 +132,7 @@ export function ViewLinkForm(): JSX.Element {
                                     fullWidth
                                     onSelect={selectJoiningKey}
                                     value={joiningIsUsingHogQLExpression ? '' : selectedJoiningKey ?? undefined}
-                                    disabledReason={selectedJoiningTable ? '' : 'Select a table to choose join key'}
+                                    disabledReason={selectedJoiningTableName ? '' : 'Select a table to choose join key'}
                                     options={[...joiningTableKeys, { value: '', label: <span>HogQL Expression</span> }]}
                                     placeholder="Select a key"
                                 />
@@ -140,6 +140,7 @@ export function ViewLinkForm(): JSX.Element {
                                     <HogQLDropdown
                                         hogQLValue={selectedJoiningKey ?? ''}
                                         onHogQLValueChange={selectJoiningKey}
+                                        tableName={selectedJoiningTableName ?? ''}
                                     />
                                 )}
                             </>
@@ -195,14 +196,16 @@ export function ViewLinkForm(): JSX.Element {
 const HogQLDropdown = ({
     hogQLValue,
     onHogQLValueChange,
+    tableName,
 }: {
     hogQLValue: string
+    tableName: string
     onHogQLValueChange: (hogQLValue: string) => void
 }): JSX.Element => {
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
     return (
-        <div className="flex-auto overflow-hidden">
+        <div className="flex-auto overflow-hidden mt-2">
             <LemonDropdown
                 visible={isHogQLDropdownVisible}
                 closeOnClickInside={false}
@@ -213,6 +216,7 @@ const HogQLDropdown = ({
                         <HogQLEditor
                             disablePersonProperties
                             value={hogQLValue}
+                            metadataSource={{ kind: NodeKind.HogQLQuery, query: `SELECT * FROM ${tableName}` }}
                             onChange={(currentValue) => {
                                 onHogQLValueChange(currentValue)
                                 setIsHogQLDropdownVisible(false)

@@ -161,7 +161,7 @@ class TestSavedQuery(APIBaseTest):
 
             postgres_connection.commit()
 
-        response = self.client.get(
+        response = self.client.post(
             f"/api/projects/{self.team.id}/external_data_sources/database_schema/",
             data={
                 "host": settings.PG_HOST,
@@ -195,7 +195,7 @@ class TestSavedQuery(APIBaseTest):
 
         with override_settings(CLOUD_DEPLOYMENT="US"):
             team_2, _ = Team.objects.get_or_create(id=2, organization=self.team.organization)
-            response = self.client.get(
+            response = self.client.post(
                 f"/api/projects/{team_2.id}/external_data_sources/database_schema/",
                 data={
                     "host": "172.16.0.0",
@@ -211,7 +211,7 @@ class TestSavedQuery(APIBaseTest):
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 
-            response = self.client.get(
+            response = self.client.post(
                 f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
                 data={
                     "host": "172.16.0.0",
@@ -227,7 +227,7 @@ class TestSavedQuery(APIBaseTest):
 
         with override_settings(CLOUD_DEPLOYMENT="EU"):
             team_1, _ = Team.objects.get_or_create(id=1, organization=self.team.organization)
-            response = self.client.get(
+            response = self.client.post(
                 f"/api/projects/{team_1.id}/external_data_sources/database_schema/",
                 data={
                     "host": "172.16.0.0",
@@ -243,7 +243,7 @@ class TestSavedQuery(APIBaseTest):
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 
-            response = self.client.get(
+            response = self.client.post(
                 f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
                 data={
                     "host": "172.16.0.0",

@@ -506,11 +506,6 @@ body {
             fill: var(--border-3000);
         }
 
-        .ant-table-tbody > tr.ant-table-row:hover > td,
-        .ant-table-tbody > tr > td.ant-table-cell-row-hover {
-            background-color: var(--mid);
-        }
-
         @include dark-mode-3000-variables;
     }
 
@@ -683,45 +678,6 @@ body {
 
     .ant-tooltip {
         max-width: 350px;
-    }
-
-    .ant-table-thead > tr > th,
-    .ant-table-small .ant-table-thead > tr > th {
-        background: var(--mid);
-    }
-
-    .ant-table-tbody > tr > td {
-        border-bottom-color: var(--border);
-    }
-
-    .ant-table-tbody > tr.ant-table-placeholder:hover > td {
-        background: inherit;
-    }
-
-    .ant-table {
-        color: var(--text-3000);
-    }
-
-    .ant-pagination-item-active {
-        border-color: var(--link);
-
-        & a {
-            color: var(--link);
-        }
-
-        & a:hover {
-            color: var(--link);
-        }
-    }
-
-    .ant-pagination-item:hover {
-        border-color: var(--link);
-    }
-
-    .ant-pagination-item:hover a,
-    .ant-pagination-prev:hover .ant-pagination-item-link,
-    .ant-pagination-next:hover .ant-pagination-item-link {
-        color: var(--link);
     }
 
     @include common-variables;
