@@ -703,7 +703,12 @@ body {
     }
 
     #storybook-root > .fixed:only-child {
-        // Fix for stories of fixed overlays like CommandBar - otherwise .storybook-root would be zero-sized
+        // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
+        position: static !important;
+    }
+
+    #storybook-root:empty ~ .LemonModal__overlay {
+        // Fix for stories of fixed modals - otherwise body would be zero-sized
         position: static !important;
     }
 }
