@@ -24,7 +24,7 @@ export const allSDKs: SDK[] = [
         key: SDKKey.ANGULAR,
         tags: [SDKTag.WEB],
         image: require('./logos/angular.svg'),
-        docsLink: 'https://posthog.com/docs/libraries/react-native',
+        docsLink: 'https://posthog.com/docs/libraries/angular',
     },
     {
         name: 'React',
