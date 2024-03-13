@@ -23,6 +23,7 @@ export enum OnboardingStepKey {
     PLANS = 'plans',
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
+    REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
 }
 
@@ -204,6 +205,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
             (product: BillingProductV2Type | null, subscribedDuringOnboarding: boolean) => {
                 const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
                 return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
+            },
+        ],
+        shouldShowReverseProxyStep: [
+            (s) => [s.product],
+            (product: BillingProductV2Type | null) => {
+                const productsWithReverseProxy = [ProductKey.FEATURE_FLAGS]
+                return productsWithReverseProxy.includes(product?.type as ProductKey)
             },
         ],
         isStepKeyInvalid: [
