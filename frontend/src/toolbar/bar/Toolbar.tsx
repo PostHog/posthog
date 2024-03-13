@@ -38,8 +38,6 @@ function MoreMenu(): JSX.Element {
 
     const { logout } = useActions(toolbarConfigLogic)
 
-    // eslint-disable-next-line no-console
-    console.log('testing')
     return (
         <LemonMenu
             placement="top-end"
