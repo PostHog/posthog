@@ -1,14 +1,14 @@
 import datetime as dt
 import logging
 
-from django.db import transaction
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
     backfill_export,
-    sync_batch_export,
     disable_and_delete_export,
+    sync_batch_export,
 )
 from posthog.models import (
     BatchExport,
@@ -18,7 +18,6 @@ from posthog.models import (
     Team,
 )
 from posthog.temporal.common.client import sync_connect
-
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -55,6 +54,24 @@ class Command(BaseCommand):
             type=int,
             help="Number of days from now to automatically end the ongoing export at, the default is usually fine",
         )
+        parser.add_argument(
+            "--exclude-event",
+            "-e",
+            nargs="+",
+            dest="exclude_events",
+            required=False,
+            type=str,
+            help="Event to exclude from migration. Can be used multiple times.",
+        )
+        parser.add_argument(
+            "--include-event",
+            "-i",
+            nargs="+",
+            dest="include_events",
+            required=False,
+            type=str,
+            help="Event to include in migration. Can be used multiple times.",
+        )
 
     def handle(self, **options):
         team_id = options["team_id"]
@@ -63,6 +80,8 @@ class Command(BaseCommand):
         dest_token = options["dest_token"]
         dest_region = options["dest_region"]
         verbose = options["verbosity"] > 1
+        exclude_events = options["exclude_events"]
+        include_events = options["include_events"]
 
         create_args = [
             interval,
@@ -126,6 +145,8 @@ class Command(BaseCommand):
             dest_token=dest_token,
             dest_region=dest_region,
             end_days_from_now=end_days_from_now,
+            exclude_events=exclude_events,
+            include_events=include_events,
         )
 
 
@@ -190,7 +211,15 @@ def display_existing(*, existing_export: BatchExport, verbose: bool):
 
 
 def create_migration(
-    *, team_id: int, interval: str, start_at: str, dest_token: str, dest_region: str, end_days_from_now: int
+    *,
+    team_id: int,
+    interval: str,
+    start_at: str,
+    dest_token: str,
+    dest_region: str,
+    end_days_from_now: int,
+    include_events: list[str] | None = None,
+    exclude_events: list[str] | None = None,
 ):
     if interval not in VALID_INTERVALS:
         raise CommandError("invalid interval, choices are: %s" % VALID_INTERVALS)
@@ -215,6 +244,8 @@ def create_migration(
         dest_token=dest_token,
         dest_region=dest_region,
         url=url,
+        exclude_events=exclude_events,
+        include_events=include_events,
     )
     result = input("Enter [y] to continue creating a new migration (Ctrl+C to cancel) ")
     if result.lower() != "y":
@@ -227,7 +258,7 @@ def create_migration(
 
     destination = BatchExportDestination(
         type=BatchExportDestination.Destination.HTTP,
-        config={"url": url, "token": dest_token},
+        config={"url": url, "token": dest_token, "include_events": include_events, "exclude_events": exclude_events},
     )
     batch_export = BatchExport(
         team_id=team_id,
