@@ -374,7 +374,9 @@ export const createTeam = async (
         created_at: new Date().toISOString(),
     })
     await insertRow(postgres, 'posthog_team', {
+        id,
         organization_id: organizationId,
+        project_id: id,
         app_urls: [],
         name: 'TEST PROJECT',
         event_names: [],
