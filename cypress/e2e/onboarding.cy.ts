@@ -19,13 +19,13 @@ describe('Onboarding', () => {
         cy.get('[data-attr=product_analytics-onboarding-card]').click()
 
         // Confirm product intro is not included as the first step in the upper right breadcrumbs
-        cy.get('[data-attr=onboarding-breadcrumbs] > :first-child > * span').should('not.contain', 'Product Intro')
+        cy.get('[data-attr=onboarding-breadcrumbs] > :first-child > * span').should('not.contain', 'Product intro')
 
         // Navigate to the product intro page by clicking the left side bar
         cy.get('[data-attr=menu-item-replay').click()
 
         // Confirm we're on the product_intro page
-        cy.get('[data-attr=top-bar-name] > span').contains('Product intro')
+        cy.get('[data-attr=top-bar-name] > span').contains('Onboarding')
 
         // Go back to /products
         cy.visit('/products')
