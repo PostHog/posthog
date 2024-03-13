@@ -20,14 +20,13 @@ import {
     membershipLevelToName,
     teamMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { useState } from 'react'
 import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { FusedTeamMemberType } from '~/types'
+import { AccessControlType, FusedTeamMemberType } from '~/types'
 
-import { accessControlLogic, AccessControlLogicProps, RoleWithAccess } from './accessControlLogic'
+import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
 
 export function AccessControlObject({ resource }: AccessControlLogicProps): JSX.Element | null {
     return (
@@ -47,25 +46,27 @@ export function AccessControlObject({ resource }: AccessControlLogicProps): JSX.
 }
 
 function AccessControlObjectDefaults(): JSX.Element | null {
-    const [level, setLevel] = useState<any>(null)
+    const { accessControlGlobal, accessControlsLoading } = useValues(accessControlLogic)
+    const { updateAccessControlGlobal } = useActions(accessControlLogic)
 
     return (
         <LemonSelect
-            value={level}
+            value={accessControlGlobal?.access_level ?? null}
             onChange={(newValue) => {
-                setLevel(newValue)
+                updateAccessControlGlobal(newValue)
             }}
+            disabledReason={accessControlsLoading ? 'Loading…' : undefined}
             options={[
                 {
                     value: null,
                     label: 'No access by default',
                 },
                 {
-                    value: TeamMembershipLevel.Member,
+                    value: 'member',
                     label: 'Everyone is a member by default',
                 },
                 {
-                    value: TeamMembershipLevel.Admin,
+                    value: 'admin',
                     label: 'Everyone is an admin by default',
                 },
             ]}
@@ -156,20 +157,20 @@ function AccessControlObjectUsers(): JSX.Element | null {
 }
 
 function AccessControlObjectRoles(): JSX.Element | null {
-    const { rolesWithAccess, rolesLoading } = useValues(accessControlLogic)
+    const { accessControlRoles, accessControlsLoading } = useValues(accessControlLogic)
 
-    const columns: LemonTableColumns<RoleWithAccess> = [
+    const columns: LemonTableColumns<AccessControlType> = [
         {
             title: 'Role',
             key: 'role',
-            render: (_, { role }) => role.name,
-            sorter: (a, b) => a.role.name.localeCompare(b.role.name),
+            render: (_, { role }) => role?.name,
+            sorter: (a, b) => a.role!.name.localeCompare(b.role!.name),
         },
         {
             title: 'Level',
             key: 'level',
-            render: (_, { level }) => {
-                return level
+            render: (_, { access_level }) => {
+                return access_level
             },
         },
     ]
@@ -194,8 +195,8 @@ function AccessControlObjectRoles(): JSX.Element | null {
             </div>
             <LemonTable
                 columns={columns}
-                dataSource={rolesWithAccess}
-                loading={rolesLoading}
+                dataSource={accessControlRoles}
+                loading={accessControlsLoading}
                 data-attr="team-members-table"
             />
         </div>

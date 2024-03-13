@@ -502,10 +502,6 @@ class ApiRequest {
         return this.organizations().current().addPathComponent('access_controls')
     }
 
-    public accessControl(id: AccessControlType['id']): ApiRequest {
-        return this.accessControls().addPathComponent(id)
-    }
-
     // # OrganizationMembers
     public organizationMembers(): ApiRequest {
         return this.organizations().current().addPathComponent('members')

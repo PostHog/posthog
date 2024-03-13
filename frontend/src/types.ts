@@ -3366,6 +3366,7 @@ export interface RoleMemberType {
 export interface AccessControlType {
     resource: string // TODO: Change to enum
     resource_id?: string | null
+
     access_level?: string | null // TODO: Change to enum
     team?: TeamType | null
     organization_membership?: OrganizationMemberType | null

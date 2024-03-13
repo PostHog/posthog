@@ -5,6 +5,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
 
 
+# TODO: Validate that an access control can only have one of team, organization_membership, or role
+
+
 class AccessControlSerializer(serializers.ModelSerializer):
     class Meta:
         model = AccessControl
