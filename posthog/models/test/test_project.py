@@ -1,3 +1,4 @@
+from unittest import mock
 from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
@@ -55,3 +56,18 @@ class TestProject(BaseTest):
         self.assertEqual(team.organization, self.organization)
         self.assertEqual(team.project, project)
         self.assertEqual(team.access_control, True)
+
+    @mock.patch("posthog.models.team.team.Team.objects.create", side_effect=Exception)
+    def test_create_project_with_team_does_not_create_if_team_fails(self, mock_create):
+        initial_team_count = Team.objects.count()
+        initial_project_count = Project.objects.count()
+
+        with self.assertRaises(Exception):
+            Project.objects.create_with_team(
+                organization=self.organization,
+                name="Test project",
+                team_fields={"name": "Test team", "access_control": True},
+            )
+
+        self.assertEqual(Team.objects.count(), initial_team_count)
+        self.assertEqual(Project.objects.count(), initial_project_count)

@@ -186,6 +186,18 @@ class TestTeam(BaseTest):
         self.assertEqual(project.organization, team.organization)
         self.assertEqual(project.name, "Hogflix")
 
+    @mock.patch("posthog.models.project.Project.objects.create", side_effect=Exception)
+    def test_team_not_created_if_project_creation_fails(self, mock_create):
+        # Can be removed once environments are fully rolled out
+        initial_team_count = Team.objects.count()
+        initial_project_count = Project.objects.count()
+
+        with self.assertRaises(Exception):
+            Team.objects.create_with_data(organization=self.organization, name="Hogflix")
+
+        self.assertEqual(Team.objects.count(), initial_team_count)
+        self.assertEqual(Project.objects.count(), initial_project_count)
+
     def test_increment_id_sequence(self):
         initial = Team.objects.increment_id_sequence()
         subsequent = Team.objects.increment_id_sequence()
