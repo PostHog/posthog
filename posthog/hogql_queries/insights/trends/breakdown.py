@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -27,7 +27,7 @@ class Breakdown:
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
-    breakdown_values_override: Optional[List[str | int]]
+    breakdown_values_override: Optional[List[str | int | float]]
 
     def __init__(
         self,
@@ -38,7 +38,7 @@ class Breakdown:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
-        breakdown_values_override: Optional[List[str | int]] = None,
+        breakdown_values_override: Optional[List[str | int | float]] = None,
     ):
         self.team = team
         self.query = query
@@ -51,7 +51,11 @@ class Breakdown:
 
     @cached_property
     def enabled(self) -> bool:
-        return self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None
+        return (
+            self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown is not None
+            and self.has_breakdown_values
+        )
 
     @cached_property
     def is_session_type(self) -> bool:
@@ -96,7 +100,7 @@ class Breakdown:
             )
 
         # If there's no breakdown values
-        if len(self._get_breakdown_values) == 1 and self._get_breakdown_values[0] is None:
+        if len(self._breakdown_values) == 1 and self._breakdown_values[0] is None:
             return ast.Alias(alias="breakdown_value", expr=ast.Field(chain=self._properties_chain))
 
         return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_transform_func)
@@ -145,20 +149,30 @@ class Breakdown:
             left = ast.Field(chain=self._properties_chain)
 
         compare_ops = []
-        for v in self._get_breakdown_values:
+        for _value in self._breakdown_values:
+            value: Optional[str | int | float] = _value
             # If the value is one of the "other" values, then use the `transform()` func
             if (
-                v == BREAKDOWN_OTHER_STRING_LABEL
-                or v == BREAKDOWN_OTHER_NUMERIC_LABEL
-                or v == float(BREAKDOWN_OTHER_NUMERIC_LABEL)
+                value == BREAKDOWN_OTHER_STRING_LABEL
+                or value == BREAKDOWN_OTHER_NUMERIC_LABEL
+                or value == float(BREAKDOWN_OTHER_NUMERIC_LABEL)
             ):
                 transform_func = self._get_breakdown_transform_func
                 compare_ops.append(
-                    ast.CompareOperation(left=transform_func, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=v))
+                    ast.CompareOperation(
+                        left=transform_func, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value)
+                    )
                 )
             else:
+                if (
+                    value == BREAKDOWN_NULL_STRING_LABEL
+                    or value == BREAKDOWN_NULL_NUMERIC_LABEL
+                    or value == float(BREAKDOWN_NULL_NUMERIC_LABEL)
+                ):
+                    value = None
+
                 compare_ops.append(
-                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=v))
+                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value))
                 )
 
         if len(compare_ops) == 1:
@@ -170,7 +184,7 @@ class Breakdown:
 
     @cached_property
     def _get_breakdown_transform_func(self) -> ast.Call:
-        values = self._get_breakdown_values
+        values = self._breakdown_values
         all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
         all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
 
@@ -201,19 +215,20 @@ class Breakdown:
     def _breakdown_buckets_ast(self) -> ast.Array:
         buckets = self._get_breakdown_histogram_buckets()
         values = [f"[{t[0]},{t[1]}]" for t in buckets]
+        # TODO: add this only if needed
         values.append('["",""]')
 
         return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), values)))
 
     @cached_property
     def _breakdown_values_ast(self) -> ast.Array:
-        return ast.Array(exprs=[ast.Constant(value=v) for v in self._get_breakdown_values])
+        return ast.Array(exprs=[ast.Constant(value=v) for v in self._breakdown_values])
 
     @cached_property
-    def _get_breakdown_values(self) -> List[str | int]:
+    def _all_breakdown_values(self) -> List[str | int | float | None]:
         # Used in the actors query
         if self.breakdown_values_override is not None:
-            return self.breakdown_values_override
+            return cast(List[str | int | float | None], self.breakdown_values_override)
 
         if self.query.breakdownFilter is None:
             return []
@@ -227,11 +242,33 @@ class Breakdown:
                 breakdown_filter=self.query.breakdownFilter,
                 query_date_range=self.query_date_range,
             )
-            return breakdown.get_breakdown_values()
+            return cast(List[str | int | float | None], breakdown.get_breakdown_values())
+
+    @cached_property
+    def _breakdown_values(self) -> List[str | int | float]:
+        values = self._all_breakdown_values
+        if len(values) == 0 or all(value is None for value in values):
+            return []
+
+        if None in values:
+            all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
+            all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
+
+            if all_values_are_ints_or_none:
+                values = [v if v is not None else BREAKDOWN_NULL_NUMERIC_LABEL for v in values]
+            elif all_values_are_floats_or_none:
+                values = [v if v is not None else float(BREAKDOWN_NULL_NUMERIC_LABEL) for v in values]
+            else:
+                values = [v if v is not None else BREAKDOWN_NULL_STRING_LABEL for v in values]
+        return cast(List[str | int | float], values)
+
+    @cached_property
+    def has_breakdown_values(self) -> bool:
+        return len(self._breakdown_values) > 0
 
     def _get_breakdown_histogram_buckets(self) -> List[Tuple[float, float]]:
         buckets = []
-        values = self._get_breakdown_values
+        values = self._breakdown_values
 
         if len(values) == 1:
             values = [values[0], values[0]]
@@ -241,8 +278,8 @@ class Breakdown:
 
             # Since we always `floor(x, 2)` the value, we add 0.01 to the last bucket
             # to ensure it's always slightly greater than the maximum value
-            lower_bound = values[i]
-            upper_bound = values[i + 1] + 0.01 if last_value else values[i + 1]
+            lower_bound = float(values[i])
+            upper_bound = float(values[i + 1]) + 0.01 if last_value else float(values[i + 1])
             buckets.append((lower_bound, upper_bound))
 
         return buckets

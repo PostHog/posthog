@@ -48,7 +48,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                     try {
                         if (values.hogQLInsightsFunnelsFlagEnabled) {
                             const actorsQuery: FunnelsActorsQuery = {
-                                kind: NodeKind.InsightActorsQuery,
+                                kind: NodeKind.FunnelsActorsQuery,
                                 source: values.querySource!,
                             }
                             const query: FunnelCorrelationQuery = {
@@ -93,7 +93,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                 loadEventWithPropertyCorrelations: async (eventName: string) => {
                     if (values.hogQLInsightsFunnelsFlagEnabled) {
                         const actorsQuery: FunnelsActorsQuery = {
-                            kind: NodeKind.InsightActorsQuery,
+                            kind: NodeKind.FunnelsActorsQuery,
                             source: values.querySource!,
                         }
                         const query: FunnelCorrelationQuery = {
