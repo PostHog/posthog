@@ -18,6 +18,7 @@
 !.storybook
 !tsconfig.json
 !frontend/@posthog
+!frontend/dist
 !frontend/src
 !frontend/types
 !frontend/public
