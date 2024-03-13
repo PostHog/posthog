@@ -567,6 +567,10 @@
           {
               "key": "duration",
               "type": "integer"
+          },
+          {
+              "key": "channel_type",
+              "type": "string"
           }
       ],
       "raw_session_replay_events": [
@@ -1406,6 +1410,10 @@
           {
               "key": "duration",
               "type": "integer"
+          },
+          {
+              "key": "channel_type",
+              "type": "string"
           }
       ],
       "raw_session_replay_events": [

@@ -28,11 +28,9 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     BatchExportServiceError,
     BatchExportServiceRPCError,
-    BatchExportServiceScheduleNotFound,
     BatchExportWithNoEndNotAllowedError,
     backfill_export,
-    batch_export_delete_schedule,
-    cancel_running_batch_export_backfill,
+    disable_and_delete_export,
     pause_batch_export,
     sync_batch_export,
     unpause_batch_export,
@@ -43,7 +41,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.models import (
     BatchExport,
-    BatchExportBackfill,
     BatchExportDestination,
     BatchExportRun,
     Team,
@@ -436,23 +433,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         since we are deleting, we assume that we can recover from this state by finishing the delete operation by calling
         instance.save().
         """
-        temporal = sync_connect()
-
-        instance.deleted = True
-
-        try:
-            batch_export_delete_schedule(temporal, str(instance.pk))
-        except BatchExportServiceScheduleNotFound as e:
-            logger.warning(
-                "The Schedule %s could not be deleted as it was not found",
-                e.schedule_id,
-            )
-
-        instance.save()
-
-        for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
-            if backfill.status == BatchExportBackfill.Status.RUNNING:
-                cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
+        disable_and_delete_export(instance)
 
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):
