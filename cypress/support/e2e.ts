@@ -37,7 +37,6 @@ beforeEach(() => {
                 hogql: true,
                 'data-exploration-insights': true,
                 notebooks: true,
-                'product-intro-pages': 'test',
             })
         )
     )

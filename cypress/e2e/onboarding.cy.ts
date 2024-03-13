@@ -2,8 +2,16 @@ import { urls } from 'scenes/urls'
 import { decideResponse } from '../fixtures/api/decide'
 
 describe('Onboarding', () => {
-    beforeEach(function () {
+    beforeEach(() => {
         cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-unsubscribed.json' })
+
+        cy.intercept('**/decide/*', (req) =>
+            req.reply(
+                decideResponse({
+                    'product-intro-pages': 'test',
+                })
+            )
+        )
     })
 
     it('Navigate between /products to /onboarding to a product intro page', () => {
