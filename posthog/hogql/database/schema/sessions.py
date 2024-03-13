@@ -10,6 +10,7 @@ from posthog.hogql.database.models import (
     DatabaseField,
     LazyTable,
 )
+from posthog.hogql.database.schema.channel_type import create_channel_type_expr
 from posthog.schema import HogQLQueryModifiers
 
 
@@ -109,6 +110,16 @@ def select_from_sessions_table(requested_fields: Dict[str, List[str | int]]):
                 ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
             ],
         ),
+        "channel_type": create_channel_type_expr(
+            campaign=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]),
+            medium=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
+            source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
+            referring_domain=ast.Call(
+                name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
+            ),
+            gclid=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
+            gad_source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
+        ),
     }
 
     select_fields: List[ast.Expr] = []
@@ -134,6 +145,7 @@ class SessionsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = {
         **SESSIONS_COMMON_FIELDS,
         "duration": IntegerDatabaseField(name="duration"),
+        "channel_type": StringDatabaseField(name="channel_type"),
     }
 
     def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
