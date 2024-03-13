@@ -236,6 +236,18 @@ function isAnyMouseActivity(event: RRWebEvent) {
     )
 }
 
+/**
+ * meta event has type = 4 and event.data.href
+ * and custom events have type = 5 and _might_ have event.data.payload.href
+ *
+ * we don't really care what type of event they are just whether they have a href
+ */
+function hrefFrom(event: RRWebEvent): string | undefined {
+    const metaHref = event.data?.href?.trim()
+    const customHref = event.data?.payload?.href?.trim()
+    return metaHref || customHref || undefined
+}
+
 export const createSessionReplayEvent = (
     uuid: string,
     team_id: number,
@@ -275,9 +287,12 @@ export const createSessionReplayEvent = (
                 keypressCount += 1
             }
         }
-        if (url === null && !!event.data?.href?.trim().length) {
-            url = event.data.href
+
+        const eventUrl: string | undefined = hrefFrom(event)
+        if (url === null && eventUrl) {
+            url = eventUrl
         }
+
         if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
             const level = safeLevel(event.data.payload?.level)
             if (level === 'info') {
