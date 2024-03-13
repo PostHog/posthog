@@ -224,6 +224,12 @@ export async function createUserTeamAndOrganization(
         joined_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     })
+    await insertRow(db, 'posthog_project', {
+        id: teamId,
+        organization_id: organizationId,
+        name: 'TEST PROJECT',
+        created_at: new Date().toISOString(),
+    })
     await insertRow(db, 'posthog_team', {
         id: teamId,
         project_id: teamId,
