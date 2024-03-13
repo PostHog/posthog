@@ -203,7 +203,7 @@ export function Billing(): JSX.Element {
                                             )}
                                             {billing.discount_amount_usd && (
                                                 <div>
-                                                    <p className="ml-0">
+                                                    <p className="ml-0 space-x-1">
                                                         <Tooltip
                                                             title={
                                                                 billing?.amount_off_expires_at
@@ -219,7 +219,7 @@ export function Billing(): JSX.Element {
                                                                 {parseInt(billing.discount_amount_usd).toLocaleString()}
                                                             </strong>
                                                         </Tooltip>
-                                                        remaining credits applied to your bill.
+                                                        <span>remaining credits applied to your bill.</span>
                                                     </p>
                                                 </div>
                                             )}
