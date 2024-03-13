@@ -100,26 +100,26 @@ export function PermissionsGrid(): JSX.Element {
     ]
 
     return (
-        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-            <>
-                <div className="flex flex-row justify-between items-center mb-4">
-                    <div className="text-muted-alt">
-                        Edit organizational default permission levels for PostHog resources. Use roles to apply
-                        permissions to specific sets of users.
-                    </div>
-                    {!isRestricted && (
-                        <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
-                            Create role
-                        </LemonButton>
-                    )}
+        // <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+        <>
+            <div className="flex flex-row justify-between items-center mb-4">
+                <div className="text-muted-alt">
+                    Edit organizational default permission levels for PostHog resources. Use roles to apply permissions
+                    to specific sets of users.
                 </div>
-                <LemonTable
-                    columns={columns}
-                    loading={rolesLoading || organizationResourcePermissionsLoading}
-                    dataSource={[{ name: 'organization_default' } as RoleType, ...roles]}
-                />
-                <CreateRoleModal />
-            </>
-        </PayGateMini>
+                {!isRestricted && (
+                    <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
+                        Create role
+                    </LemonButton>
+                )}
+            </div>
+            <LemonTable
+                columns={columns}
+                loading={rolesLoading || organizationResourcePermissionsLoading}
+                dataSource={[{ name: 'organization_default' } as RoleType, ...roles]}
+            />
+            <CreateRoleModal />
+        </>
+        // </PayGateMini>
     )
 }
