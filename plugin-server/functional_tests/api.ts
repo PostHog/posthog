@@ -365,7 +365,15 @@ export const createTeam = async (
     token?: string,
     sessionRecordingOptIn = true
 ) => {
-    const team = await insertRow(postgres, 'posthog_team', {
+    const id = Math.round(Math.random() * 1000000000)
+    await insertRow(postgres, 'posthog_project', {
+        // Every team (aka environment) must be a child of a project
+        id,
+        organization_id: organizationId,
+        name: 'TEST PROJECT',
+        created_at: new Date().toISOString(),
+    })
+    await insertRow(postgres, 'posthog_team', {
         organization_id: organizationId,
         app_urls: [],
         name: 'TEST PROJECT',
@@ -392,7 +400,7 @@ export const createTeam = async (
         access_control: false,
         slack_incoming_webhook,
     })
-    return team.id
+    return id
 }
 
 export const createAction = async (action: Omit<RawAction, 'id'>, steps: Omit<ActionStep, 'id' | 'action_id'>[]) => {
