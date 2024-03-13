@@ -68,7 +68,9 @@ class Backfill:
                     [self.team_id],
                 )
             )
-            logger.info("Completed %r, marked %s team as backfilled.", self, len(updated_teams))
+            assert not len(updated_teams) > 1
+
+            logger.info("Completed %r!", self)
 
 
 class Command(BaseCommand):
