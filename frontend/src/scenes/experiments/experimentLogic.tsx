@@ -8,7 +8,7 @@ import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { toParams } from 'lib/utils'
+import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ReactElement } from 'react'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
@@ -143,6 +143,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentGoalModal: true,
         openExperimentExposureModal: true,
         closeExperimentExposureModal: true,
+        setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
+        moveToNextFormStep: true,
     }),
     reducers({
         experiment: [
@@ -278,6 +280,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 updateExperiment: () => false,
             },
         ],
+        currentFormStep: [
+            0,
+            {
+                setCurrentFormStep: (_, { stepIndex }) => stepIndex,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, runningTime, sampleSize }) => {
@@ -346,17 +354,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
             const aggregationGroupTypeIndex = values.experiment.parameters?.aggregation_group_type_index
-            if (filters?.insight === InsightType.FUNNELS) {
-                newInsightFilters = cleanFilters({
-                    insight: InsightType.FUNNELS,
-                    funnel_viz_type: FunnelVizType.Steps,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    layout: FunnelLayout.horizontal,
-                    aggregation_group_type_index: aggregationGroupTypeIndex,
-                    ...filters,
-                })
-            } else {
+            if (filters?.insight === InsightType.TRENDS) {
                 const groupAggregation =
                     aggregationGroupTypeIndex !== undefined
                         ? { math: 'unique_group', math_group_type_index: aggregationGroupTypeIndex }
@@ -371,6 +369,17 @@ export const experimentLogic = kea<experimentLogicType>([
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     ...eventAddition,
                     ...filters,
+                })
+            } else {
+                newInsightFilters = cleanFilters({
+                    insight: InsightType.FUNNELS,
+                    funnel_viz_type: FunnelVizType.Steps,
+                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    layout: FunnelLayout.horizontal,
+                    ...(aggregationGroupTypeIndex !== undefined && {
+                        aggregation_group_type_index: aggregationGroupTypeIndex,
+                    }),
                 })
             }
 
@@ -549,6 +558,20 @@ export const experimentLogic = kea<experimentLogicType>([
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
         },
+        moveToNextFormStep: async () => {
+            const { currentFormStep } = values
+            if (currentFormStep === 0) {
+                actions.touchExperimentField('name')
+                actions.touchExperimentField('feature_flag_key')
+                values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
+                    actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
+                )
+            }
+
+            if (!hasFormErrors(values.experimentErrors)) {
+                actions.setCurrentFormStep(currentFormStep + 1)
+            }
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -641,7 +664,7 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentInsightType: [
             (s) => [s.experiment],
             (experiment): InsightType => {
-                return experiment?.filters?.insight || InsightType.TRENDS
+                return experiment?.filters?.insight || InsightType.FUNNELS
             },
         ],
         isExperimentRunning: [
@@ -995,6 +1018,7 @@ export const experimentLogic = kea<experimentLogicType>([
     }),
     forms(({ actions, values }) => ({
         experiment: {
+            options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
             errors: ({ name, feature_flag_key, parameters }) => ({
                 name: !name && 'You have to enter a name.',

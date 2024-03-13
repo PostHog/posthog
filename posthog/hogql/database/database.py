@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
-
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FieldTraverser,
     StringDatabaseField,
@@ -43,6 +44,7 @@ from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
 )
+from posthog.hogql.database.schema.sessions import RawSessionsTable, SessionsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
@@ -71,6 +73,7 @@ class Database(BaseModel):
     log_entries: LogEntriesTable = LogEntriesTable()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
+    sessions: SessionsTable = SessionsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -78,6 +81,7 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
+    raw_sessions: RawSessionsTable = RawSessionsTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -93,6 +97,7 @@ class Database(BaseModel):
         "cohortpeople",
         "person_static_cohort",
         "log_entries",
+        "sessions",
     ]
 
     _warehouse_table_names: List[str] = []
@@ -166,7 +171,7 @@ def create_hogql_database(
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled:
         database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
         database.events.fields["override"] = LazyJoin(
-            from_field="event_person_id",
+            from_field=["event_person_id"],
             join_table=PersonOverridesTable(),
             join_function=join_with_person_overrides_table,
         )
@@ -202,11 +207,47 @@ def create_hogql_database(
         source_table = database.get_table(join.source_table_name)
         joining_table = database.get_table(join.joining_table_name)
 
-        source_table.fields[join.joining_table_name] = LazyJoin(
-            from_field=join.joining_table_key,
+        field = parse_expr(join.source_table_key)
+        if not isinstance(field, ast.Field):
+            raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+        from_field = field.chain
+
+        field = parse_expr(join.joining_table_key)
+        if not isinstance(field, ast.Field):
+            raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+        to_field = field.chain
+
+        source_table.fields[join.field_name] = LazyJoin(
+            from_field=from_field,
+            to_field=to_field,
             join_table=joining_table,
             join_function=join.join_function,
         )
+
+        if join.source_table_name == "persons":
+            person_field = database.events.fields["person"]
+            if isinstance(person_field, ast.FieldTraverser):
+                table_or_field: ast.FieldOrTable = database.events
+                for chain in person_field.chain:
+                    if isinstance(table_or_field, ast.LazyJoin):
+                        table_or_field = table_or_field.resolve_table(HogQLContext(team_id=team_id, database=database))
+                        if table_or_field.has_field(chain):
+                            table_or_field = table_or_field.get_field(chain)
+                            if isinstance(table_or_field, ast.LazyJoin):
+                                table_or_field = table_or_field.resolve_table(
+                                    HogQLContext(team_id=team_id, database=database)
+                                )
+                    elif isinstance(table_or_field, ast.Table):
+                        table_or_field = table_or_field.get_field(chain)
+
+                assert isinstance(table_or_field, ast.Table)
+
+                table_or_field.fields[join.field_name] = LazyJoin(
+                    from_field=from_field,
+                    to_field=to_field,
+                    join_table=joining_table,
+                    join_function=join.join_function,
+                )
 
     return database
 
@@ -234,24 +275,27 @@ class SerializedField(_SerializedFieldBase, total=False):
     chain: List[str]
 
 
-def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
+def serialize_database(context: HogQLContext) -> Dict[str, List[SerializedField]]:
     tables: Dict[str, List[SerializedField]] = {}
 
-    for table_key in database.model_fields.keys():
+    if context.database is None:
+        raise HogQLException("Must provide database to serialize_database")
+
+    for table_key in context.database.model_fields.keys():
         field_input: Dict[str, Any] = {}
-        table = getattr(database, table_key, None)
+        table = getattr(context.database, table_key, None)
         if isinstance(table, FunctionCallTable):
             field_input = table.get_asterisk()
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: List[SerializedField] = serialize_fields(field_input)
+        field_output: List[SerializedField] = serialize_fields(field_input, context)
         tables[table_key] = field_output
 
     return tables
 
 
-def serialize_fields(field_input) -> List[SerializedField]:
+def serialize_fields(field_input, context: HogQLContext) -> List[SerializedField]:
     from posthog.hogql.database.models import SavedQuery
 
     field_output: List[SerializedField] = []
@@ -276,13 +320,13 @@ def serialize_fields(field_input) -> List[SerializedField]:
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append({"key": field_key, "type": "array"})
         elif isinstance(field, LazyJoin):
-            is_view = isinstance(field.join_table, SavedQuery)
+            is_view = isinstance(field.resolve_table(context), SavedQuery)
             field_output.append(
                 {
                     "key": field_key,
                     "type": "view" if is_view else "lazy_table",
-                    "table": field.join_table.to_printed_hogql(),
-                    "fields": list(field.join_table.fields.keys()),
+                    "table": field.resolve_table(context).to_printed_hogql(),
+                    "fields": list(field.resolve_table(context).fields.keys()),
                 }
             )
         elif isinstance(field, VirtualTable):

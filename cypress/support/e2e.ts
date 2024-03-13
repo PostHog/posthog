@@ -16,6 +16,8 @@ const E2E_TESTING = Cypress.env('E2E_TESTING')
 Cypress.on('window:before:load', (win) => {
     cy.spy(win.console, 'error')
     cy.spy(win.console, 'warn')
+
+    win._cypress_posthog_captures = []
 })
 
 beforeEach(() => {
@@ -24,7 +26,7 @@ beforeEach(() => {
     Cypress.env('POSTHOG_PROPERTY_GITHUB_ACTION_RUN_URL', process.env.GITHUB_ACTION_RUN_URL)
     cy.useSubscriptionStatus('subscribed')
 
-    cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
+    cy.intercept('**/decide/*', (req) =>
         req.reply(
             decideResponse({
                 // set feature flags here e.g.

@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, List
 
 from posthog.hogql.database.models import (
     StringDatabaseField,
@@ -8,7 +8,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     FieldOrTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.schema import HogQLQueryModifiers
 
 COHORT_PEOPLE_FIELDS = {
@@ -16,14 +16,14 @@ COHORT_PEOPLE_FIELDS = {
     "cohort_id": IntegerDatabaseField(name="cohort_id"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "person": LazyJoin(
-        from_field="person_id",
-        join_table=PersonsTable(),
+        from_field=["person_id"],
+        join_table="persons",
         join_function=join_with_persons_table,
     ),
 }
 
 
-def select_from_cohort_people_table(requested_fields: Dict[str, List[str]]):
+def select_from_cohort_people_table(requested_fields: Dict[str, List[str | int]]):
     from posthog.hogql import ast
 
     table_name = "raw_cohort_people"
@@ -34,12 +34,14 @@ def select_from_cohort_people_table(requested_fields: Dict[str, List[str]]):
         "cohort_id": ["cohort_id"],
         **requested_fields,
     }
-    fields: List[ast.Expr] = [ast.Field(chain=[table_name] + chain) for name, chain in requested_fields.items()]
+    fields: List[ast.Expr] = [
+        ast.Alias(alias=name, expr=ast.Field(chain=[table_name] + chain)) for name, chain in requested_fields.items()
+    ]
 
     return ast.SelectQuery(
         select=fields,
         select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
-        group_by=fields,
+        group_by=[ast.Field(chain=[name]) for name, chain in requested_fields.items()],
         having=ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
             left=ast.Call(name="sum", args=[ast.Field(chain=[table_name, "sign"])]),
@@ -65,7 +67,7 @@ class RawCohortPeople(Table):
 class CohortPeople(LazyTable):
     fields: Dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, Any], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
         return select_from_cohort_people_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

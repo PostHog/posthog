@@ -807,7 +807,7 @@ class _Printer(Visitor):
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if func_meta.overloads:
                     first_arg_constant_type = (
-                        node.args[0].type.resolve_constant_type()
+                        node.args[0].type.resolve_constant_type(self.context)
                         if len(node.args) > 0 and node.args[0].type is not None
                         else None
                     )
@@ -903,7 +903,9 @@ class _Printer(Visitor):
     def visit_field_type(self, type: ast.FieldType):
         try:
             last_select = self._last_select()
-            type_with_name_in_scope = lookup_field_by_name(last_select.type, type.name) if last_select else None
+            type_with_name_in_scope = (
+                lookup_field_by_name(last_select.type, type.name, self.context) if last_select else None
+            )
         except ResolverException:
             type_with_name_in_scope = None
 
@@ -912,7 +914,7 @@ class _Printer(Visitor):
             or isinstance(type.table_type, ast.TableAliasType)
             or isinstance(type.table_type, ast.VirtualTableType)
         ):
-            resolved_field = type.resolve_database_field()
+            resolved_field = type.resolve_database_field(self.context)
             if resolved_field is None:
                 raise HogQLException(f'Can\'t resolve field "{type.name}" on table.')
             if isinstance(resolved_field, Table):
@@ -976,7 +978,7 @@ class _Printer(Visitor):
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
         field_type = type.field_type
-        field = field_type.resolve_database_field()
+        field = field_type.resolve_database_field(self.context)
 
         # check for a materialised column
         table = field_type.table_type
@@ -1173,7 +1175,7 @@ class _Printer(Visitor):
         elif isinstance(node.type, ast.PropertyType):
             return True
         elif isinstance(node.type, ast.FieldType):
-            return node.type.is_nullable()
+            return node.type.is_nullable(self.context)
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
 

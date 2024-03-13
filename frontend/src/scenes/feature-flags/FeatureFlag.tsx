@@ -1,8 +1,7 @@
 import './FeatureFlag.scss'
 
 import { IconCollapse, IconExpand, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
-import { Popconfirm } from 'antd'
+import { LemonDialog, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
@@ -50,6 +49,7 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
+    DashboardType,
     FeatureFlagGroupType,
     FeatureFlagType,
     NotebookNodeType,
@@ -94,10 +94,18 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         isEditingFlag,
         recordingFilterForFlag,
         newCohortLoading,
+        activeTab,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate, createStaticCohort } =
-        useActions(featureFlagLogic)
+    const {
+        deleteFeatureFlag,
+        editFeatureFlag,
+        loadFeatureFlag,
+        triggerFeatureFlagUpdate,
+        createStaticCohort,
+        setFeatureFlagFilters,
+        setActiveTab,
+    } = useActions(featureFlagLogic)
 
     const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
@@ -112,7 +120,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    const [activeTab, setActiveTab] = useState(FeatureFlagsTab.OVERVIEW)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
@@ -140,8 +147,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <FeatureFlagRollout readOnly />
-                            {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
-                            <FeatureFlagReleaseConditions readOnly />
+                            {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
+                            {featureFlag.filters.super_groups && (
+                                <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
+                            )}
+                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
                             {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                 <FeatureFlagAutoRollback readOnly />
                             )}
@@ -258,7 +268,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 router.actions.push(urls.featureFlags())
                                             }
                                         }}
-                                        disabled={featureFlagLoading}
                                     >
                                         Cancel
                                     </LemonButton>
@@ -267,7 +276,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         data-attr="save-feature-flag"
                                         htmlType="submit"
                                         form="feature-flag"
-                                        loading={featureFlagLoading}
                                     >
                                         Save
                                     </LemonButton>
@@ -340,9 +348,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         {({ value, onChange }) => {
                                             return (
                                                 <ObjectTags
+                                                    saving={featureFlagLoading}
                                                     tags={value}
                                                     onChange={(_, tags) => onChange(tags)}
-                                                    saving={featureFlagLoading}
                                                     tagsAvailable={tags.filter(
                                                         (tag) => !featureFlag.tags?.includes(tag)
                                                     )}
@@ -394,7 +402,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <LemonDivider />
                         <FeatureFlagRollout />
                         <LemonDivider />
-                        <FeatureFlagReleaseConditions />
+                        <FeatureFlagReleaseConditions
+                            id={`${featureFlag.id}`}
+                            filters={featureFlag.filters}
+                            onChange={setFeatureFlagFilters}
+                        />
                         <LemonDivider />
                         <FeatureFlagCodeExample featureFlag={featureFlag} />
                         <LemonDivider />
@@ -459,7 +471,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         router.actions.push(urls.featureFlags())
                                     }
                                 }}
-                                disabled={featureFlagLoading}
                             >
                                 Cancel
                             </LemonButton>
@@ -468,7 +479,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 data-attr="save-feature-flag"
                                 htmlType="submit"
                                 form="feature-flag"
-                                loading={featureFlagLoading}
                             >
                                 Save
                             </LemonButton>
@@ -489,21 +499,16 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <ObjectTags
                                                     tags={featureFlag.tags}
                                                     onChange={(_, tags) => {
+                                                        // TODO: Use an existing function instead of this new one for updates
                                                         triggerFeatureFlagUpdate({ tags })
                                                     }}
-                                                    saving={featureFlagLoading}
                                                     tagsAvailable={tags.filter(
                                                         (tag) => !featureFlag.tags?.includes(tag)
                                                     )}
                                                     className="mt-2"
                                                 />
                                             ) : featureFlag.tags.length ? (
-                                                <ObjectTags
-                                                    tags={featureFlag.tags}
-                                                    saving={featureFlagLoading}
-                                                    staticOnly
-                                                    className="mt-2"
-                                                />
+                                                <ObjectTags tags={featureFlag.tags} staticOnly className="mt-2" />
                                             ) : null}
                                         </>
                                     )}
@@ -542,9 +547,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             deleteFeatureFlag(featureFlag)
                                                         }}
                                                         disabledReason={
-                                                            featureFlagLoading
-                                                                ? 'Loading...'
-                                                                : !featureFlag.can_edit
+                                                            !featureFlag.can_edit
                                                                 ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                                 : (featureFlag.features?.length || 0) > 0
                                                                 ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
@@ -577,7 +580,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             onClick={() => {
                                                 editFeatureFlag(true)
                                             }}
-                                            disabled={featureFlagLoading || !featureFlag.can_edit}
+                                            disabled={!featureFlag.can_edit}
                                         >
                                             Edit
                                         </LemonButton>
@@ -585,7 +588,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </>
                             }
                         />
-                        <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
+                            tabs={tabs}
+                        />
                     </>
                 )}
             </div>
@@ -601,10 +608,15 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     } = featureFlag
     const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
-    const { receivedErrorsFromAPI, dashboard } = useValues(
-        dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
-    )
-    const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
+    let dashboard: DashboardType | null = null
+    let connectedDashboardExists = false
+    if (dashboardId) {
+        const dashboardLogicValues = useValues(
+            dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+        )
+        dashboard = dashboardLogicValues.dashboard
+        connectedDashboardExists = !dashboardLogicValues.receivedErrorsFromAPI
+    }
 
     const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
     const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
@@ -641,7 +653,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                             </Link>
                         </LemonBanner>
                     )}
-                    <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+                    <Dashboard id={dashboardId!.toString()} placement={DashboardPlacement.FeatureFlag} />
                 </>
             ) : (
                 <div>
@@ -699,7 +711,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         multivariateEnabled,
         variants,
         areVariantRolloutsValid,
-        featureFlagLoading,
         variantRolloutSum,
         nonEmptyVariants,
         aggregationTargetName,
@@ -707,9 +718,26 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
     } = useValues(featureFlagLogic)
     const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled } =
         useActions(featureFlagLogic)
-    const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
+
+    const confirmRevertMultivariateEnabled = (): void => {
+        LemonDialog.open({
+            title: 'Change value type?',
+            description: 'The existing vaiants will be lost',
+            primaryButton: {
+                children: 'Confirm',
+                type: 'primary',
+                onClick: () => setMultivariateEnabled(false),
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
 
     return (
         <>
@@ -788,46 +816,32 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 <div className="mb-8">
                     <h3 className="l3">Served value</h3>
                     <div className="mb-2">
-                        <Popconfirm
-                            placement="top"
-                            title="Change value type? The variants below will be lost."
-                            disabled={featureFlagLoading}
-                            visible={showVariantDiscardWarning}
-                            onConfirm={() => {
-                                setMultivariateEnabled(false)
-                                setShowVariantDiscardWarning(false)
+                        <LemonSegmentedButton
+                            size="small"
+                            options={[
+                                {
+                                    label: 'Release toggle (boolean)',
+                                    value: 'boolean',
+                                    disabledReason:
+                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                            ? 'This feature flag is associated with an experiment.'
+                                            : undefined,
+                                },
+                                {
+                                    label: <span>Multiple variants with rollout percentages (A/B test)</span>,
+                                    value: 'multivariate',
+                                },
+                            ]}
+                            onChange={(value) => {
+                                if (value === 'boolean' && nonEmptyVariants.length) {
+                                    confirmRevertMultivariateEnabled()
+                                } else {
+                                    setMultivariateEnabled(value === 'multivariate')
+                                    focusVariantKeyField(0)
+                                }
                             }}
-                            onCancel={() => setShowVariantDiscardWarning(false)}
-                            okText="OK"
-                            cancelText="Cancel"
-                        >
-                            <LemonSegmentedButton
-                                size="small"
-                                options={[
-                                    {
-                                        label: 'Release toggle (boolean)',
-                                        value: 'boolean',
-                                        disabledReason:
-                                            featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                                ? 'This feature flag is associated with an experiment.'
-                                                : undefined,
-                                    },
-                                    {
-                                        label: <span>Multiple variants with rollout percentages (A/B test)</span>,
-                                        value: 'multivariate',
-                                    },
-                                ]}
-                                onChange={(value) => {
-                                    if (value === 'boolean' && nonEmptyVariants.length) {
-                                        setShowVariantDiscardWarning(true)
-                                    } else {
-                                        setMultivariateEnabled(value === 'multivariate')
-                                        focusVariantKeyField(0)
-                                    }
-                                }}
-                                value={multivariateEnabled ? 'multivariate' : 'boolean'}
-                            />
-                        </Popconfirm>
+                            value={multivariateEnabled ? 'multivariate' : 'boolean'}
+                        />
                     </div>
                     <div className="text-muted mb-4">
                         {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}

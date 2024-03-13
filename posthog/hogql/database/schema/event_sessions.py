@@ -78,9 +78,11 @@ class WhereClauseExtractor:
         where_expression: ast.Expr,
         from_table_name: str,
         select_query_type: ast.SelectQueryType,
+        context: HogQLContext,
     ):
         self.table_name = from_table_name
         self.select_query_type = select_query_type
+        self.context = context
         self.compare_operators = self.run(deepcopy(where_expression))
 
     def _is_field_on_table(self, field: ast.Field) -> bool:
@@ -99,7 +101,7 @@ class WhereClauseExtractor:
 
         # Field in scope
         if not type:
-            type = lookup_field_by_name(self.select_query_type, str(field.chain[0]))
+            type = lookup_field_by_name(self.select_query_type, str(field.chain[0]), self.context)
 
         if not type:
             return False
@@ -115,7 +117,7 @@ class WhereClauseExtractor:
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
-            loop_type = loop_type.get_child(str(next_chain))
+            loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
                 return False
 
@@ -180,7 +182,7 @@ def join_with_events_table_session_duration(
 
     if isinstance(select_query, ast.SelectQuery):
         compare_operators = (
-            WhereClauseExtractor(node.where, from_table, node.type).compare_operators
+            WhereClauseExtractor(node.where, from_table, node.type, context).compare_operators
             if node.where and node.type
             else []
         )

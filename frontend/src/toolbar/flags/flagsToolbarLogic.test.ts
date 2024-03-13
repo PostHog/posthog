@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
+import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
@@ -23,7 +23,7 @@ const featureFlagsWithExtraInfo = [
 ]
 
 describe('toolbar featureFlagsLogic', () => {
-    let logic: ReturnType<typeof featureFlagsLogic.build>
+    let logic: ReturnType<typeof flagsToolbarLogic.build>
     beforeEach(() => {
         global.fetch = jest.fn(() =>
             Promise.resolve({
@@ -37,8 +37,9 @@ describe('toolbar featureFlagsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         toolbarConfigLogic({ apiURL: 'http://localhost' }).mount()
-        logic = featureFlagsLogic()
+        logic = flagsToolbarLogic()
         logic.mount()
+        logic.actions.getUserFlags()
     })
 
     it('has expected defaults', () => {

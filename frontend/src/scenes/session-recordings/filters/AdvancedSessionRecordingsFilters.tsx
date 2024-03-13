@@ -166,11 +166,11 @@ function ConsoleFilters({
                             <LemonCheckbox
                                 size="small"
                                 fullWidth
-                                checked={!!filters.console_logs?.includes('log')}
+                                checked={!!filters.console_logs?.includes('info')}
                                 onChange={(checked) => {
-                                    updateLevelChoice(checked, 'log')
+                                    updateLevelChoice(checked, 'info')
                                 }}
-                                label="log"
+                                label="info"
                             />
                             <LemonCheckbox
                                 size="small"
