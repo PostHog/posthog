@@ -13,9 +13,6 @@ class CustomEnvironment extends PlaywrightEnvironment {
 
     async handleTestEvent(event) {
         if (event.name === 'test_done' && event.test.errors.length > 0) {
-            for (const error of event.test.errors) {
-                console.error(error)
-            }
             // Take screenshots on test failures - these become Actions artifacts
             const parentName = event.test.parent.parent.name.replace(/\W/g, '-').toLowerCase()
             const specName = event.test.parent.name.replace(/\W/g, '-').toLowerCase()
