@@ -162,6 +162,8 @@ def display_existing(*, existing_export: BatchExport, verbose: bool):
             interval=existing_export.interval,
             created_at=existing_export.created_at,
             last_updated_at=existing_export.last_updated_at,
+            exclude_events=existing_export.destination.exclude_events,
+            include_events=existing_export.destination.include_events,
         )
         display(
             "Existing migration backfill (verbose details)",
