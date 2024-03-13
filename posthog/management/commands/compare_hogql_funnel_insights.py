@@ -70,6 +70,10 @@ class Command(BaseCommand):
             "TyhobRHV",
             "XptgB0nS",
             "lGa8G5jG",
+            "5VDqFB2d",
+            "RAW5HDlU",
+            "OCcLyGC-",
+            "hsQln2PI",
         ]
 
         insights = (
@@ -113,6 +117,9 @@ class Command(BaseCommand):
                     FunnelsQueryRunner(query=query, team=insight.team, modifiers=modifiers).calculate().results
                 )
             except ValidationError as e:
+                if e.get_full_details()['message'] == "Funnels require at least two steps before calculating."
+                    print("Funnels require at least two steps before calculating.")
+                    continue
                 hogql_error = e
             except Exception as e:
                 url = f"{BASE_URL}/insights/{insight.short_id}/edit"
