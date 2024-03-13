@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconDashboard, IconGear, IconTerminal } from '@posthog/icons'
+import { IconDashboard, IconEye, IconGear, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -41,6 +41,10 @@ const typeToIconAndDescription = {
     ['offline-status']: {
         Icon: IconOffline,
         tooltip: 'browser went offline or returned online',
+    },
+    ['browser-visibility']: {
+        Icon: IconEye,
+        tooltip: 'browser tab/window became visible or hidden',
     },
     ['$session_config']: {
         Icon: IconGear,
@@ -175,6 +179,8 @@ export function PlayerInspectorListItem({
                     <div className="flex items-start p-2 text-xs">
                         {item.offline ? 'Browser went offline' : 'Browser returned online'}
                     </div>
+                ) : item.type === 'browser-visibility' ? (
+                    <div className="flex items-start p-2 text-xs">Window became {item.status}</div>
                 ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
                     <ItemDoctor item={item} {...itemProps} />
                 ) : null}
@@ -204,7 +210,7 @@ export function PlayerInspectorListItem({
                                         title="This event occured before the recording started, likely as the page was loading."
                                         placement="left"
                                     >
-                                        <span>{colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}</span>
+                                        <span className="text-muted">load</span>
                                     </Tooltip>
                                 ) : (
                                     colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)

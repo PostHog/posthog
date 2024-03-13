@@ -14,6 +14,7 @@ from posthog.schema import (
     EventsNode,
     DataWarehousePropertyFilter,
     FeaturePropertyFilter,
+    FunnelCorrelationActorsQuery,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsActorsQuery,
@@ -43,7 +44,7 @@ InsightQueryNode: TypeAlias = Union[
     LifecycleQuery,
 ]
 
-InsightActorsQueryNode: TypeAlias = Union[InsightActorsQuery, FunnelsActorsQuery]
+InsightActorsQueryNode: TypeAlias = Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery]
 
 AnyPropertyFilter: TypeAlias = Union[
     EventPropertyFilter,

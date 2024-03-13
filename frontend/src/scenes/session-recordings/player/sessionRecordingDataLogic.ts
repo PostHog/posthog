@@ -29,7 +29,6 @@ import { NodeKind } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     EncodedRecordingSnapshot,
-    PerformanceEvent,
     PersonType,
     PropertyFilterType,
     PropertyOperator,
@@ -126,28 +125,6 @@ const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined =>
     return (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
 }
 
-// PerformanceEvent timestamp is for some reason string | number, yuck
-function asInt(x: string | number): number {
-    return typeof x === 'number' ? x : parseInt(x)
-}
-
-function getSnapshotSortingTimestamp(e: eventWithTime | undefined): number | undefined {
-    if (!e) {
-        return undefined
-    }
-    // rrweb network events have a timestamp, but might contain requests from before the recording started
-    if (e.type === EventType.Plugin && e.data.plugin === 'rrweb/network@1') {
-        const requests: PerformanceEvent[] = e.data.payload?.['requests'] || []
-        const sortedRequests = requests.sort(
-            (a: PerformanceEvent, b: PerformanceEvent) => asInt(a.timestamp) - asInt(b.timestamp)
-        )
-        const firstTimestamp = sortedRequests.length ? sortedRequests[0].timestamp : undefined
-        // if we have no requests, we use the event timestamp
-        return firstTimestamp !== undefined ? asInt(firstTimestamp) : e.timestamp
-    }
-    return e.timestamp
-}
-
 export const deduplicateSnapshots = (
     newSnapshots?: RecordingSnapshot[],
     existingSnapshots?: RecordingSnapshot[]
@@ -172,7 +149,7 @@ export const deduplicateSnapshots = (
                 return true
             }
         })
-        .sort((a, b) => (getSnapshotSortingTimestamp(a) || 0) - (getSnapshotSortingTimestamp(b) || 0))
+        .sort((a, b) => a.timestamp - b.timestamp)
 }
 
 const generateRecordingReportDurations = (cache: Record<string, any>): RecordingReportLoadTimes => {
@@ -768,16 +745,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         start: [
-            (s) => [s.sessionPlayerMetaData, s.sessionPlayerSnapshotData],
-            (meta, sessionPlayerSnapshotData): Dayjs | undefined => {
-                // NOTE: We might end up with more snapshots than we knew about when we started the recording so we
-                // either use the metadata start point or the first snapshot, whichever is earlier.
-                const start = meta?.start_time ? dayjs(meta.start_time) : undefined
-                const snapshots = sessionPlayerSnapshotData?.snapshots || []
-                const firstEventTimestamp = getSnapshotSortingTimestamp(snapshots[0])
-                return firstEventTimestamp && firstEventTimestamp < (start?.valueOf() ?? 0)
-                    ? dayjs(firstEventTimestamp)
-                    : start
+            (s) => [s.sessionPlayerMetaData],
+            (meta): Dayjs | undefined => {
+                return meta?.start_time ? dayjs(meta.start_time) : undefined
             },
         ],
 

@@ -44,6 +44,7 @@ from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
 )
+from posthog.hogql.database.schema.sessions import RawSessionsTable, SessionsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
@@ -72,6 +73,7 @@ class Database(BaseModel):
     log_entries: LogEntriesTable = LogEntriesTable()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
+    sessions: SessionsTable = SessionsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -79,6 +81,7 @@ class Database(BaseModel):
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
+    raw_sessions: RawSessionsTable = RawSessionsTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -94,6 +97,7 @@ class Database(BaseModel):
         "cohortpeople",
         "person_static_cohort",
         "log_entries",
+        "sessions",
     ]
 
     _warehouse_table_names: List[str] = []
@@ -219,6 +223,31 @@ def create_hogql_database(
             join_table=joining_table,
             join_function=join.join_function,
         )
+
+        if join.source_table_name == "persons":
+            person_field = database.events.fields["person"]
+            if isinstance(person_field, ast.FieldTraverser):
+                table_or_field: ast.FieldOrTable = database.events
+                for chain in person_field.chain:
+                    if isinstance(table_or_field, ast.LazyJoin):
+                        table_or_field = table_or_field.resolve_table(HogQLContext(team_id=team_id, database=database))
+                        if table_or_field.has_field(chain):
+                            table_or_field = table_or_field.get_field(chain)
+                            if isinstance(table_or_field, ast.LazyJoin):
+                                table_or_field = table_or_field.resolve_table(
+                                    HogQLContext(team_id=team_id, database=database)
+                                )
+                    elif isinstance(table_or_field, ast.Table):
+                        table_or_field = table_or_field.get_field(chain)
+
+                assert isinstance(table_or_field, ast.Table)
+
+                table_or_field.fields[join.field_name] = LazyJoin(
+                    from_field=from_field,
+                    to_field=to_field,
+                    join_table=joining_table,
+                    join_function=join.join_function,
+                )
 
     return database
 

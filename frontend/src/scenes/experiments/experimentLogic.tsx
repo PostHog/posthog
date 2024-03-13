@@ -354,17 +354,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
             const aggregationGroupTypeIndex = values.experiment.parameters?.aggregation_group_type_index
-            if (filters?.insight === InsightType.FUNNELS) {
-                newInsightFilters = cleanFilters({
-                    insight: InsightType.FUNNELS,
-                    funnel_viz_type: FunnelVizType.Steps,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    layout: FunnelLayout.horizontal,
-                    aggregation_group_type_index: aggregationGroupTypeIndex,
-                    ...filters,
-                })
-            } else {
+            if (filters?.insight === InsightType.TRENDS) {
                 const groupAggregation =
                     aggregationGroupTypeIndex !== undefined
                         ? { math: 'unique_group', math_group_type_index: aggregationGroupTypeIndex }
@@ -379,6 +369,17 @@ export const experimentLogic = kea<experimentLogicType>([
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     ...eventAddition,
                     ...filters,
+                })
+            } else {
+                newInsightFilters = cleanFilters({
+                    insight: InsightType.FUNNELS,
+                    funnel_viz_type: FunnelVizType.Steps,
+                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    layout: FunnelLayout.horizontal,
+                    ...(aggregationGroupTypeIndex !== undefined && {
+                        aggregation_group_type_index: aggregationGroupTypeIndex,
+                    }),
                 })
             }
 
@@ -663,7 +664,7 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentInsightType: [
             (s) => [s.experiment],
             (experiment): InsightType => {
-                return experiment?.filters?.insight || InsightType.TRENDS
+                return experiment?.filters?.insight || InsightType.FUNNELS
             },
         ],
         isExperimentRunning: [
