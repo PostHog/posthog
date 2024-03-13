@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                     -- At this point, all teams have a parent project, so we can safely set project_id on every team
                     UPDATE posthog_team
                     SET project_id = id;""",
-                    reverse_sql=migrations.RunPython.noop,
+                    reverse_sql=migrations.RunSQL.noop,
                 )
             ],
             state_operations=[
