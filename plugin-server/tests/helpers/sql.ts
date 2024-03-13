@@ -226,7 +226,7 @@ export async function createUserTeamAndOrganization(
     })
     await insertRow(db, 'posthog_team', {
         id: teamId,
-        projectId: teamId,
+        project_id: teamId,
         organization_id: organizationId,
         app_urls: [],
         name: 'TEST PROJECT',
