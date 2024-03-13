@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { Link } from 'lib/lemon-ui/Link'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,9 +10,7 @@ function EnvVarsSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[`POSTHOG_KEY=${currentTeam?.api_token}`, `POSTHOG_HOST=${apiHostOrigin()}`].join(
-                '\n'
-            )}
+            {[`POSTHOG_KEY=${currentTeam?.api_token}`, `POSTHOG_HOST=${apiHostOrigin()}`].join('\n')}
         </CodeSnippet>
     )
 }
@@ -21,7 +18,8 @@ function EnvVarsSnippet(): JSX.Element {
 function AngularInitializeCodeSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript}>
-            {`
+            {`// in src/main.ts
+
 import { bootstrapApplication } from '@angular/platform-browser';
 import { appConfig } from './app/app.config';
 import { AppComponent } from './app/app.component';
@@ -40,7 +38,6 @@ bootstrapApplication(AppComponent, appConfig)
     )
 }
 
-
 export function SDKInstallAngularInstructions(): JSX.Element {
     return (
         <>
@@ -50,10 +47,6 @@ export function SDKInstallAngularInstructions(): JSX.Element {
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,
                 Netlify, AWS). You can find your project API key in your project settings.
-            </p>
-            <p className="italic">
-                These values need to start with <code className="not-italic">NEXT_PUBLIC_</code> to be accessible on the
-                client-side.
             </p>
             <EnvVarsSnippet />
 
