@@ -64,11 +64,11 @@ def get_breakdown_expr(
     breakdown: List[str | int] | None, properties_column: str, normalize_url: bool | None = False
 ) -> ast.Expr:
     if isinstance(breakdown, str) or isinstance(breakdown, int) or breakdown is None:
-        return parse_expr(f"ifNull({properties_column}.{breakdown}, '')")
+        return parse_expr(f"ifNull({properties_column}.\"{breakdown}\", '')")
     else:
         exprs = []
         for b in breakdown:
-            expr = parse_expr(normalize_url_breakdown(f"ifNull({properties_column}.{b}, '')", normalize_url))
+            expr = parse_expr(normalize_url_breakdown(f"ifNull({properties_column}.\"{b}\", '')", normalize_url))
             exprs.append(expr)
         expression = ast.Array(exprs=exprs)
 
