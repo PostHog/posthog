@@ -34,7 +34,6 @@ SESSIONS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
     "event_count_map": DatabaseField(name="event_count_map"),
     "pageview_count": IntegerDatabaseField(name="pageview_count"),
     "autocapture_count": IntegerDatabaseField(name="autocapture_count"),
-    "channel_type": StringDatabaseField(name="channel_type"),
 }
 
 
@@ -146,6 +145,7 @@ class SessionsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = {
         **SESSIONS_COMMON_FIELDS,
         "duration": IntegerDatabaseField(name="duration"),
+        "channel_type": StringDatabaseField(name="channel_type"),
     }
 
     def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
