@@ -5,17 +5,72 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import FunnelsQuery, HogQLQueryModifiers, MaterializationMode
 
-BASE_URL = "http://localhost:8000"
-
 
 class Command(BaseCommand):
     help = "Test if HogQL insights match their legacy counterparts"
 
     def handle(self, *args, **options):
+        import json
         from posthog.models import Insight, Filter
         from posthog.queries.funnels import ClickhouseFunnel
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
         from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+
+        IGNORED_INSIGHTS = [
+            "qCf2qVXC",
+            "8oivI5Si",
+            "BGkyzMWV",
+            "P5z6kXjT",
+            "pEIfnI83",
+            "3IY1Nhij",
+            "u6ZPGsST",
+            "-x48Xi9K",
+            "BiW9wKf4",
+            "9xcmkvsq",
+            "EoBcQHus",
+            "x4cC38rP",
+            "0SLe31v1",
+            "lx37J7XJ",
+            "viGPH2P0",
+            "nj6p2sTO",
+            "vESGjN2P",
+            "_xBU_hGJ",
+            "5-B56Dvr",
+            "ajtprsdX",
+            "bqKiND7s",
+            "X67ch-fD",
+            "kwHeMuGG",
+            "PvEZvJ7E",
+            "ryFmelek",
+            "nY_XOJGH",
+            "SEJPBoya",
+            "8MFOFasJ",
+            "6WDMm0mQ",
+            "0-xlBF7z",
+            "7lx1xVyK",
+            "rCNzPg4u",
+            "E2w5B3uz",
+            "RIPjUaQp",
+            "yh-gVcLp",
+            "bVpCCOCW",
+            "H92CWNx7",
+            "_XVLTYJh",
+            "RKTr47ZY",
+            "Nyvk3N8p",
+            "7QOOBtaD",
+            "6jA4uN4i",
+            "oR0c6Gd6",
+            "JpNtVpZb",
+            "VS98D3k9",
+            "0CVUZLki",
+            "HB8ws1Rb",
+            "fThH0WHC",
+            "t648bVVo",
+            "eyW4Sw4J",
+            "TyhobRHV",
+            "XptgB0nS",
+            "lGa8G5jG",
+        ]
 
         insights = (
             Insight.objects.filter(
@@ -24,7 +79,7 @@ class Command(BaseCommand):
                 & (Q(filters__funnel_order_type="ordered") | Q(filters__funnel_order_type__isnull=True))  # ordered
                 # & Q(filters__breakdown__isnull=True)  # without breakdown
                 # & Q(short_id="1jrKJ0n7")
-                & Q(team_id=1),
+                & ~Q(short_id__in=IGNORED_INSIGHTS) & Q(team_id=2),
                 saved=True,
                 deleted=False,
             )
@@ -36,6 +91,7 @@ class Command(BaseCommand):
             print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")  # noqa: T201
             print(f"Checking Funnel Insight {insight.pk} {insight.short_id} - {insight.name} ")  # noqa: T201
 
+            BASE_URL = f"https://us.posthog.com/project/{insight.team.pk}"
             legacy_results, hogql_results, legacy_error, hogql_error = None, None, None, None
 
             try:
@@ -43,6 +99,11 @@ class Command(BaseCommand):
                 legacy_results = ClickhouseFunnel(filter, insight.team).run()
             except ValidationError as e:
                 legacy_error = e
+            except Exception as e:
+                url = f"{BASE_URL}/insights/{insight.short_id}/edit"
+                print(f"LEGACY Insight {url} ({insight.pk}). ERROR: {e}")  # noqa: T201
+                print(json.dumps(insight.filters))  # noqa: T201
+                continue
 
             try:
                 query = filter_to_query(insight.filters)
@@ -53,6 +114,11 @@ class Command(BaseCommand):
                 )
             except ValidationError as e:
                 hogql_error = e
+            except Exception as e:
+                url = f"{BASE_URL}/insights/{insight.short_id}/edit"
+                print(f"HogQL Insight {url} ({insight.pk}). ERROR: {e}")  # noqa: T201
+                print(json.dumps(insight.filters))  # noqa: T201
+                continue
 
             all_ok = True
 
@@ -68,7 +134,7 @@ class Command(BaseCommand):
                         f"Insight {BASE_URL}/insights/{insight.short_id}/edit"
                         f" ({insight.pk}). MISMATCH legacy error does not match hogql error"
                         f" legacy: {legacy_error}"
-                        f" hogql: {legacy_error}"
+                        f" hogql: {hogql_error}"
                     )
                     all_ok = False
             elif hogql_error is not None:
@@ -96,6 +162,7 @@ class Command(BaseCommand):
 
 
 def compare_result(insight, legacy_result, hogql_result) -> bool:
+    BASE_URL = f"https://us.posthog.com/project/{insight.team.pk}"
     fields = [
         "action_id",
         "name",
