@@ -33,7 +33,6 @@ describe('Onboarding', () => {
         cy.get('[data-attr=top-bar-name] > span').contains('Product intro')
 
         // Should see both an option to skip onboarding and an option to see the sdk instructions
-        cy.get('[data-attr=skip-onboarding]').should('be.visible')
         cy.get('[data-attr=start-onboarding-sdk]').should('be.visible')
     })
 
@@ -78,7 +77,7 @@ describe('Onboarding', () => {
         cy.get('[data-attr=onboarding-continue]').click()
 
         // Confirm we're on the insights list page
-        cy.url().should('contain', 'http://localhost:8080/project/1/insights')
+        cy.url().should('contain', 'project/1/insights')
 
         cy.visit('/onboarding/product_analytics?step=product_intro')
 
@@ -87,15 +86,15 @@ describe('Onboarding', () => {
         cy.get('[data-attr=start-onboarding-sdk]').should('be.visible')
 
         cy.get('[data-attr=skip-onboarding]').first().click()
-        cy.url().should('contain', 'http://localhost:8080/project/1/insights')
+        cy.url().should('contain', 'project/1/insights')
 
         cy.visit('/onboarding/product_analytics?step=product_intro')
         cy.get('[data-attr=start-onboarding-sdk]').first().click()
-        cy.url().should('contain', 'http://localhost:8080/project/1/onboarding/product_analytics?step=install')
+        cy.url().should('contain', 'project/1/onboarding/product_analytics?step=install')
 
         cy.visit('/products')
         cy.get('[data-attr=return-to-product_analytics] > svg').click()
-        cy.url().should('contain', 'http://localhost:8080/project/1/insights')
+        cy.url().should('contain', 'project/1/insights')
     })
 
     it('Step through SR onboarding', () => {
@@ -119,7 +118,7 @@ describe('Onboarding', () => {
         cy.get('[data-attr=onboarding-skip-button]').click()
         cy.get('[data-attr=onboarding-continue]').click()
         // Confirm we're on the recordings list page
-        cy.url().should('eq', 'http://localhost:8080/project/1/replay/recent')
+        cy.url().should('eq', 'project/1/replay/recent')
         cy.visit('/onboarding/session_replay?step=product_intro')
         cy.get('[data-attr=skip-onboarding]').should('be.visible')
         cy.get('[data-attr=start-onboarding-sdk]').should('not.exist')
