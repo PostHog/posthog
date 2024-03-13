@@ -85,7 +85,8 @@ jobs:
                   event_type: posthog_deploy
                   message: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}"
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "context": ${{ toJson(github) }}
                       }
 
             - name: Check for changes in plugins directory
@@ -103,7 +104,8 @@ jobs:
                   event_type: ingestion_deploy
                   message: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}"
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "context": ${{ toJson(github) }}
                       }
 
             - name: Check for changes that affect batch exports temporal worker
@@ -122,7 +124,8 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}",
-                        "worker_name": "temporal-worker"
+                        "worker_name": "temporal-worker",
+                        "context": ${{ toJson(github) }}
                       }
 
             - name: Check for changes that affect data warehouse temporal worker
@@ -141,5 +144,6 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}",
-                        "worker_name": "temporal-worker-data-warehouse"
+                        "worker_name": "temporal-worker-data-warehouse",
+                        "context": ${{ toJson(github) }}
                       }
