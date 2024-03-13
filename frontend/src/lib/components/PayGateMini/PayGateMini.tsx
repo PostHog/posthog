@@ -41,7 +41,7 @@ export function PayGateMini({
     background = true,
     isGrandfathered,
 }: PayGateMiniProps): JSX.Element | null {
-    const { product, featureInfo, featureDetailsWithLimit, gateVariant } = useValues(
+    const { productWithFeature, featureInfo, featureAvailableOnOrg, gateVariant } = useValues(
         payGateMiniLogic({ featureKey: feature, currentUsage })
     )
     const { preflight } = useValues(preflightLogic)
@@ -52,7 +52,7 @@ export function PayGateMini({
     useEffect(() => {
         if (gateVariant) {
             posthog.capture('pay gate shown', {
-                product_key: product?.type,
+                product_key: productWithFeature?.type,
                 feature: feature,
                 gate_variant: gateVariant,
             })
@@ -68,7 +68,7 @@ export function PayGateMini({
     }
 
     return featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' ? (
-        gateVariant && product && featureInfo && !overrideShouldShowGate ? (
+        gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
             <div
                 className={clsx(
                     className,
@@ -76,9 +76,11 @@ export function PayGateMini({
                     'PayGateMini rounded flex flex-col items-center p-4 text-center'
                 )}
             >
-                <div className="flex text-4xl text-warning">{getProductIcon(product.name, featureInfo.icon_key)}</div>
+                <div className="flex text-4xl text-warning">
+                    {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
+                </div>
                 <h3>{featureInfo.name}</h3>
-                {featureDetailsWithLimit?.limit && gateVariant !== 'move-to-cloud' ? (
+                {featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud' ? (
                     <div>
                         <p>
                             You've reached your usage limit for{' '}
@@ -93,11 +95,11 @@ export function PayGateMini({
                         <p className="border border-border bg-side rounded p-4">
                             <b>Your current plan limit:</b>{' '}
                             <span>
-                                {featureDetailsWithLimit.limit} {featureDetailsWithLimit.unit}
+                                {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
                             </span>
                         </p>
                         <p>
-                            Please upgrade your <b>{product.name}</b> plan to create more {featureInfo.name}
+                            Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
                         </p>
                     </div>
                 ) : (
@@ -108,7 +110,7 @@ export function PayGateMini({
                                 <>This feature is only available on PostHog Cloud.</>
                             ) : (
                                 <>
-                                    Upgrade your <b>{product?.name}</b> plan to use this feature.
+                                    Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
                                 </>
                             )}
                         </p>
@@ -132,12 +134,12 @@ export function PayGateMini({
                         </>
                     </div>
                 )}
-                <PayGateMiniButton product={product} featureInfo={featureInfo} gateVariant={gateVariant} />
+                <PayGateMiniButton product={productWithFeature} featureInfo={featureInfo} gateVariant={gateVariant} />
             </div>
         ) : (
             <div className={className}>{children}</div>
         )
-    ) : gateVariant && product && featureInfo && !overrideShouldShowGate ? (
+    ) : gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
         <div
             className={clsx(
                 className,
@@ -145,9 +147,11 @@ export function PayGateMini({
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex text-4xl text-warning">{getProductIcon(product.name, featureInfo.icon_key)}</div>
+            <div className="flex text-4xl text-warning">
+                {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
+            </div>
             <h3>{featureInfo.name}</h3>
-            {featureDetailsWithLimit?.limit && gateVariant !== 'move-to-cloud' ? (
+            {featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud' ? (
                 <div>
                     <p>
                         You've reached your usage limit for{' '}
@@ -162,11 +166,11 @@ export function PayGateMini({
                     <p className="border border-border bg-side rounded p-4">
                         <b>Your current plan limit:</b>{' '}
                         <span>
-                            {featureDetailsWithLimit.limit} {featureDetailsWithLimit.unit}
+                            {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
                         </span>
                     </p>
                     <p>
-                        Please upgrade your <b>{product.name}</b> plan to create more {featureInfo.name}
+                        Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
                     </p>
                 </div>
             ) : (
@@ -175,7 +179,7 @@ export function PayGateMini({
                         <>On PostHog Cloud, you can </>
                     ) : (
                         <>
-                            Upgrade your <b>{product?.name}</b> plan to{' '}
+                            Upgrade your <b>{productWithFeature?.name}</b> plan to{' '}
                         </>
                     )}
                     {featureInfo.description ? lowercaseFirstLetter(featureInfo.description) : 'use this feature.'}
@@ -202,7 +206,7 @@ export function PayGateMini({
             <LemonButton
                 to={
                     gateVariant === 'add-card'
-                        ? `/organization/billing?products=${product.type}`
+                        ? `/organization/billing?products=${productWithFeature.type}`
                         : gateVariant === 'contact-sales'
                         ? `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo.name}`
                         : gateVariant === 'move-to-cloud'
@@ -214,7 +218,7 @@ export function PayGateMini({
                 onClick={() => {
                     hideUpgradeModal()
                     posthog.capture('pay gate CTA clicked', {
-                        product_key: product?.type,
+                        product_key: productWithFeature?.type,
                         feature: feature,
                         gate_variant: gateVariant,
                     })
@@ -222,7 +226,7 @@ export function PayGateMini({
             >
                 {gateVariant === 'add-card'
                     ? billing?.has_active_subscription
-                        ? `Upgrade ${product?.name}`
+                        ? `Upgrade ${productWithFeature?.name}`
                         : 'Subscribe now'
                     : gateVariant === 'contact-sales'
                     ? 'Contact sales'

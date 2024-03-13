@@ -33,31 +33,35 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         setGateVariant: (gateVariant: GateVariantType) => ({ gateVariant }),
     }),
     selectors(({ values, props }) => ({
-        product: [
+        productWithFeature: [
             (s) => [s.billing],
             (billing) =>
                 billing?.products?.find((product) => product.features?.some((f) => f.key === props.featureKey)),
         ],
-        featureInfo: [(s) => [s.product], (product) => product?.features.find((f) => f.key === props.featureKey)],
-        featureDetailsWithLimit: [
+        featureInfo: [
+            (s) => [s.productWithFeature],
+            (productWithFeature) => productWithFeature?.features.find((f) => f.key === props.featureKey),
+        ],
+        featureAvailableOnOrg: [
             (s) => [s.user, (_, props) => props.featureKey],
             (_user, featureKey) => {
                 return values.availableFeature(featureKey)
             },
         ],
-        minimumPlan: [
-            (s) => [s.product],
-            (product) => product?.plans.find((plan) => plan.features?.some((f) => f.key === props.featureKey)),
+        minimumPlanWithFeature: [
+            (s) => [s.productWithFeature],
+            (productWithFeature) =>
+                productWithFeature?.plans.find((plan) => plan.features?.some((f) => f.key === props.featureKey)),
         ],
         gateVariant: [
             (s) => [
                 s.billingLoading,
                 s.hasAvailableFeature,
-                s.minimumPlan,
+                s.minimumPlanWithFeature,
                 (_, props) => props.featureKey,
                 (_, props) => props.currentUsage,
             ],
-            (billingLoading, hasAvailableFeature, minimumPlan, featureKey, currentUsage) => {
+            (billingLoading, hasAvailableFeature, minimumPlanWithFeature, featureKey, currentUsage) => {
                 if (hasAvailableFeature(featureKey, currentUsage)) {
                     return null
                 }
@@ -65,7 +69,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                     return null
                 }
                 if (values.isCloudOrDev) {
-                    if (!minimumPlan || minimumPlan.contact_support) {
+                    if (!minimumPlanWithFeature || minimumPlanWithFeature.contact_support) {
                         return 'contact-sales'
                     } else {
                         return 'add-card'
