@@ -60,6 +60,19 @@ class AccessControlViewSet(
     serializer_class = AccessControlSerializer
     queryset = AccessControl.objects.all()
 
+    def filter_queryset(self, queryset):
+        params = self.request.GET
+
+        if params.get("resource"):
+            queryset = queryset.filter(resource=params["resource"])
+
+        if params.get("resource_id"):
+            queryset = queryset.filter(resource_id=params["resource_id"])
+        elif params.get("resource"):
+            queryset = queryset.filter(resource_id=None)
+
+        return queryset
+
     def put(self, request: Request, *args, **kwargs):
         # Generically validate the incoming data
         partial_serializer = self.get_serializer(data=request.data)

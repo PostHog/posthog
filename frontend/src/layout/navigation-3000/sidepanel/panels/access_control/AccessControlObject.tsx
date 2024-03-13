@@ -29,9 +29,11 @@ import { AccessControlType, FusedTeamMemberType } from '~/types'
 
 import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
 
-export function AccessControlObject({ resource }: AccessControlLogicProps): JSX.Element | null {
+export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
+    const { resource } = props
+
     return (
-        <BindLogic logic={accessControlLogic} props={{ resource }}>
+        <BindLogic logic={accessControlLogic} props={props}>
             <div className="space-y-4">
                 <h3>Default access to this {resource}</h3>
                 <AccessControlObjectDefaults />
