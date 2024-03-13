@@ -3,6 +3,7 @@ import typing
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
+import structlog
 import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import (
@@ -31,6 +32,8 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
     update_schedule,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class BatchExportField(typing.TypedDict):
@@ -289,6 +292,27 @@ def unpause_batch_export(
     end_at = batch_export.last_updated_at
 
     backfill_export(temporal, batch_export_id, batch_export.team_id, start_at, end_at)
+
+
+def disable_and_delete_export(instance: BatchExport):
+    """Mark a BatchExport as deleted and delete its Temporal Schedule (including backfills)."""
+    temporal = sync_connect()
+
+    instance.deleted = True
+
+    try:
+        batch_export_delete_schedule(temporal, str(instance.pk))
+    except BatchExportServiceScheduleNotFound as e:
+        logger.warning(
+            "The Schedule %s could not be deleted as it was not found",
+            e.schedule_id,
+        )
+
+    instance.save()
+
+    for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
+        if backfill.status == BatchExportBackfill.Status.RUNNING:
+            cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
 
 
 def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:

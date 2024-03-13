@@ -66,7 +66,7 @@ export function TrendsSeries(): JSX.Element | null {
                         | StickinessQuery
                         | LifecycleQuery)
                 }}
-                typeKey={`${keyForInsightLogicProps('new')(insightProps)}-TrendsSeries`}
+                typeKey={keyForInsightLogicProps('new')(insightProps)}
                 buttonCopy={`Add graph ${hasFormula ? 'variable' : 'series'}`}
                 showSeriesIndicator
                 showNestedArrow

@@ -181,7 +181,44 @@ describe('session recording process event', () => {
             },
         },
         {
-            testDescription: 'first url detection',
+            testDescription: 'url can be detected in meta event',
+            snapshotData: {
+                events_summary: [
+                    {
+                        timestamp: 1682449093693,
+                        type: 3,
+                        data: {},
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093469,
+                        type: 4,
+                        data: {
+                            href: 'http://127.0.0.1:8000/the/url',
+                        },
+                        windowId: '1',
+                    },
+                ],
+            },
+            expected: {
+                click_count: 0,
+                keypress_count: 0,
+                mouse_activity_count: 0,
+                first_url: 'http://127.0.0.1:8000/the/url',
+                first_timestamp: '2023-04-25 18:58:13.469',
+                last_timestamp: '2023-04-25 18:58:13.693',
+                active_milliseconds: 0, // no data.source, so no activity
+                console_log_count: 0,
+                console_warn_count: 0,
+                console_error_count: 0,
+                size: 163,
+                event_count: 2,
+                message_count: 1,
+                snapshot_source: 'web',
+            },
+        },
+        {
+            testDescription: 'first url detection takes the first url whether meta url or payload url',
             snapshotData: {
                 events_summary: [
                     {
@@ -189,7 +226,6 @@ describe('session recording process event', () => {
                         type: 5,
                         data: {
                             payload: {
-                                // doesn't match because href is nested in payload
                                 href: 'http://127.0.0.1:8000/home',
                             },
                         },
@@ -209,7 +245,7 @@ describe('session recording process event', () => {
                 click_count: 0,
                 keypress_count: 0,
                 mouse_activity_count: 0,
-                first_url: 'http://127.0.0.1:8000/second/url',
+                first_url: 'http://127.0.0.1:8000/home',
                 first_timestamp: '2023-04-25 18:58:13.469',
                 last_timestamp: '2023-04-25 18:58:13.693',
                 active_milliseconds: 0, // no data.source, so no activity
@@ -217,6 +253,51 @@ describe('session recording process event', () => {
                 console_warn_count: 0,
                 console_error_count: 0,
                 size: 213,
+                event_count: 2,
+                message_count: 1,
+                snapshot_source: 'web',
+            },
+        },
+        {
+            testDescription: 'first url detection can use payload url',
+            snapshotData: {
+                events_summary: [
+                    {
+                        timestamp: 1682449093469,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // we don't read just any URL
+                                'the-page-url': 'http://127.0.0.1:8000/second/url',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                ],
+            },
+            expected: {
+                click_count: 0,
+                keypress_count: 0,
+                mouse_activity_count: 0,
+                first_url: 'http://127.0.0.1:8000/my-spa',
+                first_timestamp: '2023-04-25 18:58:13.469',
+                last_timestamp: '2023-04-25 18:58:13.693',
+                active_milliseconds: 0, // no data.source, so no activity
+                console_log_count: 0,
+                console_warn_count: 0,
+                console_error_count: 0,
+                size: 235,
                 event_count: 2,
                 message_count: 1,
                 snapshot_source: 'web',

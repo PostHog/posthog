@@ -101,6 +101,9 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
     try {
         const url = new URL(name)
         name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
+        if (url.hash?.includes('/')) {
+            name += url.hash
+        }
     } catch {
         // discard if invalid url
     }

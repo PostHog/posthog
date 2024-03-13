@@ -2,6 +2,7 @@ import { IconCheckCircle, IconChevronDown, IconDocument, IconInfo, IconPlus } fr
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -24,8 +25,6 @@ import { billingProductLogic } from './billingProductLogic'
 import { PlanComparisonModal } from './PlanComparison'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
-
-export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 
 export const getTierDescription = (
     tiers: BillingV2TierType[],
@@ -640,7 +639,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         )}
                                         <div className="flex gap-x-2 items-center mb-2">
                                             <IconCheckCircle className="text-success" />
-                                            <Link onClick={toggleIsPlanComparisonModalOpen}>
+                                            <Link onClick={() => toggleIsPlanComparisonModalOpen()}>
                                                 <b>And more...</b>
                                             </Link>
                                         </div>
@@ -659,7 +658,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             {product.unit}s free
                                         </b>
                                         , then just ${upgradePlan?.tiers?.[1]?.unit_amount_usd} per {product.unit} and{' '}
-                                        <Link onClick={toggleIsPlanComparisonModalOpen}>volume discounts</Link>.
+                                        <Link onClick={() => toggleIsPlanComparisonModalOpen()}>volume discounts</Link>.
                                     </p>
                                 )}
                         </div>
@@ -668,7 +667,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <div className="flex flex-wrap gap-x-2 gap-y-2">
                                     <LemonButton
                                         type="secondary"
-                                        onClick={toggleIsPlanComparisonModalOpen}
+                                        onClick={() => toggleIsPlanComparisonModalOpen()}
                                         className="grow"
                                         center
                                     >
@@ -710,7 +709,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             product={product}
                             includeAddons={isOnboarding}
                             modalOpen={isPlanComparisonModalOpen}
-                            onClose={toggleIsPlanComparisonModalOpen}
+                            onClose={() => toggleIsPlanComparisonModalOpen()}
                         />
                     </div>
                 )}
