@@ -54,8 +54,8 @@ describe('Experiments', () => {
 
         // Select goal type
         cy.get('[data-attr="experiment-goal-type-select"]').click()
-        cy.contains('Trend').should('be.visible')
-        cy.contains('Conversion funnel').should('be.visible')
+        cy.get('.Popover__content').contains('Trend').should('be.visible')
+        cy.get('.Popover__content').contains('Conversion funnel').should('be.visible')
 
         // Add secondary metric
         const secondaryMetricName = `Secondary metric ${Math.floor(Math.random() * 10000000)}`
@@ -65,8 +65,8 @@ describe('Experiments', () => {
             .type(secondaryMetricName)
             .should('have.value', secondaryMetricName)
         cy.get('[data-attr="metrics-selector"]').click()
-        cy.contains('Trends').should('be.visible')
-        cy.contains('Funnels').should('be.visible')
+        cy.get('.Popover__content').contains('Funnels').should('be.visible')
+        cy.get('.Popover__content').contains('Trends').should('be.visible')
         cy.get('[data-attr="create-annotation-submit"]').click()
         cy.contains(secondaryMetricName).should('exist')
 
