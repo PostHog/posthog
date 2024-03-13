@@ -25,24 +25,29 @@ import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from 'scenes/settings
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { FusedTeamMemberType } from '~/types'
+import { FusedTeamMemberType, RoleType } from '~/types'
 
 export type AccessControlObjectProps = {
     resource: string
 }
 
+type RoleWithAccess = {
+    role: RoleType
+    level: TeamMembershipLevel
+}
+
 export function AccessControlObject({ resource }: AccessControlObjectProps): JSX.Element | null {
     return (
-        <>
-            <h3 className="flex justify-between items-center mt-4">Default access to this {resource}</h3>
+        <div className="space-y-4">
+            <h3>Default access to this {resource}</h3>
             <AccessControlObjectDefaults />
 
-            <h3 className="flex justify-between items-center mt-4">Members with explicit access to this {resource}</h3>
+            <h3>Members with explicit access to this {resource}</h3>
             <AccessControlObjectUsers />
 
-            <h3 className="flex justify-between items-center mt-4">Roles with explicit access to this {resource}</h3>
-            <div>todo</div>
-        </>
+            <h3>Roles with explicit access to this {resource}</h3>
+            <AccessControlObjectRoles />
+        </div>
     )
 }
 
@@ -151,6 +156,56 @@ function AccessControlObjectUsers(): JSX.Element | null {
                 loading={allMembersLoading}
                 data-attr="team-members-table"
             />
+        </div>
+    )
+}
+
+function AccessControlObjectRoles(): JSX.Element | null {
+    const rolesWithAccess: RoleWithAccess[] = [
+        {
+            role: {
+                id: 'admin',
+                name: 'Admin',
+            } as any,
+            level: TeamMembershipLevel.Admin,
+        },
+    ]
+
+    const columns: LemonTableColumns<RoleWithAccess> = [
+        {
+            title: 'Role',
+            key: 'role',
+            render: (_, { role }) => role.name,
+            sorter: (a, b) => a.role.name.localeCompare(b.role.name),
+        },
+        {
+            title: 'Level',
+            key: 'level',
+            render: (_, { level }) => {
+                return level
+            },
+        },
+    ]
+
+    return (
+        <div className="space-y-2">
+            <div className="flex gap-2">
+                <div className="flex-1">
+                    <LemonSelectMultiple
+                        placeholder="Search for team members to add…"
+                        value={[]}
+                        // onChange={(newValues: string[]) => setExplicitCollaboratorsToBeAdded(newValues)}
+                        filterOption={true}
+                        mode="multiple"
+                        data-attr="subscribed-emails"
+                        options={[]}
+                    />
+                </div>
+                <LemonButton type="primary" onClick={() => alert('todo')}>
+                    Add
+                </LemonButton>
+            </div>
+            <LemonTable columns={columns} dataSource={rolesWithAccess} data-attr="team-members-table" />
         </div>
     )
 }
