@@ -3,6 +3,7 @@ from django.db import models
 from posthog.models.organization import Organization
 
 
+# TODO: Should this be a uuidmodel - we don't need the ID
 class AccessControl(models.Model):
     class Meta:
         constraints = [
@@ -18,8 +19,8 @@ class AccessControl(models.Model):
 
     # Configuration of what we are accessing
     resource: models.CharField = models.CharField(max_length=32)
-    resource_id: models.CharField = models.CharField(max_length=36)
     access_level: models.CharField = models.CharField(max_length=32)
+    resource_id: models.CharField = models.CharField(max_length=36, null=True)
 
     # Optional scoping of the resource to a specific team
     team: models.ForeignKey = models.ForeignKey(

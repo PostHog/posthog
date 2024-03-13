@@ -776,6 +776,10 @@ class ApiRequest {
         return await api.update(this.assembleFullUrl(), options?.data, options)
     }
 
+    public async put(options?: ApiMethodOptions & { data: any }): Promise<any> {
+        return await api.put(this.assembleFullUrl(), options?.data, options)
+    }
+
     public async create(options?: ApiMethodOptions & { data: any }): Promise<any> {
         return await api.create(this.assembleFullUrl(), options?.data, options)
     }
@@ -1413,7 +1417,7 @@ const api = {
         async update(
             params: Omit<AccessControlType, 'created_by' | 'updated_at' | 'created_at'>
         ): Promise<PaginatedResponse<AccessControlType>> {
-            return await new ApiRequest().accessControls().update({ data: params })
+            return await new ApiRequest().accessControls().put({ data: params })
         },
     },
 
@@ -2125,14 +2129,14 @@ const api = {
         })
     },
 
-    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
+    async _update(method: 'PATCH' | 'PUT', url: string, data: any, options?: ApiMethodOptions): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        const response = await handleFetch(url, 'PATCH', async () => {
+        const response = await handleFetch(url, method, async () => {
             return await fetch(url, {
-                method: 'PATCH',
+                method,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
@@ -2145,6 +2149,14 @@ const api = {
         })
 
         return await getJSONOrNull(response)
+    },
+
+    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
+        return api._update('PATCH', url, data, options)
+    },
+
+    async put(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
+        return api._update('PUT', url, data, options)
     },
 
     async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {

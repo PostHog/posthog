@@ -157,7 +157,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
 }
 
 function AccessControlObjectRoles(): JSX.Element | null {
-    const { accessControlRoles, accessControlsLoading } = useValues(accessControlLogic)
+    const { accessControlRoles, accessControlsLoading, addableRoles } = useValues(accessControlLogic)
 
     const columns: LemonTableColumns<AccessControlType> = [
         {
@@ -180,16 +180,37 @@ function AccessControlObjectRoles(): JSX.Element | null {
             <div className="flex gap-2">
                 <div className="flex-1">
                     <LemonSelectMultiple
-                        placeholder="Search for team members to add…"
-                        value={[]}
+                        placeholder="Search for roles to add…"
+                        // value={[]}
                         // onChange={(newValues: string[]) => setExplicitCollaboratorsToBeAdded(newValues)}
                         filterOption={true}
                         mode="multiple"
                         data-attr="subscribed-emails"
-                        options={[]}
+                        options={addableRoles.map((role) => ({
+                            key: role.id,
+                            value: role.id,
+                            label: role.name,
+                        }))}
                     />
                 </div>
-                <LemonButton type="primary" onClick={() => alert('todo')}>
+                <LemonSelect
+                    placeholder="Select level..."
+                    options={[
+                        {
+                            value: 'member',
+                            label: 'Member',
+                        },
+                        {
+                            value: 'admin',
+                            label: 'Admin',
+                        },
+                    ]}
+                />
+                <LemonButton
+                    type="primary"
+                    onClick={() => alert('todo')}
+                    disabledReason={accessControlsLoading ? 'Loading…' : undefined}
+                >
                     Add
                 </LemonButton>
             </div>

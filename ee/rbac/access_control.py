@@ -76,9 +76,12 @@ def filter_queryset_by_access_level(user: User, queryset: QuerySet) -> QuerySet:
     """
     For a given resource there is a bunch of things we need to check...
     1. Specific access - all resource_ids that the user, role or team can explicitly access should be included
-    2. Generic access - all resources that the user, role or team can access should be included
     """
     pass
+
+    queryset = queryset.filter(
+        id__in=(access_control.resource_id for access_control in access_controls_for_resource(user))
+    )
 
     # First get the general rule for view level access - this decides if we are filtering out or filtering in
     # TODO: Does this mean we need to standardize access levels?

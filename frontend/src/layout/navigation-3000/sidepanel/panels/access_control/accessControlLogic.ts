@@ -63,7 +63,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        updateAccessControlGlobal: async ({ level }) => {
+        updateAccessControlGlobal: ({ level }) => {
             if (!values.currentTeam) {
                 return
             }
@@ -71,7 +71,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 access_level: level,
             }
 
-            await actions.updateAccessControl(accessControl)
+            actions.updateAccessControl(accessControl)
         },
     })),
     selectors({
@@ -97,6 +97,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
             (s) => [s.accessControls],
             (accessControls): AccessControlType[] => {
                 return (accessControls || []).filter((accessControl) => !!accessControl.role)
+            },
+        ],
+
+        addableRoles: [
+            (s) => [s.roles, s.accessControlRoles],
+            (roles, accessControlRoles): RoleType[] => {
+                return roles ? roles.filter((role) => !accessControlRoles.find((ac) => ac.role?.id === role.id)) : []
             },
         ],
     }),
