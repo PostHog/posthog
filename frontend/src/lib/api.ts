@@ -11,6 +11,7 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     AccessControlType,
+    AccessControlUpdateType,
     ActionType,
     ActivityScope,
     BatchExportConfiguration,
@@ -1414,9 +1415,7 @@ const api = {
             return await new ApiRequest().accessControls().withQueryString(params).get()
         },
 
-        async update(
-            params: Omit<AccessControlType, 'created_by' | 'updated_at' | 'created_at'>
-        ): Promise<PaginatedResponse<AccessControlType>> {
+        async update(params: AccessControlUpdateType): Promise<PaginatedResponse<AccessControlType>> {
             return await new ApiRequest().accessControls().put({ data: params })
         },
     },

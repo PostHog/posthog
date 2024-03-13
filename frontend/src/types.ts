@@ -3367,7 +3367,7 @@ export interface AccessControlType {
     resource: string // TODO: Change to enum
     resource_id?: string | null
 
-    access_level?: string | null // TODO: Change to enum
+    access_level: string | null // TODO: Change to enum
     team?: TeamType | null
     organization_membership?: OrganizationMemberType | null
     role?: RoleType | null
@@ -3376,6 +3376,8 @@ export interface AccessControlType {
     created_at: string
     updated_at: string
 }
+
+export type AccessControlUpdateType = Omit<AccessControlType, 'created_by' | 'created_at' | 'updated_at'>
 
 // TODO: To be deprecated
 export interface FeatureFlagAssociatedRoleType {

@@ -14,12 +14,13 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
     teamMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
+import { useState } from 'react'
 import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -77,94 +78,91 @@ function AccessControlObjectDefaults(): JSX.Element | null {
 
 function AccessControlObjectUsers(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { allMembers, allMembersLoading } = useValues(teamMembersLogic)
+    const { addableMembers, accessControlMembers, accessControlsLoading } = useValues(accessControlLogic)
+    const { updateAccessControlMembers } = useActions(accessControlLogic)
 
     if (!user) {
         return null
     }
 
-    const columns: LemonTableColumns<FusedTeamMemberType> = [
+    // TODO: WHAT A MESS - Fix this to do the index mapping beforehand...
+    const columns: LemonTableColumns<AccessControlType> = [
         {
             key: 'user_profile_picture',
-            render: function ProfilePictureRender(_, member) {
-                return <ProfilePicture user={member.user} />
+            render: function ProfilePictureRender(_, { organization_membership }) {
+                return <ProfilePicture user={organization_membership!.user} />
             },
             width: 32,
         },
         {
             title: 'Name',
             key: 'user_first_name',
-            render: (_, member) =>
-                member.user.uuid == user.uuid ? `${member.user.first_name} (me)` : member.user.first_name,
-            sorter: (a, b) => a.user.first_name.localeCompare(b.user.first_name),
+            render: (_, { organization_membership }) => (
+                <b>
+                    {organization_membership!.user.uuid == user.uuid
+                        ? `${organization_membership!.user.first_name} (you)`
+                        : organization_membership!.user.first_name}
+                </b>
+            ),
+            sorter: (a, b) =>
+                a.organization_membership!.user.first_name.localeCompare(b.organization_membership!.user.first_name),
         },
         {
             title: 'Email',
             key: 'user_email',
-            render: (_, member) => member.user.email,
-            sorter: (a, b) => a.user.email.localeCompare(b.user.email),
+            render: (_, { organization_membership }) => organization_membership!.user.email,
+            sorter: (a, b) =>
+                a.organization_membership!.user.email.localeCompare(b.organization_membership!.user.email),
         },
         {
             title: 'Level',
             key: 'level',
-            render: function LevelRender(_, member) {
-                return LevelComponent(member)
-            },
-            sorter: (a, b) => a.level - b.level,
-        },
-        {
-            title: 'Joined At',
-            dataIndex: 'joined_at',
-            key: 'joined_at',
-            render: (_, member) => humanFriendlyDetailedTime(member.joined_at),
-            sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
-        },
-        {
-            key: 'actions',
-            align: 'center',
-            render: function ActionsRender(_, member) {
-                return ActionsComponent(member)
+            render: function LevelRender(_, { access_level }) {
+                return access_level
             },
         },
+        // {
+        //     title: 'Joined At',
+        //     dataIndex: 'joined_at',
+        //     key: 'joined_at',
+        //     render: (_, member) => humanFriendlyDetailedTime(member.joined_at),
+        //     sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
+        // },
+        // {
+        //     key: 'actions',
+        //     align: 'center',
+        //     render: function ActionsRender(_, member) {
+        //         return ActionsComponent(member)
+        //     },
+        // },
     ]
 
     return (
         <div className="space-y-2">
-            <div className="flex gap-2">
-                <div className="flex-1">
-                    <LemonSelectMultiple
-                        placeholder="Search for team members to add…"
-                        value={[]}
-                        // onChange={(newValues: string[]) => setExplicitCollaboratorsToBeAdded(newValues)}
-                        filterOption={true}
-                        mode="multiple"
-                        data-attr="subscribed-emails"
-                        options={[]}
-                    />
-                </div>
-                <LemonButton type="primary" onClick={() => alert('todo')}>
-                    Add
-                </LemonButton>
-            </div>
-            <LemonTable
-                columns={columns}
-                dataSource={allMembers}
-                loading={allMembersLoading}
-                data-attr="team-members-table"
+            <AddItemsControls
+                placeholder="Search for team members to add…"
+                onAdd={(newValues, level) => updateAccessControlMembers(newValues.map((member) => ({ member, level })))}
+                options={addableMembers.map((member) => ({
+                    key: member.id,
+                    label: member.user.first_name,
+                }))}
+                levels={['member', 'admin']}
             />
+
+            <LemonTable columns={columns} dataSource={accessControlMembers} loading={accessControlsLoading} />
         </div>
     )
 }
 
 function AccessControlObjectRoles(): JSX.Element | null {
     const { accessControlRoles, accessControlsLoading, addableRoles } = useValues(accessControlLogic)
+    const { updateAccessControlRoles } = useActions(accessControlLogic)
 
     const columns: LemonTableColumns<AccessControlType> = [
         {
             title: 'Role',
             key: 'role',
-            render: (_, { role }) => role?.name,
-            sorter: (a, b) => a.role!.name.localeCompare(b.role!.name),
+            render: (_, { role }) => <b>{role!.name}</b>,
         },
         {
             title: 'Level',
@@ -177,49 +175,17 @@ function AccessControlObjectRoles(): JSX.Element | null {
 
     return (
         <div className="space-y-2">
-            <div className="flex gap-2">
-                <div className="flex-1">
-                    <LemonSelectMultiple
-                        placeholder="Search for roles to add…"
-                        // value={[]}
-                        // onChange={(newValues: string[]) => setExplicitCollaboratorsToBeAdded(newValues)}
-                        filterOption={true}
-                        mode="multiple"
-                        data-attr="subscribed-emails"
-                        options={addableRoles.map((role) => ({
-                            key: role.id,
-                            value: role.id,
-                            label: role.name,
-                        }))}
-                    />
-                </div>
-                <LemonSelect
-                    placeholder="Select level..."
-                    options={[
-                        {
-                            value: 'member',
-                            label: 'Member',
-                        },
-                        {
-                            value: 'admin',
-                            label: 'Admin',
-                        },
-                    ]}
-                />
-                <LemonButton
-                    type="primary"
-                    onClick={() => alert('todo')}
-                    disabledReason={accessControlsLoading ? 'Loading…' : undefined}
-                >
-                    Add
-                </LemonButton>
-            </div>
-            <LemonTable
-                columns={columns}
-                dataSource={accessControlRoles}
-                loading={accessControlsLoading}
-                data-attr="team-members-table"
+            <AddItemsControls
+                placeholder="Search for roles to add…"
+                onAdd={(newValues, level) => updateAccessControlRoles(newValues.map((role) => ({ role, level })))}
+                options={addableRoles.map((role) => ({
+                    key: role.id,
+                    label: role.name,
+                }))}
+                levels={['member', 'admin']}
             />
+
+            <LemonTable columns={columns} dataSource={accessControlRoles} loading={accessControlsLoading} />
         </div>
     )
 }
@@ -281,51 +247,48 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     )
 }
 
-function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { removeMember } = useActions(teamMembersLogic)
+function AddItemsControls(props: {
+    placeholder: string
+    onAdd: (newValues: string[], level: AccessControlType['access_level']) => void
+    options: {
+        key: string
+        label: string
+    }[]
+    levels: AccessControlType['access_level'][]
+}): JSX.Element | null {
+    const [items, setItems] = useState<string[]>([])
+    const [level, setLevel] = useState<AccessControlType['access_level']>()
 
-    if (!user) {
-        return null
-    }
+    const onSubmit = items.length && level ? (): void => props.onAdd(items, level) : undefined
 
-    function handleClick(): void {
-        LemonDialog.open({
-            title: `${
-                member.user.uuid == user?.uuid
-                    ? 'Leave'
-                    : `Remove ${member.user.first_name} (${member.user.email}) from`
-            } project ${currentTeam?.name}?`,
-            secondaryButton: {
-                children: 'Cancel',
-            },
-            primaryButton: {
-                status: 'danger',
-                children: member.user.uuid == user?.uuid ? 'Leave' : 'Remove',
-                onClick: () => removeMember({ member }),
-            },
-        })
-    }
-
-    const allowDeletion =
-        // You can leave, but only project admins can remove others
-        ((currentTeam?.effective_membership_level &&
-            currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin) ||
-            member.user.uuid === user.uuid) &&
-        // Only members without implicit access can leave or be removed
-        member.organization_level < MINIMUM_IMPLICIT_ACCESS_LEVEL
-
-    const isSelf = member.user.uuid === user.uuid
-
-    return allowDeletion ? (
-        <LemonButton
-            status="danger"
-            onClick={handleClick}
-            data-attr="delete-team-membership"
-            tooltip={isSelf ? 'Leave project' : 'Remove from project'}
-        >
-            {isSelf ? <IconLeave /> : <IconCancel />}
-        </LemonButton>
-    ) : null
+    return (
+        <div className="flex gap-2">
+            <div className="flex-1">
+                <LemonSelectMultiple
+                    placeholder={props.placeholder}
+                    value={items}
+                    onChange={(newValues: string[]) => setItems(newValues)}
+                    filterOption={true}
+                    mode="multiple"
+                    options={props.options}
+                />
+            </div>
+            <LemonSelect
+                placeholder="Select level..."
+                options={props.levels.map((level) => ({
+                    value: level,
+                    label: capitalizeFirstLetter(level ?? ''),
+                }))}
+                value={level}
+                onChange={(newValue) => setLevel(newValue)}
+            />
+            <LemonButton
+                type="primary"
+                onClick={onSubmit}
+                disabledReason={!onSubmit ? 'Please choose what you want to add and at what level' : undefined}
+            >
+                Add
+            </LemonButton>
+        </div>
+    )
 }

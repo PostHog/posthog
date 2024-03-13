@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AccessControlType, RoleType } from '~/types'
+import { AccessControlType, AccessControlUpdateType, OrganizationMemberType, RoleType } from '~/types'
 
 import type { accessControlLogicType } from './accessControlLogicType'
 
@@ -27,8 +27,20 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControlGlobal: (level: AccessControlType['access_level']) => ({
             level,
         }),
+        updateAccessControlRoles: (
+            accessControls: {
+                role: RoleType['id']
+                level: AccessControlType['access_level']
+            }[]
+        ) => ({ accessControls }),
+        updateAccessControlMembers: (
+            accessControls: {
+                member: OrganizationMemberType['id']
+                level: AccessControlType['access_level']
+            }[]
+        ) => ({ accessControls }),
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         accessControls: [
             null as AccessControlType[] | null,
             {
@@ -40,15 +52,51 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     return response?.results || []
                 },
 
-                updateAccessControl: async ({ accessControl }) => {
-                    const params = {
+                updateAccessControlGlobal: async ({ level }) => {
+                    if (!values.currentTeam) {
+                        return values.accessControls
+                    }
+                    const params: AccessControlUpdateType = {
                         resource: props.resource,
                         resource_id: props.resource_id,
-                        ...accessControl,
+                        team: values.currentTeam.id as any, // Kludge - would be cool if we didn't have this
+                        access_level: level,
                     }
 
-                    const response = await api.accessControls.update(params)
-                    return response?.results || []
+                    await api.accessControls.update(params)
+
+                    return values.accessControls
+                },
+
+                updateAccessControlRoles: async ({ accessControls }) => {
+                    for (const { role, level } of accessControls) {
+                        const params: AccessControlUpdateType = {
+                            resource: props.resource,
+                            resource_id: props.resource_id,
+                            role: role as unknown as AccessControlUpdateType['role'], // Kludge - would be cool if we didn't have this
+                            access_level: level,
+                        }
+
+                        await api.accessControls.update(params)
+                    }
+
+                    return values.accessControls
+                },
+
+                updateAccessControlMembers: async ({ accessControls }) => {
+                    for (const { member, level } of accessControls) {
+                        const params: AccessControlUpdateType = {
+                            resource: props.resource,
+                            resource_id: props.resource_id,
+                            organization_membership:
+                                member as unknown as AccessControlUpdateType['organization_membership'], // Kludge - would be cool if we didn't have this
+                            access_level: level,
+                        }
+
+                        await api.accessControls.update(params)
+                    }
+
+                    return values.accessControls
                 },
             },
         ],
@@ -62,31 +110,20 @@ export const accessControlLogic = kea<accessControlLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
-        updateAccessControlGlobal: ({ level }) => {
-            if (!values.currentTeam) {
-                return
-            }
-            const accessControl = {
-                access_level: level,
-            }
-
-            actions.updateAccessControl(accessControl)
-        },
+    listeners(({ actions }) => ({
+        updateAccessControlGlobalSuccess: () => actions.loadAccessControls(),
+        updateAccessControlRolesSuccess: () => actions.loadAccessControls(),
+        updateAccessControlMembersSuccess: () => actions.loadAccessControls(),
     })),
     selectors({
         accessControlGlobal: [
             (s) => [s.accessControls],
             (accessControls): AccessControlType | null => {
-                return (
-                    accessControls?.find(
-                        (accessControl) => !accessControl.organization_membership && !accessControl.role
-                    ) || null
-                )
+                return accessControls?.find((accessControl) => !!accessControl.team) || null
             },
         ],
 
-        accessControlUsers: [
+        accessControlMembers: [
             (s) => [s.accessControls],
             (accessControls): AccessControlType[] => {
                 return (accessControls || []).filter((accessControl) => !!accessControl.organization_membership)
@@ -104,6 +141,17 @@ export const accessControlLogic = kea<accessControlLogicType>([
             (s) => [s.roles, s.accessControlRoles],
             (roles, accessControlRoles): RoleType[] => {
                 return roles ? roles.filter((role) => !accessControlRoles.find((ac) => ac.role?.id === role.id)) : []
+            },
+        ],
+
+        addableMembers: [
+            (s) => [s.sortedMembers, s.accessControlMembers],
+            (members, accessControlMembers): any[] => {
+                return members
+                    ? members.filter(
+                          (member) => !accessControlMembers.find((ac) => ac.organization_membership?.id === member.id)
+                      )
+                    : []
             },
         ],
     }),
