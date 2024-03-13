@@ -702,7 +702,7 @@ body {
         display: none;
     }
 
-    .storybook-root > .fixed:only-child {
+    #storybook-root > .fixed:only-child {
         // Fix for stories of fixed overlays like CommandBar - otherwise .storybook-root would be zero-sized
         position: static !important;
     }
