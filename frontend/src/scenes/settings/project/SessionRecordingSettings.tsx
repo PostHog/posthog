@@ -499,8 +499,8 @@ export function ReplayAISettings(): JSX.Element | null {
         })
     }
 
-    const { opt_in: _optIn, ...currentComparable } = currentConfig
-    const { opt_in: _optIn, ...defaultComparable } = defaultConfig
+    const { opt_in: _discardCurrentOptIn, ...currentComparable } = currentConfig
+    const { opt_in: _discardDefaultOptIn, ...defaultComparable } = defaultConfig
 
     return (
         <div className="flex flex-col gap-2">
