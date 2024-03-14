@@ -1,6 +1,24 @@
 from django.contrib import admin
 
-from posthog.admin.admins import *
+from posthog.admin.admins import (
+    OrganizationAdmin,
+    UserAdmin,
+    TeamAdmin,
+    DashboardAdmin,
+    InsightAdmin,
+    ExperimentAdmin,
+    FeatureFlagAdmin,
+    AsyncDeletionAdmin,
+    InstanceSettingAdmin,
+    PluginConfigAdmin,
+    PluginAdmin,
+    TextAdmin,
+    CohortAdmin,
+    PersonAdmin,
+    PersonDistinctIdAdmin,
+    SurveyAdmin,
+    DataWarehouseTableAdmin,
+)
 from posthog.models import (
     Organization,
     User,
