@@ -89,6 +89,24 @@ class Command(BaseCommand):
             "RAW5HDlU",
             "OCcLyGC-",
             "hsQln2PI",
+            "Sz7-Ro-e",
+            "yj7DIktG",
+            "AVVuI2nU",
+            "gNq2A52O",
+            "MM8RL9NK",
+            "bgBau9XL",
+            "H0u7MiEH",
+            "M5KDFdvX",
+            "jmSuun7l",
+            "YaNmxUGc",
+            "lJJn5Qx3",
+            "awZVSmnu",
+            "rqjfOxEj",
+            "H5pNTnWd",
+            "BEL16Bpa",
+            "lfkZUMYK",
+            "GqV3RFZA",
+            "cBhW2PKS",
         ]
 
         insights = (
@@ -102,8 +120,9 @@ class Command(BaseCommand):
                 # & (Q(filters__funnel_order_type="ordered") | Q(filters__funnel_order_type__isnull=True))  # ordered
                 # & Q(filters__funnel_order_type="unordered")  # unordered
                 # & Q(filters__funnel_order_type="strict")  # strict
+                ## breakdowns
                 # & Q(filters__breakdown__isnull=True)  # without breakdown
-                # & Q(short_id="A1KGprpv")
+                # & Q(short_id="v1trHpS3"),
                 & ~Q(short_id__in=IGNORED_INSIGHTS) & Q(team_id=1),
                 saved=True,
                 deleted=False,
@@ -132,8 +151,7 @@ class Command(BaseCommand):
                 legacy_error = e
             except Exception as e:
                 url = f"{BASE_URL}/insights/{insight.short_id}/edit"
-                print(f"LEGACY Insight {url} ({insight.pk}). ERROR: {e}")  # noqa: T201
-                print(json.dumps(insight.filters))  # noqa: T201
+                print(f"LEGACY Insight ERROR: {e}")  # noqa: T201
                 continue
 
             try:
@@ -150,8 +168,7 @@ class Command(BaseCommand):
                 hogql_error = e
             except Exception as e:
                 url = f"{BASE_URL}/insights/{insight.short_id}/edit"
-                print(f"HogQL Insight {url} ({insight.pk}). ERROR: {e}")  # noqa: T201
-                print(json.dumps(insight.filters))  # noqa: T201
+                print(f"HogQL Insight ERROR: {e}")  # noqa: T201
                 continue
 
             all_ok = True
@@ -183,7 +200,6 @@ class Command(BaseCommand):
                 assert hogql_results is not None
 
                 if filter.funnel_viz_type == "time_to_convert":
-
                     if legacy_results["average_conversion_time"] != hogql_results.average_conversion_time:
                         all_ok = False
                         print("MISMATCH in average_conversion_time")  # noqa: T201
@@ -193,21 +209,30 @@ class Command(BaseCommand):
                     bin_mismatch = False
                     for legacy, hogql in zip(legacy_results["bins"], hogql_results.bins):
                         if int(legacy[0]) != hogql[0]:
+                            all_ok = False
                             bin_mismatch = True
 
                         if legacy[1] != hogql[1]:
+                            all_ok = False
                             bin_mismatch = True
 
                     if bin_mismatch:
                         print(f"MISMATCH in bins")
                         print("Legacy:", legacy_results["bins"])  # noqa: T201
                         print("HogQL:", hogql_results.bins)  # noqa: T201
-                else:
-                    # print(".------")
-                    # print(legacy_results["aver"])
-                    # print(hogql_results)
-                    # print("...............")
+                elif filter.funnel_viz_type == "trends":
+                    for legacy_result, hogql_result in zip(legacy_results, hogql_results):
+                        for field in ["count", "data", "days", "labels"]:
+                            legacy = legacy_result[field]
+                            hogql = hogql_result[field]
 
+                            if legacy != hogql:
+                                print(f"MISMATCH in field {field}")  # noqa: T201
+                                print("Legacy:", legacy)  # noqa: T201
+                                print("HogQL:", hogql)  # noqa: T201
+                                print("")  # noqa: T201
+                                all_ok = False
+                else:
                     sorted_legacy_results = legacy_results
                     sorted_hogql_results = hogql_results
 
