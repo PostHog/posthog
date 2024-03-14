@@ -31,7 +31,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
     }),
     actions({
         updateAccessControl: (
-            accessControl: Pick<AccessControlType, 'access_level' | 'organization_membership' | 'team' | 'role'>
+            accessControl: Pick<AccessControlType, 'access_level' | 'organization_member' | 'team' | 'role'>
         ) => ({ accessControl }),
         updateAccessControlProject: (level: AccessControlType['access_level']) => ({
             level,
@@ -97,7 +97,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         const params: AccessControlUpdateType = {
                             resource: props.resource,
                             resource_id: props.resource_id,
-                            organization_membership: member,
+                            organization_member: member,
                             access_level: level,
                         }
 
@@ -151,7 +151,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             (s) => [s.accessControls],
             (accessControls): AccessControlTypeMember[] => {
                 return (accessControls || []).filter(
-                    (accessControl) => !!accessControl.organization_membership
+                    (accessControl) => !!accessControl.organization_member
                 ) as AccessControlTypeMember[]
             },
         ],
@@ -189,7 +189,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             (members, accessControlMembers): any[] => {
                 return members
                     ? members.filter(
-                          (member) => !accessControlMembers.find((ac) => ac.organization_membership === member.id)
+                          (member) => !accessControlMembers.find((ac) => ac.organization_member === member.id)
                       )
                     : []
             },

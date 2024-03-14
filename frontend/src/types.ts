@@ -3371,7 +3371,7 @@ export interface AccessControlTypeBase {
     access_level: string | null // TODO: Change to enum
 
     team?: TeamType['id'] | null
-    organization_membership?: OrganizationMemberType['id'] | null
+    organization_member?: OrganizationMemberType['id'] | null
     role?: RoleType['id'] | null
 
     created_by: UserBasicType | null
@@ -3384,7 +3384,7 @@ export interface AccessControlTypeProject extends AccessControlTypeBase {
 }
 
 export interface AccessControlTypeMember extends AccessControlTypeBase {
-    organization_membership: OrganizationMemberType['id']
+    organization_member: OrganizationMemberType['id']
 }
 
 export interface AccessControlTypeRole extends AccessControlTypeBase {

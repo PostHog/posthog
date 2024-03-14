@@ -79,7 +79,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
     }
 
     const member = (ac: AccessControlTypeMember): OrganizationMemberType => {
-        return membersById[ac.organization_membership]
+        return membersById[ac.organization_member]
     }
 
     // TODO: WHAT A MESS - Fix this to do the index mapping beforehand...
@@ -113,14 +113,14 @@ function AccessControlObjectUsers(): JSX.Element | null {
             title: 'Level',
             key: 'level',
             width: 0,
-            render: function LevelRender(_, { access_level, organization_membership }) {
+            render: function LevelRender(_, { access_level, organization_member }) {
                 return (
                     <div className="my-1">
                         <SimplLevelComponent
                             size="small"
                             level={access_level}
                             onChange={(level) =>
-                                void updateAccessControlMembers([{ member: organization_membership, level }])
+                                void updateAccessControlMembers([{ member: organization_member, level }])
                             }
                         />
                     </div>
@@ -130,12 +130,12 @@ function AccessControlObjectUsers(): JSX.Element | null {
         {
             key: 'remove',
             width: 0,
-            render: (_, { organization_membership }) => {
+            render: (_, { organization_member }) => {
                 return (
                     <RemoveAccessButton
                         subject="member"
                         onConfirm={() =>
-                            void updateAccessControlMembers([{ member: organization_membership, level: null }])
+                            void updateAccessControlMembers([{ member: organization_member, level: null }])
                         }
                     />
                 )
