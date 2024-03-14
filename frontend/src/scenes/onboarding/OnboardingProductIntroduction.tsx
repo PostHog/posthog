@@ -149,7 +149,7 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             Or, stay on our generous free plan if you'd like - you still get{' '}
             <b>
                 {convertLargeNumberToWords(
-                    currentAndUpgradePlans.currentPlan.free_allocation ||
+                    currentAndUpgradePlans.currentPlan?.free_allocation ||
                         currentAndUpgradePlans.downgradePlan.free_allocation ||
                         0,
                     null
@@ -198,7 +198,9 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
                     <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
                         <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
                             <div className="">
-                                <h3 className="text-4xl font-bold">{product.headline}</h3>
+                                <h3 className="text-4xl font-bold" data-attr="product-intro-title">
+                                    {product.headline}
+                                </h3>
                                 <p>{product.description}</p>
                                 <GetStartedButton product={product} />
                             </div>
