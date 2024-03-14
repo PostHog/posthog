@@ -33,7 +33,7 @@ describe('Onboarding', () => {
         cy.get('[data-attr=top-bar-name] > span').contains('Product intro')
 
         cy.get('[data-attr=start-onboarding]').should('be.visible')
-        cy.get('[data-attr=skip-onboarding]').should('not.be.visible')
+        cy.get('[data-attr=skip-onboarding]').should('not.exist')
     })
 
     it('Step through PA onboarding', () => {
