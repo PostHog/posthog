@@ -5,7 +5,7 @@ import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
-import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
+import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { AutocaptureSettings, ExceptionAutocaptureSettings } from './project/AutocaptureSettings'
 import { CorrelationConfig } from './project/CorrelationConfig'
@@ -303,7 +303,7 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'organization-rbac',
                 title: 'Role-based access',
-                component: <PermissionsGrid />,
+                component: <RoleBasedAccess />,
             },
         ],
     },

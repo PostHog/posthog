@@ -18,7 +18,7 @@ import type { accessControlLogicType } from './accessControlLogicType'
 
 export type AccessControlLogicProps = {
     resource: string
-    resource_id?: string
+    resource_id: string
 }
 
 export const accessControlLogic = kea<accessControlLogicType>([
@@ -33,7 +33,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControl: (
             accessControl: Pick<AccessControlType, 'access_level' | 'organization_membership' | 'team' | 'role'>
         ) => ({ accessControl }),
-        updateaccessControlProject: (level: AccessControlType['access_level']) => ({
+        updateAccessControlProject: (level: AccessControlType['access_level']) => ({
             level,
         }),
         updateAccessControlRoles: (
@@ -61,7 +61,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     return response?.results || []
                 },
 
-                updateaccessControlProject: async ({ level }) => {
+                updateAccessControlProject: async ({ level }) => {
                     if (!values.currentTeam) {
                         return values.accessControls
                     }
@@ -119,15 +119,19 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
-        updateaccessControlProjectSuccess: () => actions.loadAccessControls(),
+        updateAccessControlProjectSuccess: () => actions.loadAccessControls(),
         updateAccessControlRolesSuccess: () => actions.loadAccessControls(),
         updateAccessControlMembersSuccess: () => actions.loadAccessControls(),
     })),
     selectors({
         availableLevels: [
-            (s, p) => [p.resource],
-            (resource): AccessControlTypeProject['access_level'][] => {
-                if (resource === 'project') {
+            () => [(_, props) => props],
+            (props): AccessControlTypeProject['access_level'][] => {
+                if (!props.resource) {
+                    return []
+                }
+
+                if (props.resource === 'project') {
                     return ['member', 'admin']
                 }
 

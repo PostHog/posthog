@@ -152,7 +152,7 @@ export function ProjectTeamMembers(): JSX.Element | null {
             title: 'Name',
             key: 'user_first_name',
             render: (_, member) =>
-                member.user.uuid == user.uuid ? `${member.user.first_name} (me)` : member.user.first_name,
+                member.user.uuid == user.uuid ? `${member.user.first_name} (you)` : member.user.first_name,
             sorter: (a, b) => a.user.first_name.localeCompare(b.user.first_name),
         },
         {

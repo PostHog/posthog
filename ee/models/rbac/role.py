@@ -42,6 +42,7 @@ class RoleMembership(UUIDModel):
         related_name="roles",
         related_query_name="role",
     )
+    # TODO: This really should be linked to the organization membership, not the user...
     user: models.ForeignKey = models.ForeignKey(
         "posthog.User",
         on_delete=models.CASCADE,

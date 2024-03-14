@@ -1,37 +1,20 @@
-import { IconCrown, IconX } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
     LemonSelect,
     LemonSelectMultiple,
-    LemonSelectOption,
     LemonSelectProps,
-    LemonSnack,
     LemonTable,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
-import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
-import {
-    getReasonForAccessLevelChangeProhibition,
-    membershipLevelToName,
-    teamMembershipLevelIntegers,
-} from 'lib/utils/permissioning'
 import { useState } from 'react'
-import { teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    AccessControlType,
-    AccessControlTypeMember,
-    AccessControlTypeRole,
-    FusedTeamMemberType,
-    OrganizationMemberType,
-} from '~/types'
+import { AccessControlType, AccessControlTypeMember, AccessControlTypeRole, OrganizationMemberType } from '~/types'
 
 import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
 
@@ -58,13 +41,13 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 
 function AccessControlObjectDefaults(): JSX.Element | null {
     const { accessControlProject, accessControlsLoading, availableLevels } = useValues(accessControlLogic)
-    const { updateaccessControlProject } = useActions(accessControlLogic)
+    const { updateAccessControlProject } = useActions(accessControlLogic)
 
     return (
         <LemonSelect
             value={accessControlProject?.access_level ?? null}
             onChange={(newValue) => {
-                updateaccessControlProject(newValue)
+                updateAccessControlProject(newValue)
             }}
             disabledReason={accessControlsLoading ? 'Loading…' : undefined}
             options={[
@@ -135,7 +118,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                             size="small"
                             level={access_level}
                             onChange={(level) =>
-                                updateAccessControlMembers([{ member: organization_membership, level }])
+                                void updateAccessControlMembers([{ member: organization_membership, level }])
                             }
                         />
                     </div>
@@ -149,7 +132,9 @@ function AccessControlObjectUsers(): JSX.Element | null {
                 return (
                     <RemoveAccessButton
                         subject="member"
-                        onConfirm={() => updateAccessControlMembers([{ member: organization_membership, level: null }])}
+                        onConfirm={() =>
+                            void updateAccessControlMembers([{ member: organization_membership, level: null }])
+                        }
                     />
                 )
             },
@@ -193,7 +178,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                         <SimplLevelComponent
                             size="small"
                             level={access_level}
-                            onChange={(level) => updateAccessControlRoles([{ role, level }])}
+                            onChange={(level) => void updateAccessControlRoles([{ role, level }])}
                         />
                     </div>
                 )
@@ -206,7 +191,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                 return (
                     <RemoveAccessButton
                         subject="role"
-                        onConfirm={() => updateAccessControlRoles([{ role, level: null }])}
+                        onConfirm={() => void updateAccessControlRoles([{ role, level: null }])}
                     />
                 )
             },
@@ -230,62 +215,62 @@ function AccessControlObjectRoles(): JSX.Element | null {
     )
 }
 
-function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { changeUserAccessLevel } = useActions(teamMembersLogic)
+// function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
+//     const { user } = useValues(userLogic)
+//     const { currentTeam } = useValues(teamLogic)
+//     const { changeUserAccessLevel } = useActions(teamMembersLogic)
 
-    const myMembershipLevel = isAuthenticatedTeam(currentTeam) ? currentTeam.effective_membership_level : null
+//     const myMembershipLevel = isAuthenticatedTeam(currentTeam) ? currentTeam.effective_membership_level : null
 
-    if (!user) {
-        return null
-    }
+//     if (!user) {
+//         return null
+//     }
 
-    const isImplicit = member.organization_level >= OrganizationMembershipLevel.Admin
-    const levelName = membershipLevelToName.get(member.level) ?? `unknown (${member.level})`
+//     const isImplicit = member.organization_level >= OrganizationMembershipLevel.Admin
+//     const levelName = membershipLevelToName.get(member.level) ?? `unknown (${member.level})`
 
-    const allowedLevels = teamMembershipLevelIntegers.filter(
-        (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
-    )
+//     const allowedLevels = teamMembershipLevelIntegers.filter(
+//         (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
+//     )
 
-    const possibleOptions = member.explicit_team_level
-        ? allowedLevels.concat([member.explicit_team_level])
-        : allowedLevels
+//     const possibleOptions = member.explicit_team_level
+//         ? allowedLevels.concat([member.explicit_team_level])
+//         : allowedLevels
 
-    const disallowedReason = isImplicit
-        ? `This user is a member of the project implicitly due to being an organization ${levelName}.`
-        : getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
+//     const disallowedReason = isImplicit
+//         ? `This user is a member of the project implicitly due to being an organization ${levelName}.`
+//         : getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
-    return disallowedReason ? (
-        <Tooltip title={disallowedReason}>
-            <LemonSnack className="capitalize">
-                {member.level === OrganizationMembershipLevel.Owner && <IconCrown className="mr-2" />}
-                {levelName}
-            </LemonSnack>
-        </Tooltip>
-    ) : (
-        <LemonSelect
-            dropdownMatchSelectWidth={false}
-            onChange={(listLevel) => {
-                if (listLevel !== null) {
-                    changeUserAccessLevel(member.user, listLevel)
-                }
-            }}
-            options={possibleOptions.map(
-                (listLevel) =>
-                    ({
-                        value: listLevel,
-                        disabled: listLevel === member.explicit_team_level,
-                        label:
-                            listLevel > member.level
-                                ? membershipLevelToName.get(listLevel)
-                                : membershipLevelToName.get(listLevel),
-                    } as LemonSelectOption<TeamMembershipLevel>)
-            )}
-            value={member.explicit_team_level}
-        />
-    )
-}
+//     return disallowedReason ? (
+//         <Tooltip title={disallowedReason}>
+//             <LemonSnack className="capitalize">
+//                 {member.level === OrganizationMembershipLevel.Owner && <IconCrown className="mr-2" />}
+//                 {levelName}
+//             </LemonSnack>
+//         </Tooltip>
+//     ) : (
+//         <LemonSelect
+//             dropdownMatchSelectWidth={false}
+//             onChange={(listLevel) => {
+//                 if (listLevel !== null) {
+//                     changeUserAccessLevel(member.user, listLevel)
+//                 }
+//             }}
+//             options={possibleOptions.map(
+//                 (listLevel) =>
+//                     ({
+//                         value: listLevel,
+//                         disabled: listLevel === member.explicit_team_level,
+//                         label:
+//                             listLevel > member.level
+//                                 ? membershipLevelToName.get(listLevel)
+//                                 : membershipLevelToName.get(listLevel),
+//                     } as LemonSelectOption<TeamMembershipLevel>)
+//             )}
+//             value={member.explicit_team_level}
+//         />
+//     )
+// }
 
 function SimplLevelComponent(props: {
     size?: LemonSelectProps<any>['size']
