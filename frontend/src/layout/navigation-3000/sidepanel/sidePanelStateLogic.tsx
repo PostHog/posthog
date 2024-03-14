@@ -64,12 +64,11 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             actions.setSidePanelOpen(true)
         },
         closeSidePanel: ({ tab }) => {
+            actions.reportActivationSideBarClosed(tab)
             if (!tab) {
-                actions.reportActivationSideBarClosed()
                 // If we aren't specifiying the tab we always close
                 actions.setSidePanelOpen(false)
             } else if (values.selectedTab === tab) {
-                actions.reportActivationSideBarClosed(tab)
                 // Otherwise we only close it if the tab is the currently open one
                 actions.setSidePanelOpen(false)
             }
