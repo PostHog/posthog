@@ -3,6 +3,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
@@ -23,7 +24,7 @@ from posthog.schema import (
 )
 
 
-class TrendsQueryBuilder:
+class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
@@ -594,10 +595,3 @@ class TrendsQueryBuilder:
             else None
         )
         return TrendsDisplay(display)
-
-    @cached_property
-    def _table_expr(self) -> ast.Field:
-        if isinstance(self.series, DataWarehouseNode):
-            return ast.Field(chain=[self.series.table_name])
-
-        return ast.Field(chain=["events"])

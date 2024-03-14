@@ -5,6 +5,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 from posthog.schema import EventsNode, ActionsNode, DataWarehouseNode
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 
 
 class QueryAlternator:
@@ -48,7 +49,7 @@ class QueryAlternator:
         self._select_from = join_expr
 
 
-class AggregationOperations:
+class AggregationOperations(DataWarehouseInsightQueryMixin):
     team: Team
     series: Union[EventsNode, ActionsNode, DataWarehouseNode]
     query_date_range: QueryDateRange
@@ -423,10 +424,3 @@ class AggregationOperations:
                 return parent_select
 
         return QueryOrchestrator()
-
-    @cached_property
-    def _table_expr(self) -> ast.Field:
-        if isinstance(self.series, DataWarehouseNode):
-            return ast.Field(chain=[self.series.table_name])
-
-        return ast.Field(chain=["events"])

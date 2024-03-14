@@ -12,6 +12,7 @@ from posthog.schema import (
     ChartDisplayType,
     DateRange,
     DataWarehouseNode,
+    DataWarehouseEventsModifier,
     TrendsQuery,
     TrendsFilter,
 )
@@ -61,11 +62,20 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             interval=trends_query.interval,
             now=datetime.now(),
         )
+        series = trends_query.series[0]
 
         timings = HogQLTimings()
         modifiers = create_default_modifiers_for_team(self.team)
 
         if isinstance(trends_query.series[0], DataWarehouseNode):
+            modifiers.dataWarehouseEventsModifiers = [
+                DataWarehouseEventsModifier(
+                    table_name=series.table_name,
+                    timestamp_field=series.timestamp_field,
+                    id_field=series.id_field,
+                    distinct_id_field=series.distinct_id_field,
+                )
+            ]
             query_builder = TrendsQueryBuilder(
                 trends_query=trends_query,
                 team=self.team,
@@ -84,6 +94,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             query=query,
             team=self.team,
             timings=timings,
+            modifiers=modifiers,
         )
 
     def create_parquet_file(self):
