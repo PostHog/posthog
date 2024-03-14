@@ -7,7 +7,7 @@ import {
     LemonSnack,
     LemonTable,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -23,7 +23,13 @@ import { teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlType, FusedTeamMemberType } from '~/types'
+import {
+    AccessControlType,
+    AccessControlTypeMember,
+    AccessControlTypeRole,
+    FusedTeamMemberType,
+    OrganizationMemberType,
+} from '~/types'
 
 import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
 
@@ -49,14 +55,14 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 }
 
 function AccessControlObjectDefaults(): JSX.Element | null {
-    const { accessControlGlobal, accessControlsLoading } = useValues(accessControlLogic)
-    const { updateAccessControlGlobal } = useActions(accessControlLogic)
+    const { accessControlProject, accessControlsLoading } = useValues(accessControlLogic)
+    const { updateaccessControlProject } = useActions(accessControlLogic)
 
     return (
         <LemonSelect
-            value={accessControlGlobal?.access_level ?? null}
+            value={accessControlProject?.access_level ?? null}
             onChange={(newValue) => {
-                updateAccessControlGlobal(newValue)
+                updateaccessControlProject(newValue)
             }}
             disabledReason={accessControlsLoading ? 'Loading…' : undefined}
             options={[
@@ -80,63 +86,58 @@ function AccessControlObjectDefaults(): JSX.Element | null {
 
 function AccessControlObjectUsers(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { addableMembers, accessControlMembers, accessControlsLoading } = useValues(accessControlLogic)
-    const { updateAccessControlMembers } = useActions(accessControlLogic)
+    const { membersById, addableMembers, accessControlMembers, accessControlsLoading, availableLevels } =
+        useValues(accessControlLogic)
+    const { updateAccessControlMembers } = useAsyncActions(accessControlLogic)
 
     if (!user) {
         return null
     }
 
+    const member = (ac: AccessControlTypeMember): OrganizationMemberType => {
+        return membersById[ac.organization_membership]
+    }
+
     // TODO: WHAT A MESS - Fix this to do the index mapping beforehand...
-    const columns: LemonTableColumns<AccessControlType> = [
+    const columns: LemonTableColumns<AccessControlTypeMember> = [
         {
             key: 'user_profile_picture',
-            render: function ProfilePictureRender(_, { organization_membership }) {
-                return <ProfilePicture user={organization_membership!.user} />
+            render: function ProfilePictureRender(_, ac) {
+                return <ProfilePicture user={member(ac)?.user} />
             },
             width: 32,
         },
         {
             title: 'Name',
             key: 'user_first_name',
-            render: (_, { organization_membership }) => (
+            render: (_, ac) => (
                 <b>
-                    {organization_membership!.user.uuid == user.uuid
-                        ? `${organization_membership!.user.first_name} (you)`
-                        : organization_membership!.user.first_name}
+                    {member(ac)?.user.uuid == user.uuid
+                        ? `${member(ac)?.user.first_name} (you)`
+                        : member(ac)?.user.first_name}
                 </b>
             ),
-            sorter: (a, b) =>
-                a.organization_membership!.user.first_name.localeCompare(b.organization_membership!.user.first_name),
+            sorter: (a, b) => member(a)?.user.first_name.localeCompare(member(b)?.user.first_name),
         },
         {
             title: 'Email',
             key: 'user_email',
-            render: (_, { organization_membership }) => organization_membership!.user.email,
-            sorter: (a, b) =>
-                a.organization_membership!.user.email.localeCompare(b.organization_membership!.user.email),
+            render: (_, ac) => member(ac)?.user.email,
+            sorter: (a, b) => member(a)?.user.email.localeCompare(member(b)?.user.email),
         },
         {
             title: 'Level',
             key: 'level',
-            render: function LevelRender(_, { access_level }) {
-                return access_level
+            width: 0,
+            render: function LevelRender(_, { access_level, organization_membership }) {
+                return (
+                    <SimplLevelComponent
+                        level={access_level}
+                        onChange={(level) => updateAccessControlMembers([{ member: organization_membership, level }])}
+                    />
+                )
             },
         },
-        // {
-        //     title: 'Joined At',
-        //     dataIndex: 'joined_at',
-        //     key: 'joined_at',
-        //     render: (_, member) => humanFriendlyDetailedTime(member.joined_at),
-        //     sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
-        // },
-        // {
-        //     key: 'actions',
-        //     align: 'center',
-        //     render: function ActionsRender(_, member) {
-        //         return ActionsComponent(member)
-        //     },
-        // },
     ]
 
     return (
@@ -148,7 +149,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                     key: member.id,
                     label: member.user.first_name,
                 }))}
-                levels={['member', 'admin']}
+                levels={availableLevels}
             />
 
             <LemonTable columns={columns} dataSource={accessControlMembers} loading={accessControlsLoading} />
@@ -157,20 +158,28 @@ function AccessControlObjectUsers(): JSX.Element | null {
 }
 
 function AccessControlObjectRoles(): JSX.Element | null {
-    const { accessControlRoles, accessControlsLoading, addableRoles } = useValues(accessControlLogic)
-    const { updateAccessControlRoles } = useActions(accessControlLogic)
+    const { accessControlRoles, accessControlsLoading, addableRoles, rolesById } = useValues(accessControlLogic)
+    const { updateAccessControlRoles } = useAsyncActions(accessControlLogic)
 
-    const columns: LemonTableColumns<AccessControlType> = [
+    const columns: LemonTableColumns<AccessControlTypeRole> = [
         {
             title: 'Role',
             key: 'role',
-            render: (_, { role }) => <b>{role!.name}</b>,
+            render: (_, { role }) => <b>{rolesById[role]?.name}</b>,
         },
         {
             title: 'Level',
             key: 'level',
-            render: (_, { access_level }) => {
-                return access_level
+            width: 0,
+            render: (_, { access_level, role }) => {
+                return (
+                    <div className="my-2">
+                        <SimplLevelComponent
+                            level={access_level}
+                            onChange={(level) => updateAccessControlRoles([{ role, level }])}
+                        />
+                    </div>
+                )
             },
         },
     ]
@@ -249,9 +258,27 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     )
 }
 
+function SimplLevelComponent(props: {
+    level: AccessControlType['access_level']
+    onChange: (newValue: AccessControlType['access_level']) => void
+}): JSX.Element | null {
+    const { availableLevels } = useValues(accessControlLogic)
+
+    return (
+        <LemonSelect
+            value={props.level}
+            onChange={(newValue) => props.onChange(newValue)}
+            options={availableLevels.map((level) => ({
+                value: level,
+                label: capitalizeFirstLetter(level ?? ''),
+            }))}
+        />
+    )
+}
+
 function AddItemsControls(props: {
     placeholder: string
-    onAdd: (newValues: string[], level: AccessControlType['access_level']) => void
+    onAdd: (newValues: string[], level: AccessControlType['access_level']) => Promise<void>
     options: {
         key: string
         label: string
@@ -261,7 +288,14 @@ function AddItemsControls(props: {
     const [items, setItems] = useState<string[]>([])
     const [level, setLevel] = useState<AccessControlType['access_level']>()
 
-    const onSubmit = items.length && level ? (): void => props.onAdd(items, level) : undefined
+    const onSubmit =
+        items.length && level
+            ? (): void =>
+                  void props.onAdd(items, level).then(() => {
+                      setItems([])
+                      setLevel(undefined)
+                  })
+            : undefined
 
     return (
         <div className="flex gap-2">

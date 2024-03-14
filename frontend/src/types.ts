@@ -3363,20 +3363,33 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
-export interface AccessControlType {
+export interface AccessControlTypeBase {
     resource: string // TODO: Change to enum
     resource_id?: string | null
-
-    // TODO: Change these back to simple values
     access_level: string | null // TODO: Change to enum
-    team?: TeamType | null
-    organization_membership?: OrganizationMemberType | null
-    role?: RoleType | null
+
+    team?: TeamType['id'] | null
+    organization_membership?: OrganizationMemberType['id'] | null
+    role?: RoleType['id'] | null
 
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
 }
+
+export interface AccessControlTypeProject extends AccessControlTypeBase {
+    team: TeamType['id']
+}
+
+export interface AccessControlTypeMember extends AccessControlTypeBase {
+    organization_membership: OrganizationMemberType['id']
+}
+
+export interface AccessControlTypeRole extends AccessControlTypeBase {
+    role: RoleType['id']
+}
+
+export type AccessControlType = AccessControlTypeProject | AccessControlTypeMember | AccessControlTypeRole
 
 export type AccessControlUpdateType = Omit<AccessControlType, 'created_by' | 'created_at' | 'updated_at'>
 

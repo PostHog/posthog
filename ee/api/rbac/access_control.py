@@ -2,11 +2,8 @@ from rest_framework import serializers, mixins, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.api.rbac.role import RoleSerializer
 from ee.models.rbac.access_control import AccessControl
-from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.team import TeamSerializer
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
 
 
@@ -15,9 +12,6 @@ from posthog.models.personal_api_key import API_SCOPE_OBJECTS
 
 class AccessControlSerializer(serializers.ModelSerializer):
     access_level = serializers.CharField(allow_null=True)
-    organization_membership = OrganizationMemberSerializer(required=False)
-    role = RoleSerializer(required=False)
-    # team = TeamSerializer() # TOOD: This crashes for some reason
 
     class Meta:
         model = AccessControl

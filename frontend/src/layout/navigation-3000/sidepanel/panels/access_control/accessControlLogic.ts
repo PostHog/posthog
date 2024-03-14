@@ -4,7 +4,15 @@ import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AccessControlType, AccessControlUpdateType, OrganizationMemberType, RoleType } from '~/types'
+import {
+    AccessControlType,
+    AccessControlTypeMember,
+    AccessControlTypeProject,
+    AccessControlTypeRole,
+    AccessControlUpdateType,
+    OrganizationMemberType,
+    RoleType,
+} from '~/types'
 
 import type { accessControlLogicType } from './accessControlLogicType'
 
@@ -25,7 +33,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControl: (
             accessControl: Pick<AccessControlType, 'access_level' | 'organization_membership' | 'team' | 'role'>
         ) => ({ accessControl }),
-        updateAccessControlGlobal: (level: AccessControlType['access_level']) => ({
+        updateaccessControlProject: (level: AccessControlType['access_level']) => ({
             level,
         }),
         updateAccessControlRoles: (
@@ -53,14 +61,14 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     return response?.results || []
                 },
 
-                updateAccessControlGlobal: async ({ level }) => {
+                updateaccessControlProject: async ({ level }) => {
                     if (!values.currentTeam) {
                         return values.accessControls
                     }
                     const params: AccessControlUpdateType = {
                         resource: props.resource,
                         resource_id: props.resource_id,
-                        team: values.currentTeam.id as any, // Kludge - would be cool if we didn't have this
+                        team: values.currentTeam.id,
                         access_level: level,
                     }
 
@@ -74,7 +82,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         const params: AccessControlUpdateType = {
                             resource: props.resource,
                             resource_id: props.resource_id,
-                            role: role as unknown as AccessControlUpdateType['role'], // Kludge - would be cool if we didn't have this
+                            role: role,
                             access_level: level,
                         }
 
@@ -89,8 +97,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         const params: AccessControlUpdateType = {
                             resource: props.resource,
                             resource_id: props.resource_id,
-                            organization_membership:
-                                member as unknown as AccessControlUpdateType['organization_membership'], // Kludge - would be cool if we didn't have this
+                            organization_membership: member,
                             access_level: level,
                         }
 
@@ -112,46 +119,69 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
-        updateAccessControlGlobalSuccess: () => actions.loadAccessControls(),
+        updateaccessControlProjectSuccess: () => actions.loadAccessControls(),
         updateAccessControlRolesSuccess: () => actions.loadAccessControls(),
         updateAccessControlMembersSuccess: () => actions.loadAccessControls(),
     })),
     selectors({
-        accessControlGlobal: [
+        availableLevels: [
+            (s, p) => [p.resource],
+            (resource): AccessControlTypeProject['access_level'][] => {
+                return ['admin', 'member']
+            },
+        ],
+        accessControlProject: [
             (s) => [s.accessControls],
-            (accessControls): AccessControlType | null => {
-                return accessControls?.find((accessControl) => !!accessControl.team) || null
+            (accessControls): AccessControlTypeProject | null => {
+                return (
+                    (accessControls?.find((accessControl) => !!accessControl.team) as AccessControlTypeProject) || null
+                )
             },
         ],
 
         accessControlMembers: [
             (s) => [s.accessControls],
-            (accessControls): AccessControlType[] => {
-                return (accessControls || []).filter((accessControl) => !!accessControl.organization_membership)
+            (accessControls): AccessControlTypeMember[] => {
+                return (accessControls || []).filter(
+                    (accessControl) => !!accessControl.organization_membership
+                ) as AccessControlTypeMember[]
             },
         ],
 
         accessControlRoles: [
             (s) => [s.accessControls],
-            (accessControls): AccessControlType[] => {
-                return (accessControls || []).filter((accessControl) => !!accessControl.role)
+            (accessControls): AccessControlTypeRole[] => {
+                return (accessControls || []).filter((accessControl) => !!accessControl.role) as AccessControlTypeRole[]
+            },
+        ],
+
+        rolesById: [
+            (s) => [s.roles],
+            (roles): Record<number, RoleType> => {
+                return Object.fromEntries((roles || []).map((role) => [role.id, role]))
             },
         ],
 
         addableRoles: [
             (s) => [s.roles, s.accessControlRoles],
             (roles, accessControlRoles): RoleType[] => {
-                return roles ? roles.filter((role) => !accessControlRoles.find((ac) => ac.role?.id === role.id)) : []
+                return roles ? roles.filter((role) => !accessControlRoles.find((ac) => ac.role === role.id)) : []
+            },
+        ],
+
+        membersById: [
+            (s) => [s.sortedMembers],
+            (members): Record<number, OrganizationMemberType> => {
+                return Object.fromEntries((members || []).map((member) => [member.id, member]))
             },
         ],
 
         addableMembers: [
             (s) => [s.sortedMembers, s.accessControlMembers],
             (members, accessControlMembers): any[] => {
-                console.log({ members, accessControlMembers })
                 return members
                     ? members.filter(
-                          (member) => !accessControlMembers.find((ac) => ac.organization_membership?.id === member.id)
+                          (member) => !accessControlMembers.find((ac) => ac.organization_membership === member.id)
                       )
                     : []
             },
