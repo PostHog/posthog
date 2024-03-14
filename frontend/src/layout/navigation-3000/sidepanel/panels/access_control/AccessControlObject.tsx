@@ -9,9 +9,11 @@ import {
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlType, AccessControlTypeMember, AccessControlTypeRole, OrganizationMemberType } from '~/types'
@@ -166,7 +168,32 @@ function AccessControlObjectRoles(): JSX.Element | null {
         {
             title: 'Role',
             key: 'role',
-            render: (_, { role }) => <b>{rolesById[role]?.name}</b>,
+            width: 0,
+            render: (_, { role }) => (
+                <span className="whitespace-nowrap">
+                    <LemonTableLink
+                        to={urls.settings('organization-rbac') + `#role=${role}`}
+                        title={rolesById[role]?.name}
+                    />
+                </span>
+            ),
+        },
+        {
+            title: 'Members',
+            key: 'members',
+            render: (_, { role }) => {
+                return (
+                    <ProfileBubbles
+                        people={
+                            rolesById[role]?.members?.map((member) => ({
+                                email: member.user.email,
+                                name: member.user.first_name,
+                                title: `${member.user.first_name} <${member.user.email}>`,
+                            })) ?? []
+                        }
+                    />
+                )
+            },
         },
         {
             title: 'Level',

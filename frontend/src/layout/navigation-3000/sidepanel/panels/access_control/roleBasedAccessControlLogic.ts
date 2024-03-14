@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -89,8 +90,13 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         updateRoleBasedAccessControlsSuccess: () => actions.loadRoleBasedAccessControls(),
+        loadRolesSuccess: () => {
+            if (router.values.hashParams.role) {
+                actions.selectRole(values.roles?.find((role) => role.id === router.values.hashParams.role) || null)
+            }
+        },
     })),
 
     selectors({
@@ -136,4 +142,18 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
         actions.loadRoleBasedAccessControls()
         actions.ensureAllMembersLoaded()
     }),
+
+    actionToUrl(({ values }) => ({
+        selectRole: () => {
+            const { currentLocation } = router.values
+            return [
+                currentLocation.pathname,
+                currentLocation.searchParams,
+                {
+                    ...currentLocation.hashParams,
+                    role: values.selectedRole?.id,
+                },
+            ]
+        },
+    })),
 ])

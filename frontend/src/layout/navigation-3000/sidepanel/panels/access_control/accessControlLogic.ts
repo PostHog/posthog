@@ -165,7 +165,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
         rolesById: [
             (s) => [s.roles],
-            (roles): Record<number, RoleType> => {
+            (roles): Record<string, RoleType> => {
                 return Object.fromEntries((roles || []).map((role) => [role.id, role]))
             },
         ],
@@ -179,7 +179,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
         membersById: [
             (s) => [s.sortedMembers],
-            (members): Record<number, OrganizationMemberType> => {
+            (members): Record<string, OrganizationMemberType> => {
                 return Object.fromEntries((members || []).map((member) => [member.id, member]))
             },
         ],
