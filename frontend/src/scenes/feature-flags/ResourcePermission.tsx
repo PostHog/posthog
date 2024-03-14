@@ -1,5 +1,5 @@
 import { IconGear, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import {
@@ -14,9 +14,9 @@ import {
     FormattedResourceLevel,
     permissionsLogic,
     ResourcePermissionMapping,
-} from './settings/organization/Permissions/permissionsLogic'
-import { rolesLogic } from './settings/organization/Permissions/Roles/rolesLogic'
-import { urls } from './urls'
+} from '../settings/organization/Permissions/permissionsLogic'
+import { rolesLogic } from '../settings/organization/Permissions/Roles/rolesLogic'
+import { urls } from '../urls'
 
 interface ResourcePermissionProps {
     addableRoles: RoleType[]
@@ -30,13 +30,7 @@ interface ResourcePermissionProps {
     canEdit: boolean
 }
 
-interface ResourcePermissionModalProps extends ResourcePermissionProps {
-    title: string
-    visible: boolean
-    onClose: () => void
-}
-
-export function roleLemonSelectOptions(roles: RoleType[]): LemonSelectMultipleOptionItem[] {
+function roleLemonSelectOptions(roles: RoleType[]): LemonSelectMultipleOptionItem[] {
     return roles.map((role) => ({
         key: role.id,
         label: `${role.name}`,
@@ -46,38 +40,6 @@ export function roleLemonSelectOptions(roles: RoleType[]): LemonSelectMultipleOp
             </span>
         ),
     }))
-}
-
-export function ResourcePermissionModal({
-    title,
-    visible,
-    onClose,
-    rolesToAdd,
-    addableRoles,
-    onChange,
-    addableRolesLoading,
-    onAdd,
-    roles,
-    deleteAssociatedRole,
-    canEdit,
-}: ResourcePermissionModalProps): JSX.Element {
-    return (
-        <>
-            <LemonModal title={title} isOpen={visible} onClose={onClose}>
-                <ResourcePermission
-                    resourceType={Resource.FEATURE_FLAGS}
-                    onChange={onChange}
-                    rolesToAdd={rolesToAdd}
-                    addableRoles={addableRoles}
-                    addableRolesLoading={addableRolesLoading}
-                    onAdd={onAdd}
-                    roles={roles}
-                    deleteAssociatedRole={deleteAssociatedRole}
-                    canEdit={canEdit}
-                />
-            </LemonModal>
-        </>
-    )
 }
 
 export function ResourcePermission({
