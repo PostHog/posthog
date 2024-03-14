@@ -113,7 +113,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
     class Meta:
         model = RoleMembership
         fields = ["id", "role_id", "organization_member", "user", "joined_at", "updated_at", "user_uuid"]
-        read_only_fields = ["id", "role_id", "user"]
+        read_only_fields = ["id", "role_id", "organization_member", "user", "joined_at", "updated_at"]
 
     def create(self, validated_data):
         user_uuid = validated_data.pop("user_uuid")
