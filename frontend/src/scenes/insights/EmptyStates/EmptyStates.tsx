@@ -100,10 +100,10 @@ export function InsightTimeoutState({
                     </div>
                     <p className="text-xs m-0 leading-5">
                         {isLoading && suggestedSamplingPercentage && !samplingPercentage ? (
-                            <>
+                            <span data-attr="insight-loading-waiting-message">
                                 Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
                                 <SamplingLink insightProps={insightProps} />.
-                            </>
+                            </span>
                         ) : isLoading && suggestedSamplingPercentage && samplingPercentage ? (
                             <>
                                 Still waiting around? You must have lots of data! Kick it up a notch with{' '}
