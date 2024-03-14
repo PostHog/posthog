@@ -499,15 +499,11 @@ export function ReplayAISettings(): JSX.Element | null {
         })
     }
 
+    const { opt_in: _optIn, ...currentComparable } = currentConfig
+    const { opt_in: _optIn, ...defaultComparable } = defaultConfig
+
     return (
         <div className="flex flex-col gap-2">
-            {!objectsEqual(currentConfig, defaultConfig) && (
-                <div>
-                    <LemonButton type="secondary" onClick={() => updateSummaryConfig(defaultConfig)}>
-                        Reset to default
-                    </LemonButton>
-                </div>
-            )}
             <div>
                 <p>
                     We use several machine learning technologies to process sessions. Some of those are powered by{' '}
@@ -531,6 +527,16 @@ export function ReplayAISettings(): JSX.Element | null {
             </div>
             {currentConfig.opt_in && (
                 <>
+                    {!objectsEqual(currentComparable, defaultComparable) && (
+                        <div>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => updateSummaryConfig({ ...defaultConfig, opt_in: true })}
+                            >
+                                Reset config to default
+                            </LemonButton>
+                        </div>
+                    )}
                     <div>
                         <h3 className="flex items-center gap-2">
                             <IconSelectEvents className="text-lg" />
