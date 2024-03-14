@@ -50,7 +50,7 @@ export const CardView: Story = () => {
     return <App />
 }
 CardView.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    testOptions: { waitForSelector: '.funnel-bar' },
 }
 
 export const EmptyState: Story = () => {
