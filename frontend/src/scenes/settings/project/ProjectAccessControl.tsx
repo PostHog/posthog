@@ -3,6 +3,7 @@ import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, L
 import { useActions, useValues } from 'kea'
 import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -19,6 +20,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
 import { AvailableFeature, FusedTeamMemberType } from '~/types'
 
 import { AddMembersModalWithButton } from './AddMembersModal'
@@ -213,6 +215,12 @@ export function ProjectAccessControl(): JSX.Element {
     const isRestricted = !!useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+
+    const newAccessControl = useFeatureFlag('ACCESS_CONTROL')
+
+    if (newAccessControl) {
+        return <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
+    }
 
     return (
         <>

@@ -1,9 +1,11 @@
-import { IconCrown } from '@posthog/icons'
+import { IconCrown, IconX } from '@posthog/icons'
 import {
     LemonButton,
+    LemonDialog,
     LemonSelect,
     LemonSelectMultiple,
     LemonSelectOption,
+    LemonSelectProps,
     LemonSnack,
     LemonTable,
 } from '@posthog/lemon-ui'
@@ -55,7 +57,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 }
 
 function AccessControlObjectDefaults(): JSX.Element | null {
-    const { accessControlProject, accessControlsLoading } = useValues(accessControlLogic)
+    const { accessControlProject, accessControlsLoading, availableLevels } = useValues(accessControlLogic)
     const { updateaccessControlProject } = useActions(accessControlLogic)
 
     return (
@@ -70,14 +72,11 @@ function AccessControlObjectDefaults(): JSX.Element | null {
                     value: null,
                     label: 'No access by default',
                 },
-                {
-                    value: 'member',
-                    label: 'Everyone is a member by default',
-                },
-                {
-                    value: 'admin',
-                    label: 'Everyone is an admin by default',
-                },
+                ...availableLevels.map((level) => ({
+                    value: level,
+                    // TODO: Correct "a" and "an"
+                    label: `Everyone is a ${level} by default`,
+                })),
             ]}
             fullWidth
         />
@@ -131,9 +130,26 @@ function AccessControlObjectUsers(): JSX.Element | null {
             width: 0,
             render: function LevelRender(_, { access_level, organization_membership }) {
                 return (
-                    <SimplLevelComponent
-                        level={access_level}
-                        onChange={(level) => updateAccessControlMembers([{ member: organization_membership, level }])}
+                    <div className="my-1">
+                        <SimplLevelComponent
+                            size="small"
+                            level={access_level}
+                            onChange={(level) =>
+                                updateAccessControlMembers([{ member: organization_membership, level }])
+                            }
+                        />
+                    </div>
+                )
+            },
+        },
+        {
+            key: 'remove',
+            width: 0,
+            render: (_, { organization_membership }) => {
+                return (
+                    <RemoveAccessButton
+                        subject="member"
+                        onConfirm={() => updateAccessControlMembers([{ member: organization_membership, level: null }])}
                     />
                 )
             },
@@ -173,12 +189,25 @@ function AccessControlObjectRoles(): JSX.Element | null {
             width: 0,
             render: (_, { access_level, role }) => {
                 return (
-                    <div className="my-2">
+                    <div className="my-1">
                         <SimplLevelComponent
+                            size="small"
                             level={access_level}
                             onChange={(level) => updateAccessControlRoles([{ role, level }])}
                         />
                     </div>
+                )
+            },
+        },
+        {
+            key: 'remove',
+            width: 0,
+            render: (_, { role }) => {
+                return (
+                    <RemoveAccessButton
+                        subject="role"
+                        onConfirm={() => updateAccessControlRoles([{ role, level: null }])}
+                    />
                 )
             },
         },
@@ -259,19 +288,49 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
 }
 
 function SimplLevelComponent(props: {
-    level: AccessControlType['access_level']
+    size?: LemonSelectProps<any>['size']
+    level: AccessControlType['access_level'] | null
     onChange: (newValue: AccessControlType['access_level']) => void
 }): JSX.Element | null {
     const { availableLevels } = useValues(accessControlLogic)
 
     return (
         <LemonSelect
+            size={props.size}
+            placeholder="Select level..."
             value={props.level}
             onChange={(newValue) => props.onChange(newValue)}
             options={availableLevels.map((level) => ({
                 value: level,
                 label: capitalizeFirstLetter(level ?? ''),
             }))}
+        />
+    )
+}
+
+function RemoveAccessButton({
+    onConfirm,
+    subject,
+}: {
+    onConfirm: () => void
+    subject: 'member' | 'role'
+}): JSX.Element {
+    return (
+        <LemonButton
+            icon={<IconX />}
+            status="danger"
+            size="small"
+            onClick={() =>
+                LemonDialog.open({
+                    title: 'Remove access',
+                    content: `Are you sure you want to remove this ${subject}'s access?`,
+                    primaryButton: {
+                        children: 'Remove',
+                        status: 'danger',
+                        onClick: () => onConfirm(),
+                    },
+                })
+            }
         />
     )
 }
@@ -286,14 +345,14 @@ function AddItemsControls(props: {
     levels: AccessControlType['access_level'][]
 }): JSX.Element | null {
     const [items, setItems] = useState<string[]>([])
-    const [level, setLevel] = useState<AccessControlType['access_level']>()
+    const [level, setLevel] = useState<AccessControlType['access_level']>(null)
 
     const onSubmit =
         items.length && level
             ? (): void =>
                   void props.onAdd(items, level).then(() => {
                       setItems([])
-                      setLevel(undefined)
+                      setLevel(null)
                   })
             : undefined
 
@@ -309,15 +368,8 @@ function AddItemsControls(props: {
                     options={props.options}
                 />
             </div>
-            <LemonSelect
-                placeholder="Select level..."
-                options={props.levels.map((level) => ({
-                    value: level,
-                    label: capitalizeFirstLetter(level ?? ''),
-                }))}
-                value={level}
-                onChange={(newValue) => setLevel(newValue)}
-            />
+            <SimplLevelComponent level={level} onChange={setLevel} />
+
             <LemonButton
                 type="primary"
                 onClick={onSubmit}

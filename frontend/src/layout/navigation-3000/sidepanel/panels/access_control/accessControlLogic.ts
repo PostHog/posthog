@@ -127,7 +127,11 @@ export const accessControlLogic = kea<accessControlLogicType>([
         availableLevels: [
             (s, p) => [p.resource],
             (resource): AccessControlTypeProject['access_level'][] => {
-                return ['admin', 'member']
+                if (resource === 'project') {
+                    return ['member', 'admin']
+                }
+
+                return ['viewer', 'editor']
             },
         ],
         accessControlProject: [
