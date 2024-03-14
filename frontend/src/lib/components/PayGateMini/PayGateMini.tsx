@@ -1,9 +1,10 @@
 import { IconInfo } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lowercaseFirstLetter } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -13,7 +14,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { AvailableFeature } from '~/types'
 
-import { BillingUpgradeCTA } from '../BillingUpgradeCTA'
 import { PayGateMiniButton } from './PayGateMiniButton'
 import { payGateMiniLogic } from './payGateMiniLogic'
 
@@ -46,8 +46,8 @@ export function PayGateMini({
     )
     const { preflight } = useValues(preflightLogic)
     const { billing, billingLoading } = useValues(billingLogic)
-    const { hideUpgradeModal } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { hideUpgradeModal } = useActions(sceneLogic)
 
     useEffect(() => {
         if (gateVariant) {
@@ -146,7 +146,6 @@ export function PayGateMini({
                 background && 'bg-side border border-border',
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
-            data-attr="paygate"
         >
             <div className="flex text-4xl text-warning">
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
@@ -183,6 +182,7 @@ export function PayGateMini({
                             Upgrade your <b>{productWithFeature?.name}</b> plan to{' '}
                         </>
                     )}
+                    {featureInfo.description ? lowercaseFirstLetter(featureInfo.description) : 'use this feature.'}
                 </p>
             )}
             {isGrandfathered && (
@@ -203,8 +203,7 @@ export function PayGateMini({
                     </>
                 </div>
             )}
-            <BillingUpgradeCTA
-                data-attr="paygate-mini-cta"
+            <LemonButton
                 to={
                     gateVariant === 'add-card'
                         ? `/organization/billing?products=${productWithFeature.type}`
@@ -232,7 +231,7 @@ export function PayGateMini({
                     : gateVariant === 'contact-sales'
                     ? 'Contact sales'
                     : 'Move to PostHog Cloud'}
-            </BillingUpgradeCTA>
+            </LemonButton>
         </div>
     ) : (
         <div className={className}>{children}</div>
