@@ -22,6 +22,7 @@ import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/cons
 import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic as enabledFlagsLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils'
 import { sessionReplayLinkedFlagLogic } from 'scenes/settings/project/sessionReplayLinkedFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -473,7 +474,7 @@ export function ReplayCostControl(): JSX.Element | null {
     ) : null
 }
 
-export function ReplaySummarySettings(): JSX.Element | null {
+export function ReplayAISettings(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
 
     const { currentTeam } = useValues(teamLogic)
@@ -498,18 +499,19 @@ export function ReplaySummarySettings(): JSX.Element | null {
         })
     }
 
+    const { opt_in: _discardCurrentOptIn, ...currentComparable } = currentConfig
+    const { opt_in: _discardDefaultOptIn, ...defaultComparable } = defaultConfig
+
     return (
         <div className="flex flex-col gap-2">
             <div>
-                <LemonButton type="secondary" onClick={() => updateSummaryConfig(defaultConfig)}>
-                    Reset to default
-                </LemonButton>
-            </div>
-            <div>
                 <p>
-                    We use several machine learning technologies to process sessions. Some of those are hosted by Open
-                    AI. No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
-                    send the data selected below. s<strong>Data submitted is not used to train Open AI's models</strong>
+                    We use several machine learning technologies to process sessions. Some of those are powered by{' '}
+                    <Link to="https://openai.com/" target="_blank">
+                        OpenAI
+                    </Link>
+                    . No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
+                    send the data selected below. <strong>Data submitted is not used to train OpenAI's models</strong>
                 </p>
                 <LemonSwitch
                     checked={currentConfig.opt_in}
@@ -525,6 +527,16 @@ export function ReplaySummarySettings(): JSX.Element | null {
             </div>
             {currentConfig.opt_in && (
                 <>
+                    {!objectsEqual(currentComparable, defaultComparable) && (
+                        <div>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => updateSummaryConfig({ ...defaultConfig, opt_in: true })}
+                            >
+                                Reset config to default
+                            </LemonButton>
+                        </div>
+                    )}
                     <div>
                         <h3 className="flex items-center gap-2">
                             <IconSelectEvents className="text-lg" />

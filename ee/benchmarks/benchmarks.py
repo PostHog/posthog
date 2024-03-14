@@ -1,6 +1,6 @@
 # isort: skip_file
 # Needs to be first to set up django environment
-from .helpers import *
+from .helpers import benchmark_clickhouse, no_materialized_columns, now
 from datetime import timedelta
 from typing import List, Tuple
 from ee.clickhouse.materialized_columns.analyze import (

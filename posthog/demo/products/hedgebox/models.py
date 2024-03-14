@@ -18,7 +18,36 @@ from zoneinfo import ZoneInfo
 import pytz
 
 from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent
-from .taxonomy import *
+from .taxonomy import (
+    EVENT_SIGNED_UP,
+    EVENT_LOGGED_IN,
+    EVENT_UPLOADED_FILE,
+    EVENT_DOWNLOADED_FILE,
+    EVENT_DELETED_FILE,
+    EVENT_SHARED_FILE_LINK,
+    EVENT_UPGRADED_PLAN,
+    EVENT_PAID_BILL,
+    EVENT_DOWNGRADED_PLAN,
+    EVENT_INVITED_TEAM_MEMBER,
+    EVENT_REMOVED_TEAM_MEMBER,
+    EVENT_LOGGED_OUT,
+    URL_HOME,
+    URL_SIGNUP,
+    URL_LOGIN,
+    URL_MARIUS_TECH_TIPS,
+    URL_PRICING,
+    URL_FILES,
+    URL_ACCOUNT_SETTINGS,
+    URL_ACCOUNT_BILLING,
+    URL_ACCOUNT_TEAM,
+    NEW_SIGNUP_PAGE_FLAG_KEY,
+    NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+    SIGNUP_SUCCESS_RATE_TEST,
+    SIGNUP_SUCCESS_RATE_CONTROL,
+    GROUP_TYPE_ACCOUNT,
+    dyn_url_file,
+    dyn_url_invite,
+)
 
 if TYPE_CHECKING:
     from posthog.demo.products.hedgebox.matrix import HedgeboxCluster
