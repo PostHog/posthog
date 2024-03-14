@@ -49,6 +49,23 @@ class TestRoleMembershipAPI(APILicensedTest):
         )
         self.assertEqual(RoleMembership.objects.count(), 2)
 
+    def test_user_can_be_removed_from_role(self):
+        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.assertEqual(RoleMembership.objects.count(), 0)
+
+        res = self.client.post(
+            f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships",
+            {"user_uuid": user_a.uuid},
+        )
+        self.assertEqual(RoleMembership.objects.count(), 1)
+        delete_response = self.client.delete(
+            f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships/{res.json()['id']}",
+        )
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(RoleMembership.objects.count(), 0)
+
     def test_returns_correct_results_by_organization(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
