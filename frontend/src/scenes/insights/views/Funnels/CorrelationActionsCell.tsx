@@ -82,8 +82,16 @@ const CorrelationActionsCellComponent = ({ buttons }: CorrelationActionsCellComp
             visible={popoverOpen}
             actionable
             onClickOutside={() => setPopoverOpen(false)}
-            overlay={buttons.map((props, index) => (
-                <LemonButton key={index} fullWidth {...props} />
+            overlay={buttons.map(({ onClick, ...props }, index) => (
+                <LemonButton
+                    key={index}
+                    fullWidth
+                    onClick={(e) => {
+                        setPopoverOpen(false)
+                        onClick && onClick(e)
+                    }}
+                    {...props}
+                />
             ))}
         >
             <LemonButton icon={<IconEllipsis />} onClick={() => setPopoverOpen(!popoverOpen)} />

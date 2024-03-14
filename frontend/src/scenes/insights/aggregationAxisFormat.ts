@@ -23,15 +23,15 @@ export const formatAggregationAxisValue = (
 ): string => {
     value = Number(value)
     const decimalPlaces =
-        (trendsFilter as TrendsFilter)?.decimalPlaces || (trendsFilter as Partial<TrendsFilterType>)?.decimal_places
+        (trendsFilter as TrendsFilter)?.decimalPlaces ?? (trendsFilter as Partial<TrendsFilterType>)?.decimal_places
     const aggregationAxisFormat =
-        (trendsFilter as TrendsFilter)?.aggregationAxisFormat ||
+        (trendsFilter as TrendsFilter)?.aggregationAxisFormat ??
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_format
     const aggregationAxisPrefix =
-        (trendsFilter as TrendsFilter)?.aggregationAxisPrefix ||
+        (trendsFilter as TrendsFilter)?.aggregationAxisPrefix ??
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_prefix
     const aggregationAxisPostfix =
-        (trendsFilter as TrendsFilter)?.aggregationAxisPostfix ||
+        (trendsFilter as TrendsFilter)?.aggregationAxisPostfix ??
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_postfix
     let formattedValue = humanFriendlyNumber(value, decimalPlaces)
     if (aggregationAxisFormat) {

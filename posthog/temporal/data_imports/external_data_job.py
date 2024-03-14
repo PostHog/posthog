@@ -4,6 +4,7 @@ import json
 import uuid
 
 from asgiref.sync import sync_to_async
+from dlt.common.schema.typing import TSchemaTables
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
@@ -106,6 +107,7 @@ class ValidateSchemaInputs:
     run_id: str
     team_id: int
     schemas: list[Tuple[str, str]]
+    table_schema: TSchemaTables
 
 
 @activity.defn
@@ -114,6 +116,7 @@ async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
         run_id=inputs.run_id,
         team_id=inputs.team_id,
         schemas=inputs.schemas,
+        table_schema=inputs.table_schema,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
@@ -137,7 +140,7 @@ class ExternalDataJobInputs:
 
 
 @activity.defn
-async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
+async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
     model: ExternalDataJob = await get_external_data_job(
         job_id=inputs.run_id,
     )
@@ -223,6 +226,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         heartbeat_task.cancel()
         await asyncio.wait([heartbeat_task])
 
+    return source.schema.tables
+
 
 # TODO: update retry policies
 @workflow.defn(name="external-data-job")
@@ -266,7 +271,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schemas=schemas,
             )
 
-            await workflow.execute_activity(
+            table_schemas = await workflow.execute_activity(
                 run_external_data_job,
                 job_inputs,
                 start_to_close_timeout=dt.timedelta(hours=4),
@@ -275,7 +280,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             # check schema first
-            validate_inputs = ValidateSchemaInputs(run_id=run_id, team_id=inputs.team_id, schemas=schemas)
+            validate_inputs = ValidateSchemaInputs(
+                run_id=run_id, team_id=inputs.team_id, schemas=schemas, table_schema=table_schemas
+            )
 
             await workflow.execute_activity(
                 validate_schema_activity,

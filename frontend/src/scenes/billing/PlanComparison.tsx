@@ -5,6 +5,7 @@ import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
@@ -121,6 +122,11 @@ export const PlanComparison = ({
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
     const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
+    const billingDaysRemaining = billing?.billing_period?.current_period_end.diff(dayjs(), 'days')
+    const billingDaysTotal = billing?.billing_period?.current_period_end.diff(
+        billing.billing_period?.current_period_start,
+        'days'
+    )
 
     const upgradeButtons = plans?.map((plan, i) => {
         return (
@@ -208,19 +214,38 @@ export const PlanComparison = ({
             <tbody>
                 <tr className="PlanTable__tr__border">
                     <td className="font-bold">Monthly {product.tiered && 'base '} price</td>
-                    {plans?.map((plan) => (
-                        <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
-                            {plan.free_allocation && !plan.tiers
-                                ? 'Free forever'
-                                : plan.unit_amount_usd
-                                ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
-                                : plan.contact_support
-                                ? 'Custom'
-                                : plan.included_if == 'has_subscription'
-                                ? 'Free, included with any product subscription'
-                                : '$0 per month'}
-                        </td>
-                    ))}
+                    {plans?.map((plan) => {
+                        const prorationAmount = plan.unit_amount_usd
+                            ? (
+                                  parseInt(plan.unit_amount_usd) *
+                                  ((billingDaysRemaining || 1) / (billingDaysTotal || 1))
+                              ).toFixed(2)
+                            : 0
+                        const isProrated =
+                            billing?.has_active_subscription && plan.unit_amount_usd
+                                ? prorationAmount !== parseInt(plan.unit_amount_usd || '')
+                                : false
+                        return (
+                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
+                                {plan.free_allocation && !plan.tiers
+                                    ? 'Free forever'
+                                    : plan.unit_amount_usd
+                                    ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
+                                    : plan.contact_support
+                                    ? 'Custom'
+                                    : plan.included_if == 'has_subscription'
+                                    ? 'Free, included with any product subscription'
+                                    : '$0 per month'}
+                                {isProrated && (
+                                    <p className="text-xxs text-muted font-normal italic mt-2">
+                                        Pay ${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
+                                        {isProrated && `$${parseInt(plan.unit_amount_usd || '0')} `}every month
+                                        thereafter.
+                                    </p>
+                                )}
+                            </td>
+                        )
+                    })}
                 </tr>
                 {product.tiered && (
                     <tr className="PlanTable__tr__border">
