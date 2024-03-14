@@ -473,7 +473,7 @@ export function ReplayCostControl(): JSX.Element | null {
     ) : null
 }
 
-export function ReplaySummarySettings(): JSX.Element | null {
+export function ReplayAISettings(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
 
     const { currentTeam } = useValues(teamLogic)
@@ -500,16 +500,21 @@ export function ReplaySummarySettings(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-2">
-            <div>
-                <LemonButton type="secondary" onClick={() => updateSummaryConfig(defaultConfig)}>
-                    Reset to default
-                </LemonButton>
-            </div>
+            {currentConfig !== defaultConfig && (
+                <div>
+                    <LemonButton type="secondary" onClick={() => updateSummaryConfig(defaultConfig)}>
+                        Reset to default
+                    </LemonButton>
+                </div>
+            )}
             <div>
                 <p>
-                    We use several machine learning technologies to process sessions. Some of those are hosted by Open
-                    AI. No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
-                    send the data selected below. s<strong>Data submitted is not used to train Open AI's models</strong>
+                    We use several machine learning technologies to process sessions. Some of those are powered by{' '}
+                    <Link to="https://openai.com/" target="_blank">
+                        OpenAI
+                    </Link>
+                    . No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
+                    send the data selected below. <strong>Data submitted is not used to train OpenAI's models</strong>
                 </p>
                 <LemonSwitch
                     checked={currentConfig.opt_in}
