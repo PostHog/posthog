@@ -12,7 +12,6 @@ export interface TaxonomicBreakdownFilterProps {
     breakdownFilter?: BreakdownFilter | null
     display?: ChartDisplayType | null
     isTrends: boolean
-    isDataWarehouseSeries: boolean
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
 }
@@ -22,7 +21,6 @@ export function TaxonomicBreakdownFilter({
     breakdownFilter,
     display,
     isTrends,
-    isDataWarehouseSeries,
     updateBreakdownFilter,
     updateDisplay,
 }: TaxonomicBreakdownFilterProps): JSX.Element {
@@ -49,7 +47,7 @@ export function TaxonomicBreakdownFilter({
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                {!hasNonCohortBreakdown && <TaxonomicBreakdownButton isDataWarehouseSeries={isDataWarehouseSeries} />}
+                {!hasNonCohortBreakdown && <TaxonomicBreakdownButton />}
             </div>
         </BindLogic>
     )
