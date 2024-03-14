@@ -896,9 +896,11 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
+export type ErrorClusterSample = { session_id: string; input: string }
+
 type ErrorCluster = {
     cluster: number
-    samples: { session_id: string; message: string }[]
+    samples: ErrorClusterSample[]
     occurrences: number
     unique_sessions: number
 }
