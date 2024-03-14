@@ -111,7 +111,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             teamProperty: 'capture_console_log_opt_in',
             value:
                 typeof currentTeam?.capture_console_log_opt_in === 'boolean'
-                    ? currentTeam.capture_console_log_opt_in
+                    ? currentTeam?.capture_console_log_opt_in
                     : true,
         },
         {
@@ -122,7 +122,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             teamProperty: 'capture_performance_opt_in',
             value:
                 typeof currentTeam?.capture_performance_opt_in === 'boolean'
-                    ? currentTeam.capture_performance_opt_in
+                    ? currentTeam?.capture_performance_opt_in
                     : true,
         },
     ]
