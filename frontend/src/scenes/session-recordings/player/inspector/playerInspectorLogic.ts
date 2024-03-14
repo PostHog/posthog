@@ -610,7 +610,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 miniFiltersByKey['performance-all']?.enabled ||
                                 miniFiltersByKey['all-everything']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled ||
-                                miniFiltersByKey['console-all']?.enabled
+                                miniFiltersByKey['console-all']?.enabled ||
+                                miniFiltersByKey['events-all']?.enabled
                             )
                     }
 
