@@ -248,7 +248,7 @@ export async function query<N extends DataNode = DataNode>(
                             action: undefined,
                             persons: undefined,
                         }))
-                    } else if (res2.length > 0 && res2[0].people) {
+                    } else if (!isFunnelsQuery(queryNode) && res2.length > 0 && res2[0].people) {
                         res2 = res2[0]?.people.map((n: any) => n.id)
                         res1 = res1.map((n: any) => n[0].id)
                         // Sort, since the order of the results is not guaranteed
