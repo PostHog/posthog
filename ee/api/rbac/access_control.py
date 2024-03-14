@@ -7,7 +7,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
 
 
-# TODO: Validate that an access control can only have one of team, organization_membership, or role
+# TODO: Validate that an access control can only have one of team, organization_member, or role
 
 
 class AccessControlSerializer(serializers.ModelSerializer):
@@ -20,7 +20,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
             "resource_id",
             "access_level",
             "team",
-            "organization_membership",
+            "organization_member",
             "role",
             "created_by",
             "created_at",
@@ -35,11 +35,9 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return resource
 
     def validate(self, data):
-        # Ensure that only one of team, organization_membership, or role is set
-        if sum([bool(data.get("team")), bool(data.get("organization_membership")), bool(data.get("role"))]) != 1:
-            raise serializers.ValidationError(
-                "Exactly one of 'team', 'organization_membership', or 'role' must be set."
-            )
+        # Ensure that only one of team, organization_member, or role is set
+        if sum([bool(data.get("team")), bool(data.get("organization_member")), bool(data.get("role"))]) != 1:
+            raise serializers.ValidationError("Exactly one of 'team', 'organization_member', or 'role' must be set.")
 
         return data
 
@@ -76,7 +74,7 @@ class AccessControlViewSet(
         instance = self.queryset.filter(
             resource=params["resource"],
             resource_id=params.get("resource_id"),
-            organization_membership=params.get("organization_membership"),
+            organization_member=params.get("organization_member"),
             team=params.get("team"),
             role=params.get("role"),
         ).first()

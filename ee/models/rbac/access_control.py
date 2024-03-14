@@ -8,7 +8,7 @@ class AccessControl(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "resource", "resource_id", "team", "organization_membership", "role"],
+                fields=["organization", "resource", "resource_id", "team", "organization_member", "role"],
                 name="unique resource per target",
             )
         ]
@@ -32,7 +32,7 @@ class AccessControl(models.Model):
     )
 
     # Optional which organization membership does this apply to
-    organization_membership: models.ForeignKey = models.ForeignKey(
+    organization_member: models.ForeignKey = models.ForeignKey(
         "posthog.OrganizationMembership",
         on_delete=models.CASCADE,
         related_name="access_controls",

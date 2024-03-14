@@ -1,14 +1,16 @@
 import { IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     LemonSelectMultiple,
     LemonSelectMultipleOptionItem,
 } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { AccessLevel, Resource, RoleType } from '~/types'
+import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
+import { AccessLevel, FeatureFlagType, Resource, RoleType } from '~/types'
 
 import {
     FormattedResourceLevel,
@@ -17,6 +19,7 @@ import {
 } from '../settings/organization/Permissions/permissionsLogic'
 import { rolesLogic } from '../settings/organization/Permissions/Roles/rolesLogic'
 import { urls } from '../urls'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
 interface ResourcePermissionProps {
     addableRoles: RoleType[]
@@ -40,6 +43,40 @@ function roleLemonSelectOptions(roles: RoleType[]): LemonSelectMultipleOptionIte
             </span>
         ),
     }))
+}
+
+export function FeatureFlagPermissions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
+    const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
+
+    const newAccessControls = useFeatureFlag('ACCESS_CONTROL')
+
+    if (newAccessControls) {
+        if (!featureFlag.id) {
+            return <p>Not supported</p>
+        }
+        return <AccessControlObject resource="feature_flag" resource_id={`${featureFlag.id}`} />
+    }
+
+    return (
+        // <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+        <ResourcePermission
+            resourceType={Resource.FEATURE_FLAGS}
+            onChange={(roleIds) => setRolesToAdd(roleIds)}
+            rolesToAdd={rolesToAdd}
+            addableRoles={addableRoles}
+            addableRolesLoading={unfilteredAddableRolesLoading}
+            onAdd={() => addAssociatedRoles()}
+            roles={derivedRoles}
+            deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+            canEdit={featureFlag.can_edit}
+        />
+        // </PayGateMini>
+    )
 }
 
 export function ResourcePermission({
