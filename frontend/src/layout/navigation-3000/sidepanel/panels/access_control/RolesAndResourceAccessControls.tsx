@@ -109,7 +109,7 @@ export function RolesAndResourceAccessControls(): JSX.Element {
                     isRowExpanded: (record) => !!selectedRoleId && record.role.id === selectedRoleId,
                     onRowExpand: (record) => selectRoleId(record.role.id),
                     onRowCollapse: () => selectRoleId(null),
-                    expandedRowRender: ({ role }) => <RoleDetails role={role} />,
+                    expandedRowRender: ({ role }) => <RoleDetails roleId={role.id} />,
                 }}
             />
 
@@ -121,22 +121,30 @@ export function RolesAndResourceAccessControls(): JSX.Element {
     )
 }
 
-function RoleDetails({ role }: { role: RoleType }): JSX.Element {
+function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { sortedMembers } = useValues(roleBasedAccessControlLogic)
+    const { sortedMembers, roles } = useValues(roleBasedAccessControlLogic)
     const { addMembersToRole, removeMemberFromRole, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
     const [membersToAdd, setMembersToAdd] = useState<string[]>([])
+
+    const role = roles?.find((role) => role.id === roleId)
+
     const onSubmit = membersToAdd.length
         ? () => {
-              addMembersToRole(role, membersToAdd)
+              addMembersToRole(role!, membersToAdd)
               setMembersToAdd([])
           }
         : undefined
 
     const membersNotInRole = useMemo(() => {
-        const membersInRole = new Set(role.members.map((member) => member.user.uuid))
+        const membersInRole = new Set(role?.members.map((member) => member.user.uuid))
         return sortedMembers?.filter((member) => !membersInRole.has(member.user.uuid)) ?? []
-    }, [role.members, sortedMembers])
+    }, [role?.members, sortedMembers])
+
+    if (!role) {
+        // This is mostly for typing
+        return null
+    }
 
     return (
         <div className="my-2 pr-2 space-y-2">
@@ -258,7 +266,7 @@ function RoleModal(): JSX.Element {
                 footer={
                     <>
                         <div className="flex-1">
-                            {!isEditing ? (
+                            {isEditing ? (
                                 <LemonButton type="secondary" status="danger" onClick={() => onDelete()}>
                                     Delete
                                 </LemonButton>

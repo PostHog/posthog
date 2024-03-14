@@ -28,7 +28,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
         ) => ({ accessControls }),
         selectRoleId: (roleId: RoleType['id'] | null) => ({ roleId }),
         deleteRole: (roleId: RoleType['id']) => ({ roleId }),
-        removeMemberFromRole: (role: RoleType, member: string) => ({ role, member }),
+        removeMemberFromRole: (role: RoleType, roleMemberId: string) => ({ role, roleMemberId }),
         addMembersToRole: (role: RoleType, members: string[]) => ({ role, members }),
         setEditingRoleId: (roleId: string | null) => ({ roleId }),
     }),
@@ -89,12 +89,12 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
 
                     return [...values.roles]
                 },
-                removeMemberFromRole: async ({ role, member }) => {
+                removeMemberFromRole: async ({ role, roleMemberId }) => {
                     if (!values.roles) {
                         return null
                     }
-                    await api.roles.members.delete(role.id, member)
-                    role.members = role.members.filter((roleMember) => roleMember.user.uuid !== member)
+                    await api.roles.members.delete(role.id, roleMemberId)
+                    role.members = role.members.filter((roleMember) => roleMember.id !== roleMemberId)
                     return [...values.roles]
                 },
                 deleteRole: async ({ roleId }) => {
