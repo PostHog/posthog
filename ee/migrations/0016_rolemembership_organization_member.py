@@ -5,7 +5,6 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0397_projects_backfill"),
         ("ee", "0015_add_verified_properties"),
