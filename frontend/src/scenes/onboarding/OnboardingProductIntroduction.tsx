@@ -149,7 +149,7 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             Or, stay on our generous free plan if you'd like - you still get{' '}
             <b>
                 {convertLargeNumberToWords(
-                    currentAndUpgradePlans.currentPlan.free_allocation ||
+                    currentAndUpgradePlans.currentPlan?.free_allocation ||
                         currentAndUpgradePlans.downgradePlan.free_allocation ||
                         0,
                     null
