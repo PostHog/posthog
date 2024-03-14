@@ -6,11 +6,11 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action.action import Action
 
 from posthog.models.cohort import Cohort
-from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
@@ -39,17 +39,13 @@ class FunnelStepResult:
 
 def funnel_breakdown_test_factory(
     funnel_order_type: FunnelOrderType,
-    FunnelPerson,
     _create_action: Callable[..., Action],
     _create_person: Callable[..., Person],
 ):
     class TestFunnelBreakdown(APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+        def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+            results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
+            return [val[0]["id"] for val in results]
 
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
             def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:
@@ -165,6 +161,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -293,6 +290,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -406,6 +404,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -535,6 +534,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[Dict[int, Any]], results)
             results = sort_breakdown_funnel_results(results)
 
             self._assert_funnel_breakdown_result_is_correct(
@@ -654,6 +654,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -752,6 +753,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -838,6 +840,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             # assert that we give 5 at a time at most and that those values are the most popular ones
             breakdown_vals = sorted([res[0]["breakdown"] for res in results])
@@ -893,6 +896,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             breakdown_vals = sorted([res[0]["breakdown"] for res in results])
             self.assertEqual([["2"], ["3"], ["4"], ["Other"]], breakdown_vals)
@@ -949,6 +953,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             breakdown_vals = sorted([res[0]["breakdown"] for res in results])
             self.assertEqual([[""], ["1"], ["2"], ["3"], ["4"]], breakdown_vals)
@@ -1005,6 +1010,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self._assert_funnel_breakdown_result_is_correct(
@@ -1099,6 +1105,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self.assertEqual(len(results), 2)
 
@@ -1180,6 +1187,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self.assertEqual(len(results[0]), 3)
             self.assertEqual(results[0][0]["breakdown"], "all users")
@@ -1214,6 +1222,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self.assertEqual(len(results[0]), 3)
             self.assertEqual(results[0][0]["breakdown"], "test_cohort")
@@ -1284,6 +1293,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -1360,6 +1370,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -1443,6 +1454,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self.assertEqual(len(results), 5)
@@ -1595,6 +1607,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self.assertEqual(len(results), 5)
@@ -1746,6 +1759,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self.assertEqual(len(results), 4)
@@ -1875,6 +1889,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self.assertEqual(len(results), 3)
@@ -2002,6 +2017,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self.assertEqual(len(results), 5)
@@ -2157,6 +2173,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self.assertEqual(len(results), 5)
@@ -2298,6 +2315,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
@@ -2393,6 +2411,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
@@ -2502,6 +2521,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self.assertEqual(len(results), 5)
@@ -2574,6 +2594,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self.assertEqual(len(results), 4)
@@ -2652,6 +2673,7 @@ def funnel_breakdown_test_factory(
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self.assertEqual(len(results), 2)
@@ -2661,16 +2683,11 @@ def funnel_breakdown_test_factory(
     return TestFunnelBreakdown
 
 
-def funnel_breakdown_group_test_factory(FunnelPerson):
-    funnel_order_type = FunnelOrderType.ORDERED
-
+def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdownGroup(APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+        def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+            results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
+            return [val[0]["id"] for val in results]
 
         def _create_groups(self):
             GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
@@ -2778,6 +2795,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                     {"id": "buy", "order": 2},
                 ],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -2788,6 +2806,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -2812,11 +2831,11 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
 
             # Querying persons when aggregating by persons should be ok, despite group breakdown
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 1, "finance"),
+                self._get_actor_ids_at_step(filters, 1, ["finance"]),
                 [people["person1"].uuid],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 2, "finance"),
+                self._get_actor_ids_at_step(filters, 2, ["finance"]),
                 [people["person1"].uuid],
             )
 
@@ -2836,11 +2855,11 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
             )
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 1, "technology"),
+                self._get_actor_ids_at_step(filters, 1, ["technology"]),
                 [people["person2"].uuid, people["person3"].uuid],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 2, "technology"),
+                self._get_actor_ids_at_step(filters, 2, ["technology"]),
                 [people["person2"].uuid],
             )
 
@@ -2898,6 +2917,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                     {"id": "buy", "order": 2},
                 ],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -2909,6 +2929,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = cast(List[List[Dict[str, Any]]], results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -3010,6 +3031,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
                     {"id": "buy", "order": 2},
                 ],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -3021,6 +3043,7 @@ def funnel_breakdown_group_test_factory(FunnelPerson):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 query = cast(FunnelsQuery, filter_to_query(filters))
                 results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+                results = cast(List[List[Dict[str, Any]]], results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],

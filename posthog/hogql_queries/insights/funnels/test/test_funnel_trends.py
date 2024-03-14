@@ -1,15 +1,15 @@
 from datetime import date, datetime, timedelta
-from typing import cast
+from typing import Any, Dict, List, cast
 
 from zoneinfo import ZoneInfo
 from freezegun.api import freeze_time
 
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
+from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.filters import Filter
-from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from posthog.schema import FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -25,14 +25,6 @@ FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 
 class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
-
-    def _get_actors_at_step(self, filter, entrance_period_start, drop_off):
-        filter = Filter(data=filter, team=self.team)
-        person_filter = filter.shallow_clone({"entrance_period_start": entrance_period_start, "drop_off": drop_off})
-        funnel_query_builder = ClickhouseFunnelTrendsActors(person_filter, self.team)
-        _, serialized_result, _ = funnel_query_builder.get_actors()
-
-        return serialized_result
 
     def _create_sample_data(self):
         # five people, three steps
@@ -89,13 +81,12 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        # funnel_trends = ClickhouseFunnelTrends(filter, self.team)
-        # results = funnel_trends._exec_query()
-        # formatted_results = funnel_trends._format_results(results)
         query = cast(FunnelsQuery, filter_to_query(filters))
         runner = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True)
         results = runner.calculate().results
-        formatted_results = runner.funnel_class._format_summarized_results(results)
+        results = cast(List[Dict[str, Any]], results)
+        funnel_class = cast(FunnelTrends, runner.funnel_class)
+        formatted_results = funnel_class._format_summarized_results(results)
 
         self.assertEqual(len(results), 7)
         self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
@@ -174,26 +165,26 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         # 1 user who dropped off starting 2021-06-07
-        funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
-            filters, "2021-06-07 00:00:00", True
+        funnel_trends_persons_existent_dropped_off_results = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2021-06-07 00:00:00", funnelTrendsDropOff=True
         )
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [person[0]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
             [["user a"]],
         )
 
         # No users converted 2021-06-07
-        funnel_trends_persons_nonexistent_converted_results = self._get_actors_at_step(
-            filters, "2021-06-07 00:00:00", False
+        funnel_trends_persons_nonexistent_converted_results = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2021-06-07 00:00:00", funnelTrendsDropOff=False
         )
 
         self.assertEqual(len(funnel_trends_persons_nonexistent_converted_results), 0)
 
         # No users dropped off 2021-06-08
-        funnel_trends_persons_nonexistent_converted_results = self._get_actors_at_step(
-            filters, "2021-06-08 00:00:00", True
+        funnel_trends_persons_nonexistent_converted_results = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2021-06-08 00:00:00", funnelTrendsDropOff=True
         )
 
         self.assertEqual(len(funnel_trends_persons_nonexistent_converted_results), 0)
@@ -217,6 +208,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2021-05-06T23:40:59Z"):
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 144)
 
@@ -249,12 +241,15 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(7, len(results))
 
-        persons = self._get_actors_at_step(filters, "2021-05-01 00:00:00", False)
+        persons = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2021-05-01 00:00:00", funnelTrendsDropOff=False
+        )
 
-        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
+        self.assertEqual([person[0]["distinct_ids"] for person in persons], [["user_one"]])
 
     @snapshot_clickhouse_queries
     def test_week_interval(self):
@@ -286,10 +281,13 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
-        persons = self._get_actors_at_step(filters, "2021-04-25 00:00:00", False)
+        results = cast(List[Dict[str, Any]], results)
+        persons = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2021-04-25 00:00:00", funnelTrendsDropOff=False
+        )
 
         self.assertEqual(2, len(results))
-        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
+        self.assertEqual([person[0]["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_month_interval(self):
         filters = {
@@ -369,9 +367,11 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        persons = self._get_actors_at_step(filters, "2020-05-01 00:00:00", False)
+        persons = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2020-05-01 00:00:00", funnelTrendsDropOff=False
+        )
 
-        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
+        self.assertEqual([person[0]["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_all_date_range(self):
         filters = {
@@ -402,12 +402,15 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2021-05-20T13:01:01Z"):
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(20, len(results))
 
-        persons = self._get_actors_at_step(filters, "2021-05-01 00:00:00", False)
+        persons = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2021-05-01 00:00:00", funnelTrendsDropOff=False
+        )
 
-        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
+        self.assertEqual([person[0]["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_all_results_for_day_interval(self):
         self._create_sample_data()
@@ -429,6 +432,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         saturday = results[0]  # 5/1
         self.assertEqual(3, saturday["reached_to_step_count"])
@@ -485,6 +489,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         saturday = results[0]  # 5/1
         self.assertEqual(1, saturday["reached_to_step_count"])
@@ -552,6 +557,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 2)
 
@@ -607,6 +613,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 1)
 
@@ -644,6 +651,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 1)
 
@@ -693,6 +701,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 4)
 
@@ -717,24 +726,24 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_4["conversion_rate"], 50)
 
         # 1 user who dropped off starting # 2021-05-04
-        funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
-            filters, "2021-05-04 00:00:00", True
+        funnel_trends_persons_existent_dropped_off_results = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2021-05-04 00:00:00", funnelTrendsDropOff=True
         )
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [person[0]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
             [["user_two"]],
         )
 
         # 1 user who converted starting # 2021-05-04
-        funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
-            filters, "2021-05-04 00:00:00", False
+        funnel_trends_persons_existent_dropped_off_results = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2021-05-04 00:00:00", funnelTrendsDropOff=False
         )
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [person[0]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
             [["user_one"]],
         )
 
@@ -783,6 +792,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 2)
 
@@ -841,6 +851,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 2)
 
@@ -896,6 +907,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 4)
 
@@ -920,24 +932,24 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_4["conversion_rate"], 50)
 
         # 1 user who dropped off starting # 2021-05-04
-        funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
-            filters, "2021-05-04 00:00:00", True
+        funnel_trends_persons_existent_dropped_off_results = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2021-05-04 00:00:00", funnelTrendsDropOff=True
         )
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [person[0]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
             [["user_two"]],
         )
 
         # 1 user who converted starting # 2021-05-04
-        funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
-            filters, "2021-05-04 00:00:00", False
+        funnel_trends_persons_existent_dropped_off_results = get_actors(
+            filters, self.team, funnelTrendsEntrancePeriodStart="2021-05-04 00:00:00", funnelTrendsDropOff=False
         )
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [person[0]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
             [["user_one"]],
         )
 
@@ -989,6 +1001,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 4)
 
@@ -1089,6 +1102,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 2)
 
@@ -1168,6 +1182,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 2)
 
@@ -1255,6 +1270,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 1)
         self.assertEqual(
@@ -1330,11 +1346,13 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.team.timezone = "US/Pacific"
         self.team.save()
 
         results_pacific = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        results_pacific = cast(List[Dict[str, Any]], results_pacific)
 
         saturday = results[1]  # 5/1
         self.assertEqual(3, saturday["reached_to_step_count"])
@@ -1385,5 +1403,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2021-05-06T23:40:59Z"):
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+            results = cast(List[Dict[str, Any]], results)
             conversion_rates = [row["conversion_rate"] for row in results]
             self.assertEqual(conversion_rates, [50.0, 0.0, 0.0, 0.0, 0.0, 0.0])

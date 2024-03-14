@@ -1,19 +1,16 @@
 from datetime import datetime
-from typing import cast
+from typing import Any, Dict, List, cast
 
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.filters import Filter
 from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.funnels.funnel_unordered_persons import (
-    ClickhouseFunnelUnorderedActors,
-)
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
 )
@@ -51,7 +48,6 @@ class TestFunnelUnorderedStepsBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
-        ClickhouseFunnelUnorderedActors,
         _create_action,
         _create_person,
     ),
@@ -99,6 +95,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[List[Dict[str, Any]]], results)
 
         assert_funnel_results_equal(
             results[0],
@@ -228,6 +225,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[List[Dict[str, Any]]], results)
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         self.assertEqual(len(results), 6)
@@ -293,6 +291,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[List[Dict[str, Any]]], results)
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         self.assertEqual(len(results), 6)
@@ -387,6 +386,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[List[Dict[str, Any]]], results)
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
@@ -501,6 +501,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[List[Dict[str, Any]]], results)
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
@@ -629,6 +630,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[List[Dict[str, Any]]], results)
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         self.assertEqual(len(results), 3)
@@ -638,9 +640,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
 class TestUnorderedFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(  # type: ignore
-        ClickhouseFunnelUnorderedActors,
-    ),
+    funnel_breakdown_group_test_factory(FunnelOrderType.UNORDERED),
 ):
     pass
 
@@ -649,7 +649,6 @@ class TestFunnelUnorderedStepsConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
-        ClickhouseFunnelUnorderedActors,
     ),
 ):
     maxDiff = None
@@ -657,12 +656,9 @@ class TestFunnelUnorderedStepsConversionTime(
 
 
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
-    def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-        filter = Filter(data=filter, team=self.team)
-        person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        _, serialized_result, _ = ClickhouseFunnelUnorderedActors(person_filter, self.team).get_actors()
-
-        return [val["id"] for val in serialized_result]
+    def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
+        results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
+        return [val[0]["id"] for val in results]
 
     def test_basic_unordered_funnel(self):
         filters = {
@@ -759,6 +755,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(results[0]["name"], "Completed 1 step")
         self.assertEqual(results[0]["count"], 8)
@@ -907,6 +904,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(results[0]["name"], "Completed 1 step")
         self.assertEqual(results[0]["count"], 8)
@@ -1040,6 +1038,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(results[0]["name"], "Completed 1 step")
         self.assertEqual(results[1]["name"], "Completed 2 steps")
@@ -1107,6 +1106,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(results[0]["name"], "Completed 1 step")
         self.assertEqual(results[0]["count"], 2)
@@ -1224,6 +1224,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0]["name"], "Completed 1 step")
@@ -1494,6 +1495,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(results[0]["name"], "Completed 1 step")
         self.assertEqual(results[0]["count"], 5)
@@ -1559,6 +1561,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(results[0]["count"], 1)
         self.assertEqual(results[1]["count"], 1)
@@ -1617,6 +1620,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        results = cast(List[Dict[str, Any]], results)
 
         self.assertEqual(results[0]["count"], 1)
         self.assertEqual(results[1]["count"], 1)
