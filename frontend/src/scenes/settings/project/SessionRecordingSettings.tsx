@@ -101,12 +101,19 @@ function CanvasCaptureSettings(): JSX.Element | null {
 function PayloadWarning(): JSX.Element {
     return (
         <>
-            We automatically scrub some sensitive information from network headers and request and response bodies. If
-            they could contain sensitive data, you should provide a function to mask the data when you initialise
-            PostHog.{' '}
-            <Link to="https://posthog.com/docs/session-replay/network-recording#sensitive-information" target="blank">
-                Learn how to mask header and body values in our docs
-            </Link>
+            <p>
+                We automatically scrub some sensitive information from network headers and request and response bodies.
+            </p>{' '}
+            <p>
+                If they could contain sensitive data, you should provide a function to mask the data when you initialise
+                PostHog.{' '}
+                <Link
+                    to="https://posthog.com/docs/session-replay/network-recording#sensitive-information"
+                    target="blank"
+                >
+                    Learn how to mask header and body values in our docs
+                </Link>
+            </p>
         </>
     )
 }
@@ -174,6 +181,7 @@ function NetworkCaptureSettings(): JSX.Element {
                         onChange={(checked) => {
                             if (checked) {
                                 LemonDialog.open({
+                                    maxWidth: '650px',
                                     title: 'Network body capture',
                                     description: <PayloadWarning />,
                                     primaryButton: {
