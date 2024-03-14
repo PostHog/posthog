@@ -101,11 +101,11 @@ function CanvasCaptureSettings(): JSX.Element | null {
 function PayloadWarning(): JSX.Element {
     return (
         <>
-            We automatically scrub some sensitive information from network headers and payloads, but if your request or
-            response payloads could contain sensitive data, you should provide a function to mask the data when you
-            initialise PostHog.{' '}
+            We automatically scrub some sensitive information from network headers and request and response bodies. If
+            they could contain sensitive data, you should provide a function to mask the data when you initialise
+            PostHog.{' '}
             <Link to="https://posthog.com/docs/session-replay/network-recording#sensitive-information" target="blank">
-                Learn how to mask header and payload values in our docs
+                Learn how to mask header and body values in our docs
             </Link>
         </>
     )
@@ -142,7 +142,7 @@ function NetworkCaptureSettings(): JSX.Element {
                         Learn how to mask header and payload values in our docs
                     </Link>
                 </p>
-                <LemonBanner type="info" className="mb-4" dismissKey="payload-warning">
+                <LemonBanner type="info" className="mb-4">
                     <PayloadWarning />
                 </LemonBanner>
                 <div className="flex flex-row space-x-2">
@@ -174,11 +174,11 @@ function NetworkCaptureSettings(): JSX.Element {
                         onChange={(checked) => {
                             if (checked) {
                                 LemonDialog.open({
-                                    title: 'Enabling network payload capture',
+                                    title: 'Network body capture',
                                     description: <PayloadWarning />,
                                     primaryButton: {
                                         'data-attr': 'network-payload-capture-accept-warning-and-enable',
-                                        children: 'Enable payload capture',
+                                        children: 'Enable body capture',
                                         onClick: () => {
                                             updateCurrentTeam({
                                                 session_recording_network_payload_capture_config: {
