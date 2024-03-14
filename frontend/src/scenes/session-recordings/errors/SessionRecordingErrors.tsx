@@ -3,6 +3,8 @@ import { LemonButton, LemonCollapse, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 
+import { ErrorClusterSample } from '~/types'
+
 import { sessionRecordingErrorsLogic } from './sessionRecordingErrorsLogic'
 
 export function SessionRecordingErrors(): JSX.Element {
@@ -45,11 +47,11 @@ const ErrorPanelHeader = ({
 }: {
     occurrenceCount: number
     sessionCount: number
-    example: { session_id: string; message: string }
+    example: ErrorClusterSample
 }): JSX.Element => {
     return (
         <div className="w-full flex justify-between items-center gap-2">
-            <span className="truncate">{example.message}</span>
+            <span className="truncate">{example.input}</span>
             <div className="flex items-center gap-2">
                 <span className="text-muted">
                     {occurrenceCount} occurrences / {sessionCount} sessions
@@ -62,12 +64,12 @@ const ErrorPanelHeader = ({
     )
 }
 
-const ErrorPanelContent = ({ samples }: { samples: { session_id: string; message: string }[] }): JSX.Element => {
+const ErrorPanelContent = ({ samples }: { samples: ErrorClusterSample[] }): JSX.Element => {
     return (
         <div className="flex flex-col space-y-2">
             {samples.map((error) => (
                 <div key={error.session_id} className="flex justify-between items-center">
-                    <span>{error.message}</span>
+                    <span>{error.input}</span>
                     <LemonButton type="secondary" to={urls.replaySingle(error.session_id)}>
                         Watch recording
                     </LemonButton>

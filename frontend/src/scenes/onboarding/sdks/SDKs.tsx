@@ -98,7 +98,7 @@ export function SDKs({
                 </div>
             }
         >
-            <div className="flex gap-x-8 mt-8">
+            <div className="flex gap-x-8 mt-6">
                 <div
                     className={`flex-col gap-y-2 flex-wrap gap-x-4 ${showSideBySide && 'min-w-[12.5rem] w-50'} ${
                         !showSideBySide && panel !== 'options' ? 'hidden' : 'flex'

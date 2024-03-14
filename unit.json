@@ -6,7 +6,7 @@
     },
     "listeners": {
         "*:8000": {
-            "pass": "applications/posthog"
+            "pass": "routes/posthog"
         },
         "*:8001": {
             "pass": "routes/metrics"
@@ -16,6 +16,25 @@
         }
     },
     "routes": {
+        "posthog": [
+            {
+                "match": {
+                    "uri": [
+                        "/_health",
+                        "/_readyz",
+                        "/_livez"
+                    ]
+                },
+                "action": {
+                    "pass": "applications/posthog-health"
+                }
+            },
+            {
+                "action": {
+                    "pass": "applications/posthog"
+                }
+            }
+        ],
         "metrics": [
             {
                 "match": {
@@ -38,6 +57,17 @@
         ]
     },
     "applications": {
+        "posthog-health": {
+            "type": "python 3.10",
+            "processes": 1,
+            "working_directory": "/code",
+            "path": ".",
+            "module": "posthog.wsgi",
+            "user": "nobody",
+            "limits": {
+                "requests": 5000
+            }
+        },
         "posthog": {
             "type": "python 3.10",
             "processes": 4,
