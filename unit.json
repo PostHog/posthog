@@ -19,7 +19,11 @@
         "posthog": [
             {
                 "match": {
-                    "uri": ["/healthz"]
+                    "uri": [
+                        "/_health",
+                        "/readyz",
+                        "/livez"
+                    ]
                 },
                 "action": {
                     "pass": "applications/posthog-health"
