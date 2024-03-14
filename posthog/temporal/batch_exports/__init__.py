@@ -34,7 +34,15 @@ from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportWorkflow,
     insert_into_snowflake_activity,
 )
-from posthog.temporal.batch_exports.squash_person_overrides import *
+from posthog.temporal.batch_exports.squash_person_overrides import (
+    SquashPersonOverridesWorkflow,
+    create_table,
+    drop_table,
+    optimize_person_distinct_id_overrides,
+    submit_mutation,
+    wait_for_mutation,
+    wait_for_table,
+)
 
 WORKFLOWS = [
     BackfillBatchExportWorkflow,
