@@ -21,7 +21,7 @@ CREATE_METHODS = ["POST", "PUT"]
 
 
 def extract_organization(object: Model, view: View) -> Organization:
-    # This is set as part of the TeamAndOrgViewSetMixin to allow for nested routers
+    # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
     organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
     if organization_id_rewrite:
         for part in organization_id_rewrite.split("__"):
