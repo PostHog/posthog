@@ -283,8 +283,8 @@ export const activationLogic = kea<activationLogicType>([
                         case ActivationTasks.SetupReverseProxy:
                             tasks.push({
                                 id: ActivationTasks.SetupReverseProxy,
-                                name: 'Set up reverse proxy',
-                                description: 'Secure your PostHog instance with a reverse proxy',
+                                name: 'Set up a reverse proxy',
+                                description: 'Sent your events from your own domain to avoid tracking blockers',
                                 completed: false,
                                 canSkip: true,
                                 skipped: skippedTasks.includes(ActivationTasks.SetupReverseProxy),
