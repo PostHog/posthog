@@ -25,6 +25,7 @@ export enum ActivationTasks {
     SetupSessionRecordings = 'setup_session_recordings',
     TrackCustomEvents = 'track_custom_events',
     InstallFirstApp = 'install_first_app',
+    SetupReverseProxy = 'setup_reverse_proxy',
 }
 
 export type ActivationTaskType = {
@@ -280,6 +281,17 @@ export const activationLogic = kea<activationLogicType>([
                                 completed: installedPlugins.length > 0,
                                 canSkip: true,
                                 skipped: skippedTasks.includes(ActivationTasks.InstallFirstApp),
+                            })
+                            break
+                        case ActivationTasks.SetupReverseProxy:
+                            tasks.push({
+                                id: ActivationTasks.SetupReverseProxy,
+                                name: 'Set up reverse proxy',
+                                description: 'Secure your PostHog instance with a reverse proxy',
+                                completed: false,
+                                canSkip: true,
+                                skipped: skippedTasks.includes(ActivationTasks.SetupReverseProxy),
+                                url: 'https://posthog.com/docs/advanced/proxy',
                             })
                             break
                         default:
