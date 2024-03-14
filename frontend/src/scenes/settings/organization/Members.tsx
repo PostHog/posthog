@@ -197,7 +197,7 @@ export function Members(): JSX.Element | null {
                     <LemonTag data-attr="membership-level">
                         {member.level === OrganizationMembershipLevel.Owner
                             ? 'Organization owner'
-                            : `Project ${membershipLevelToName.get(member.level) ?? `unknown (${member.level})`}`}
+                            : `Organization ${membershipLevelToName.get(member.level) ?? `unknown (${member.level})`}`}
                     </LemonTag>
                 )
             },

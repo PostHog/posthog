@@ -76,7 +76,7 @@ export function RolesAndResourceAccessControls(): JSX.Element {
                     <LemonSelect
                         size="small"
                         placeholder="No access"
-                        className="my-1"
+                        className="my-1 whitespace-nowrap"
                         value={ac?.access_level}
                         onChange={(newValue) =>
                             updateRoleBasedAccessControls([
