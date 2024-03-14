@@ -604,7 +604,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                     // always show offline status changes
                     if (item.type === 'offline-status' || item.type === 'browser-visibility') {
-                        include = true
+                        include =
+                            tab === SessionRecordingPlayerTab.DOCTOR ||
+                            !!(
+                                miniFiltersByKey['performance-all']?.enabled ||
+                                miniFiltersByKey['all-everything']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled ||
+                                miniFiltersByKey['console-all']?.enabled
+                            )
                     }
 
                     if (item.type === SessionRecordingPlayerTab.DOCTOR && tab === SessionRecordingPlayerTab.DOCTOR) {
