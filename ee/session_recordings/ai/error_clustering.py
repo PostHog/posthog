@@ -48,6 +48,7 @@ def fetch_error_embeddings(team_id: int):
                 -- don't load all data for all time
                 AND generation_timestamp > now() - INTERVAL 7 DAY
                 AND source_type = 'error'
+                AND input != ''
         """
 
     return sync_execute(
@@ -67,7 +68,7 @@ def construct_response(df):
     return [
         {
             "cluster": cluster,
-            "samples": rows.sample(n=DBSCAN_MIN_SAMPLES)[["session_id", "input"]].to_dict("records"),
+            "samples": rows.head(n=DBSCAN_MIN_SAMPLES)[["session_id", "input"]].to_dict("records"),
             "occurrences": rows.size,
             "unique_sessions": rows["session_id"].count(),
         }
