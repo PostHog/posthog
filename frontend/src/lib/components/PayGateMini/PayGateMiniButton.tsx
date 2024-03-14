@@ -1,5 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { PlanComparisonModal } from 'scenes/billing/PlanComparison'
 import { urls } from 'scenes/urls'
@@ -36,6 +37,11 @@ export const PayGateMiniButton = ({
                     if (gateVariant === 'add-card') {
                         toggleIsPlanComparisonModalOpen(featureInfo.key)
                     }
+                    posthog.capture('pay gate CTA clicked', {
+                        product_key: product?.type,
+                        feature: featureInfo.key,
+                        gate_variant: gateVariant,
+                    })
                     onClick?.()
                 }}
             >
