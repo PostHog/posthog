@@ -16,11 +16,18 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 export const FlagsToolbarMenu = (): JSX.Element => {
     const { searchTerm, filteredFlags, userFlagsLoading } = useValues(flagsToolbarLogic)
-    const { setSearchTerm, setOverriddenUserFlag, deleteOverriddenUserFlag, getUserFlags, checkLocalOverrides } =
-        useActions(flagsToolbarLogic)
-    const { apiURL } = useValues(toolbarConfigLogic)
+    const {
+        setSearchTerm,
+        setOverriddenUserFlag,
+        deleteOverriddenUserFlag,
+        getUserFlags,
+        checkLocalOverrides,
+        setFeatureFlagValueFromPostHogClient,
+    } = useActions(flagsToolbarLogic)
+    const { apiURL, posthog: posthogClient } = useValues(toolbarConfigLogic)
 
     useEffect(() => {
+        posthogClient?.onFeatureFlags(setFeatureFlagValueFromPostHogClient)
         getUserFlags()
         checkLocalOverrides()
     }, [])

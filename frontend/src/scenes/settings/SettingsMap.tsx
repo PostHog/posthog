@@ -25,10 +25,10 @@ import {
     WebSnippet,
 } from './project/ProjectSettings'
 import {
+    ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayCostControl,
     ReplayGeneral,
-    ReplaySummarySettings,
 } from './project/SessionRecordingSettings'
 import { SettingPersonsOnEvents } from './project/SettingPersonsOnEvents'
 import { SlackIntegration } from './project/SlackIntegration'
@@ -175,7 +175,7 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'replay-ai-config',
                 title: 'AI Recording Summary',
-                component: <ReplaySummarySettings />,
+                component: <ReplayAISettings />,
                 flag: 'AI_SESSION_PERMISSIONS',
             },
         ],

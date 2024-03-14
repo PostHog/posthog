@@ -30,10 +30,9 @@ interface PluginContent {
     title: string
     description: string
 }
-type PluginContentMapping = Record<number, PluginContent>
+type PluginContentMapping = Record<string, PluginContent>
 const pluginContentMapping: PluginContentMapping = {
-    // 1 is the id of the GEO IP plugin
-    1: {
+    GeoIP: {
         title: 'Capture location information',
         description:
             'Enrich PostHog events and persons with IP location data. This is useful for understanding where your users are coming from. This setting can be found under the data pipelines apps.',
@@ -70,7 +69,7 @@ export const OnboardingProductConfiguration = ({
             },
         })),
         ...defaultEnabledPlugins.map((plugin) => {
-            const pluginContent = pluginContentMapping[plugin.id]
+            const pluginContent = pluginContentMapping[plugin.name]
             return {
                 title: pluginContent?.title || plugin.name,
                 description: pluginContent?.description || plugin.description,
