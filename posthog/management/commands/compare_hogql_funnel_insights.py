@@ -1,9 +1,4 @@
-from typing import cast
 from django.core.management.base import BaseCommand
-from django.db.models import Q
-from rest_framework.exceptions import ValidationError
-
-from posthog.schema import FunnelsQuery, HogQLQueryModifiers, MaterializationMode
 
 
 class Command(BaseCommand):
@@ -11,6 +6,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         import json
+        from typing import cast
+        from django.db.models import Q
+        from rest_framework.exceptions import ValidationError
+        from posthog.schema import FunnelsQuery, HogQLQueryModifiers, MaterializationMode
         from posthog.models import Insight, Filter
         from posthog.queries.funnels import ClickhouseFunnel
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -79,11 +78,17 @@ class Command(BaseCommand):
         insights = (
             Insight.objects.filter(
                 Q(filters__insight="FUNNELS")  # funnel insights
-                & (Q(filters__funnel_viz_type="steps") | Q(filters__funnel_viz_type__isnull=True))  # steps viz
-                & (Q(filters__funnel_order_type="ordered") | Q(filters__funnel_order_type__isnull=True))  # ordered
+                ## funnel viz type (pick one):
+                # & (Q(filters__funnel_viz_type="steps") | Q(filters__funnel_viz_type__isnull=True))  # steps viz
+                & Q(filters__funnel_viz_type="time_to_convert")  # time to convert viz
+                # & Q(filters__funnel_viz_type="trends")  # trends viz
+                ## funnel order type (pick one):
+                # & (Q(filters__funnel_order_type="ordered") | Q(filters__funnel_order_type__isnull=True))  # ordered
+                # & Q(filters__funnel_order_type="unordered")  # unordered
+                # & Q(filters__funnel_order_type="strict")  # strict
                 # & Q(filters__breakdown__isnull=True)  # without breakdown
                 # & Q(short_id="1jrKJ0n7")
-                & ~Q(short_id__in=IGNORED_INSIGHTS) & Q(team_id=2),
+                & ~Q(short_id__in=IGNORED_INSIGHTS) & Q(team_id=1),
                 saved=True,
                 deleted=False,
             )
