@@ -52,6 +52,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: kafka
+        depends_on:
+            - zookeeper
 
     worker:
         extends:
@@ -75,6 +77,12 @@ services:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             RECORDINGS_INGESTER_URL: http://plugins:6738
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
 
     plugins:
         extends:
@@ -85,6 +93,12 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
 
     caddy:
         image: caddy:2.6.1
@@ -130,12 +144,19 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal-admin-tools
+        depends_on:
+            - temporal
     temporal-ui:
         extends:
             file: docker-compose.base.yml
             service: temporal-ui
         ports:
             - 8081:8080
+        depends_on:
+            temporal:
+                condition: service_started
+            db:
+                condition: service_healthy
     temporal-django-worker:
         command: /compose/temporal-django-worker
         extends:
@@ -147,6 +168,13 @@ services:
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
+            - temporal
 
 volumes:
     zookeeper-data:
