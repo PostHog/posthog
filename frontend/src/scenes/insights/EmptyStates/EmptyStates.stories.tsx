@@ -114,6 +114,7 @@ export const EstimatedQueryExecutionTimeTooLong: StoryFn = () => {
 EstimatedQueryExecutionTimeTooLong.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
+        waitForSelector: '[data-attr=insight-loading-too-long]',
     },
 }
 
