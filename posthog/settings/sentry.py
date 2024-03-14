@@ -73,9 +73,13 @@ def traces_sampler(sampling_context: dict) -> float:
 
     if op == "http.server":
         path = sampling_context.get("wsgi_environ", {}).get("PATH_INFO")
+        force_sample = bool(sampling_context.get("wsgi_environ", {}).get("HTTP_FORCE_SAMPLE"))
 
+        # HTTP header to force sampling set
+        if force_sample:
+            return 1.0  # 100%
         # Ingestion endpoints (high volume)
-        if path.startswith("/batch"):
+        elif path.startswith("/batch"):
             return 0.00000001  # 0.000001%
         # Ingestion endpoints (high volume)
         elif path.startswith(("/capture", "/track", "/s", "/e")):
