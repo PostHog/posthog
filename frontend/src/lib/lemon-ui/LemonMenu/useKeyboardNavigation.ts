@@ -2,10 +2,12 @@ import { createRef, useEffect, useRef, useState } from 'react'
 
 export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I extends HTMLElement = HTMLElement>(
     itemCount: number,
-    activeItemIndex: number = -1
+    activeItemIndex: number = -1,
+    takeFocus = false
 ): {
     referenceRef: React.RefObject<R>
     itemsRef: React.RefObject<React.RefObject<I>[]>
+    focusedItemIndex: number
 } {
     const [focusedItemIndex, setFocusedItemIndex] = useState(activeItemIndex)
     const referenceRef = useRef<R>(null)
@@ -27,13 +29,17 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
         const handleKeyDown = (e: KeyboardEvent): void => {
             if (e.key === 'ArrowDown') {
                 if (focusedItemIndex < itemCount - 1) {
-                    focus(focusedItemIndex + 1)
+                    if (takeFocus) {
+                        focus(focusedItemIndex + 1)
+                    }
                     setFocusedItemIndex(focusedItemIndex + 1)
                     e.preventDefault() // Prevents scroll
                 }
             } else if (e.key === 'ArrowUp') {
                 if (focusedItemIndex >= 0) {
-                    focus(focusedItemIndex - 1)
+                    if (takeFocus) {
+                        focus(focusedItemIndex - 1)
+                    }
                     setFocusedItemIndex(focusedItemIndex - 1)
                     e.preventDefault() // Prevents scroll
                 }
@@ -52,5 +58,5 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
         }
     }, [focusedItemIndex, itemCount])
 
-    return { referenceRef, itemsRef }
+    return { referenceRef, itemsRef, focusedItemIndex }
 }

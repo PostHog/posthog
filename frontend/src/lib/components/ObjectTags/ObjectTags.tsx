@@ -6,6 +6,7 @@ import { Select } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
+import { LemonAutocomplete, LemonAutocompleteProps } from 'lib/lemon-ui/LemonAutocomplete'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { colorForString } from 'lib/utils'
 import { CSSProperties, useMemo } from 'react'
@@ -77,7 +78,7 @@ export function ObjectTags({
         })
     }
 
-    const options = [
+    const options: LemonAutocompleteProps<number>['options'] = [
         cleanedNewTag && { value: cleanedNewTag, label: cleanedNewTag, className: 'ph-no-capture' },
         ...(tagsAvailable || []).map((tag) => ({ label: tag, value: tag, className: 'ph-no-capture' })),
         { label: 'one', value: 1 },
@@ -168,7 +169,16 @@ export function ObjectTags({
 
                     {addingNewTag && (
                         <>
-                            <LemonSelect options={options} loading={saving}>
+                            <LemonAutocomplete
+                                options={options}
+                                loading={saving}
+                                autoFocus
+                                allowClear
+                                size="small"
+                                placeholder='try "official"'
+                                data-attr="new-tag-input"
+                            />
+                            {/* <LemonSelect options={options} loading={saving}>
                                 <LemonInput
                                     data-attr="new-tag-input"
                                     size="small"
@@ -178,13 +188,11 @@ export function ObjectTags({
                                     onBlur={() => setAddingNewTag(false)}
                                     // onPressEnter={}
                                 />
-                            </LemonSelect>
+                            </LemonSelect> */}
                             <SelectGradientOverflow
                                 size="small"
                                 onBlur={() => setAddingNewTag(false)}
                                 data-attr="new-tag-input"
-                                autoFocus
-                                allowClear
                                 autoClearSearchValue
                                 defaultOpen
                                 showSearch
