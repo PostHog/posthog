@@ -1,7 +1,43 @@
 from django.contrib import admin
 
-from posthog.admin.admins import *
-from posthog.models import *
+from posthog.admin.admins import (
+    OrganizationAdmin,
+    UserAdmin,
+    TeamAdmin,
+    DashboardAdmin,
+    InsightAdmin,
+    ExperimentAdmin,
+    FeatureFlagAdmin,
+    AsyncDeletionAdmin,
+    InstanceSettingAdmin,
+    PluginConfigAdmin,
+    PluginAdmin,
+    TextAdmin,
+    CohortAdmin,
+    PersonAdmin,
+    PersonDistinctIdAdmin,
+    SurveyAdmin,
+    DataWarehouseTableAdmin,
+)
+from posthog.models import (
+    Organization,
+    User,
+    Team,
+    Dashboard,
+    Insight,
+    Experiment,
+    FeatureFlag,
+    AsyncDeletion,
+    InstanceSetting,
+    PluginConfig,
+    Plugin,
+    Text,
+    Cohort,
+    Person,
+    PersonDistinctId,
+    Survey,
+    DataWarehouseTable,
+)
 
 admin.site.register(Organization, OrganizationAdmin)
 admin.site.register(User, UserAdmin)
