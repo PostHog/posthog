@@ -46,7 +46,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
 
     return (
         <OnboardingStep
-            title={`${titlePrefix()} better with friends.`}
+            title="Invite teammates"
             stepKey={stepKey}
             continueAction={() =>
                 preflight?.email_service_available &&
@@ -55,9 +55,10 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
                 inviteTeamMembers()
             }
         >
-            <div className="mb-6">
+            <div className="mb-6 mt-6">
                 <p>
-                    ...or maybe even just coworkers. Ya know the ones who like to {likeTo()}?{' '}
+                    {titlePrefix()} better with friends ... or maybe even just coworkers. Ya know the ones who like to{' '}
+                    {likeTo()}?{' '}
                     {preflight?.email_service_available && (
                         <span>
                             Enter their email below and we'll send them a custom invite link. Invites expire after 3
