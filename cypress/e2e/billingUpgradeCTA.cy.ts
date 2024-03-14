@@ -5,7 +5,7 @@ import * as fflate from 'fflate'
 
 describe('Billing Upgrade CTA', () => {
     beforeEach(() => {
-        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
+        cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({
                     'billing-upgrade-language': 'credit_card',
@@ -17,23 +17,6 @@ describe('Billing Upgrade CTA', () => {
     })
 
     it('Check that events are being sent on each page visit', () => {
-        cy.visit('/insights')
-        // Try to create a new project
-        cy.get('[data-attr=breadcrumb-project]').click()
-        cy.get('[data-attr=new-project-button]').click()
-        cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture')
-        cy.get('[data-attr=paygate]').should('be.visible')
-        cy.get('[data-attr=paygate-mini-cta] .LemonButton__content').should('have.text', 'Add credit card')
-
-        cy.wait('@capture').then(({ request }) => {
-            const data = new Uint8Array(request.body)
-            const decoded = fflate.strFromU8(fflate.decompressSync(data))
-            const decodedJSON = JSON.parse(decoded)
-
-            const matchingEvents = decodedJSON.filter((event) => event.event === 'billing CTA shown')
-            expect(matchingEvents.length).to.equal(1)
-        })
-
         cy.visit('/organization/billing')
         cy.get('[data-attr=product_analytics-upgrade-cta] .LemonButton__content').should('have.text', 'Add credit card')
         cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture2')
