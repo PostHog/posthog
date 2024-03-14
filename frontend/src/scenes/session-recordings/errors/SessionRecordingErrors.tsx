@@ -45,11 +45,11 @@ const ErrorPanelHeader = ({
 }: {
     occurrenceCount: number
     sessionCount: number
-    example: { session_id: string; message: string }
+    example: { session_id: string; input: string }
 }): JSX.Element => {
     return (
         <div className="w-full flex justify-between items-center gap-2">
-            <span className="truncate">{example.message}</span>
+            <span className="truncate">{example.input}</span>
             <div className="flex items-center gap-2">
                 <span className="text-muted">
                     {occurrenceCount} occurrences / {sessionCount} sessions

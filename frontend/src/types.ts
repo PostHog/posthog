@@ -898,7 +898,7 @@ export interface SessionRecordingsResponse {
 
 type ErrorCluster = {
     cluster: number
-    samples: { session_id: string; message: string }[]
+    samples: { session_id: string; input: string }[]
     occurrences: number
     unique_sessions: number
 }
