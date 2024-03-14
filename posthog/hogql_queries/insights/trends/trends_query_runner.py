@@ -18,7 +18,7 @@ from posthog.caching.insights_api import (
 from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import LimitContext, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -142,8 +142,13 @@ class TrendsQueryRunner(QueryRunner):
                         timings=self.timings,
                         modifiers=self.modifiers,
                     )
+                query = query_builder.build_query()
 
-                queries.append(query_builder.build_query())
+                # Get around the default 100 limit, bump to the max 10000.
+                # This is useful for the world map view and other cases with a lot of breakdowns.
+                if isinstance(query, ast.SelectQuery) and query.limit is None:
+                    query.limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+                queries.append(query)
 
         return queries
 
@@ -237,9 +242,10 @@ class TrendsQueryRunner(QueryRunner):
             if is_histogram_breakdown:
                 buckets = breakdown._get_breakdown_histogram_buckets()
                 breakdown_values = [f"[{t[0]},{t[1]}]" for t in buckets]
+                # TODO: append this only if needed
                 breakdown_values.append('["",""]')
             else:
-                breakdown_values = breakdown._get_breakdown_values
+                breakdown_values = breakdown._breakdown_values
 
             for value in breakdown_values:
                 if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown_type == "cohort":
@@ -367,7 +373,8 @@ class TrendsQueryRunner(QueryRunner):
                 raise Exception("Column not found in hogql results")
             if response.columns is None:
                 raise Exception("No columns returned from hogql results")
-
+            if name not in response.columns:
+                return None
             index = response.columns.index(name)
             return val[index]
 

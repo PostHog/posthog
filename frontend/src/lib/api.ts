@@ -1951,13 +1951,10 @@ const api = {
             password: string,
             schema: string
         ): Promise<ExternalDataPostgresSchema[]> {
-            const queryParams = toParams({ host, port, dbname, user, password, schema })
-
             return await new ApiRequest()
                 .externalDataSources()
                 .withAction('database_schema')
-                .withQueryString(queryParams)
-                .get()
+                .create({ data: { host, port, dbname, user, password, schema } })
         },
     },
 

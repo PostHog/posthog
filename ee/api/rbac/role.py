@@ -85,25 +85,25 @@ class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 class RoleMembershipSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
-    organization_membership = OrganizationMemberSerializer(read_only=True)
+    organization_member = OrganizationMemberSerializer(read_only=True)
     role_id = serializers.UUIDField(read_only=True)
     user_uuid = serializers.UUIDField(required=True, write_only=True)
 
     class Meta:
         model = RoleMembership
-        fields = ["id", "role_id", "organization_membership", "user", "joined_at", "updated_at", "user_uuid"]
+        fields = ["id", "role_id", "organization_member", "user", "joined_at", "updated_at", "user_uuid"]
         read_only_fields = ["id", "role_id", "user"]
 
     def create(self, validated_data):
         user_uuid = validated_data.pop("user_uuid")
         try:
-            validated_data["organization_membership"] = OrganizationMembership.objects.prefetch_related("user").get(
-                user__uuid=user_uuid, organization_id=self.context["organization_id"]
+            validated_data["organization_member"] = OrganizationMembership.objects.prefetch_related("user").get(
+                organization_id=self.context["organization_id"], user__uuid=user_uuid, user__is_active=True
             )
-            validated_data["user"] = validated_data["organization_membership"].user
-        except OrganizationMembership.DoesNotExist:
-            raise serializers.ValidationError("Organization member does not exist.")
 
+            validated_data["user"] = validated_data["organization_member"].user
+        except OrganizationMembership.DoesNotExist:
+            raise serializers.ValidationError("User does not exist.")
         validated_data["role_id"] = self.context["role_id"]
         try:
             return super().create(validated_data)
