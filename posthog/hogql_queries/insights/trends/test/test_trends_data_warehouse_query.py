@@ -62,12 +62,12 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             interval=trends_query.interval,
             now=datetime.now(),
         )
-        series = trends_query.series[0]
 
         timings = HogQLTimings()
         modifiers = create_default_modifiers_for_team(self.team)
 
         if isinstance(trends_query.series[0], DataWarehouseNode):
+            series = trends_query.series[0]
             modifiers.dataWarehouseEventsModifiers = [
                 DataWarehouseEventsModifier(
                     table_name=series.table_name,
