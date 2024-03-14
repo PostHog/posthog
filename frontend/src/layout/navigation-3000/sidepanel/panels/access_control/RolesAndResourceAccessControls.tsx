@@ -18,8 +18,6 @@ import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
-import { RoleType } from '~/types'
-
 import { roleBasedAccessControlLogic, RoleWithResourceAccessControls } from './roleBasedAccessControlLogic'
 
 export function RolesAndResourceAccessControls(): JSX.Element {
@@ -59,7 +57,7 @@ export function RolesAndResourceAccessControls(): JSX.Element {
                             name: member.user.first_name,
                             title: `${member.user.first_name} <${member.user.email}>`,
                         }))}
-                        onClick={() => selectRoleId(role.id)}
+                        onClick={() => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))}
                     />
                 ) : (
                     'No members'
@@ -68,7 +66,7 @@ export function RolesAndResourceAccessControls(): JSX.Element {
         },
 
         ...resources.map((resource) => ({
-            title: resource,
+            title: resource.replace(/_/g, ' ') + 's',
             key: resource,
             width: 0,
             render: (_: any, { accessControlByResource, role }: RoleWithResourceAccessControls) => {
