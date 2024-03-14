@@ -7,4 +7,5 @@ ACTIVITIES = [
     update_external_data_job_model,
     run_external_data_job,
     validate_schema_activity,
+    create_source_templates,
 ]

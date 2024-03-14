@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
@@ -123,6 +124,17 @@ async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
     logger.info(
         f"Validated schema for external data job {inputs.run_id}",
     )
+
+
+@dataclasses.dataclass
+class CreateSourceTemplateInputs:
+    team_id: int
+    run_id: str
+
+
+@activity.defn
+async def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
+    await create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
 
 @dataclasses.dataclass
@@ -287,6 +299,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 validate_schema_activity,
                 validate_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+            # Create source templates
+            await workflow.execute_activity(
+                create_source_templates,
+                CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=run_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
