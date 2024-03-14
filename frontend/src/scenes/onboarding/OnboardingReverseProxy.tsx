@@ -1,4 +1,4 @@
-import { LemonCard, Link } from '@posthog/lemon-ui'
+import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -88,17 +88,12 @@ export const OnboardingReverseProxy = ({ stepKey }: { stepKey: OnboardingStepKey
                         </li>
                     ))}
                 </ul>
-                <LemonCard className="mt-6" hoverEffect={false}>
-                    <div className="sm:flex sm:items-start sm:justify-between">
-                        <div>
-                            <h3 className="font-bold">Need help with this step?</h3>
-                            <p className="mb-0">Invite a team member to help you get set up.</p>
-                        </div>
-                        <div className="max-w-44 mt-4 sm:mt-0">
-                            <InviteMembersButton type="secondary" />
-                        </div>
-                    </div>
-                </LemonCard>
+                <LemonDivider className="my-6" />
+                <h3>Need help with this step?</h3>
+                <p>Invite a team member to help you get set up.</p>
+                <div className="mt-3 w-40">
+                    <InviteMembersButton type="secondary" />
+                </div>
             </div>
         </OnboardingStep>
     )
