@@ -155,7 +155,7 @@ class AggregationOperations:
 
         if self.series.math_property == "$session_duration":
             chain = ["session_duration"]
-        elif isinstance(self.series, DataWarehouseNode):
+        elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
             chain = [self.series.math_property]
         else:
             chain = ["properties", self.series.math_property]
