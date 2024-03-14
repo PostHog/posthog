@@ -74,7 +74,14 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     path((key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key]),
     connect((props: EntityFilterProps) => ({
         logic: [eventUsageLogic],
-        actions: [insightDataLogic({ dashboardItemId: props.typeKey as InsightShortId }), ['loadData']],
+        // this can be mounted in replay filters in which case there's not really an insightDataLogic to mount
+        actions: [
+            insightDataLogic({
+                dashboardItemId: props.typeKey as InsightShortId,
+                doNotLoad: props.typeKey === 'session-recordings',
+            }),
+            ['loadData'],
+        ],
     })),
     actions({
         selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
