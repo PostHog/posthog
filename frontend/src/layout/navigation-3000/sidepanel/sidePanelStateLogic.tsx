@@ -1,6 +1,7 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { SidePanelTab } from '~/types'
 
@@ -10,6 +11,9 @@ import type { sidePanelStateLogicType } from './sidePanelStateLogicType'
 
 export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStateLogic']),
+    connect(() => ({
+        actions: [eventUsageLogic, ['reportActivationSideBarOpened', 'reportActivationSideBarClosed']],
+    })),
     actions({
         openSidePanel: (tab: SidePanelTab, options?: string) => ({ tab, options }),
         closeSidePanel: (tab?: SidePanelTab) => ({ tab }),
@@ -55,14 +59,17 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
     listeners(({ actions, values }) => ({
         // NOTE: We explicitly reference the actions instead of connecting so that people don't accidentally
         // use this logic instead of sidePanelStateLogic
-        openSidePanel: () => {
+        openSidePanel: ({ tab }) => {
+            actions.reportActivationSideBarOpened(tab)
             actions.setSidePanelOpen(true)
         },
         closeSidePanel: ({ tab }) => {
             if (!tab) {
+                actions.reportActivationSideBarClosed()
                 // If we aren't specifiying the tab we always close
                 actions.setSidePanelOpen(false)
             } else if (values.selectedTab === tab) {
+                actions.reportActivationSideBarClosed(tab)
                 // Otherwise we only close it if the tab is the currently open one
                 actions.setSidePanelOpen(false)
             }

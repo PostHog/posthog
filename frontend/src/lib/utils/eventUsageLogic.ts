@@ -43,6 +43,7 @@ import {
     SessionPlayerData,
     SessionRecordingPlayerTab,
     SessionRecordingUsageType,
+    SidePanelTab,
     Survey,
 } from '~/types'
 
@@ -457,11 +458,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
         reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
         reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
-        reportActivationSideBarShown: (
-            activeTasksCount: number,
-            completedTasksCount: number,
-            completionPercent: number
-        ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
+        reportActivationSideBarOpened: (tab: SidePanelTab) => ({ tab }),
+        reportActivationSideBarClosed: (tab?: SidePanelTab) => ({ tab }),
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
         reportActivationSideBarTaskSkipped: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
@@ -1089,11 +1087,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 value,
             })
         },
-        reportActivationSideBarShown: ({ activeTasksCount, completedTasksCount, completionPercent }) => {
-            posthog.capture('activation sidebar shown', {
-                active_tasks_count: activeTasksCount,
-                completed_tasks_count: completedTasksCount,
-                completion_percent_count: completionPercent,
+        reportActivationSideBarOpened: ({ tab }) => {
+            posthog.capture('activation sidebar opened', {
+                tab,
+            })
+        },
+        reportActivationSideBarClosed: ({ tab }) => {
+            posthog.capture('activation sidebar closed', {
+                tab,
             })
         },
         reportActivationSideBarTaskClicked: ({ key }) => {
