@@ -680,19 +680,6 @@ body {
         max-width: 350px;
     }
 
-    .ant-table-thead > tr > th,
-    .ant-table-small .ant-table-thead > tr > th {
-        background: var(--mid);
-    }
-
-    .ant-table-tbody > tr > td {
-        border-bottom-color: var(--border);
-    }
-
-    .ant-table-tbody > tr.ant-table-placeholder:hover > td {
-        background: inherit;
-    }
-
     @include common-variables;
 }
 

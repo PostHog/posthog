@@ -258,7 +258,7 @@ exports[`replay/transform transform can convert navigation bar 1`] = `
                       {
                         "attributes": {
                           "data-rrweb-id": 12345,
-                          "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;display:flex;flex-direction:row;align-items:center;justify-content:space-around;color:white;",
+                          "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;display:flex;flex-direction:row;align-items:center;justify-content:space-around;color:black;",
                         },
                         "childNodes": [
                           {

@@ -33,8 +33,11 @@ export function PathNodeCardButton({
     const { user } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
-    const setAsPathStart = (): void => setFilter({ startPoint: pageUrl(node) })
-    const setAsPathEnd = (): void => setFilter({ endPoint: pageUrl(node) })
+    const nodeName = pageUrl(node)
+    const isPath = nodeName.includes('/')
+
+    const setAsPathStart = (): void => setFilter({ startPoint: nodeName })
+    const setAsPathEnd = (): void => setFilter({ endPoint: nodeName })
     const excludePathItem = (): void => {
         setFilter({ excludeEvents: [...(filter.excludeEvents || []), pageUrl(node, false)] })
     }
@@ -42,15 +45,17 @@ export function PathNodeCardButton({
         viewPathToFunnel(node)
     }
     const copyName = (): void => {
-        void copyToClipboard(pageUrl(node)).then(captureException)
+        void copyToClipboard(nodeName).then(captureException)
     }
     const openModal = (): void => openPersonsModal({ path_end_key: name })
 
+    const isTruncatedPath = name.slice(1) === '_...'
+
     return (
         <div className="flex justify-between items-center w-full">
-            <div className="flex items-center font-semibold">
+            <div className="font-semibold overflow-hidden max-h-16">
                 <span className="text-xxs text-muted mr-1">{`0${name[0]}`}</span>
-                <span className="text-xs">{pageUrl(node, true)}</span>
+                <span className="text-xs break-words">{pageUrl(node, isPath)}</span>
             </div>
             <div className="flex flex-nowrap">
                 <LemonButton size="small" onClick={openModal}>
@@ -59,6 +64,11 @@ export function PathNodeCardButton({
                 <LemonButtonWithDropdown
                     size="small"
                     icon={<IconEllipsis />}
+                    disabledReason={
+                        isTruncatedPath
+                            ? 'Multiple paths truncated and combined for efficiency during querying. No further analysis possible.'
+                            : undefined
+                    }
                     dropdown={{
                         overlay: (
                             <>

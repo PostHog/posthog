@@ -67,13 +67,13 @@ export interface InsightTypeMetadata {
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
     [InsightType.TRENDS]: {
         name: 'Trends',
-        description: 'Visualize and break down how actions or events vary over time.',
+        description: 'Visualize and break down how actions or events vary over time.',
         icon: IconTrends,
         inMenu: true,
     },
     [InsightType.FUNNELS]: {
         name: 'Funnel',
-        description: 'Discover how many users complete or drop out of a sequence of actions.',
+        description: 'Discover how many users complete or drop out of a sequence of actions.',
         icon: IconFunnels,
         inMenu: true,
     },
@@ -85,19 +85,19 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.PATHS]: {
         name: 'Paths',
-        description: 'Trace the journeys users take within your product and where they drop off.',
+        description: 'Trace the journeys users take within your product and where they drop off.',
         icon: IconUserPaths,
         inMenu: true,
     },
     [InsightType.STICKINESS]: {
         name: 'Stickiness',
-        description: 'See what keeps users coming back by viewing the interval between repeated actions.',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions.',
         icon: IconStickiness,
         inMenu: true,
     },
     [InsightType.LIFECYCLE]: {
         name: 'Lifecycle',
-        description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
         icon: IconLifecycle,
         inMenu: true,
     },
@@ -118,13 +118,13 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.TrendsQuery]: {
         name: 'Trends',
-        description: 'Visualize and break down how actions or events vary over time',
+        description: 'Visualize and break down how actions or events vary over time',
         icon: IconTrends,
         inMenu: true,
     },
     [NodeKind.FunnelsQuery]: {
         name: 'Funnel',
-        description: 'Discover how many users complete or drop out of a sequence of actions',
+        description: 'Discover how many users complete or drop out of a sequence of actions',
         icon: IconFunnels,
         inMenu: true,
     },
@@ -136,21 +136,27 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
-        description: 'Trace the journeys users take within your product and where they drop off',
+        description: 'Trace the journeys users take within your product and where they drop off',
         icon: IconUserPaths,
         inMenu: true,
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
-        description: 'See what keeps users coming back by viewing the interval between repeated actions',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions',
         icon: IconStickiness,
         inMenu: true,
     },
     [NodeKind.LifecycleQuery]: {
         name: 'Lifecycle',
-        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
         icon: IconLifecycle,
         inMenu: true,
+    },
+    [NodeKind.FunnelCorrelationQuery]: {
+        name: 'Funnel Correlation',
+        description: 'See which events or properties correlate to a funnel result',
+        icon: IconPerson,
+        inMenu: false,
     },
     [NodeKind.EventsNode]: {
         name: 'Events',
@@ -197,6 +203,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.InsightActorsQueryOptions]: {
         name: 'Persons',
         description: 'Options for InsightActorsQueryt',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.FunnelsActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an insight',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.FunnelCorrelationActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an insight',
         icon: IconPerson,
         inMenu: false,
     },
