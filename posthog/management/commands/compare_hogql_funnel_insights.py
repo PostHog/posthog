@@ -1,5 +1,4 @@
 from django.core.management.base import BaseCommand
-import json
 from typing import cast
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
