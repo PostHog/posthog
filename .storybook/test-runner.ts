@@ -6,7 +6,7 @@ import { StoryContext } from '@storybook/csf'
 
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
-type SnapshotTheme = 'legacy' | 'light' | 'dark'
+type SnapshotTheme = 'light' | 'dark'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/types' {
@@ -211,8 +211,6 @@ async function expectStoryToMatchComponentSnapshot(
                 rootEl.style.width = `${-popoverBoundingClientRect.left + currentRootBoundingClientRect.right}px`
             }
         })
-        // For legacy style, make the body transparent to take the screenshot without background
-        document.body.style.background = theme === 'legacy' ? 'transparent' : 'var(--bg-3000)'
     }, theme)
 
     await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
@@ -228,10 +226,7 @@ async function expectLocatorToMatchStorySnapshot(
     options?: LocatorScreenshotOptions
 ): Promise<void> {
     const image = await locator.screenshot({ ...options })
-    let customSnapshotIdentifier = context.id
-    if (theme !== 'legacy') {
-        customSnapshotIdentifier += `--${theme}`
-    }
+    let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
     }
