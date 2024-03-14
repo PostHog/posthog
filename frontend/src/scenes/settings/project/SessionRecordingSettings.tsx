@@ -22,6 +22,7 @@ import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/cons
 import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic as enabledFlagsLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils'
 import { sessionReplayLinkedFlagLogic } from 'scenes/settings/project/sessionReplayLinkedFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -500,7 +501,7 @@ export function ReplayAISettings(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-2">
-            {currentConfig !== defaultConfig && (
+            {!objectsEqual(currentConfig, defaultConfig) && (
                 <div>
                     <LemonButton type="secondary" onClick={() => updateSummaryConfig(defaultConfig)}>
                         Reset to default
