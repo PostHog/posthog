@@ -707,7 +707,7 @@ body {
         position: static !important;
     }
 
-    #storybook-root:empty ~ .LemonModal__overlay {
+    #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
         // Fix for stories of fixed modals - otherwise body would be zero-sized
         position: static !important;
     }
