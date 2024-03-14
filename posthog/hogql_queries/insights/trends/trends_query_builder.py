@@ -21,10 +21,9 @@ from posthog.schema import (
     TrendsQuery,
     ChartDisplayType,
 )
-from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
 
 
-class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
+class TrendsQueryBuilder:
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
