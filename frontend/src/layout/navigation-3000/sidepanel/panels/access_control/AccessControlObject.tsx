@@ -52,6 +52,7 @@ function AccessControlObjectDefaults(): JSX.Element | null {
                 updateAccessControlProject(newValue)
             }}
             disabledReason={accessControlsLoading ? 'Loading…' : undefined}
+            dropdownMatchSelectWidth={false}
             options={[
                 {
                     value: null,
@@ -63,7 +64,6 @@ function AccessControlObjectDefaults(): JSX.Element | null {
                     label: `Everyone is a ${level} by default`,
                 })),
             ]}
-            fullWidth
         />
     )
 }
@@ -370,7 +370,7 @@ function AddItemsControls(props: {
 
     return (
         <div className="flex gap-2">
-            <div className="flex-1">
+            <div className="min-w-[16rem]">
                 <LemonSelectMultiple
                     placeholder={props.placeholder}
                     value={items}
