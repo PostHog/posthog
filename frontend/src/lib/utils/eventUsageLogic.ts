@@ -463,6 +463,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             completionPercent: number
         ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
+        reportActivationSideBarTaskSkipped: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
         reportRoleCreated: (role: string) => ({ role }),
         reportResourceAccessLevelUpdated: (resourceType: Resource, roleName: string, accessLevel: AccessLevel) => ({
@@ -1097,6 +1098,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportActivationSideBarTaskClicked: ({ key }) => {
             posthog.capture('activation sidebar task clicked', {
+                key,
+            })
+        },
+        reportActivationSideBarTaskSkipped: ({ key }) => {
+            posthog.capture('activation sidebar task skipped', {
                 key,
             })
         },

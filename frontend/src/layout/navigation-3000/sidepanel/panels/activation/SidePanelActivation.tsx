@@ -78,7 +78,7 @@ const ActivationTask = ({
 }: ActivationTaskType): JSX.Element => {
     const displaySideAction = !completed && !skipped && canSkip
     const { runTask, skipTask } = useActions(activationLogic)
-    const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
+    const { reportActivationSideBarTaskClicked, reportActivationSideBarTaskSkipped } = useActions(eventUsageLogic)
 
     const content = (
         <div className="my-4 mx-2">
@@ -86,6 +86,11 @@ const ActivationTask = ({
             {!completed && !skipped && <p className="font-normal text-xs mt-2 mb-0 mx-0">{description}</p>}
         </div>
     )
+
+    const handleSkip = (): void => {
+        skipTask(id)
+        reportActivationSideBarTaskSkipped(id)
+    }
 
     const params: Partial<LemonButtonWithSideActionProps> = {
         id,
@@ -97,6 +102,9 @@ const ActivationTask = ({
     if (url) {
         params.to = url
         params.targetBlank = true
+        params.onClick = () => {
+            reportActivationSideBarTaskClicked(id)
+        }
     } else {
         params.onClick = () => {
             runTask(id)
@@ -111,7 +119,7 @@ const ActivationTask = ({
                     sideAction={{
                         icon: <IconX />,
                         tooltip: 'Skip task',
-                        onClick: () => skipTask(id),
+                        onClick: () => handleSkip(),
                     }}
                 >
                     {content}
