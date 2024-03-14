@@ -4,7 +4,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.data_warehouse_trends_query_builder import DataWarehouseTrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BreakdownFilter,
@@ -41,7 +41,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
 
-class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
+class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
             "s3",
@@ -66,7 +66,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         modifiers = create_default_modifiers_for_team(self.team)
 
         if isinstance(trends_query.series[0], DataWarehouseNode):
-            query_builder = DataWarehouseTrendsQueryBuilder(
+            query_builder = TrendsQueryBuilder(
                 trends_query=trends_query,
                 team=self.team,
                 query_date_range=query_date_range,
