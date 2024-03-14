@@ -195,7 +195,7 @@ export function Members(): JSX.Element | null {
             render: function LevelRender(_, member) {
                 return (
                     <LemonTag data-attr="membership-level">
-                        Organization {membershipLevelToName.get(member.level) ?? `unknown (${member.level})`}`
+                        Organization {membershipLevelToName.get(member.level) ?? `unknown (${member.level})`}
                     </LemonTag>
                 )
             },
