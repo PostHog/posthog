@@ -1,4 +1,6 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
@@ -24,15 +26,23 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
         updateRoleBasedAccessControls: (
             accessControls: Pick<AccessControlUpdateType, 'resource' | 'access_level' | 'role'>[]
         ) => ({ accessControls }),
-        selectRole: (role: RoleType | null) => ({ role }),
+        selectRoleId: (roleId: RoleType['id'] | null) => ({ roleId }),
+        deleteRole: (roleId: RoleType['id']) => ({ roleId }),
         removeMemberFromRole: (role: RoleType, member: string) => ({ role, member }),
         addMembersToRole: (role: RoleType, members: string[]) => ({ role, members }),
+        setEditingRoleId: (roleId: string | null) => ({ roleId }),
     }),
     reducers({
-        selectedRole: [
-            null as RoleType | null,
+        selectedRoleId: [
+            null as string | null,
             {
-                selectRole: (_, { role }) => role,
+                selectRoleId: (_, { roleId }) => roleId,
+            },
+        ],
+        editingRoleId: [
+            null as string | null,
+            {
+                setEditingRoleId: (_, { roleId }) => roleId,
             },
         ],
     }),
@@ -87,15 +97,65 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
                     role.members = role.members.filter((roleMember) => roleMember.user.uuid !== member)
                     return [...values.roles]
                 },
+                deleteRole: async ({ roleId }) => {
+                    const role = values.roles?.find((r) => r.id === roleId)
+                    if (!role) {
+                        return values.roles
+                    }
+                    await api.roles.delete(role.id)
+                    lemonToast.success(`Role "${role.name}" deleted`)
+                    return values.roles?.filter((r) => r.id !== role.id) || []
+                },
             },
         ],
     })),
+
+    forms(({ values, actions }) => ({
+        editingRole: {
+            defaults: {
+                name: '',
+            },
+            errors: ({ name }) => {
+                return {
+                    name: !name ? 'Please choose a name for the role' : null,
+                }
+            },
+            submit: async ({ name }) => {
+                if (!values.editingRoleId) {
+                    return
+                }
+                let role: RoleType | null = null
+                if (values.editingRoleId === 'new') {
+                    role = await api.roles.create(name)
+                } else {
+                    role = await api.roles.update(values.editingRoleId, { name })
+                }
+
+                actions.loadRoles()
+                actions.setEditingRoleId(null)
+                actions.selectRoleId(role.id)
+            },
+        },
+    })),
+
     listeners(({ actions, values }) => ({
         updateRoleBasedAccessControlsSuccess: () => actions.loadRoleBasedAccessControls(),
         loadRolesSuccess: () => {
             if (router.values.hashParams.role) {
-                actions.selectRole(values.roles?.find((role) => role.id === router.values.hashParams.role) || null)
+                actions.selectRoleId(router.values.hashParams.role)
             }
+        },
+        deleteRoleSuccess: () => {
+            actions.loadRoles()
+            actions.setEditingRoleId(null)
+            actions.selectRoleId(null)
+        },
+
+        setEditingRoleId: () => {
+            const existingRole = values.roles?.find((role) => role.id === values.editingRoleId)
+            actions.resetEditingRole({
+                name: existingRole?.name || '',
+            })
         },
     })),
 
@@ -144,14 +204,14 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
     }),
 
     actionToUrl(({ values }) => ({
-        selectRole: () => {
+        selectRoleId: () => {
             const { currentLocation } = router.values
             return [
                 currentLocation.pathname,
                 currentLocation.searchParams,
                 {
                     ...currentLocation.hashParams,
-                    role: values.selectedRole?.id,
+                    role: values.selectedRoleId ?? undefined,
                 },
             ]
         },

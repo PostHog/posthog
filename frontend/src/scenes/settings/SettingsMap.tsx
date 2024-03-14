@@ -284,18 +284,6 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'organization',
-        id: 'organization-authentication',
-        title: 'Authentication Domains & SSO',
-        settings: [
-            {
-                id: 'authentication-domains',
-                title: 'Authentication Domains',
-                component: <VerifiedDomains />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
         id: 'organization-rbac',
         title: 'Role-based access',
         flag: 'ROLE_BASED_ACCESS',
@@ -304,6 +292,18 @@ export const SettingsMap: SettingSection[] = [
                 id: 'organization-rbac',
                 title: 'Role-based access',
                 component: <RoleBasedAccess />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-authentication',
+        title: 'Authentication Domains & SSO',
+        settings: [
+            {
+                id: 'authentication-domains',
+                title: 'Authentication Domains',
+                component: <VerifiedDomains />,
             },
         ],
     },

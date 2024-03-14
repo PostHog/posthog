@@ -1,5 +1,8 @@
 import {
     LemonButton,
+    LemonDialog,
+    LemonInput,
+    LemonModal,
     LemonSelect,
     LemonSelectMultiple,
     LemonTable,
@@ -8,7 +11,8 @@ import {
     ProfilePicture,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'kea-forms'
+import { capitalizeFirstLetter, Form } from 'kea-forms'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'
@@ -25,10 +29,10 @@ export function RolesAndResourceAccessControls(): JSX.Element {
         roleBasedAccessControlsLoading,
         resources,
         availableLevels,
-        selectedRole,
+        selectedRoleId,
     } = useValues(roleBasedAccessControlLogic)
 
-    const { updateRoleBasedAccessControls, selectRole } = useActions(roleBasedAccessControlLogic)
+    const { updateRoleBasedAccessControls, selectRoleId, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
 
     const columns: LemonTableColumns<RoleWithResourceAccessControls> = [
         {
@@ -38,7 +42,7 @@ export function RolesAndResourceAccessControls(): JSX.Element {
             render: (_, { role }) => (
                 <span className="whitespace-nowrap">
                     <LemonTableLink
-                        onClick={() => (role === selectedRole ? selectRole(null) : selectRole(role))}
+                        onClick={() => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))}
                         title={role.name}
                     />
                 </span>
@@ -48,15 +52,17 @@ export function RolesAndResourceAccessControls(): JSX.Element {
             title: 'Members',
             key: 'members',
             render: (_, { role }) => {
-                return (
+                return role.members.length ? (
                     <ProfileBubbles
                         people={role.members.map((member) => ({
                             email: member.user.email,
                             name: member.user.first_name,
                             title: `${member.user.first_name} <${member.user.email}>`,
                         }))}
-                        onClick={() => selectRole(role)}
+                        onClick={() => selectRoleId(role.id)}
                     />
+                ) : (
+                    'No members'
                 )
             },
         },
@@ -100,16 +106,17 @@ export function RolesAndResourceAccessControls(): JSX.Element {
                 dataSource={rolesWithResourceAccessControls}
                 loading={rolesLoading || roleBasedAccessControlsLoading}
                 expandable={{
-                    isRowExpanded: (record) => !!selectedRole && record.role.id === selectedRole.id,
-                    onRowExpand: (record) => selectRole(record.role),
-                    onRowCollapse: () => selectRole(null),
+                    isRowExpanded: (record) => !!selectedRoleId && record.role.id === selectedRoleId,
+                    onRowExpand: (record) => selectRoleId(record.role.id),
+                    onRowCollapse: () => selectRoleId(null),
                     expandedRowRender: ({ role }) => <RoleDetails role={role} />,
                 }}
             />
 
-            <LemonButton type="primary" onClick={() => alert('todo')}>
+            <LemonButton type="primary" onClick={() => setEditingRoleId('new')}>
                 Create role
             </LemonButton>
+            <RoleModal />
         </div>
     )
 }
@@ -117,7 +124,7 @@ export function RolesAndResourceAccessControls(): JSX.Element {
 function RoleDetails({ role }: { role: RoleType }): JSX.Element {
     const { user } = useValues(userLogic)
     const { sortedMembers } = useValues(roleBasedAccessControlLogic)
-    const { addMembersToRole, removeMemberFromRole } = useActions(roleBasedAccessControlLogic)
+    const { addMembersToRole, removeMemberFromRole, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
     const [membersToAdd, setMembersToAdd] = useState<string[]>([])
     const onSubmit = membersToAdd.length
         ? () => {
@@ -159,11 +166,8 @@ function RoleDetails({ role }: { role: RoleType }): JSX.Element {
                     </LemonButton>
                 </div>
                 <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={() => alert('todo')}>
-                        Rename
-                    </LemonButton>
-                    <LemonButton type="secondary" status="danger" onClick={() => alert('todo')}>
-                        Delete role
+                    <LemonButton type="secondary" onClick={() => setEditingRoleId(role.id)}>
+                        Edit role
                     </LemonButton>
                 </div>
             </div>
@@ -223,5 +227,58 @@ function RoleDetails({ role }: { role: RoleType }): JSX.Element {
                 dataSource={role.members}
             />
         </div>
+    )
+}
+
+function RoleModal(): JSX.Element {
+    const { editingRoleId } = useValues(roleBasedAccessControlLogic)
+    const { setEditingRoleId, submitEditingRole, deleteRole } = useActions(roleBasedAccessControlLogic)
+    const isEditing = editingRoleId !== 'new'
+
+    const onDelete = (): void => {
+        LemonDialog.open({
+            title: 'Delete role',
+            content: 'Are you sure you want to delete this role? This action cannot be undone.',
+            primaryButton: {
+                children: 'Delete permanently',
+                onClick: () => deleteRole(editingRoleId as string),
+                status: 'danger',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
+    return (
+        <Form logic={roleBasedAccessControlLogic} formKey="editingRole" enableFormOnSubmit>
+            <LemonModal
+                isOpen={!!editingRoleId}
+                title={!isEditing ? 'Create role' : `Edit role`}
+                footer={
+                    <>
+                        <div className="flex-1">
+                            {!isEditing ? (
+                                <LemonButton type="secondary" status="danger" onClick={() => onDelete()}>
+                                    Delete
+                                </LemonButton>
+                            ) : null}
+                        </div>
+
+                        <LemonButton type="secondary" onClick={() => setEditingRoleId(null)}>
+                            Cancel
+                        </LemonButton>
+
+                        <LemonButton type="primary" htmlType="submit" onClick={submitEditingRole}>
+                            {!isEditing ? 'Create' : 'Save'}
+                        </LemonButton>
+                    </>
+                }
+            >
+                <LemonField label="Role name" name="name">
+                    <LemonInput placeholder="Please enter a name..." autoFocus />
+                </LemonField>
+            </LemonModal>
+        </Form>
     )
 }
