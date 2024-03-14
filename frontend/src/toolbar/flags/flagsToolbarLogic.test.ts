@@ -50,6 +50,30 @@ describe('toolbar featureFlagsLogic', () => {
         })
     })
 
+    it('uses posthog client values if present', async () => {
+        const flags = {
+            'flag 1': false,
+            'flag 2': true,
+            'flag 3': 'value',
+        }
+        await expectLogic(logic, () => {
+            logic.actions.setFeatureFlagValueFromPostHogClient(Object.keys(flags), flags)
+        }).toMatchValues({
+            userFlags: featureFlags,
+            searchTerm: '',
+            filteredFlags: [
+                { currentValue: false, hasOverride: false, hasVariants: false, feature_flag: { key: 'flag 1' } },
+                { currentValue: true, hasOverride: false, hasVariants: false, feature_flag: { key: 'flag 2' } },
+                {
+                    currentValue: 'value',
+                    hasOverride: false,
+                    hasVariants: false,
+                    feature_flag: { key: 'flag 3', name: 'mentions 2' },
+                },
+            ],
+        })
+    })
+
     it('can filter the flags', async () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchTerm('2')

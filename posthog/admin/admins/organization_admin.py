@@ -11,7 +11,6 @@ from posthog.models.organization import Organization
 class OrganizationAdmin(admin.ModelAdmin):
     show_full_result_count = False  # prevent count() queries to show the no of filtered results
     paginator = NoCountPaginator  # prevent count() queries and return a fix page count instead
-    date_hierarchy = "created_at"
     fields = [
         "name",
         "created_at",
