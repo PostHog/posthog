@@ -37,7 +37,10 @@ export function RolesAndResourceAccessControls(): JSX.Element {
             width: 0,
             render: (_, { role }) => (
                 <span className="whitespace-nowrap">
-                    <LemonTableLink onClick={() => selectRole(role)} title={role.name} />
+                    <LemonTableLink
+                        onClick={() => (role === selectedRole ? selectRole(null) : selectRole(role))}
+                        title={role.name}
+                    />
                 </span>
             ),
         },
