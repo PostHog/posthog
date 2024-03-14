@@ -34,10 +34,10 @@ export const objectTagsLogic = kea<objectTagsLogicType>([
             },
         ],
         addingNewTag: [
-            false,
+            true,
             {
-                setAddingNewTag: (_, { addingNewTag }) => addingNewTag,
-                setTags: () => false,
+                setAddingNewTag: (_, { addingNewTag }) => true,
+                setTags: () => true,
             },
         ],
         newTag: [

@@ -1,7 +1,7 @@
 // eslint-disable-next-line no-restricted-imports
 import { CloseOutlined, SyncOutlined } from '@ant-design/icons'
 import { IconPlus } from '@posthog/icons'
-import { LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSelectOptions, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { Select } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -77,6 +77,40 @@ export function ObjectTags({
         })
     }
 
+    const options = [
+        cleanedNewTag && { value: cleanedNewTag, label: cleanedNewTag, className: 'ph-no-capture' },
+        ...(tagsAvailable || []).map((tag) => ({ label: tag, value: tag, className: 'ph-no-capture' })),
+        { label: 'one', value: 1 },
+        { label: 'one', value: 2 },
+        { label: 'one', value: 3 },
+        { label: 'one', value: 4 },
+        { label: 'one', value: 5 },
+        { label: 'one', value: 6 },
+    ].filter(Boolean)
+
+    // {cleanedNewTag ? (
+    //     <Select.Option
+    //         key={`${cleanedNewTag}_${id}`}
+    //         value={cleanedNewTag}
+    //         className="ph-no-capture"
+    //         data-attr="new-tag-option"
+    //     >
+    //         {cleanedNewTag}
+    //     </Select.Option>
+    // ) : (
+    //     (!tagsAvailable || !tagsAvailable.length) && (
+    //         <Select.Option key="__" value="__" disabled style={{ color: 'var(--muted)' }}>
+    //             Type to add a new tag
+    //         </Select.Option>
+    //     )
+    // )}
+    // {tagsAvailable &&
+    //     tagsAvailable.map((tag) => (
+    //         <Select.Option key={tag} value={tag} className="ph-no-capture">
+    //             {tag}
+    //         </Select.Option>
+    //     ))}
+
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={style} className={clsx(className, 'flex flex-wrap gap-2 items-center')} data-attr={dataAttr}>
@@ -133,44 +167,57 @@ export function ObjectTags({
                     {/* <LemonSelect size="small" data-attr="new-tag-input" allowClear /> */}
 
                     {addingNewTag && (
-                        <SelectGradientOverflow
-                            size="small"
-                            onBlur={() => setAddingNewTag(false)}
-                            data-attr="new-tag-input"
-                            autoFocus
-                            allowClear
-                            autoClearSearchValue
-                            defaultOpen
-                            showSearch
-                            style={{ width: 160 }}
-                            onChange={(changedValue) => handleAdd(changedValue)}
-                            loading={saving}
-                            onSearch={setNewTag}
-                            placeholder='try "official"'
-                        >
-                            {cleanedNewTag ? (
-                                <Select.Option
-                                    key={`${cleanedNewTag}_${id}`}
-                                    value={cleanedNewTag}
-                                    className="ph-no-capture"
-                                    data-attr="new-tag-option"
-                                >
-                                    {cleanedNewTag}
-                                </Select.Option>
-                            ) : (
-                                (!tagsAvailable || !tagsAvailable.length) && (
-                                    <Select.Option key="__" value="__" disabled style={{ color: 'var(--muted)' }}>
-                                        Type to add a new tag
+                        <>
+                            <LemonSelect options={options} loading={saving}>
+                                <LemonInput
+                                    data-attr="new-tag-input"
+                                    size="small"
+                                    autoFocus
+                                    allowClear
+                                    placeholder='try "official"'
+                                    onBlur={() => setAddingNewTag(false)}
+                                    // onPressEnter={}
+                                />
+                            </LemonSelect>
+                            <SelectGradientOverflow
+                                size="small"
+                                onBlur={() => setAddingNewTag(false)}
+                                data-attr="new-tag-input"
+                                autoFocus
+                                allowClear
+                                autoClearSearchValue
+                                defaultOpen
+                                showSearch
+                                style={{ width: 160 }}
+                                onChange={(changedValue) => handleAdd(changedValue)}
+                                // loading={saving}
+                                onSearch={setNewTag}
+                                // placeholder='try "official"'
+                            >
+                                {cleanedNewTag ? (
+                                    <Select.Option
+                                        key={`${cleanedNewTag}_${id}`}
+                                        value={cleanedNewTag}
+                                        className="ph-no-capture"
+                                        data-attr="new-tag-option"
+                                    >
+                                        {cleanedNewTag}
                                     </Select.Option>
-                                )
-                            )}
-                            {tagsAvailable &&
-                                tagsAvailable.map((tag) => (
-                                    <Select.Option key={tag} value={tag} className="ph-no-capture">
-                                        {tag}
-                                    </Select.Option>
-                                ))}
-                        </SelectGradientOverflow>
+                                ) : (
+                                    (!tagsAvailable || !tagsAvailable.length) && (
+                                        <Select.Option key="__" value="__" disabled style={{ color: 'var(--muted)' }}>
+                                            Type to add a new tag
+                                        </Select.Option>
+                                    )
+                                )}
+                                {tagsAvailable &&
+                                    tagsAvailable.map((tag) => (
+                                        <Select.Option key={tag} value={tag} className="ph-no-capture">
+                                            {tag}
+                                        </Select.Option>
+                                    ))}
+                            </SelectGradientOverflow>
+                        </>
                     )}
                 </span>
             )}

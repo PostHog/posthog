@@ -74,6 +74,7 @@ export interface LemonSelectPropsBase<T>
     placeholder?: string
     size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
+    children?: JSX.Element
 }
 
 export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
