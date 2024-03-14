@@ -3,6 +3,7 @@ import { getStoryContext, TestRunnerConfig, TestContext, waitForPageReady } from
 import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/csf'
+import { FORCE_REMOUNT } from '@storybook/core-events'
 
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
@@ -65,6 +66,8 @@ const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 const JEST_TIMEOUT_MS = 15000
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 
+const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
+
 module.exports = {
     setup() {
         expect.extend({ toMatchImageSnapshot })
@@ -72,6 +75,18 @@ module.exports = {
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
     async postVisit(page, context) {
+        ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+        await page.evaluate(
+            ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
+            [ATTEMPT_COUNT_PER_ID[context.id], context.id]
+        );
+        // If we're retrying, remount to deal with flakiness
+        if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
+            await page.evaluate(
+                ([id, FORCE_REMOUNT]) => (globalThis as any).__STORYBOOK_ADDONS_CHANNEL__.emit(FORCE_REMOUNT, { storyId: id }),
+                [context.id, FORCE_REMOUNT]
+            )
+        }
         const browserContext = page.context()
         const storyContext = await getStoryContext(page, context)
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
@@ -127,7 +142,15 @@ async function expectStoryToMatchSnapshot(
         await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 3000 })
     }
     if (waitForSelector) {
+        page.evaluate(
+            ([id, waitForSelector]) => console.log(`[${id}] Waiting for selector: ${waitForSelector}`),
+            [context.id, waitForSelector]
+        )
         await page.waitForSelector(waitForSelector)
+        page.evaluate(
+            ([id, waitForSelector]) => console.log(`[${id}] Matched selector: ${waitForSelector}`),
+            [context.id, waitForSelector]
+        )
     }
 
     await page.waitForTimeout(400) // Wait for effects to finish

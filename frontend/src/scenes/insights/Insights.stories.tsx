@@ -49,14 +49,14 @@ TrendsLineEdit.parameters = {
 export const TrendsLineMulti: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')
 )
-TrendsLine.parameters = {
+TrendsLineMulti.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 export const TrendsLineMultiEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
     'edit'
 )
-TrendsLineEdit.parameters = {
+TrendsLineMultiEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
