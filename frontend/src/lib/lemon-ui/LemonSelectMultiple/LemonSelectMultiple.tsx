@@ -1,4 +1,3 @@
-import { IconCheck } from '@posthog/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
@@ -54,7 +53,7 @@ export function LemonSelectMultiple({
 
     const filteredOptions =
         inputValue && !disableFiltering
-            ? options?.filter((option) => {
+            ? options.filter((option) => {
                   return option.label.toLowerCase().includes(inputValue.toLowerCase())
               })
             : options
@@ -193,8 +192,7 @@ export function LemonSelectMultiple({
                                     type="tertiary"
                                     size="small"
                                     fullWidth
-                                    active={isHighlighted}
-                                    sideIcon={values.includes(option.key) ? <IconCheck /> : undefined}
+                                    active={isHighlighted || values.includes(option.key)}
                                     onClick={() => _onActionItem(option.key)}
                                     onMouseEnter={() => setSelectedIndex(index)}
                                 >
@@ -202,7 +200,7 @@ export function LemonSelectMultiple({
                                         {option.labelComponent ?? option.label}
                                         {isHighlighted ? (
                                             <span>
-                                                Press <KeyboardShortcut enter /> to{' '}
+                                                <KeyboardShortcut enter />{' '}
                                                 {!values.includes(option.key) ? 'add' : 'remove'}
                                             </span>
                                         ) : undefined}

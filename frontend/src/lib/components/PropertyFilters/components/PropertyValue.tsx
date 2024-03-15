@@ -134,26 +134,18 @@ export function PropertyValue({
             onChange={(nextVal) => setValue(nextVal)}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
-            options={Object.fromEntries([
-                ...displayOptions.map(({ name: _name }, index) => {
-                    const name = toString(_name)
-                    return [
-                        name,
-                        {
-                            label: name,
-                            labelComponent: (
-                                <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                                    {name === '' ? (
-                                        <i>(empty string)</i>
-                                    ) : (
-                                        formatPropertyValueForDisplay(propertyKey, name)
-                                    )}
-                                </span>
-                            ),
-                        },
-                    ]
-                }),
-            ])}
+            options={displayOptions.map(({ name: _name }, index) => {
+                const name = toString(_name)
+                return {
+                    key: name,
+                    label: name,
+                    labelComponent: (
+                        <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
+                            {name === '' ? <i>(empty string)</i> : formatPropertyValueForDisplay(propertyKey, name)}
+                        </span>
+                    ),
+                }
+            })}
         />
     )
 }
