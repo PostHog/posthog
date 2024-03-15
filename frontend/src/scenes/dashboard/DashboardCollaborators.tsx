@@ -73,7 +73,6 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                             onChange={(newValues: string[]) =>
                                                 setExplicitCollaboratorsToBeAdded(newValues)
                                             }
-                                            filterOption={true}
                                             mode="multiple"
                                             data-attr="subscribed-emails"
                                             options={usersLemonSelectOptions(addableMembers, 'uuid')}

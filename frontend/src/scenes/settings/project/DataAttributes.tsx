@@ -18,7 +18,7 @@ export function DataAttributes(): JSX.Element {
     return (
         <>
             <p>
-                Specify a comma-separated list of{' '}
+                Specify a list of{' '}
                 <Link to="https://developer.mozilla.org/en-US/docs/Learn/HTML/Howto/Use_data_attributes">
                     data attributes
                 </Link>{' '}
@@ -34,7 +34,8 @@ export function DataAttributes(): JSX.Element {
             </p>
             <div className="space-y-4 max-w-160">
                 <LemonSelectMultiple
-                    mode="multiple-custom"
+                    mode="multiple"
+                    allowCustomValues
                     onChange={(values: string[]) => setValue(values || [])}
                     value={value}
                     data-attr="data-attribute-select"

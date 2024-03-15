@@ -206,7 +206,6 @@ export function ResourcePermission({
                                 loading={addableRolesLoading}
                                 onChange={onChange}
                                 value={rolesToAdd}
-                                filterOption={true}
                                 mode="multiple"
                                 data-attr="resource-permissioning-select"
                                 options={roleLemonSelectOptions(addableRoles)}

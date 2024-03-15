@@ -12,29 +12,24 @@ const meta: Meta<typeof LemonSelectMultiple> = {
     title: 'Lemon UI/Lemon SelectMultiple',
     component: LemonSelectMultiple,
     args: {
-        options: names.reduce(
-            (acc, x, i) => ({
-                ...acc,
-                [`user-${i}`]: {
-                    labelComponent: (
-                        <span className="flex gap-2 items-center">
-                            <ProfilePicture
-                                user={{
-                                    first_name: x,
-                                    email: `${x}@posthog.com`,
-                                }}
-                                size="sm"
-                            />
-                            <span>
-                                {capitalizeFirstLetter(x)} <b>{`<${x}@posthog.com>`}</b>
-                            </span>
-                        </span>
-                    ),
-                    label: `${x} ${x}@posthog.com>`,
-                },
-            }),
-            {}
-        ),
+        options: names.map((x, i) => ({
+            key: `user-${i}`,
+            labelComponent: (
+                <span className="flex gap-2 items-center">
+                    <ProfilePicture
+                        user={{
+                            first_name: x,
+                            email: `${x}@posthog.com`,
+                        }}
+                        size="sm"
+                    />
+                    <span>
+                        {capitalizeFirstLetter(x)} <b>{`<${x}@posthog.com>`}</b>
+                    </span>
+                </span>
+            ),
+            label: `${x} ${x}@posthog.com>`,
+        })),
     },
     tags: ['autodocs'],
 }
@@ -59,7 +54,8 @@ MultipleSelect.args = {
 export const MultipleSelectWithCustom: Story = Template.bind({})
 MultipleSelectWithCustom.args = {
     placeholder: 'Enter any email...',
-    mode: 'multiple-custom',
+    mode: 'multiple',
+    allowCustomValues: true,
 }
 
 export const Disabled: Story = Template.bind({})
@@ -82,19 +78,28 @@ Loading.parameters = {
 
 export const NoOptions: Story = Template.bind({})
 NoOptions.args = {
-    mode: 'multiple-custom',
+    mode: 'multiple',
+    allowCustomValues: true,
     placeholder: 'No options...',
     options: [],
 }
 
 export const SingleOption: Story = Template.bind({})
 SingleOption.args = {
-    mode: 'single', // TODO: Remove single support
+    mode: 'single',
+    placeholder: 'Only one option allowed',
+}
+
+export const SingleOptionWithCustom: Story = Template.bind({})
+SingleOption.args = {
+    mode: 'single',
+    allowCustomValues: true,
     placeholder: 'Only one option allowed',
 }
 
 export const PrefilledManyValues: Story = Template.bind({})
 PrefilledManyValues.args = {
-    mode: 'multiple-custom',
+    mode: 'multiple',
+    allowCustomValues: true,
     value: names.map((_, i) => `user-${i}`),
 }

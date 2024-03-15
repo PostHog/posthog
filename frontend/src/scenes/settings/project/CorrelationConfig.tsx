@@ -79,7 +79,8 @@ export function CorrelationConfig(): JSX.Element {
                         </h3>
                         <div className="max-w-160">
                             <LemonSelectMultiple
-                                mode="multiple-custom"
+                                mode="multiple"
+                                allowCustomValues
                                 onChange={(properties: string[]) => handleChange(undefined, undefined, properties)}
                                 value={funnelCorrelationConfig.excluded_event_property_names || []}
                             />

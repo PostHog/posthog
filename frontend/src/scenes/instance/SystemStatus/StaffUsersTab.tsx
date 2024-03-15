@@ -92,7 +92,6 @@ export function StaffUsersTab(): JSX.Element {
                             loading={allUsersLoading}
                             value={staffUsersToBeAdded}
                             onChange={(newValues: string[]) => setStaffUsersToBeAdded(newValues)}
-                            filterOption={true}
                             mode="multiple"
                             data-attr="subscribed-emails"
                             options={usersLemonSelectOptions(nonStaffUsers, 'uuid')}

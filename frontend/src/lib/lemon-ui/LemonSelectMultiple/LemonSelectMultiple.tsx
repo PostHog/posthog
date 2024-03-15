@@ -1,5 +1,3 @@
-import './LemonSelectMultiple.scss'
-
 import { IconCheck } from '@posthog/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
@@ -22,16 +20,16 @@ export interface LemonSelectMultipleOptionItem extends LemonSelectMultipleOption
 export type LemonSelectMultipleOptions = Record<string, LemonSelectMultipleOption>
 
 export type LemonSelectMultipleProps = {
-    selectClassName?: string // TODO: Find use cases of this and remove it or fix it
-    options?: LemonSelectMultipleOptions | LemonSelectMultipleOptionItem[] // TOOD: Make this array only?
+    options?: LemonSelectMultipleOptionItem[] // TOOD: Make this array only?
     value?: string[] | null
     disabled?: boolean
     loading?: boolean
     placeholder?: string
-    onBlur?: () => void
-    filterOptions?: boolean
-    mode?: 'single' | 'multiple' | 'multiple-custom'
+    disableFiltering?: boolean
+    mode?: 'single' | 'multiple'
+    allowCustomValues?: boolean
     onChange?: (newValue: string[]) => void
+    onInputChange?: (newValue: string) => void
     'data-attr'?: string
 }
 
@@ -41,9 +39,11 @@ export function LemonSelectMultiple({
     value,
     loading,
     onChange,
+    onInputChange,
     mode,
     disabled,
-    filterOptions = true,
+    disableFiltering = false,
+    allowCustomValues = false,
     ...props
 }: LemonSelectMultipleProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
@@ -63,7 +63,7 @@ export function LemonSelectMultiple({
     const values = value ?? []
 
     const filteredOptions =
-        inputValue && filterOptions
+        inputValue && !disableFiltering
             ? optionsAsList?.filter((option) => {
                   return option.label.toLowerCase().includes(inputValue.toLowerCase())
               })
@@ -77,7 +77,7 @@ export function LemonSelectMultiple({
         })
     }
 
-    if (mode === 'multiple-custom' && inputValue && !values.includes(inputValue)) {
+    if (allowCustomValues && inputValue && !values.includes(inputValue)) {
         filteredOptions.unshift({ key: inputValue, label: inputValue })
     }
 
@@ -86,6 +86,10 @@ export function LemonSelectMultiple({
             setSelectedIndex(Math.max(0, filteredOptions.length - 1))
         }
     }, [filteredOptions.length])
+
+    useEffect(() => {
+        onInputChange?.(inputValue)
+    }, [inputValue])
 
     const _onActionItem = (item: string): void => {
         let newValues = [...values]
@@ -118,7 +122,7 @@ export function LemonSelectMultiple({
                 _onFocus()
                 return
             }
-            if (mode === 'multiple-custom' && inputValue.trim() && !values.includes(inputValue)) {
+            if (allowCustomValues && inputValue.trim() && !values.includes(inputValue)) {
                 _onActionItem(inputValue.trim())
             } else {
                 setInputValue('')
@@ -218,7 +222,7 @@ export function LemonSelectMultiple({
                         </>
                     ) : (
                         <p className="text-muted italic p-1">
-                            {mode === 'multiple-custom'
+                            {allowCustomValues
                                 ? 'Start typing and press Enter to add options'
                                 : `No options matching "${inputValue}"`}
                         </p>
@@ -226,7 +230,7 @@ export function LemonSelectMultiple({
                 </div>
             }
         >
-            <span>
+            <span className="LemonSelectMultiple" {...props}>
                 <LemonInput
                     ref={inputRef}
                     placeholder={!values.length ? placeholder : undefined}

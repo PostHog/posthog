@@ -24,14 +24,14 @@ export function TimezoneConfig(): JSX.Element {
     }))
 
     return (
-        <div className="max-w-80">
+        <div className="max-w-160">
             <LemonSelectMultiple
                 mode="single"
                 placeholder="Select a time zone"
                 loading={currentTeamLoading}
                 disabled={currentTeamLoading}
                 value={[currentTeam.timezone]}
-                onChange={(newTimezone: string): void => {
+                onChange={([newTimezone]): void => {
                     // This is a string for a single-mode select, but typing is poor
                     if (!preflight?.available_timezones) {
                         throw new Error('No timezones are available')

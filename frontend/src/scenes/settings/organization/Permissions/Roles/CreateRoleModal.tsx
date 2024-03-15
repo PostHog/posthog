@@ -97,7 +97,6 @@ export function CreateRoleModal(): JSX.Element {
                                 value={roleMembersToAdd}
                                 loading={roleMembersInFocusLoading}
                                 onChange={(newValues: string[]) => setRoleMembersToAdd(newValues)}
-                                filterOption={true}
                                 mode="multiple"
                                 data-attr="subscribed-emails"
                                 options={usersLemonSelectOptions(addableMembers, 'uuid')}

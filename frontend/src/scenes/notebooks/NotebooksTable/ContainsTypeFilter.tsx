@@ -40,14 +40,10 @@ export function ContainsTypeFilters({
             <span>Containing:</span>
             <LemonSelectMultiple
                 mode="multiple"
-                selectClassName="min-w-[10rem]"
                 placeholder="Any content"
                 options={Object.entries(fromNodeTypeToLabel)
                     .filter((entry) => entry[1] !== '')
-                    .reduce((acc, [type, label]) => {
-                        acc[type] = { label }
-                        return acc
-                    }, {})}
+                    .map(([type, label]) => ({ key: type, label }))}
                 value={filters.contains}
                 onChange={(newValue: string[]) => {
                     posthog.capture('notebook containing filter applied')
