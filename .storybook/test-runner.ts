@@ -76,12 +76,15 @@ module.exports = {
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         await page.evaluate(
-            ([retry, id]) => {
-                console.log(`[${id}] Attempt ${retry}`)
-                window.dispatchEvent(new Event('resize'))
-            },
+            ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
             [ATTEMPT_COUNT_PER_ID[context.id], context.id]
-        );
+        )
+        if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
+            // When retrying, resize the viewport and then resize again to default,
+            // just in case the retry is due to a useResizeObserver fail
+            await page.setViewportSize({ width: 1920, height: 1080 })
+            await page.setViewportSize({ width: 1280, height: 720 })
+        }
         const browserContext = page.context()
         const storyContext = await getStoryContext(page, context)
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
