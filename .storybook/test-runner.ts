@@ -187,7 +187,7 @@ async function expectStoryToMatchComponentSnapshot(
     theme: SnapshotTheme,
     targetSelector: string = '#storybook-root'
 ): Promise<void> {
-    await page.evaluate((theme) => {
+    await page.evaluate(() => {
         const rootEl = document.getElementById('storybook-root')
         if (!rootEl) {
             throw new Error('Could not find root element')
@@ -211,7 +211,7 @@ async function expectStoryToMatchComponentSnapshot(
                 rootEl.style.width = `${-popoverBoundingClientRect.left + currentRootBoundingClientRect.right}px`
             }
         })
-    }, theme)
+    })
 
     await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
         omitBackground: true,
