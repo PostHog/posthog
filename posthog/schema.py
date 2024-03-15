@@ -355,7 +355,7 @@ class FunnelTimeToConvertResults(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    average_conversion_time: int
+    average_conversion_time: Optional[float] = None
     bins: List[List[int]]
 
 

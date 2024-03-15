@@ -713,8 +713,7 @@ type BinNumber = number
 export type FunnelStepsResults = Record<string, any>[]
 export type FunnelStepsBreakdownResults = Record<string, any>[][]
 export type FunnelTimeToConvertResults = {
-    /** @asType integer */
-    average_conversion_time: number
+    average_conversion_time: number | null
     bins: [BinNumber, BinNumber][]
 }
 export type FunnelTrendsResults = Record<string, any>[]
