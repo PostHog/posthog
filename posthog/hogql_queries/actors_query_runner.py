@@ -66,7 +66,7 @@ class ActorsQueryRunner(QueryRunner):
             yield new_row
 
     def prepare_recordings(self, column_name, input_columns):
-        if column_name != "person" or "matched_recordings" not in input_columns:
+        if (column_name != "person" and column_name != "actor") or "matched_recordings" not in input_columns:
             return None, None
 
         column_index_events = input_columns.index("matched_recordings")
