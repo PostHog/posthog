@@ -1,7 +1,7 @@
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -47,34 +47,46 @@ export function LemonSelectMultiple({
     const popoverFocusRef = useRef<boolean>(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
-
-    // TODO: Derive selected as part of the optionsList
     const values = value ?? []
 
-    const filteredOptions =
-        inputValue && !disableFiltering
-            ? options.filter((option) => {
-                  return option.label.toLowerCase().includes(inputValue.toLowerCase())
-              })
-            : options
+    const visibleOptions = useMemo(() => {
+        const res: LemonSelectMultipleOption[] = []
+        const customValues = [...values]
 
-    const customValues = values.filter((value) => !options.find((option) => option.key === value))
+        options.forEach((option) => {
+            // Remove from the custom values list if it's in the options
 
-    if (customValues.length) {
-        customValues.forEach((value) => {
-            filteredOptions.unshift({ key: value, label: value })
+            if (customValues.includes(option.key)) {
+                customValues.splice(customValues.indexOf(option.key), 1)
+            }
+
+            // Check for filtering
+            if (inputValue && !disableFiltering && !option.label.toLowerCase().includes(inputValue.toLowerCase())) {
+                return
+            }
+
+            res.push(option)
         })
-    }
 
-    if (allowCustomValues && inputValue && !values.includes(inputValue)) {
-        filteredOptions.unshift({ key: inputValue, label: inputValue })
-    }
-
-    useEffect(() => {
-        if (selectedIndex >= filteredOptions.length) {
-            setSelectedIndex(Math.max(0, filteredOptions.length - 1))
+        // Custom values are always shown before the list
+        if (customValues.length) {
+            customValues.forEach((value) => {
+                res.unshift({ key: value, label: value })
+            })
         }
-    }, [filteredOptions.length])
+
+        // Finally we show the input value if custom values are allowed and it's not in the list
+        if (allowCustomValues && inputValue && !values.includes(inputValue)) {
+            res.unshift({ key: inputValue, label: inputValue })
+        }
+
+        return res
+    }, [options, inputValue, ...values])
+
+    // Reset the selected index when the visible options change
+    useEffect(() => {
+        setSelectedIndex(0)
+    }, [visibleOptions.length])
 
     useEffect(() => {
         onInputChange?.(inputValue)
@@ -83,6 +95,7 @@ export function LemonSelectMultiple({
     const _onActionItem = (item: string): void => {
         let newValues = [...values]
         if (values.includes(item)) {
+            // Remove the item
             if (mode === 'single') {
                 newValues = []
             } else {
@@ -129,9 +142,9 @@ export function LemonSelectMultiple({
         if (e.key === 'Enter') {
             e.preventDefault()
 
-            const itemToAdd = filteredOptions[selectedIndex]?.key
+            const itemToAdd = visibleOptions[selectedIndex]?.key
             if (itemToAdd) {
-                _onActionItem(filteredOptions[selectedIndex]?.key)
+                _onActionItem(visibleOptions[selectedIndex]?.key)
             }
         } else if (e.key === 'Backspace') {
             if (!inputValue) {
@@ -183,8 +196,8 @@ export function LemonSelectMultiple({
             }}
             overlay={
                 <div className="space-y-px overflow-y-auto">
-                    {filteredOptions.length ? (
-                        filteredOptions?.map((option, index) => {
+                    {visibleOptions.length ? (
+                        visibleOptions?.map((option, index) => {
                             const isHighlighted = index === selectedIndex
                             return (
                                 <LemonButton
