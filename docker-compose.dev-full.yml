@@ -183,3 +183,4 @@ services:
             - kafka
             - object_storage
             - temporal
+            
