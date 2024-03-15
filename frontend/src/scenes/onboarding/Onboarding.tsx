@@ -109,10 +109,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Capture console logs as a part of user session recordings. 
                             Use the console logs alongside recordings to debug any issues with your app.`,
             teamProperty: 'capture_console_log_opt_in',
-            value:
-                typeof currentTeam?.capture_console_log_opt_in === 'boolean'
-                    ? currentTeam?.capture_console_log_opt_in
-                    : true,
+            value: currentTeam?.capture_console_log_opt_in ?? true,
         },
         {
             type: 'toggle',
@@ -120,10 +117,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Capture performance and network information alongside recordings. Use the
                             network requests and timings in the recording player to help you debug issues with your app.`,
             teamProperty: 'capture_performance_opt_in',
-            value:
-                typeof currentTeam?.capture_performance_opt_in === 'boolean'
-                    ? currentTeam?.capture_performance_opt_in
-                    : true,
+            value: currentTeam?.capture_performance_opt_in ?? true,
         },
     ]
 
