@@ -4,6 +4,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
 from sklearn.cluster import DBSCAN
 import pandas as pd
+import numpy as np
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 
 CLUSTER_REPLAY_ERRORS_TIMING = Histogram(
     "posthog_session_recordings_cluster_replay_errors",
@@ -34,7 +36,7 @@ def error_clustering(team: Team):
 
     CLUSTER_REPLAY_ERRORS_CLUSTER_COUNT.labels(team_id=team.pk).observe(df["cluster"].nunique())
 
-    return construct_response(df)
+    return construct_response(df, team)
 
 
 def fetch_error_embeddings(team_id: int):
@@ -64,13 +66,20 @@ def cluster_embeddings(embeddings):
     return dbscan.labels_
 
 
-def construct_response(df):
+def construct_response(df, team):
+    sessions_viewed = (
+        SessionRecordingViewed.objects.filter(team=team, session_id__in=df["session_id"].unique())
+        .values_list("session_id", flat=True)
+        .distinct()
+    )
+
     return [
         {
             "cluster": cluster,
             "samples": rows.head(n=DBSCAN_MIN_SAMPLES)[["session_id", "input"]].to_dict("records"),
             "occurrences": rows.size,
-            "unique_sessions": rows["session_id"].count(),
+            "unique_sessions": rows["session_id"].nunique(),
+            "viewed": len(np.intersect1d(rows["session_id"].unique(), sessions_viewed, assume_unique=True)),
         }
         for cluster, rows in df.groupby("cluster")
     ]
