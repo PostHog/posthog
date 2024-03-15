@@ -28,7 +28,6 @@ export function SessionRecordingErrors(): JSX.Element {
 
     return (
         <>
-            <SessionPlayerModal />
             <LemonTable
                 columns={[
                     {
@@ -85,6 +84,7 @@ export function SessionRecordingErrors(): JSX.Element {
                 dataSource={errors}
                 expandable={{ expandedRowRender: (cluster) => <ExpandedError error={cluster.sample.error} /> }}
             />
+            <SessionPlayerModal />
         </>
     )
 }
