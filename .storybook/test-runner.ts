@@ -76,7 +76,10 @@ module.exports = {
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         await page.evaluate(
-            ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
+            ([retry, id]) => {
+                console.log(`[${id}] Attempt ${retry}`)
+                window.dispatchEvent(new Event('resize'))
+            },
             [ATTEMPT_COUNT_PER_ID[context.id], context.id]
         );
         const browserContext = page.context()
