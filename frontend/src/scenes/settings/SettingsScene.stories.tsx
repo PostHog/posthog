@@ -22,6 +22,7 @@ const meta: Meta = {
                     cloud: true,
                     realm: 'cloud',
                 },
+                '/api/projects/:id/integrations': { results: [] },
             },
         }),
     ],

@@ -20,8 +20,8 @@ declare module '@storybook/types' {
              * @default true
              */
             waitForLoadersToDisappear?: boolean
-            /** If set, we'll wait for the given selector to be satisfied. */
-            waitForSelector?: string
+            /** If set, we'll wait for the given selector (or all selectors, if multiple) to be satisfied. */
+            waitForSelector?: string | string[]
             /**
              * Whether navigation should be included in the snapshot. Only applies to `layout: 'fullscreen'` stories.
              * @default false
@@ -54,7 +54,7 @@ const LOADER_SELECTORS = [
     '.Spinner',
     '.LemonSkeleton',
     '.LemonTableLoader',
-    '.Toastify__toast-container',
+    '.Toastify__toast',
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
     '.Lettermark--unknown',
@@ -133,8 +133,10 @@ async function expectStoryToMatchSnapshot(
         // The timeout is reduced so that we never allow toasts – they usually signify something wrong
         await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 3000 })
     }
-    if (waitForSelector) {
+    if (typeof waitForSelector === 'string') {
         await page.waitForSelector(waitForSelector)
+    } else if (Array.isArray(waitForSelector)) {
+        await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
     }
 
     await page.waitForTimeout(400) // Wait for effects to finish
