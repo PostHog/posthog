@@ -214,7 +214,13 @@ export function LemonSelectMultiple({
                                         {isHighlighted ? (
                                             <span>
                                                 <KeyboardShortcut enter />{' '}
-                                                {!values.includes(option.key) ? 'add' : 'remove'}
+                                                {!values.includes(option.key)
+                                                    ? mode === 'single'
+                                                        ? 'select'
+                                                        : 'add'
+                                                    : mode === 'single'
+                                                    ? 'unselect'
+                                                    : 'remove'}
                                             </span>
                                         ) : undefined}
                                     </span>
