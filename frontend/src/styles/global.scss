@@ -684,6 +684,17 @@ body {
 }
 
 .storybook-test-runner {
+    &.storybook-test-runner--fullscreen {
+        height: fit-content;
+    }
+
+    &.storybook-test-runner--padded {
+        #storybook-root {
+            // Make the root element (which is the default screenshot reference) hug the component
+            display: inline-block;
+        }
+    }
+
     // Only use this class in visual regression tests
     *,
     *::before,
@@ -711,10 +722,6 @@ body {
         // Fix for stories of fixed modals - otherwise body would be zero-sized
         position: static !important;
     }
-}
-
-body.storybook-test-runner--fullscreen {
-    height: fit-content;
 }
 
 .ant-radio-button-wrapper {
