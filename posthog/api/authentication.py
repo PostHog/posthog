@@ -276,7 +276,7 @@ class PasswordResetSerializer(serializers.Serializer):
             user = None
 
         if user:
-            user.requested_password_reset_at = datetime.datetime.now()
+            user.requested_password_reset_at = datetime.datetime.now(datetime.timezone.utc)
             user.save()
             token = password_reset_token_generator.make_token(user)
             send_password_reset(user.id, token)

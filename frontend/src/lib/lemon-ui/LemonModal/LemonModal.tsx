@@ -26,6 +26,7 @@ export interface LemonModalProps {
     onClose?: () => void
     onAfterClose?: () => void
     width?: number | string
+    maxWidth?: number | string
     inline?: boolean
     title?: React.ReactNode
     description?: React.ReactNode
@@ -64,6 +65,7 @@ export const LemonModalContent = ({ children, className, embedded = false }: Lem
 
 export function LemonModal({
     width,
+    maxWidth,
     children,
     isOpen = true,
     onClose,
@@ -152,12 +154,13 @@ export function LemonModal({
     )
 
     width = !fullScreen ? width : undefined
+    maxWidth = !fullScreen ? maxWidth : undefined
 
     const floatingContainer = useFloatingContainer()
 
     return inline ? (
         // eslint-disable-next-line react/forbid-dom-props
-        <div className="LemonModal ReactModal__Content--after-open" style={{ width }}>
+        <div className="LemonModal ReactModal__Content--after-open" style={{ width, maxWidth }}>
             {modalContent}
         </div>
     ) : (
@@ -184,6 +187,7 @@ export function LemonModal({
             style={{
                 content: {
                     width: width,
+                    maxWidth,
                 },
             }}
             appElement={document.getElementById('root') as HTMLElement}

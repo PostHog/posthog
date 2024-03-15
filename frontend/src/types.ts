@@ -896,9 +896,11 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
+export type ErrorClusterSample = { session_id: string; input: string }
+
 type ErrorCluster = {
     cluster: number
-    samples: { session_id: string; message: string }[]
+    samples: ErrorClusterSample[]
     occurrences: number
     unique_sessions: number
 }
@@ -942,6 +944,7 @@ export interface ActionFilter extends EntityFilter {
 export interface DataWarehouseFilter extends ActionFilter {
     id_field: string
     timestamp_field: string
+    distinct_id_field: string
     table_name: string
 }
 
@@ -1470,7 +1473,7 @@ export interface BillingV2PlanType {
     note: string | null
     unit: string | null
     product_key: ProductKeyUnion
-    current_plan?: any
+    current_plan?: boolean | null
     tiers?: BillingV2TierType[] | null
     unit_amount_usd?: string
     included_if?: 'no_active_subscription' | 'has_subscription' | null

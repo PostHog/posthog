@@ -95,6 +95,7 @@ export const legacyEntityToNode = (
         custom_name: entity.custom_name || undefined,
         id_field: 'id_field' in entity ? entity.id_field : undefined,
         timestamp_field: 'timestamp_field' in entity ? entity.timestamp_field : undefined,
+        distinct_id_field: 'distinct_id_field' in entity ? entity.distinct_id_field : undefined,
         table_name: 'table_name' in entity ? entity.table_name : undefined,
     }
 
@@ -103,6 +104,7 @@ export const legacyEntityToNode = (
             ...shared,
             id_field: entity.id_field || undefined,
             timestamp_field: entity.timestamp_field || undefined,
+            distinct_id_field: entity.distinct_id_field || undefined,
             table_name: entity.table_name || undefined,
         }
     }
