@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestDataWarehouseQueryBuilder.test_trends_breakdown
+# name: TestTrendsDataWarehouseQuery.test_trends_breakdown
   '''
   SELECT e.prop_1 AS value,
          count(e.id) AS count
@@ -12,7 +12,7 @@
                     allow_experimental_object_type=1
   '''
 # ---
-# name: TestDataWarehouseQueryBuilder.test_trends_breakdown.1
+# name: TestTrendsDataWarehouseQuery.test_trends_breakdown.1
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -52,7 +52,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestDataWarehouseQueryBuilder.test_trends_breakdown_with_property
+# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property
   '''
   SELECT e.prop_1 AS value,
          count(e.id) AS count
@@ -65,7 +65,7 @@
                     allow_experimental_object_type=1
   '''
 # ---
-# name: TestDataWarehouseQueryBuilder.test_trends_breakdown_with_property.1
+# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property.1
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -105,7 +105,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestDataWarehouseQueryBuilder.test_trends_data_warehouse
+# name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
@@ -131,7 +131,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestDataWarehouseQueryBuilder.test_trends_entity_property
+# name: TestTrendsDataWarehouseQuery.test_trends_entity_property
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
@@ -157,7 +157,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestDataWarehouseQueryBuilder.test_trends_property
+# name: TestTrendsDataWarehouseQuery.test_trends_property
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total

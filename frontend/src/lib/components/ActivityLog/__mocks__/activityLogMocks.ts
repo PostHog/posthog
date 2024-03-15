@@ -22,6 +22,36 @@ export const teamActivityResponseJson: ActivityLogItem[] = [
             changes: [
                 {
                     type: ActivityScope.TEAM,
+                    after: { poe_v2_enabled: true },
+                    field: 'extra_settings',
+                    action: 'created',
+                    before: null,
+                },
+            ],
+            trigger: null,
+            short_id: null,
+        },
+        created_at: '2024-02-08T19:23:53.530402Z',
+    },
+    {
+        user: {
+            first_name: 'sdavasdadadsadas',
+            last_name: '',
+            email: 'paul@posthog.com',
+        },
+        unread: false,
+        is_staff: false,
+        is_system: false,
+        activity: 'updated',
+        item_id: '1',
+        scope: ActivityScope.TEAM,
+        detail: {
+            name: 'Default Project',
+            type: undefined,
+            merge: null,
+            changes: [
+                {
+                    type: ActivityScope.TEAM,
                     after: 2000,
                     field: 'session_recording_minimum_duration_milliseconds',
                     action: 'created',

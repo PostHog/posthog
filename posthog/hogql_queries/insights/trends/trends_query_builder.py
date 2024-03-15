@@ -3,6 +3,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
@@ -13,15 +14,21 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, TrendsQuery, ChartDisplayType
-from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
+from posthog.schema import (
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    HogQLQueryModifiers,
+    TrendsQuery,
+    ChartDisplayType,
+)
 
 
-class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
+class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
-    series: EventsNode | ActionsNode
+    series: EventsNode | ActionsNode | DataWarehouseNode
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
 
@@ -30,7 +37,7 @@ class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
         trends_query: TrendsQuery,
         team: Team,
         query_date_range: QueryDateRange,
-        series: EventsNode | ActionsNode,
+        series: EventsNode | ActionsNode | DataWarehouseNode,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
     ):
@@ -179,13 +186,21 @@ class TrendsQueryBuilder(TrendsQueryBuilderAbstract):
             ast.SelectQuery,
             parse_select(
                 """
-                SELECT
-                    {aggregation_operation} AS total
-                FROM events AS e
-                SAMPLE {sample}
-                WHERE {events_filter}
-            """,
+                    SELECT
+                        {aggregation_operation} AS total
+                    FROM {table} AS e
+                    WHERE {events_filter}
+                """
+                if isinstance(self.series, DataWarehouseNode)
+                else """
+                    SELECT
+                        {aggregation_operation} AS total
+                    FROM {table} AS e
+                    SAMPLE {sample}
+                    WHERE {events_filter}
+                """,
                 placeholders={
+                    "table": self._table_expr,
                     "events_filter": events_filter,
                     "aggregation_operation": self._aggregation_operation.select_aggregation(),
                     "sample": self._sample_value(),
