@@ -39,11 +39,10 @@ class ActorsQueryRunner(QueryRunner):
             return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
-    def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
+    def serialize_recordings(self, recordings_lookup) -> Generator[dict, None, None]:
         return (
             {"session_id": session_id, "events": recordings_lookup[session_id]}
-            for session_id in (event[2] for event in event_results)
-            if session_id in recordings_lookup
+            for session_id in recordings_lookup.keys()
         )
 
     def enrich_with_actors(
@@ -60,9 +59,7 @@ class ActorsQueryRunner(QueryRunner):
             actor = actors_lookup.get(actor_id)
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
             if recordings_column_index is not None and recordings_lookup is not None:
-                new_row[recordings_column_index] = (
-                    self.get_recordings(result[recordings_column_index], recordings_lookup) or None
-                )
+                new_row[recordings_column_index] = self.serialize_recordings(recordings_lookup) or None
             yield new_row
 
     def prepare_recordings(self, column_name, input_columns):
