@@ -11,10 +11,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import {
-    LemonSelectMultiple,
-    LemonSelectMultipleOptionItem,
-} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonSelectMultiple, LemonSelectMultipleOption } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect, useMemo } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -86,7 +83,7 @@ export function EditSubscription({
     }, [subscription?.target_type, slackIntegration])
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const slackChannelOptions: LemonSelectMultipleOptionItem[] = useMemo(
+    const slackChannelOptions: LemonSelectMultipleOption[] = useMemo(
         () => getSlackChannelOptions(subscription?.target_value, slackChannels),
         [slackChannels, subscription?.target_value]
     )

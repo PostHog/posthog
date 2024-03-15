@@ -2,10 +2,7 @@ import { IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import {
-    LemonSelectMultiple,
-    LemonSelectMultipleOptionItem,
-} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonSelectMultiple, LemonSelectMultipleOption } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessLevel, Resource, RoleType } from '~/types'
@@ -36,7 +33,7 @@ interface ResourcePermissionModalProps extends ResourcePermissionProps {
     onClose: () => void
 }
 
-export function roleLemonSelectOptions(roles: RoleType[]): LemonSelectMultipleOptionItem[] {
+export function roleLemonSelectOptions(roles: RoleType[]): LemonSelectMultipleOption[] {
     return roles.map((role) => ({
         key: role.id,
         label: `${role.name}`,

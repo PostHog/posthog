@@ -4,23 +4,20 @@ import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 import { LemonButton } from '../LemonButton'
 import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput } from '../LemonInput'
 
 export interface LemonSelectMultipleOption {
+    key: string
     label: string
     labelComponent?: React.ReactNode
 }
 
-export interface LemonSelectMultipleOptionItem extends LemonSelectMultipleOption {
-    key: string
-}
-
-export type LemonSelectMultipleOptions = Record<string, LemonSelectMultipleOption>
-
 export type LemonSelectMultipleProps = {
-    options?: LemonSelectMultipleOptionItem[] // TOOD: Make this array only?
+    options?: LemonSelectMultipleOption[]
     value?: string[] | null
     disabled?: boolean
     loading?: boolean
@@ -35,7 +32,7 @@ export type LemonSelectMultipleProps = {
 
 export function LemonSelectMultiple({
     placeholder,
-    options,
+    options = [],
     value,
     loading,
     onChange,
@@ -52,24 +49,17 @@ export function LemonSelectMultiple({
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
 
-    const optionsAsList: LemonSelectMultipleOptionItem[] = Array.isArray(options)
-        ? options
-        : Object.entries(options || {}).map(([key, option]) => ({
-              key: key,
-              ...option,
-          }))
-
     // TODO: Derive selected as part of the optionsList
     const values = value ?? []
 
     const filteredOptions =
         inputValue && !disableFiltering
-            ? optionsAsList?.filter((option) => {
+            ? options?.filter((option) => {
                   return option.label.toLowerCase().includes(inputValue.toLowerCase())
               })
-            : optionsAsList
+            : options
 
-    const customValues = values.filter((value) => !optionsAsList.find((option) => option.key === value))
+    const customValues = values.filter((value) => !options.find((option) => option.key === value))
 
     if (customValues.length) {
         customValues.forEach((value) => {
@@ -153,7 +143,7 @@ export function LemonSelectMultiple({
             }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
-            setSelectedIndex(Math.min(selectedIndex + 1, optionsAsList.length - 1))
+            setSelectedIndex(Math.min(selectedIndex + 1, options.length - 1))
         } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setSelectedIndex(Math.max(selectedIndex - 1, 0))
@@ -163,7 +153,7 @@ export function LemonSelectMultiple({
     const prefix = (
         <>
             {values.map((value) => {
-                const option = optionsAsList.find((option) => option.key === value) ?? {
+                const option = options.find((option) => option.key === value) ?? {
                     label: value,
                     labelComponent: null,
                 }
@@ -196,18 +186,27 @@ export function LemonSelectMultiple({
                 <div className="space-y-px overflow-y-auto">
                     {filteredOptions.length ? (
                         filteredOptions?.map((option, index) => {
+                            const isHighlighted = index === selectedIndex
                             return (
                                 <LemonButton
                                     key={option.key}
                                     type="tertiary"
                                     size="small"
                                     fullWidth
-                                    active={index === selectedIndex}
+                                    active={isHighlighted}
                                     sideIcon={values.includes(option.key) ? <IconCheck /> : undefined}
                                     onClick={() => _onActionItem(option.key)}
                                     onMouseEnter={() => setSelectedIndex(index)}
                                 >
-                                    <span>{option.labelComponent ?? option.label}</span>
+                                    <span className="flex-1 flex items-center justify-between gap-1">
+                                        {option.labelComponent ?? option.label}
+                                        {isHighlighted ? (
+                                            <span>
+                                                Press <KeyboardShortcut enter /> to{' '}
+                                                {!values.includes(option.key) ? 'add' : 'remove'}
+                                            </span>
+                                        ) : undefined}
+                                    </span>
                                 </LemonButton>
                             )
                         })

@@ -1,7 +1,7 @@
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { IconSlack, IconSlackExternal } from 'lib/lemon-ui/icons'
-import { LemonSelectMultipleOptionItem } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonSelectMultipleOption } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -84,7 +84,7 @@ export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => (
 export const getSlackChannelOptions = (
     value: string,
     slackChannels?: SlackChannelType[] | null
-): LemonSelectMultipleOptionItem[] => {
+): LemonSelectMultipleOption[] => {
     return slackChannels
         ? slackChannels.map((x) => ({
               key: `${x.id}|#${x.name}`,
