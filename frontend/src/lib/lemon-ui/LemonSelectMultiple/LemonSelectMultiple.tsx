@@ -22,7 +22,7 @@ export type LemonSelectMultipleProps = {
     loading?: boolean
     placeholder?: string
     disableFiltering?: boolean
-    mode?: 'single' | 'multiple'
+    mode: 'multiple' | 'single'
     allowCustomValues?: boolean
     onChange?: (newValue: string[]) => void
     onInputChange?: (newValue: string) => void
@@ -43,7 +43,7 @@ export function LemonSelectMultiple({
     ...props
 }: LemonSelectMultipleProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
-    const [inputValue, setInputValue] = useState('')
+    const [inputValue, _setInputValue] = useState('')
     const popoverFocusRef = useRef<boolean>(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
@@ -81,16 +81,17 @@ export function LemonSelectMultiple({
         }
 
         return res
-    }, [options, inputValue, ...values])
+    }, [options, inputValue, value])
 
     // Reset the selected index when the visible options change
     useEffect(() => {
         setSelectedIndex(0)
     }, [visibleOptions.length])
 
-    useEffect(() => {
+    const setInputValue = (newValue: string): void => {
+        _setInputValue(newValue)
         onInputChange?.(inputValue)
-    }, [inputValue])
+    }
 
     const _onActionItem = (item: string): void => {
         let newValues = [...values]
@@ -116,7 +117,7 @@ export function LemonSelectMultiple({
     }
 
     const _onBlur = (): void => {
-        // We ned to add a delay as a click could be in the popover or the input wrapper which refocuses
+        // We need to add a delay as a click could be in the popover or the input wrapper which refocuses
         setTimeout(() => {
             if (popoverFocusRef.current) {
                 popoverFocusRef.current = false

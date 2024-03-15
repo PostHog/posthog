@@ -37,7 +37,7 @@ export default meta
 
 const Template: StoryFn<typeof LemonSelectMultiple> = (props: LemonSelectMultipleProps) => {
     const [value, setValue] = useState(props.value || [])
-    return <LemonSelectMultiple {...props} value={value} onChange={setValue} />
+    return <LemonSelectMultiple {...props} value={value} onChange={setValue} mode="single" />
 }
 
 export const Default: Story = Template.bind({})
@@ -91,10 +91,10 @@ SingleOption.args = {
 }
 
 export const SingleOptionWithCustom: Story = Template.bind({})
-SingleOption.args = {
+SingleOptionWithCustom.args = {
     mode: 'single',
     allowCustomValues: true,
-    placeholder: 'Only one option allowed',
+    placeholder: 'Only one option allowed but can be custom',
 }
 
 export const PrefilledManyValues: Story = Template.bind({})
