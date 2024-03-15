@@ -2,11 +2,10 @@
     --lemon-input-height: calc(2.125rem + 3px); // Medium size button height + button shadow height;
 
     display: flex;
-    flex-wrap: wrap;
     gap: 0.25rem;
     align-items: center;
     justify-content: left;
-    min-height: var(--lemon-input-height); // TODO: Does this break anything?
+    height: var(--lemon-input-height);
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
@@ -88,5 +87,11 @@
     &.LemonInput--full-width {
         width: 100%;
         max-width: 100%;
+    }
+
+    .LemonSelectMultiple & {
+        flex-wrap: wrap;
+        height: auto;
+        min-height: var(--lemon-input-height); // TODO: Does this break anything?
     }
 }
