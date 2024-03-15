@@ -7,8 +7,10 @@ describe('icons', () => {
         const validPackageIcons = Object.keys(packageIcons).filter((i) => !['BaseIcon', 'default'].includes(i))
         const categorisedIcons = Object.values(CATEGORIES)
             .map((category) => Object.values(category))
-            .flat(2).length
+            .flat(2)
 
-        expect(validPackageIcons.length).toEqual(UNUSED_ICONS.length + categorisedIcons)
+        const allIcons = [...categorisedIcons, ...UNUSED_ICONS]
+
+        expect(validPackageIcons.filter((i) => !allIcons.includes(i))).toEqual([])
     })
 })

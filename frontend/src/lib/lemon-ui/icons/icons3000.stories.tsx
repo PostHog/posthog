@@ -22,7 +22,7 @@ const posthogIcons = Object.entries(packageIcons)
 
 export const UNUSED_ICONS = [
     'IconAdvanced',
-    'IconAstreisk',
+    'IconAsterisk',
     'IconGridMasonry',
     'IconApps',
     'IconRibbon',
@@ -31,7 +31,10 @@ export const UNUSED_ICONS = [
     'IconPizza',
     'IconTarget',
     'IconThumbsUp',
+    'IconThumbsUpFilled',
     'IconThumbsDown',
+    'IconThumbsDownFilled',
+    'IconShieldLock',
 ]
 
 const OBJECTS = {
@@ -90,7 +93,7 @@ const TECHNOLOGY = {
         'IconPassword',
         'IconToggle',
         'IconLoading',
-        // 'IconSpinner',
+        'IconSpinner',
         'IconBrightness',
         'IconCursor',
         'IconCursorBox',
