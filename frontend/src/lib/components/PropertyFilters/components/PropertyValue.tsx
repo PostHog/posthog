@@ -156,49 +156,4 @@ export function PropertyValue({
             ])}
         />
     )
-
-    // return (
-    //     <AutoComplete
-    //         {...commonInputProps}
-    //         autoFocus={autoFocus}
-    //         value={input}
-    //         className="h-10 w-full property-filters-property-value"
-    //         onClear={() => {
-    //             setInput('')
-    //             setValue('')
-    //         }}
-    //         onChange={(val) => {
-    //             setInput(toString(val))
-    //         }}
-    //         onSelect={(val, option) => {
-    //             setInput(option.title)
-    //             setValue(toString(val).trim())
-    //         }}
-    //         ref={autoCompleteRef}
-    //     >
-    //         {[
-    //             ...(input && allowCustom && !displayOptions.some(({ name }) => input === toString(name))
-    //                 ? [
-    //                       <AutoComplete.Option key="@@@specify-value" value={input} className="ph-no-capture">
-    //                           Specify: {input}
-    //                       </AutoComplete.Option>,
-    //                   ]
-    //                 : []),
-    //             ...displayOptions.map(({ name: _name, id }, index) => {
-    //                 const name = toString(_name)
-    //                 return (
-    //                     <AutoComplete.Option
-    //                         key={id ? toString(id) : name}
-    //                         value={id ? toString(id) : name}
-    //                         data-attr={'prop-val-' + index}
-    //                         className="ph-no-capture"
-    //                         title={name}
-    //                     >
-    //                         {name}
-    //                     </AutoComplete.Option>
-    //                 )
-    //             }),
-    //         ]}
-    //     </AutoComplete>
-    // )
 }
