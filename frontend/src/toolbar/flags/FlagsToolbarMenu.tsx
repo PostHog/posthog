@@ -7,16 +7,30 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
+import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 export const FlagsToolbarMenu = (): JSX.Element => {
-    const { searchTerm, filteredFlags, userFlagsLoading } = useValues(featureFlagsLogic)
-    const { setSearchTerm, setOverriddenUserFlag, deleteOverriddenUserFlag } = useActions(featureFlagsLogic)
-    const { apiURL } = useValues(toolbarConfigLogic)
+    const { searchTerm, filteredFlags, userFlagsLoading } = useValues(flagsToolbarLogic)
+    const {
+        setSearchTerm,
+        setOverriddenUserFlag,
+        deleteOverriddenUserFlag,
+        getUserFlags,
+        checkLocalOverrides,
+        setFeatureFlagValueFromPostHogClient,
+    } = useActions(flagsToolbarLogic)
+    const { apiURL, posthog: posthogClient } = useValues(toolbarConfigLogic)
+
+    useEffect(() => {
+        posthogClient?.onFeatureFlags(setFeatureFlagValueFromPostHogClient)
+        getUserFlags()
+        checkLocalOverrides()
+    }, [])
 
     return (
         <ToolbarMenu>

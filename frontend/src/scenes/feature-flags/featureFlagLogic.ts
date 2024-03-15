@@ -183,7 +183,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             teamLogic,
             ['currentTeamId'],
             groupsModel,
-            ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
+            ['aggregationLabel'],
             userLogic,
             ['hasAvailableFeature'],
             dashboardsLogic,

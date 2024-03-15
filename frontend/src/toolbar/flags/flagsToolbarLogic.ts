@@ -1,22 +1,27 @@
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import type { PostHog } from 'posthog-js'
 
 import { posthog as posthogJS } from '~/toolbar/posthog'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
-import type { featureFlagsLogicType } from './featureFlagsLogicType'
+import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
 
-export const featureFlagsLogic = kea<featureFlagsLogicType>([
-    path(['toolbar', 'flags', 'featureFlagsLogic']),
+export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
+    path(['toolbar', 'flags', 'flagsToolbarLogic']),
     connect(() => ({
         values: [toolbarConfigLogic, ['posthog']],
     })),
     actions({
         getUserFlags: true,
+        setFeatureFlagValueFromPostHogClient: (flags: string[], variants: Record<string, string | boolean>) => ({
+            flags,
+            variants,
+        }),
         setOverriddenUserFlag: (flagKey: string, overrideValue: string | boolean) => ({ flagKey, overrideValue }),
         deleteOverriddenUserFlag: (flagKey: string) => ({ flagKey }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -62,16 +67,26 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
+        posthogClientFlagValues: [
+            {} as Record<string, string | boolean>,
+            {
+                setFeatureFlagValueFromPostHogClient: (_, { variants }) => {
+                    return variants
+                },
+            },
+        ],
     }),
     selectors({
         userFlagsWithOverrideInfo: [
-            (s) => [s.userFlags, s.localOverrides],
-            (userFlags, localOverrides) => {
+            (s) => [s.userFlags, s.localOverrides, s.posthogClientFlagValues],
+            (userFlags, localOverrides, posthogClientFlagValues) => {
                 return userFlags.map((flag) => {
                     const hasVariants = (flag.feature_flag.filters?.multivariate?.variants?.length || 0) > 0
 
                     const currentValue =
-                        flag.feature_flag.key in localOverrides ? localOverrides[flag.feature_flag.key] : flag.value
+                        flag.feature_flag.key in localOverrides
+                            ? localOverrides[flag.feature_flag.key]
+                            : posthogClientFlagValues[flag.feature_flag.key] ?? flag.value
 
                     return {
                         ...flag,
@@ -130,12 +145,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             }
         },
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.getUserFlags()
-            actions.checkLocalOverrides()
-        },
-    })),
+    permanentlyMount(),
 ])
 
 function getGroups(posthogInstance: PostHog | null): Record<string, any> {

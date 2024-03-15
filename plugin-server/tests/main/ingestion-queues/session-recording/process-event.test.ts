@@ -5,6 +5,7 @@ import {
     createSessionReplayEvent,
     gatherConsoleLogEvents,
     getTimestampsFrom,
+    LogLevel,
     SummarizedSessionRecordingEvent,
 } from '../../../../src/main/ingestion-queues/session-recording/process-event'
 import { RRWebEvent, TimestampFormat } from '../../../../src/types'
@@ -133,6 +134,33 @@ describe('session recording process event', () => {
                         timestamp: 1682449093469,
                         windowId: '1',
                     },
+                    // group and trace end up in info
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'group' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'trace' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
+                    // assert ends up in error
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'assert' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
+                    // countReset ends up in warn
+                    {
+                        type: 6,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'countReset' } },
+                        timestamp: 1682449093469,
+                        windowId: '1',
+                    },
                 ],
             },
             expected: {
@@ -143,17 +171,54 @@ describe('session recording process event', () => {
                 first_timestamp: '2023-04-25 18:58:13.469',
                 last_timestamp: '2023-04-25 18:58:13.469',
                 active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
-                console_log_count: 2,
-                console_warn_count: 3,
-                console_error_count: 1,
-                size: 762,
-                event_count: 7,
+                console_log_count: 4,
+                console_warn_count: 4,
+                console_error_count: 2,
+                size: 1232,
+                event_count: 11,
                 message_count: 1,
                 snapshot_source: 'web',
             },
         },
         {
-            testDescription: 'first url detection',
+            testDescription: 'url can be detected in meta event',
+            snapshotData: {
+                events_summary: [
+                    {
+                        timestamp: 1682449093693,
+                        type: 3,
+                        data: {},
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093469,
+                        type: 4,
+                        data: {
+                            href: 'http://127.0.0.1:8000/the/url',
+                        },
+                        windowId: '1',
+                    },
+                ],
+            },
+            expected: {
+                click_count: 0,
+                keypress_count: 0,
+                mouse_activity_count: 0,
+                first_url: 'http://127.0.0.1:8000/the/url',
+                first_timestamp: '2023-04-25 18:58:13.469',
+                last_timestamp: '2023-04-25 18:58:13.693',
+                active_milliseconds: 0, // no data.source, so no activity
+                console_log_count: 0,
+                console_warn_count: 0,
+                console_error_count: 0,
+                size: 163,
+                event_count: 2,
+                message_count: 1,
+                snapshot_source: 'web',
+            },
+        },
+        {
+            testDescription: 'first url detection takes the first url whether meta url or payload url',
             snapshotData: {
                 events_summary: [
                     {
@@ -161,7 +226,6 @@ describe('session recording process event', () => {
                         type: 5,
                         data: {
                             payload: {
-                                // doesn't match because href is nested in payload
                                 href: 'http://127.0.0.1:8000/home',
                             },
                         },
@@ -181,7 +245,7 @@ describe('session recording process event', () => {
                 click_count: 0,
                 keypress_count: 0,
                 mouse_activity_count: 0,
-                first_url: 'http://127.0.0.1:8000/second/url',
+                first_url: 'http://127.0.0.1:8000/home',
                 first_timestamp: '2023-04-25 18:58:13.469',
                 last_timestamp: '2023-04-25 18:58:13.693',
                 active_milliseconds: 0, // no data.source, so no activity
@@ -189,6 +253,51 @@ describe('session recording process event', () => {
                 console_warn_count: 0,
                 console_error_count: 0,
                 size: 213,
+                event_count: 2,
+                message_count: 1,
+                snapshot_source: 'web',
+            },
+        },
+        {
+            testDescription: 'first url detection can use payload url',
+            snapshotData: {
+                events_summary: [
+                    {
+                        timestamp: 1682449093469,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // we don't read just any URL
+                                'the-page-url': 'http://127.0.0.1:8000/second/url',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                    {
+                        timestamp: 1682449093693,
+                        type: 5,
+                        data: {
+                            payload: {
+                                // matches href nested in payload
+                                href: 'http://127.0.0.1:8000/my-spa',
+                            },
+                        },
+                        windowId: '1',
+                    },
+                ],
+            },
+            expected: {
+                click_count: 0,
+                keypress_count: 0,
+                mouse_activity_count: 0,
+                first_url: 'http://127.0.0.1:8000/my-spa',
+                first_timestamp: '2023-04-25 18:58:13.469',
+                last_timestamp: '2023-04-25 18:58:13.693',
+                active_milliseconds: 0, // no data.source, so no activity
+                console_log_count: 0,
+                console_warn_count: 0,
+                console_error_count: 0,
+                size: 235,
                 event_count: 2,
                 message_count: 1,
                 snapshot_source: 'web',
@@ -357,14 +466,14 @@ describe('session recording process event', () => {
         expect(getTimestampsFrom(events)).toEqual(expectedTimestamps)
     })
 
-    function consoleMessageFor(payload: any[]) {
+    function consoleMessageFor(payload: any[], level: string | null | undefined = 'info') {
         return {
             timestamp: 1682449093469,
             type: 6,
             data: {
                 plugin: 'rrweb/console@1',
                 payload: {
-                    level: 'info',
+                    level: level,
                     payload: payload,
                 },
             },
@@ -401,7 +510,7 @@ describe('session recording process event', () => {
         expect(consoleLogEntries).toEqual([
             {
                 team_id: 12345,
-                log_level: 'info',
+                level: 'info',
                 log_source: 'session_replay',
                 log_source_id: 'session_id',
                 instance_id: null,
@@ -410,6 +519,47 @@ describe('session recording process event', () => {
                     TimestampFormat.ClickHouse
                 ),
                 message: expectedMessage,
+            } satisfies ConsoleLogEntry,
+        ])
+    })
+
+    test.each([
+        { browserLogLevel: 'log', logLevel: 'info' },
+        { browserLogLevel: 'trace', logLevel: 'info' },
+        { browserLogLevel: 'dir', logLevel: 'info' },
+        { browserLogLevel: 'dirxml', logLevel: 'info' },
+        { browserLogLevel: 'group', logLevel: 'info' },
+        { browserLogLevel: 'groupCollapsed', logLevel: 'info' },
+        { browserLogLevel: 'debug', logLevel: 'info' },
+        { browserLogLevel: 'timeLog', logLevel: 'info' },
+        { browserLogLevel: 'info', logLevel: 'info' },
+        { browserLogLevel: 'count', logLevel: 'info' },
+        { browserLogLevel: 'timeEnd', logLevel: 'info' },
+        { browserLogLevel: 'warn', logLevel: 'warn' },
+        { browserLogLevel: 'countReset', logLevel: 'warn' },
+        { browserLogLevel: 'error', logLevel: 'error' },
+        { browserLogLevel: 'assert', logLevel: 'error' },
+        { browserLogLevel: 'countReset', logLevel: 'warn' },
+        { browserLogLevel: 'wakanda forever', logLevel: 'info' },
+        { browserLogLevel: '\\n\\r\\t\\0\\b\\f', logLevel: 'info' },
+        { browserLogLevel: null, logLevel: 'info' },
+        { browserLogLevel: undefined, logLevel: 'info' },
+    ])('log level console log processing: %s', ({ browserLogLevel, logLevel }) => {
+        const consoleLogEntries = gatherConsoleLogEvents(12345, 'session_id', [
+            consoleMessageFor(['test'], browserLogLevel),
+        ])
+        expect(consoleLogEntries).toEqual([
+            {
+                team_id: 12345,
+                level: logLevel as LogLevel,
+                log_source: 'session_replay',
+                log_source_id: 'session_id',
+                instance_id: null,
+                timestamp: castTimestampToClickhouseFormat(
+                    DateTime.fromMillis(1682449093469),
+                    TimestampFormat.ClickHouse
+                ),
+                message: 'test',
             } satisfies ConsoleLogEntry,
         ])
     })

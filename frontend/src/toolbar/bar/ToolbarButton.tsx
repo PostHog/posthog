@@ -61,7 +61,7 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
         </div>
     )
 
-    return ((minimized && titleMinimized) || theTitle) && !active && !isDragging ? (
+    return ((minimized && titleMinimized) || theTitle) && !isDragging ? (
         <Tooltip title={minimized ? titleMinimized : theTitle}>{theButton}</Tooltip>
     ) : (
         theButton

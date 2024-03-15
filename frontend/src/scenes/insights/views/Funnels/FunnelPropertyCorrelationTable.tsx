@@ -1,9 +1,8 @@
 import './FunnelCorrelationTable.scss'
 
-import { IconInfo, IconTrending } from '@posthog/icons'
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
-import { ConfigProvider, Empty, Table } from 'antd'
-import Column from 'antd/lib/table/Column'
+import { IconTrending } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
+import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
@@ -12,7 +11,6 @@ import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySens
 import { IconSelectProperties, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
 import { useState } from 'react'
@@ -105,7 +103,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 
         return (
             <>
-                <h4>
+                <div className="font-semibold text-default">
                     {is_success ? (
                         <IconTrending style={{ color: 'green' }} />
                     ) : (
@@ -118,7 +116,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                             <PropertyKeyInfo value={second_value} disablePopover />
                         </>
                     )}
-                </h4>
+                </div>
                 <div>
                     {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
                     {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
@@ -135,15 +133,17 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 
     return steps.length > 1 ? (
         <VisibilitySensor offset={150} id={`${correlationPropKey}-properties`}>
-            <div className="funnel-correlation-table">
-                <div className="funnel-correlation-header">
-                    <div className="table-header">
+            <div className="FunnelCorrelationTable mt-4 border rounded overflow-hidden">
+                <div className="flex px-2 py-1 bg-[var(--bg-table)]">
+                    <div className="flex items-center text-xs font-bold">
                         <IconSelectProperties style={{ marginRight: 4, opacity: 0.5, fontSize: 24 }} />
                         CORRELATED PROPERTIES
                     </div>
-                    <div className="table-options flex-wrap">
+                    <div className="table-options flex grow items-center justify-end flex-wrap">
                         <div className="flex">
-                            <p className="title">PROPERTIES</p>
+                            <p className="flex items-center m-1 font-sans text-xs text-muted font-semibold">
+                                PROPERTIES
+                            </p>
                             <Popover
                                 visible={isPropertiesOpen}
                                 onClickOutside={() => setIsPropertiesOpen(false)}
@@ -163,7 +163,14 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                         {propertyNames.length === 1 && propertyNames[0] === '$all' ? (
                                             <>All properties selected</>
                                         ) : (
-                                            <LemonButton size="small" type="primary" onClick={() => setAllProperties()}>
+                                            <LemonButton
+                                                size="small"
+                                                type="primary"
+                                                onClick={() => {
+                                                    setAllProperties()
+                                                    setIsPropertiesOpen(false)
+                                                }}
+                                            >
                                                 Select all properties
                                             </LemonButton>
                                         )}
@@ -183,7 +190,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                             </Popover>
                         </div>
                         <div className="flex">
-                            <p className="title ml-2">CORRELATION</p>
+                            <p className="flex items-center m-1 font-sans text-xs text-muted font-semibold ml-2">
+                                CORRELATION
+                            </p>
                             <div className="flex">
                                 <LemonCheckbox
                                     checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Success)}
@@ -203,110 +212,91 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         </div>
                     </div>
                 </div>
-                <ConfigProvider
-                    renderEmpty={() =>
-                        loadedPropertyCorrelationsTableOnce ? (
-                            <Empty />
-                        ) : (
-                            <>
-                                {/* eslint-disable-next-line react/forbid-dom-props */}
-                                <p className="m-auto" style={{ maxWidth: 500 }}>
-                                    Highlight properties which are likely to have affected the conversion rate within
-                                    the funnel.{' '}
-                                    <Link to="https://posthog.com/manual/correlation">
-                                        Learn more about correlation analysis.
-                                    </Link>
-                                </p>
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => setIsPropertiesOpen(true)}
-                                    className="mx-auto mt-2"
-                                >
-                                    Select properties
-                                </LemonButton>
-                            </>
-                        )
+
+                <LemonTable
+                    id="property-correlation"
+                    embedded
+                    columns={[
+                        {
+                            title: `${capitalizeFirstLetter(aggregationTargetLabel.singular)} property`,
+                            key: 'propertName',
+                            render: (_, record) => renderOddsRatioTextRecord(record),
+                        },
+                        {
+                            title: 'Completed',
+                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
+                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                            } have this property and completed the entire funnel.`,
+                            key: 'success_count',
+                            render: (_, record) => renderSuccessCount(record),
+                            width: 90,
+                            align: 'center',
+                        },
+                        {
+                            title: 'Dropped off',
+                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
+                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                            } have this property and did not complete the entire funnel.`,
+                            key: 'failure_count',
+                            render: (_, record) => renderFailureCount(record),
+                            width: 120,
+                            align: 'center',
+                        },
+                        {
+                            key: 'actions',
+                            width: 30,
+                            align: 'center',
+                            render: (_, record) => <PropertyCorrelationActionsCell record={record} />,
+                        },
+                    ]}
+                    dataSource={propertyCorrelationValues}
+                    loading={propertyCorrelationsLoading}
+                    rowKey={(record) => record.event.event}
+                    size="small"
+                    emptyState={
+                        <div className="p-4 m-auto max-w-140">
+                            <div className="flex flex-col items-center justify-self-center text-center">
+                                {loadedPropertyCorrelationsTableOnce ? (
+                                    <Empty
+                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                        description="No correlated properties found."
+                                    />
+                                ) : (
+                                    <>
+                                        <p className="m-auto">
+                                            Highlight properties which are likely to have affected the conversion rate
+                                            within the funnel.{' '}
+                                            <Link to="https://posthog.com/manual/correlation">
+                                                Learn more about correlation analysis.
+                                            </Link>
+                                        </p>
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={() => setIsPropertiesOpen(true)}
+                                            className="mx-auto mt-2"
+                                        >
+                                            Select properties
+                                        </LemonButton>
+                                    </>
+                                )}
+                            </div>
+                        </div>
                     }
-                >
-                    <Table
-                        dataSource={propertyCorrelationValues}
-                        loading={propertyCorrelationsLoading}
-                        scroll={{ x: 'max-content' }}
-                        size="small"
-                        rowKey={(record: FunnelCorrelation) => record.event.event}
-                        pagination={{
-                            pageSize: 5,
-                            hideOnSinglePage: true,
-                            onChange: (page, page_size) =>
-                                reportCorrelationInteraction(
-                                    FunnelCorrelationResultsType.Properties,
-                                    'pagination change',
-                                    {
-                                        page,
-                                        page_size,
-                                    }
-                                ),
-                        }}
-                    >
-                        <Column
-                            title={`${capitalizeFirstLetter(aggregationTargetLabel.singular)} property`}
-                            key="propertName"
-                            render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
-                            align="left"
-                        />
-                        <Column
-                            title={
-                                <div className="flex items-center">
-                                    Completed
-                                    <Tooltip
-                                        title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                            querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
-                                        } have this property and completed the entire funnel.`}
-                                    >
-                                        <IconInfo className="column-info" />
-                                    </Tooltip>
-                                </div>
-                            }
-                            key="success_count"
-                            render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
-                            width={90}
-                            align="center"
-                        />
-                        <Column
-                            title={
-                                <div className="flex items-center">
-                                    Dropped off
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                                                {querySource?.aggregation_group_type_index != undefined
-                                                    ? 'that'
-                                                    : 'who'}{' '}
-                                                have this property and did <b>not complete</b> the entire funnel.
-                                            </>
-                                        }
-                                    >
-                                        <IconInfo className="column-info" />
-                                    </Tooltip>
-                                </div>
-                            }
-                            key="failure_count"
-                            render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
-                            width={120}
-                            align="center"
-                        />
-                        <Column
-                            title=""
-                            key="actions"
-                            render={(_, record: FunnelCorrelation) => (
-                                <PropertyCorrelationActionsCell record={record} />
-                            )}
-                            align="center"
-                            width={30}
-                        />
-                    </Table>
-                </ConfigProvider>
+                    pagination={{
+                        pageSize: 5,
+                        hideOnSinglePage: true,
+                        onBackward: () =>
+                            reportCorrelationInteraction(FunnelCorrelationResultsType.Properties, 'pagination change', {
+                                direction: 'backward',
+                                page_size: 5,
+                            }),
+                        onForward: () =>
+                            reportCorrelationInteraction(FunnelCorrelationResultsType.Properties, 'pagination change', {
+                                direction: 'forward',
+                                page_size: 5,
+                            }),
+                    }}
+                />
             </div>
         </VisibilitySensor>
     ) : null

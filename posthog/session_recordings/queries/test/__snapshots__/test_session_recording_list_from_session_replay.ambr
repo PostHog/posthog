@@ -2956,7 +2956,7 @@
        AND timestamp >= '2021-01-13 12:00:00'
        AND timestamp <= '2021-01-22 08:00:00'
        WHERE 1=1
-         AND level in ['log']
+         AND level in ['info']
          AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching
   GROUP BY session_id
   HAVING 1=1

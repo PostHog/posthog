@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
+import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
@@ -23,7 +23,7 @@ const featureFlagsWithExtraInfo = [
 ]
 
 describe('toolbar featureFlagsLogic', () => {
-    let logic: ReturnType<typeof featureFlagsLogic.build>
+    let logic: ReturnType<typeof flagsToolbarLogic.build>
     beforeEach(() => {
         global.fetch = jest.fn(() =>
             Promise.resolve({
@@ -37,8 +37,9 @@ describe('toolbar featureFlagsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         toolbarConfigLogic({ apiURL: 'http://localhost' }).mount()
-        logic = featureFlagsLogic()
+        logic = flagsToolbarLogic()
         logic.mount()
+        logic.actions.getUserFlags()
     })
 
     it('has expected defaults', () => {
@@ -46,6 +47,30 @@ describe('toolbar featureFlagsLogic', () => {
             userFlags: featureFlags,
             searchTerm: '',
             filteredFlags: featureFlagsWithExtraInfo,
+        })
+    })
+
+    it('uses posthog client values if present', async () => {
+        const flags = {
+            'flag 1': false,
+            'flag 2': true,
+            'flag 3': 'value',
+        }
+        await expectLogic(logic, () => {
+            logic.actions.setFeatureFlagValueFromPostHogClient(Object.keys(flags), flags)
+        }).toMatchValues({
+            userFlags: featureFlags,
+            searchTerm: '',
+            filteredFlags: [
+                { currentValue: false, hasOverride: false, hasVariants: false, feature_flag: { key: 'flag 1' } },
+                { currentValue: true, hasOverride: false, hasVariants: false, feature_flag: { key: 'flag 2' } },
+                {
+                    currentValue: 'value',
+                    hasOverride: false,
+                    hasVariants: false,
+                    feature_flag: { key: 'flag 3', name: 'mentions 2' },
+                },
+            ],
         })
     })
 

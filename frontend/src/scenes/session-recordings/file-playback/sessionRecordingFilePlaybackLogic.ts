@@ -14,8 +14,8 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb, PersonType, RecordingSnapshot, ReplayTabs, SessionRecordingType } from '~/types'
 
 import {
+    deduplicateSnapshots,
     parseEncodedSnapshots,
-    prepareRecordingSnapshots,
     sessionRecordingDataLogic,
 } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
@@ -122,7 +122,7 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<any>> => 
 }
 
 export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybackLogicType>([
-    path(['scenes', 'session-recordings', 'detail', 'sessionRecordingDetailLogic']),
+    path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackLogic']),
     connect({
         actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
         values: [featureFlagLogic, ['featureFlags']],
@@ -177,7 +177,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 return
             }
 
-            const snapshots = prepareRecordingSnapshots(
+            const snapshots = deduplicateSnapshots(
                 await parseEncodedSnapshots(
                     values.sessionRecording.snapshots,
                     values.sessionRecording.id,
@@ -214,7 +214,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             (): Breadcrumb[] => [
                 {
                     key: Scene.Replay,
-                    name: `Session replay`,
+                    name: 'Session replay',
                     path: urls.replay(),
                 },
                 {

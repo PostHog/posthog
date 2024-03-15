@@ -3,6 +3,7 @@ import typing
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
+import structlog
 import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import (
@@ -19,6 +20,7 @@ from temporalio.client import (
 from posthog.batch_exports.models import (
     BatchExport,
     BatchExportBackfill,
+    BatchExportDestination,
     BatchExportRun,
 )
 from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
@@ -30,6 +32,8 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
     update_schedule,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class BatchExportField(typing.TypedDict):
@@ -209,6 +213,10 @@ class BatchExportServiceRPCError(BatchExportServiceError):
     """Exception raised when the underlying Temporal RPC fails."""
 
 
+class BatchExportWithNoEndNotAllowedError(BatchExportServiceError):
+    """Exception raised when a BatchExport without an end_at is not allowed for a given destination."""
+
+
 class BatchExportServiceScheduleNotFound(BatchExportServiceRPCError):
     """Exception raised when the underlying Temporal RPC fails because a schedule was not found."""
 
@@ -283,7 +291,28 @@ def unpause_batch_export(
     start_at = batch_export.last_paused_at
     end_at = batch_export.last_updated_at
 
-    backfill_export(temporal, batch_export_id, start_at, end_at)
+    backfill_export(temporal, batch_export_id, batch_export.team_id, start_at, end_at)
+
+
+def disable_and_delete_export(instance: BatchExport):
+    """Mark a BatchExport as deleted and delete its Temporal Schedule (including backfills)."""
+    temporal = sync_connect()
+
+    instance.deleted = True
+
+    try:
+        batch_export_delete_schedule(temporal, str(instance.pk))
+    except BatchExportServiceScheduleNotFound as e:
+        logger.warning(
+            "The Schedule %s could not be deleted as it was not found",
+            e.schedule_id,
+        )
+
+    instance.save()
+
+    for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
+        if backfill.status == BatchExportBackfill.Status.RUNNING:
+            cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
 
 
 def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
@@ -316,7 +345,7 @@ class BackfillBatchExportInputs:
     team_id: int
     batch_export_id: str
     start_at: str
-    end_at: str
+    end_at: str | None
     buffer_limit: int = 1
     wait_delay: float = 5.0
 
@@ -326,7 +355,7 @@ def backfill_export(
     batch_export_id: str,
     team_id: int,
     start_at: dt.datetime,
-    end_at: dt.datetime,
+    end_at: dt.datetime | None,
 ) -> str:
     """Starts a backfill for given team and batch export covering given date range.
 
@@ -335,18 +364,26 @@ def backfill_export(
         batch_export_id: The id of the BatchExport to backfill.
         team_id: The id of the Team the BatchExport belongs to.
         start_at: From when to backfill.
-        end_at: Up to when to backfill.
+        end_at: Up to when to backfill, if None it will backfill until it has caught up with realtime
+                and then unpause the underlying BatchExport.
     """
     try:
-        BatchExport.objects.get(id=batch_export_id, team_id=team_id)
+        batch_export = BatchExport.objects.select_related("destination").get(id=batch_export_id, team_id=team_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
+
+    # Ensure we don't allow users access to this feature until we are ready.
+    if not end_at and batch_export.destination.type not in (
+        BatchExportDestination.Destination.HTTP,
+        BatchExportDestination.Destination.NOOP,  # For tests.
+    ):
+        raise BatchExportWithNoEndNotAllowedError(f"BatchExport {batch_export_id} has no end_at and is not HTTP")
 
     inputs = BackfillBatchExportInputs(
         batch_export_id=batch_export_id,
         team_id=team_id,
         start_at=start_at.isoformat(),
-        end_at=end_at.isoformat(),
+        end_at=end_at.isoformat() if end_at else None,
     )
     workflow_id = start_backfill_batch_export_workflow(temporal, inputs=inputs)
     return workflow_id
@@ -358,7 +395,7 @@ async def start_backfill_batch_export_workflow(temporal: Client, inputs: Backfil
     handle = temporal.get_schedule_handle(inputs.batch_export_id)
     description = await handle.describe()
 
-    if description.schedule.spec.jitter is not None:
+    if description.schedule.spec.jitter is not None and inputs.end_at is not None:
         # Adjust end_at to account for jitter if present.
         inputs.end_at = (dt.datetime.fromisoformat(inputs.end_at) + description.schedule.spec.jitter).isoformat()
 
@@ -464,7 +501,7 @@ def create_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
     start_at: str,
-    end_at: str,
+    end_at: str | None,
     status: str = BatchExportRun.Status.RUNNING,
 ) -> BatchExportBackfill:
     """Create a BatchExportBackfill.
@@ -481,7 +518,7 @@ def create_batch_export_backfill(
         batch_export_id=batch_export_id,
         status=status,
         start_at=dt.datetime.fromisoformat(start_at),
-        end_at=dt.datetime.fromisoformat(end_at),
+        end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
         team_id=team_id,
     )
     backfill.save()

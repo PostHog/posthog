@@ -36,7 +36,41 @@ exports[`replay/transform transform can convert images 1`] = `
                 "attributes": {
                   "data-rrweb-id": 4,
                 },
-                "childNodes": [],
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 102,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 101,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
                 "id": 4,
                 "tagName": "head",
                 "type": 2,
@@ -161,7 +195,41 @@ exports[`replay/transform transform can convert navigation bar 1`] = `
                 "attributes": {
                   "data-rrweb-id": 4,
                 },
-                "childNodes": [],
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 107,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 106,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
                 "id": 4,
                 "tagName": "head",
                 "type": 2,
@@ -190,7 +258,7 @@ exports[`replay/transform transform can convert navigation bar 1`] = `
                       {
                         "attributes": {
                           "data-rrweb-id": 12345,
-                          "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;display:flex;flex-direction:row;align-items:center;justify-content:space-around;color:white;",
+                          "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;display:flex;flex-direction:row;align-items:center;justify-content:space-around;color:black;",
                         },
                         "childNodes": [
                           {
@@ -308,7 +376,41 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                 "attributes": {
                   "data-rrweb-id": 4,
                 },
-                "childNodes": [],
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 102,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 101,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
                 "id": 4,
                 "tagName": "head",
                 "type": 2,
@@ -430,7 +532,41 @@ exports[`replay/transform transform can convert status bar 1`] = `
                 "attributes": {
                   "data-rrweb-id": 4,
                 },
-                "childNodes": [],
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 104,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 103,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
                 "id": 4,
                 "tagName": "head",
                 "type": 2,
@@ -563,7 +699,41 @@ exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
                 "attributes": {
                   "data-rrweb-id": 4,
                 },
-                "childNodes": [],
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 101,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 100,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
                 "id": 4,
                 "tagName": "head",
                 "type": 2,
@@ -671,7 +841,41 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                 "attributes": {
                   "data-rrweb-id": 4,
                 },
-                "childNodes": [],
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 102,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 101,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
                 "id": 4,
                 "tagName": "head",
                 "type": 2,
@@ -783,7 +987,41 @@ exports[`replay/transform transform can set background image to base64 png 1`] =
                 "attributes": {
                   "data-rrweb-id": 4,
                 },
-                "childNodes": [],
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 101,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 100,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
                 "id": 4,
                 "tagName": "head",
                 "type": 2,
@@ -942,7 +1180,41 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                 "attributes": {
                   "data-rrweb-id": 4,
                 },
-                "childNodes": [],
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 104,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 103,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
                 "id": 4,
                 "tagName": "head",
                 "type": 2,
@@ -1121,7 +1393,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
       {
         "nextId": null,
         "node": {
-          "id": 107,
+          "id": 109,
           "textContent": "PostHog iOS integration",
           "type": 3,
         },
@@ -1144,7 +1416,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
       {
         "nextId": null,
         "node": {
-          "id": 108,
+          "id": 110,
           "textContent": "20",
           "type": 3,
         },
@@ -1167,7 +1439,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
       {
         "nextId": null,
         "node": {
-          "id": 109,
+          "id": 111,
           "textContent": "PostHog/posthog-ios",
           "type": 3,
         },
@@ -1456,7 +1728,41 @@ exports[`replay/transform transform inputs buttons with nested elements 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 102,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 101,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -1588,7 +1894,41 @@ exports[`replay/transform transform inputs input - $inputType - hello 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -1673,7 +2013,41 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 102,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 101,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -1775,7 +2149,41 @@ exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 103,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 102,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -1888,7 +2296,41 @@ exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 103,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 102,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -2000,7 +2442,41 @@ exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 103,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 102,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -2114,7 +2590,41 @@ exports[`replay/transform transform inputs input - checkbox - $value 4`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -2211,7 +2721,41 @@ exports[`replay/transform transform inputs input - email - $value 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -2308,7 +2852,41 @@ exports[`replay/transform transform inputs input - number - $value 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -2405,7 +2983,41 @@ exports[`replay/transform transform inputs input - password - $value 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -2502,7 +3114,41 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 104,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 103,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -2624,7 +3270,41 @@ exports[`replay/transform transform inputs input - progress - $value 2`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -2722,7 +3402,41 @@ exports[`replay/transform transform inputs input - progress - 0.75 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -2820,7 +3534,41 @@ exports[`replay/transform transform inputs input - progress - 0.75 2`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -2918,7 +3666,41 @@ exports[`replay/transform transform inputs input - search - $value 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -3015,7 +3797,41 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 105,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 104,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -3144,7 +3960,41 @@ exports[`replay/transform transform inputs input - tel - $value 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -3242,7 +4092,41 @@ exports[`replay/transform transform inputs input - text - $value 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -3339,7 +4223,41 @@ exports[`replay/transform transform inputs input - text - hello 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -3436,7 +4354,41 @@ exports[`replay/transform transform inputs input - textArea - $value 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -3533,7 +4485,41 @@ exports[`replay/transform transform inputs input - textArea - hello 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -3630,7 +4616,41 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 106,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 105,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -3775,7 +4795,41 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 106,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 105,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -3920,7 +4974,41 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 106,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 105,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -4065,7 +5153,41 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 104,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 103,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -4194,7 +5316,41 @@ exports[`replay/transform transform inputs input - url - https://example.io 1`] 
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -4287,11 +5443,11 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 199,
+            "data-rrweb-id": 201,
             "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
           },
           "childNodes": [],
-          "id": 199,
+          "id": 201,
           "tagName": "div",
           "type": 2,
         },
@@ -4301,580 +5457,580 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 151,
+            "data-rrweb-id": 153,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 151,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 152,
-          },
-          "childNodes": [],
-          "id": 152,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 151,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 153,
           },
           "childNodes": [],
           "id": 153,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 151,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 154,
+          },
+          "childNodes": [],
+          "id": 154,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 153,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 155,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 155,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 199,
+        "parentId": 153,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 156,
-          },
-          "childNodes": [],
-          "id": 156,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 155,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 157,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 157,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 155,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 158,
+          },
+          "childNodes": [],
+          "id": 158,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 157,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 159,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 159,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 199,
+        "parentId": 157,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 160,
-          },
-          "childNodes": [],
-          "id": 160,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 159,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 161,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 161,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 159,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 162,
+          },
+          "childNodes": [],
+          "id": 162,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 161,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 163,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 163,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 199,
+        "parentId": 161,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 164,
-          },
-          "childNodes": [],
-          "id": 164,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 163,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 165,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 165,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 163,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 166,
+          },
+          "childNodes": [],
+          "id": 166,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 165,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 167,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 167,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 199,
+        "parentId": 165,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 168,
-          },
-          "childNodes": [],
-          "id": 168,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 167,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 169,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 169,
           "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 167,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 171,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 171,
-          "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 199,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 172,
+            "data-rrweb-id": 170,
           },
           "childNodes": [],
-          "id": 172,
+          "id": 170,
           "isSVG": true,
           "tagName": "title",
           "type": 2,
         },
-        "parentId": 171,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 174,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 172,
+        "parentId": 169,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 173,
+            "data-rrweb-id": 171,
           },
           "childNodes": [],
-          "id": 173,
+          "id": 171,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 171,
+        "parentId": 169,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 175,
+            "data-rrweb-id": 173,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 175,
+          "id": 173,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 199,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 176,
+            "data-rrweb-id": 174,
           },
           "childNodes": [],
-          "id": 176,
+          "id": 174,
           "isSVG": true,
           "tagName": "title",
           "type": 2,
         },
-        "parentId": 175,
+        "parentId": 173,
       },
       {
         "nextId": null,
         "node": {
+          "id": 176,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 174,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 175,
+          },
+          "childNodes": [],
+          "id": 175,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 173,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 177,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 177,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 201,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 178,
+          },
+          "childNodes": [],
           "id": 178,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 177,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 180,
           "textContent": "half-filled star",
           "type": 3,
         },
-        "parentId": 176,
+        "parentId": 178,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 177,
-          },
-          "childNodes": [],
-          "id": 177,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 175,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 179,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 179,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 199,
+        "parentId": 177,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 180,
-          },
-          "childNodes": [],
-          "id": 180,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 179,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 181,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 181,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 179,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 182,
+          },
+          "childNodes": [],
+          "id": 182,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 181,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 183,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 183,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 199,
+        "parentId": 181,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 184,
-          },
-          "childNodes": [],
-          "id": 184,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 183,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 185,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 185,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 183,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 186,
+          },
+          "childNodes": [],
+          "id": 186,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 185,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 187,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 187,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 199,
+        "parentId": 185,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 188,
-          },
-          "childNodes": [],
-          "id": 188,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 187,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 189,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 189,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 187,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 190,
+          },
+          "childNodes": [],
+          "id": 190,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 189,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 191,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 191,
           "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 192,
-          },
-          "childNodes": [],
-          "id": 192,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 191,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 193,
-          },
-          "childNodes": [],
-          "id": 193,
-          "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 191,
+        "parentId": 189,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 195,
+            "data-rrweb-id": 193,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 195,
+          "id": 193,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 199,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 196,
+            "data-rrweb-id": 194,
           },
           "childNodes": [],
-          "id": 196,
+          "id": 194,
           "isSVG": true,
           "tagName": "title",
           "type": 2,
         },
-        "parentId": 195,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 198,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 196,
+        "parentId": 193,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 197,
+            "data-rrweb-id": 195,
           },
           "childNodes": [],
-          "id": 197,
+          "id": 195,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 195,
+        "parentId": 193,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 197,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 197,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 201,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 198,
+          },
+          "childNodes": [],
+          "id": 198,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 197,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 200,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 198,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 199,
+          },
+          "childNodes": [],
+          "id": 199,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 197,
       },
     ],
     "attributes": [],
@@ -4925,11 +6081,11 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 248,
+            "data-rrweb-id": 250,
             "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
           },
           "childNodes": [],
-          "id": 248,
+          "id": 250,
           "tagName": "div",
           "type": 2,
         },
@@ -4939,580 +6095,580 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 200,
+            "data-rrweb-id": 202,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 200,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 201,
-          },
-          "childNodes": [],
-          "id": 201,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 200,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 202,
           },
           "childNodes": [],
           "id": 202,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 200,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 203,
+          },
+          "childNodes": [],
+          "id": 203,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 202,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 204,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 204,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 248,
+        "parentId": 202,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 205,
-          },
-          "childNodes": [],
-          "id": 205,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 204,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 206,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 206,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 204,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 207,
+          },
+          "childNodes": [],
+          "id": 207,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 206,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 208,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 208,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 248,
+        "parentId": 206,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 209,
-          },
-          "childNodes": [],
-          "id": 209,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 208,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 210,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 210,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 208,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 211,
+          },
+          "childNodes": [],
+          "id": 211,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 212,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 212,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 248,
+        "parentId": 210,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 213,
-          },
-          "childNodes": [],
-          "id": 213,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 212,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 214,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 214,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 212,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 215,
+          },
+          "childNodes": [],
+          "id": 215,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 214,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 216,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 216,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 248,
+        "parentId": 214,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 217,
-          },
-          "childNodes": [],
-          "id": 217,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 216,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
             "data-rrweb-id": 218,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 218,
           "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 216,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 220,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 220,
-          "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 248,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 221,
+            "data-rrweb-id": 219,
           },
           "childNodes": [],
-          "id": 221,
+          "id": 219,
           "isSVG": true,
           "tagName": "title",
           "type": 2,
         },
-        "parentId": 220,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 223,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 221,
+        "parentId": 218,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 222,
+            "data-rrweb-id": 220,
           },
           "childNodes": [],
-          "id": 222,
+          "id": 220,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 220,
+        "parentId": 218,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 224,
+            "data-rrweb-id": 222,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 224,
+          "id": 222,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 248,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 225,
+            "data-rrweb-id": 223,
           },
           "childNodes": [],
-          "id": 225,
+          "id": 223,
           "isSVG": true,
           "tagName": "title",
           "type": 2,
         },
-        "parentId": 224,
+        "parentId": 222,
       },
       {
         "nextId": null,
         "node": {
+          "id": 225,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 223,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 224,
+          },
+          "childNodes": [],
+          "id": 224,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 222,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 226,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 226,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 250,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 227,
+          },
+          "childNodes": [],
           "id": 227,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 226,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 229,
           "textContent": "half-filled star",
           "type": 3,
         },
-        "parentId": 225,
+        "parentId": 227,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 226,
-          },
-          "childNodes": [],
-          "id": 226,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 224,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 228,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 228,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 248,
+        "parentId": 226,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 229,
-          },
-          "childNodes": [],
-          "id": 229,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 228,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 230,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 230,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 228,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 231,
+          },
+          "childNodes": [],
+          "id": 231,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 230,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 232,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 232,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 248,
+        "parentId": 230,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 233,
-          },
-          "childNodes": [],
-          "id": 233,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 232,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 234,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 234,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 232,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 235,
+          },
+          "childNodes": [],
+          "id": 235,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 234,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 236,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 236,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 248,
+        "parentId": 234,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 237,
-          },
-          "childNodes": [],
-          "id": 237,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 236,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 238,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 238,
           "isSVG": true,
-          "tagName": "path",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 236,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
+            "data-rrweb-id": 239,
+          },
+          "childNodes": [],
+          "id": 239,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 238,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
             "data-rrweb-id": 240,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 240,
           "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 241,
-          },
-          "childNodes": [],
-          "id": 241,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 240,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 242,
-          },
-          "childNodes": [],
-          "id": 242,
-          "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 240,
+        "parentId": 238,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 244,
+            "data-rrweb-id": 242,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 244,
+          "id": 242,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 248,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 245,
+            "data-rrweb-id": 243,
           },
           "childNodes": [],
-          "id": 245,
+          "id": 243,
           "isSVG": true,
           "tagName": "title",
           "type": 2,
         },
-        "parentId": 244,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 247,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 245,
+        "parentId": 242,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 246,
+            "data-rrweb-id": 244,
           },
           "childNodes": [],
-          "id": 246,
+          "id": 244,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 244,
+        "parentId": 242,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 246,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 246,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 250,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 247,
+          },
+          "childNodes": [],
+          "id": 247,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 246,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 249,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 247,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 248,
+          },
+          "childNodes": [],
+          "id": 248,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 246,
       },
     ],
     "attributes": [],
@@ -5543,7 +6699,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
           },
           "childNodes": [
             {
-              "id": 149,
+              "id": 151,
               "textContent": "keyboard",
               "type": 3,
             },
@@ -5557,7 +6713,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
       {
         "nextId": null,
         "node": {
-          "id": 150,
+          "id": 152,
           "textContent": "keyboard",
           "type": 3,
         },
@@ -5600,7 +6756,41 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 102,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 101,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -5701,7 +6891,41 @@ exports[`replay/transform transform inputs progress rating 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 150,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 149,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -6300,7 +7524,41 @@ exports[`replay/transform transform inputs radio group - $inputType - $value 1`]
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -6385,7 +7643,41 @@ exports[`replay/transform transform inputs radio_group - $inputType - $value 1`]
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -6480,7 +7772,41 @@ exports[`replay/transform transform inputs radio_group 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 101,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -6575,7 +7901,41 @@ exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = 
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 102,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 101,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -6676,7 +8036,41 @@ exports[`replay/transform transform inputs web_view with URL 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 102,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 101,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -6777,7 +8171,41 @@ exports[`replay/transform transform inputs wrapping with labels 1`] = `
               "attributes": {
                 "data-rrweb-id": 4,
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "type": "text/css",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 103,
+                      "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 102,
+                  "tagName": "style",
+                  "type": 2,
+                },
+              ],
               "id": 4,
               "tagName": "head",
               "type": 2,
@@ -6890,7 +8318,41 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                 "attributes": {
                   "data-rrweb-id": 4,
                 },
-                "childNodes": [],
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 102,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 101,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
                 "id": 4,
                 "tagName": "head",
                 "type": 2,
