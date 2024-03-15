@@ -233,7 +233,7 @@ export const NewSurveyTargetingSection: StoryFn = () => {
 }
 NewSurveyTargetingSection.parameters = {
     testOptions: {
-        waitForSelector: '.LemonBanner .LemonIcon',
+        waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row.width-tiny'],
     },
 }
 
