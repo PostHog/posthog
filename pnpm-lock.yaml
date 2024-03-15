@@ -16,6 +16,9 @@ dependencies:
   '@ant-design/icons':
     specifier: ^4.7.0
     version: 4.7.0(react-dom@18.2.0)(react@18.2.0)
+  '@babel/runtime':
+    specifier: ^7.24.0
+    version: 7.24.0
   '@dnd-kit/core':
     specifier: ^6.0.8
     version: 6.0.8(react-dom@18.2.0)(react@18.2.0)
@@ -371,9 +374,6 @@ devDependencies:
   '@babel/preset-typescript':
     specifier: ^7.22.5
     version: 7.22.5(@babel/core@7.22.10)
-  '@babel/runtime':
-    specifier: ^7.24.0
-    version: 7.24.0
   '@cypress/webpack-preprocessor':
     specifier: ^5.17.1
     version: 5.17.1(@babel/core@7.22.10)(@babel/preset-env@7.22.10)(babel-loader@8.3.0)(webpack@5.88.2)
