@@ -100,6 +100,10 @@ export function RolesAndResourceAccessControls(): JSX.Element {
 
     return (
         <div className="space-y-2">
+            <p>
+                Edit organizational default permission levels for PostHog resources. Use roles to group your
+                organization members and assign them permissions.
+            </p>
             <LemonTable
                 columns={columns}
                 dataSource={rolesWithResourceAccessControls}

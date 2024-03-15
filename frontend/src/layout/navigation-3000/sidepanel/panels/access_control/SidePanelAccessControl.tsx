@@ -12,6 +12,8 @@ export const SidePanelAccessControl = (): JSX.Element => {
         return <Spinner />
     }
 
+    // TODO: Determine if access controls apply to the current resource and show a message if not
+
     return (
         <div className="flex flex-col overflow-hidden">
             <SidePanelPaneHeader title="Access control" />
