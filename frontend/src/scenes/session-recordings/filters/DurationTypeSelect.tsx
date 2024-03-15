@@ -1,5 +1,5 @@
 import { LemonSelect } from '@posthog/lemon-ui'
-import { posthog } from 'posthog-js'
+import posthog from 'posthog-js'
 
 import { DurationType } from '~/types'
 

@@ -75,6 +75,11 @@ export type InspectorListOfflineStatusChange = InspectorListItemBase & {
     offline: boolean
 }
 
+export type InspectorListBrowserVisibility = InspectorListItemBase & {
+    type: 'browser-visibility'
+    status: 'hidden' | 'visible'
+}
+
 export type InspectorListItemDoctor = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.DOCTOR
     tag: string
@@ -88,6 +93,7 @@ export type InspectorListItem =
     | InspectorListItemPerformance
     | InspectorListOfflineStatusChange
     | InspectorListItemDoctor
+    | InspectorListBrowserVisibility
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -284,6 +290,39 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        browserVisibilityChanges: [
+            (s) => [s.start, s.sessionPlayerData],
+            (start, sessionPlayerData): InspectorListBrowserVisibility[] => {
+                const logs: InspectorListBrowserVisibility[] = []
+
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
+                    snapshots.forEach((snapshot: eventWithTime) => {
+                        if (
+                            snapshot.type === 5 // RRWeb custom event type
+                        ) {
+                            const customEvent = snapshot as customEvent
+                            const tag = customEvent.data.tag
+
+                            if (['window hidden', 'window visible'].includes(tag)) {
+                                const { timestamp, timeInRecording } = timeRelativeToStart(snapshot, start)
+                                logs.push({
+                                    type: 'browser-visibility',
+                                    status: tag === 'window hidden' ? 'hidden' : 'visible',
+                                    timestamp: timestamp,
+                                    timeInRecording: timeInRecording,
+                                    search: tag,
+                                    windowId: windowId,
+                                    highlightColor: 'warning',
+                                } satisfies InspectorListBrowserVisibility)
+                            }
+                        }
+                    })
+                })
+
+                return logs
+            },
+        ],
+
         doctorEvents: [
             (s) => [s.start, s.sessionPlayerData],
             (start, sessionPlayerData): InspectorListItemDoctor[] => {
@@ -406,7 +445,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // but we decided to instead store them in the recording data
                 // we gather more info than rrweb, so we mix the two back together here
 
-                return matchNetworkEvents(sessionPlayerData.snapshotsByWindowId)
+                return filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
             },
         ],
 
@@ -419,6 +458,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.matchingEventUUIDs,
                 s.offlineStatusChanges,
                 s.doctorEvents,
+                s.browserVisibilityChanges,
             ],
             (
                 start,
@@ -427,7 +467,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 eventsData,
                 matchingEventUUIDs,
                 offlineStatusChanges,
-                doctorEvents
+                doctorEvents,
+                browserVisibilityChanges
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -437,6 +478,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 // no conversion needed for offlineStatusChanges, they're ready to roll
                 for (const event of offlineStatusChanges || []) {
+                    items.push(event)
+                }
+
+                // no conversion needed for browserVisibilityChanges, they're ready to roll
+                for (const event of browserVisibilityChanges || []) {
                     items.push(event)
                 }
 
@@ -557,8 +603,16 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     let include = false
 
                     // always show offline status changes
-                    if (item.type === 'offline-status') {
-                        include = true
+                    if (item.type === 'offline-status' || item.type === 'browser-visibility') {
+                        include =
+                            tab === SessionRecordingPlayerTab.DOCTOR ||
+                            !!(
+                                miniFiltersByKey['performance-all']?.enabled ||
+                                miniFiltersByKey['all-everything']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled ||
+                                miniFiltersByKey['console-all']?.enabled ||
+                                miniFiltersByKey['events-all']?.enabled
+                            )
                     }
 
                     if (item.type === SessionRecordingPlayerTab.DOCTOR && tab === SessionRecordingPlayerTab.DOCTOR) {
@@ -915,3 +969,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         }
     }),
 ])
+
+function filterUnwanted(events: PerformanceEvent[]): PerformanceEvent[] {
+    // the browser can provide network events that we're not interested in,
+    // like a navigation to "about:blank"
+    return events.filter((event) => {
+        return !(event.entry_type === 'navigation' && event.name && event.name === 'about:blank')
+    })
+}

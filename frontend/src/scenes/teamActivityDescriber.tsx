@@ -168,7 +168,19 @@ const teamActionsMapping: Record<
     timezone: () => null,
     surveys_opt_in: () => null,
     week_start_day: () => null,
-    extra_settings: () => null,
+    extra_settings: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const after = change?.after
+        if (typeof after !== 'object') {
+            return null
+        }
+        const descriptions = []
+        for (const key in after) {
+            if (key === 'poe_v2_enabled') {
+                descriptions.push(<>{after[key] ? 'enabled' : 'disabled'} Person on Events (v2)</>)
+            }
+        }
+        return { description: descriptions }
+    },
     has_completed_onboarding_for: () => null,
     // should never come from the backend
     created_at: () => null,

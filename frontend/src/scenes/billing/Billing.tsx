@@ -218,7 +218,7 @@ export function Billing(): JSX.Element {
                                                                 $
                                                                 {parseInt(billing.discount_amount_usd).toLocaleString()}
                                                             </strong>
-                                                        </Tooltip>
+                                                        </Tooltip>{' '}
                                                         remaining credits applied to your bill.
                                                     </p>
                                                 </div>

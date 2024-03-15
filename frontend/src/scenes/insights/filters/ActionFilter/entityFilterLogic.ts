@@ -2,6 +2,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { uuid } from 'lib/utils'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import {
     ActionFilter,
@@ -12,6 +13,7 @@ import {
     EntityType,
     EntityTypes,
     FilterType,
+    InsightShortId,
 } from '~/types'
 
 import type { entityFilterLogicType } from './entityFilterLogicType'
@@ -21,6 +23,7 @@ export type LocalFilter = ActionFilter & {
     uuid: string
     id_field?: string
     timestamp_field?: string
+    distinct_id_field?: string
     table_name?: string
 }
 
@@ -59,8 +62,8 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
 }
 
 export interface EntityFilterProps {
-    setFilters: (filters: FilterType) => void
-    filters: Record<string, any>
+    setFilters?: (filters: FilterType) => void
+    filters?: Record<string, any>
     typeKey: string
     singleMode?: boolean
     addFilterDefaultOptions?: Record<string, any>
@@ -70,9 +73,19 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     props({} as EntityFilterProps),
     key((props) => props.typeKey),
     path((key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key]),
-    connect({
+    connect((props: EntityFilterProps) => ({
         logic: [eventUsageLogic],
-    }),
+        actions: [
+            insightDataLogic({
+                dashboardItemId: props.typeKey as InsightShortId,
+                // this can be mounted in replay filters
+                // in which case there's not really an insightDataLogic to mount
+                // disable attempts to load data that will never work
+                doNotLoad: props.typeKey === 'session-recordings',
+            }),
+            ['loadData'],
+        ],
+    })),
     actions({
         selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
         updateFilterMath: (
@@ -92,6 +105,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 index: number
                 id_field?: string
                 timestamp_field?: string
+                distinct_id_field?: string
                 table_name?: string
             }
         ) => ({
@@ -161,10 +175,12 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        renameFilter: async ({ custom_name }) => {
+        renameFilter: async ({ custom_name }, breakpoint) => {
             if (!values.selectedFilter) {
                 return
             }
+
+            await breakpoint(100)
 
             actions.updateFilter({
                 ...values.selectedFilter,
@@ -174,11 +190,25 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 index: number
             })
             actions.hideModal()
+
+            await breakpoint(100)
+
+            actions.loadData(true)
         },
         hideModal: () => {
             actions.selectFilter(null)
         },
-        updateFilter: async ({ type, index, name, id, custom_name, id_field, timestamp_field, table_name }) => {
+        updateFilter: async ({
+            type,
+            index,
+            name,
+            id,
+            custom_name,
+            id_field,
+            timestamp_field,
+            distinct_id_field,
+            table_name,
+        }) => {
             actions.setFilters(
                 values.localFilters.map((filter, i) => {
                     if (i === index) {
@@ -192,11 +222,16 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                                 id_field: typeof id_field === 'undefined' ? filter.id_field : id_field,
                                 timestamp_field:
                                     typeof timestamp_field === 'undefined' ? filter.timestamp_field : timestamp_field,
+                                distinct_id_field:
+                                    typeof distinct_id_field === 'undefined'
+                                        ? filter.distinct_id_field
+                                        : distinct_id_field,
                                 table_name: typeof table_name === 'undefined' ? filter.table_name : table_name,
                             }
                         } else {
                             delete filter.id_field
                             delete filter.timestamp_field
+                            delete filter.distinct_id_field
                             delete filter.table_name
                             return {
                                 ...filter,

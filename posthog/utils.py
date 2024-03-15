@@ -299,10 +299,14 @@ def render_template(
         context["debug"] = True
         context["git_branch"] = get_git_branch()
 
+    context["js_posthog_ui_host"] = "''"
+
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
-        context["js_posthog_host"] = "'https://app.posthog.com'"
+        context["js_posthog_host"] = "'https://internal-e.posthog.com'"
+        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
+
     elif settings.SELF_CAPTURE:
         api_token = get_self_capture_api_token(request)
 
@@ -1325,3 +1329,7 @@ def label_for_team_id_to_track(team_id: int) -> str:
             pass
 
     return "unknown"
+
+
+def camel_to_snake_case(name: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()

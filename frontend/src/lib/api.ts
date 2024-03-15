@@ -26,6 +26,7 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
+    ErrorClusterResponse,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
@@ -42,6 +43,7 @@ import {
     GroupListParams,
     InsightModel,
     IntegrationType,
+    ListOrganizationMembersParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,
@@ -49,6 +51,7 @@ import {
     NotebookType,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
+    OrganizationMemberType,
     OrganizationResourcePermissionType,
     OrganizationType,
     PersonalAPIKeyType,
@@ -491,6 +494,15 @@ class ApiRequest {
 
     public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
         return this.roleMemberships(roleId).addPathComponent(userUuid)
+    }
+
+    // # OrganizationMembers
+    public organizationMembers(): ApiRequest {
+        return this.organizations().current().addPathComponent('members')
+    }
+
+    public organizationMember(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
+        return this.organizationMembers().addPathComponent(uuid)
     }
 
     // # Persons
@@ -1301,6 +1313,28 @@ const api = {
         },
     },
 
+    organizationMembers: {
+        async list(params: ListOrganizationMembersParams = {}): Promise<PaginatedResponse<OrganizationMemberType>> {
+            return await new ApiRequest().organizationMembers().withQueryString(params).get()
+        },
+
+        async listAll(params: ListOrganizationMembersParams = {}): Promise<OrganizationMemberType[]> {
+            const url = new ApiRequest().organizationMembers().withQueryString(params).assembleFullUrl()
+            return api.loadPaginatedResults<OrganizationMemberType>(url)
+        },
+
+        async delete(uuid: OrganizationMemberType['user']['uuid']): Promise<PaginatedResponse<void>> {
+            return await new ApiRequest().organizationMember(uuid).delete()
+        },
+
+        async update(
+            uuid: string,
+            data: Partial<Pick<OrganizationMemberType, 'level'>>
+        ): Promise<OrganizationMemberType> {
+            return new ApiRequest().organizationMember(uuid).update({ data })
+        },
+    },
+
     resourceAccessPermissions: {
         featureFlags: {
             async create(featureFlagId: number, roleId: RoleType['id']): Promise<FeatureFlagAssociatedRoleType> {
@@ -1594,6 +1628,10 @@ const api = {
 
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
             return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
+        },
+
+        async errorClusters(refresh?: boolean): Promise<ErrorClusterResponse> {
+            return await new ApiRequest().recordings().withAction('error_clusters').withQueryString({ refresh }).get()
         },
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
@@ -1890,13 +1928,10 @@ const api = {
             password: string,
             schema: string
         ): Promise<ExternalDataPostgresSchema[]> {
-            const queryParams = toParams({ host, port, dbname, user, password, schema })
-
             return await new ApiRequest()
                 .externalDataSources()
                 .withAction('database_schema')
-                .withQueryString(queryParams)
-                .get()
+                .create({ data: { host, port, dbname, user, password, schema } })
         },
     },
 

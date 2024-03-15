@@ -7,13 +7,8 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import {
-    FunnelCorrelation,
-    FunnelCorrelationResultsType,
-    FunnelCorrelationType,
-    FunnelsFilterType,
-    InsightLogicProps,
-} from '~/types'
+import { FunnelCorrelationQuery, FunnelCorrelationResultsType, FunnelsActorsQuery, NodeKind } from '~/queries/schema'
+import { FunnelCorrelation, FunnelCorrelationType, FunnelsFilterType, InsightLogicProps } from '~/types'
 
 import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'
 import { funnelDataLogic } from './funnelDataLogic'
@@ -24,7 +19,12 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     key(keyForInsightLogicProps('insight_funnel')),
     path((key) => ['scenes', 'funnels', 'funnelCorrelationLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [funnelDataLogic(props), ['querySource'], teamLogic, ['currentTeamId', 'currentTeam']],
+        values: [
+            funnelDataLogic(props),
+            ['querySource', 'hogQLInsightsFunnelsFlagEnabled'],
+            teamLogic,
+            ['currentTeamId', 'currentTeam'],
+        ],
     })),
     actions({
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
@@ -46,19 +46,39 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                     await breakpoint(100)
 
                     try {
-                        const results: Omit<FunnelCorrelation, 'result_type'>[] = (
-                            await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
-                                ...values.apiParams,
-                                funnel_correlation_type: 'events',
-                                funnel_correlation_exclude_event_names: values.excludedEventNames,
-                            })
-                        ).result?.events
+                        if (values.hogQLInsightsFunnelsFlagEnabled) {
+                            const actorsQuery: FunnelsActorsQuery = {
+                                kind: NodeKind.FunnelsActorsQuery,
+                                source: values.querySource!,
+                            }
+                            const query: FunnelCorrelationQuery = {
+                                kind: NodeKind.FunnelCorrelationQuery,
+                                source: actorsQuery,
+                                funnelCorrelationType: FunnelCorrelationResultsType.Events,
+                                funnelCorrelationExcludeEventNames: values.excludedEventNames,
+                            }
+                            const response = await api.query(query)
+                            return {
+                                events: response.results.events.map((result) => ({
+                                    ...result,
+                                    result_type: FunnelCorrelationResultsType.Events,
+                                })) as FunnelCorrelation[],
+                            }
+                        } else {
+                            const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                                await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                                    ...values.apiParams,
+                                    funnel_correlation_type: 'events',
+                                    funnel_correlation_exclude_event_names: values.excludedEventNames,
+                                })
+                            ).result?.events
 
-                        return {
-                            events: results.map((result) => ({
-                                ...result,
-                                result_type: FunnelCorrelationResultsType.Events,
-                            })),
+                            return {
+                                events: results.map((result) => ({
+                                    ...result,
+                                    result_type: FunnelCorrelationResultsType.Events,
+                                })),
+                            }
                         }
                     } catch (error) {
                         lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
@@ -71,20 +91,41 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             {} as Record<string, FunnelCorrelation[]>,
             {
                 loadEventWithPropertyCorrelations: async (eventName: string) => {
-                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
-                        await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
-                            ...values.apiParams,
-                            funnel_correlation_type: 'event_with_properties',
-                            funnel_correlation_event_names: [eventName],
-                            funnel_correlation_event_exclude_property_names: values.excludedEventPropertyNames,
-                        })
-                    ).result?.events
+                    if (values.hogQLInsightsFunnelsFlagEnabled) {
+                        const actorsQuery: FunnelsActorsQuery = {
+                            kind: NodeKind.FunnelsActorsQuery,
+                            source: values.querySource!,
+                        }
+                        const query: FunnelCorrelationQuery = {
+                            kind: NodeKind.FunnelCorrelationQuery,
+                            source: actorsQuery,
+                            funnelCorrelationType: FunnelCorrelationResultsType.EventWithProperties,
+                            funnelCorrelationEventNames: [eventName],
+                            funnelCorrelationEventExcludePropertyNames: values.excludedEventPropertyNames,
+                        }
+                        const response = await api.query(query)
+                        return {
+                            [eventName]: response.results.events.map((result) => ({
+                                ...result,
+                                result_type: FunnelCorrelationResultsType.EventWithProperties,
+                            })) as FunnelCorrelation[],
+                        }
+                    } else {
+                        const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                            await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                                ...values.apiParams,
+                                funnel_correlation_type: 'event_with_properties',
+                                funnel_correlation_event_names: [eventName],
+                                funnel_correlation_event_exclude_property_names: values.excludedEventPropertyNames,
+                            })
+                        ).result?.events
 
-                    return {
-                        [eventName]: results.map((result) => ({
-                            ...result,
-                            result_type: FunnelCorrelationResultsType.EventWithProperties,
-                        })),
+                        return {
+                            [eventName]: results.map((result) => ({
+                                ...result,
+                                result_type: FunnelCorrelationResultsType.EventWithProperties,
+                            })),
+                        }
                     }
                 },
             },
