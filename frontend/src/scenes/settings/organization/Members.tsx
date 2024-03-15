@@ -11,7 +11,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { fullName } from 'lib/utils'
+import { capitalizeFirstLetter, fullName } from 'lib/utils'
 import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
@@ -195,9 +195,7 @@ export function Members(): JSX.Element | null {
             render: function LevelRender(_, member) {
                 return (
                     <LemonTag data-attr="membership-level">
-                        {member.level === OrganizationMembershipLevel.Owner
-                            ? 'Organization owner'
-                            : `Project ${membershipLevelToName.get(member.level) ?? `unknown (${member.level})`}`}
+                        {capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? `unknown (${member.level})`)}
                     </LemonTag>
                 )
             },
