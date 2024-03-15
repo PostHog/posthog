@@ -12,6 +12,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Form } from 'kea-forms'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { fullName } from 'lib/utils'
@@ -155,11 +156,10 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                             onChange={(newValues: string[]) => setMembersToAdd(newValues)}
                             filterOption={true}
                             mode="multiple"
-                            options={membersNotInRole.map((member) => ({
-                                key: member.user.uuid,
-                                value: member.user.uuid,
-                                label: fullName(member.user),
-                            }))}
+                            options={usersLemonSelectOptions(
+                                membersNotInRole.map((member) => member.user),
+                                'uuid'
+                            )}
                         />
                     </div>
 

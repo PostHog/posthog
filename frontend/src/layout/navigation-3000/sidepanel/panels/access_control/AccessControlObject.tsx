@@ -8,6 +8,7 @@ import {
     LemonTable,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { UserSelectItem, usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -150,7 +151,8 @@ function AccessControlObjectUsers(): JSX.Element | null {
                 onAdd={(newValues, level) => updateAccessControlMembers(newValues.map((member) => ({ member, level })))}
                 options={addableMembers.map((member) => ({
                     key: member.id,
-                    label: member.user.first_name,
+                    label: `${member.user.first_name} ${member.user.email}`,
+                    labelComponent: <UserSelectItem user={member.user} />,
                 }))}
                 levels={availableLevels}
             />
