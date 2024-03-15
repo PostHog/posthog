@@ -180,6 +180,14 @@ export interface HogQLQueryModifiers {
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
+}
+
+export interface DataWarehouseEventsModifier {
+    table_name: string
+    timestamp_field: string
+    distinct_id_field: string
+    id_field: string
 }
 
 export interface HogQLQueryResponse {
@@ -376,6 +384,7 @@ export interface DataWarehouseNode extends EntityNode {
     id_field: string
     table_name: string
     timestamp_field: string
+    distinct_id_field: string
 }
 
 export interface ActionsNode extends EntityNode {

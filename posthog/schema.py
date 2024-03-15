@@ -151,6 +151,16 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
+class DataWarehouseEventsModifier(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id_field: str
+    id_field: str
+    table_name: str
+    timestamp_field: str
+
+
 class DatabaseSchemaQueryResponseField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -414,6 +424,7 @@ class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataWarehouseEventsModifiers: Optional[List[DataWarehouseEventsModifier]] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
@@ -1740,6 +1751,7 @@ class DataWarehouseNode(BaseModel):
         extra="forbid",
     )
     custom_name: Optional[str] = None
+    distinct_id_field: str
     fixedProperties: Optional[
         List[
             Union[

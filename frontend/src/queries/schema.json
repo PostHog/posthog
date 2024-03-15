@@ -764,10 +764,32 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "DataWarehouseEventsModifier": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id_field": {
+                    "type": "string"
+                },
+                "id_field": {
+                    "type": "string"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                }
+            },
+            "required": ["table_name", "timestamp_field", "distinct_id_field", "id_field"],
+            "type": "object"
+        },
         "DataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
+                    "type": "string"
+                },
+                "distinct_id_field": {
                     "type": "string"
                 },
                 "fixedProperties": {
@@ -837,7 +859,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "id_field", "kind", "table_name", "timestamp_field"],
+            "required": ["distinct_id_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
             "type": "object"
         },
         "DataWarehousePropertyFilter": {
@@ -2526,6 +2548,12 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
+                "dataWarehouseEventsModifiers": {
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseEventsModifier"
+                    },
+                    "type": "array"
+                },
                 "inCohortVia": {
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"
