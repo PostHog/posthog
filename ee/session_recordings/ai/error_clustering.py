@@ -25,12 +25,14 @@ DBSCAN_MIN_SAMPLES = settings.REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_MIN_SAMPLES
 
 
 def error_clustering(team: Team):
-
     return [
         {
             "cluster": 0,
             "samples": [
-                {"session_id": "1234567", "input": "sdfghfds"},
+                {
+                    "session_id": "1234567",
+                    "input": '{"error":"TypeError: Failed to fetch\\n    at https://app-static-prod.posthog.com/static/chunk-A7UWEVCN.js:5:359\\n    at https://us-assets.i.posthog.com/static/recorder-v2.js?v=1.111.1:16:27600\\n    at l (https://us-assets.i.posthog.com/static/recorder-v2.js?v=1.111.1:1:1844)\\n    at Generator._invoke (https://us-assets.i.posthog.com/static/recorder-v2.js?v=1.111.1:1:1597)\\n    at Generator.next (https://us-assets.i.posthog.com/static/recorder-v2.js?v=1.111.1:1:2207)\\n    at a (https://us-assets.i.posthog.com/static/recorder-v2.js?v=1.111.1:1:7313)\\n    at s (https://us-assets.i.posthog.com/static/recorder-v2.js?v=1.111.1:1:7516)\\nEnd of stack for Error object","reducerKey":"response","actionKey":"loadNewData"}',
+                },
                 {"session_id": "998765432", "input": "fdgbvafvfd"},
             ],
             "occurrences": 100,

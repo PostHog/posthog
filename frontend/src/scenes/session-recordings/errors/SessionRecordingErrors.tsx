@@ -1,7 +1,9 @@
 import { IconFeatures } from '@posthog/icons'
-import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { SessionPlayerModal } from '../player/modal/SessionPlayerModal'
@@ -84,8 +86,41 @@ export function SessionRecordingErrors(): JSX.Element {
                     },
                 ]}
                 dataSource={errors}
-                expandable={{ expandedRowRender: () => <div>Hello</div> }}
+                expandable={{ expandedRowRender: (cluster) => <ExpandedError error={cluster.samples[0].input} /> }}
             />
         </>
     )
+}
+
+const ExpandedError = ({ error }: { error: string }): JSX.Element => {
+    const hasJson = isJSON(error)
+    const [activeTab, setActiveTab] = useState(hasJson ? 'json' : 'raw')
+
+    return hasJson ? (
+        <div className="pb-3">
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                tabs={[
+                    hasJson && {
+                        key: 'json',
+                        label: 'JSON',
+                        content: <JSONViewer src={JSON.parse(error)} style={{ whiteSpace: 'pre-wrap' }} />,
+                    },
+                    { key: 'raw', label: 'Raw', content: <span className="whitespace-pre-line">{error}</span> },
+                ]}
+            />
+        </div>
+    ) : (
+        <div className="py-3 whitespace-pre-line">{error}</div>
+    )
+}
+
+function isJSON(str: string): boolean {
+    try {
+        JSON.parse(str)
+        return true
+    } catch {
+        return false
+    }
 }
