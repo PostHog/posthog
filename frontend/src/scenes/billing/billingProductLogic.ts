@@ -122,7 +122,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (_s, p) => [p.product],
             (product) => {
                 const currentPlanIndex = product.plans.findIndex((plan: BillingV2PlanType) => plan.current_plan)
-                const currentPlan = product.plans?.[currentPlanIndex]
+                const currentPlan = currentPlanIndex >= 0 ? product.plans?.[currentPlanIndex] : null
                 const upgradePlan =
                     // If in debug mode and with no license there will be
                     // no currentPlan. So we want to upgrade to the highest plan.

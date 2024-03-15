@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/2.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
+
 # isort: skip_file
 
 import os
@@ -44,6 +45,8 @@ from posthog.settings.session_replay import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
+from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.web import INSTALLED_APPS
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
