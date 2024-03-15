@@ -126,7 +126,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
             value: JSON.stringify(captureEndpointEvent1),
             timestamp: captureEndpointEvent1['timestamp'],
             offset: captureEndpointEvent1['offset'],
-            key: null,
+            key: batch[0].key,
             waitForAck: true,
         })
 

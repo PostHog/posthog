@@ -255,7 +255,7 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
             queue.pluginsServer.kafkaProducer.produce({
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
                 value: message.value,
-                key: null, // No locality guarantees in overflow
+                key: message.key,
                 headers: message.headers,
                 waitForAck: true,
             })
@@ -330,7 +330,6 @@ export function splitIngestionBatch(
             !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)
         ) {
             // Local overflow detection triggering, reroute to overflow topic too
-            message.key = null
             ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
             if (LoggingLimiter.consume(eventKey, 1)) {
                 status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
