@@ -197,7 +197,7 @@ export function EditSubscription({
                                 >
                                     {({ value, onChange }) => (
                                         <LemonSelectMultiple
-                                            onChange={(val: string[]) => onChange(val.join(','))}
+                                            onChange={(val) => onChange(val.join(','))}
                                             value={value?.split(',').filter(Boolean)}
                                             disabled={emailDisabled}
                                             mode="multiple"
@@ -278,11 +278,12 @@ export function EditSubscription({
                                         >
                                             {({ value, onChange }) => (
                                                 <LemonSelectMultiple
-                                                    onChange={(val) => onChange(val[0])}
-                                                    value={value}
+                                                    onChange={(val) => onChange(val[0] ?? null)}
+                                                    value={value ? [value] : []}
                                                     disabled={slackDisabled}
                                                     mode="single"
                                                     data-attr="select-slack-channel"
+                                                    placeholder="Select a channel..."
                                                     options={slackChannelOptions}
                                                     loading={slackChannelsLoading}
                                                 />
