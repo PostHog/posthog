@@ -5,12 +5,14 @@ import { useState } from 'react'
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonSelectMultiple, LemonSelectMultipleProps } from './LemonSelectMultiple'
 
+const names = ['ben', 'marius', 'paul', 'tiina', 'tim', 'james', 'neil', 'tom', 'paul', 'thomas']
+
 type Story = StoryObj<typeof LemonSelectMultiple>
 const meta: Meta<typeof LemonSelectMultiple> = {
     title: 'Lemon UI/Lemon SelectMultiple',
     component: LemonSelectMultiple,
     args: {
-        options: ['ben', 'marius', 'paul', 'tiina', 'li'].reduce(
+        options: names.reduce(
             (acc, x, i) => ({
                 ...acc,
                 [`user-${i}`]: {
@@ -83,4 +85,16 @@ NoOptions.args = {
     mode: 'multiple-custom',
     placeholder: 'No options...',
     options: [],
+}
+
+export const SingleOption: Story = Template.bind({})
+SingleOption.args = {
+    mode: 'single', // TODO: Remove single support
+    placeholder: 'Only one option allowed',
+}
+
+export const PrefilledManyValues: Story = Template.bind({})
+PrefilledManyValues.args = {
+    mode: 'multiple-custom',
+    value: names.map((_, i) => `user-${i}`),
 }

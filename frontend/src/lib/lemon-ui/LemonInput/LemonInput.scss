@@ -1,9 +1,10 @@
 .LemonInput {
+    --lemon-input-height: calc(2.125rem + 3px); // Medium size button height + button shadow height;
     display: flex;
     gap: 0.25rem;
     align-items: center;
-    justify-content: center;
-    height: calc(2.125rem + 3px); // Medium size button height + button shadow height
+    justify-content: left;
+    min-height: var(--lemon-input-height); // TODO: Does this break anything?
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
@@ -14,6 +15,7 @@
     background-color: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    flex-wrap: wrap;
 
     &:hover:not([aria-disabled='true']) {
         border-color: var(--border-bold);
@@ -34,7 +36,7 @@
 
     .LemonInput__input {
         align-self: stretch; // Improves selectability
-        width: 100%;
+        flex: 1;
         text-overflow: ellipsis;
         background: none;
         border: none;
@@ -56,7 +58,7 @@
     }
 
     &.LemonInput--small {
-        height: 2rem;
+        --lemon-input-height: 2rem;
         padding: 0.125rem 0.25rem;
 
         .LemonIcon {
