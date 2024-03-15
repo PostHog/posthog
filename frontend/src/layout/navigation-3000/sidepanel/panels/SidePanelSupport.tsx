@@ -92,7 +92,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                     ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
                     ?.plans?.map((plan, i) => (
                         <React.Fragment key={`support-panel-${plan.plan_key}`}>
-                            <div className={plan.current_plan && 'font-bold'}>
+                            <div className={plan.current_plan ? 'font-bold' : undefined}>
                                 {i == 1 ? 'Pay-per-use' : plan.name}
                                 {plan.current_plan && (
                                     <>
@@ -101,7 +101,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                                     </>
                                 )}
                             </div>
-                            <div className={plan.current_plan && 'font-bold'}>
+                            <div className={plan.current_plan ? 'font-bold' : undefined}>
                                 {plan.features.some((f) => f.key == AvailableFeature.PRIORITY_SUPPORT)
                                     ? supportResponseTimes[AvailableFeature.PRIORITY_SUPPORT]
                                     : plan.features.some((f) => f.key == AvailableFeature.EMAIL_SUPPORT)

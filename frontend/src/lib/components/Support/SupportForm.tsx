@@ -95,14 +95,7 @@ export function SupportForm(): JSX.Element | null {
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
             <LemonField name="target_area" label="Topic">
-                <LemonSelect
-                    fullWidth
-                    options={Object.entries(TARGET_AREA_TO_NAME).map(([key, value]) => ({
-                        label: value,
-                        value: key,
-                        'data-attr': `support-form-target-area-${key}`,
-                    }))}
-                />
+                <LemonSelect fullWidth options={TARGET_AREA_TO_NAME} />
             </LemonField>
             {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
                 sendSupportRequest.target_area === 'session_replay' && (
