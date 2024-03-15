@@ -11,7 +11,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonSelectMultiple, LemonSelectMultipleOption } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect, useMemo } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -83,7 +83,7 @@ export function EditSubscription({
     }, [subscription?.target_type, slackIntegration])
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const slackChannelOptions: LemonSelectMultipleOption[] = useMemo(
+    const slackChannelOptions: LemonInputSelectOption[] = useMemo(
         () => getSlackChannelOptions(subscription?.target_value, slackChannels),
         [slackChannels, subscription?.target_value]
     )
@@ -196,7 +196,7 @@ export function EditSubscription({
                                     help="Enter the email addresses of the users you want to share with"
                                 >
                                     {({ value, onChange }) => (
-                                        <LemonSelectMultiple
+                                        <LemonInputSelect
                                             onChange={(val) => onChange(val.join(','))}
                                             value={value?.split(',').filter(Boolean)}
                                             disabled={emailDisabled}
@@ -277,7 +277,7 @@ export function EditSubscription({
                                             }
                                         >
                                             {({ value, onChange }) => (
-                                                <LemonSelectMultiple
+                                                <LemonInputSelect
                                                     onChange={(val) => onChange(val[0] ?? null)}
                                                     value={value ? [value] : []}
                                                     disabled={slackDisabled}

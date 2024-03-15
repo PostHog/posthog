@@ -90,7 +90,7 @@
         max-width: 100%;
     }
 
-    .LemonSelectMultiple & {
+    .LemonInputSelect & {
         flex-wrap: wrap;
         height: auto;
         min-height: var(--lemon-input-height); // TODO: Does this break anything?

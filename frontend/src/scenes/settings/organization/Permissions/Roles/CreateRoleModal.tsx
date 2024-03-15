@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useState } from 'react'
@@ -92,7 +92,7 @@ export function CreateRoleModal(): JSX.Element {
                     <h5>Members</h5>
                     <div className="flex gap-2">
                         <div className="flex-1">
-                            <LemonSelectMultiple
+                            <LemonInputSelect
                                 placeholder="Search for team members to add…"
                                 value={roleMembersToAdd}
                                 loading={roleMembersInFocusLoading}

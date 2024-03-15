@@ -3,14 +3,14 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
 
 import { ProfilePicture } from '../ProfilePicture'
-import { LemonSelectMultiple, LemonSelectMultipleProps } from './LemonSelectMultiple'
+import { LemonInputSelect, LemonInputSelectProps } from './LemonInputSelect'
 
 const names = ['ben', 'marius', 'paul', 'tiina', 'tim', 'james', 'neil', 'tom', 'annika', 'thomas']
 
-type Story = StoryObj<typeof LemonSelectMultiple>
-const meta: Meta<typeof LemonSelectMultiple> = {
-    title: 'Lemon UI/Lemon SelectMultiple',
-    component: LemonSelectMultiple,
+type Story = StoryObj<typeof LemonInputSelect>
+const meta: Meta<typeof LemonInputSelect> = {
+    title: 'Lemon UI/Lemon Input Select',
+    component: LemonInputSelect,
     args: {
         options: names.map((x, i) => ({
             key: `user-${i}`,
@@ -35,14 +35,15 @@ const meta: Meta<typeof LemonSelectMultiple> = {
 }
 export default meta
 
-const Template: StoryFn<typeof LemonSelectMultiple> = (props: LemonSelectMultipleProps) => {
+const Template: StoryFn<typeof LemonInputSelect> = (props: LemonInputSelectProps) => {
     const [value, setValue] = useState(props.value || [])
-    return <LemonSelectMultiple {...props} value={value} onChange={setValue} mode="single" />
+    return <LemonInputSelect {...props} value={value} onChange={setValue} />
 }
 
 export const Default: Story = Template.bind({})
 Default.args = {
     placeholder: 'Pick one email',
+    mode: 'single',
 }
 
 export const MultipleSelect: Story = Template.bind({})
@@ -60,12 +61,14 @@ MultipleSelectWithCustom.args = {
 
 export const Disabled: Story = Template.bind({})
 Disabled.args = {
+    mode: 'single',
     placeholder: 'Disabled...',
     disabled: true,
 }
 
 export const Loading: Story = Template.bind({})
 Loading.args = {
+    mode: 'single',
     placeholder: 'Loading...',
     options: [],
     loading: true,
@@ -82,12 +85,6 @@ NoOptions.args = {
     allowCustomValues: true,
     placeholder: 'No options...',
     options: [],
-}
-
-export const SingleOption: Story = Template.bind({})
-SingleOption.args = {
-    mode: 'single',
-    placeholder: 'Only one option allowed',
 }
 
 export const SingleOptionWithCustom: Story = Template.bind({})

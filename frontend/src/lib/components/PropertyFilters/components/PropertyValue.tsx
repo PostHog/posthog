@@ -6,7 +6,7 @@ import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
 
@@ -125,7 +125,7 @@ export function PropertyValue({
     )
 
     return (
-        <LemonSelectMultiple
+        <LemonInputSelect
             data-attr="prop-val"
             loading={options[propertyKey]?.status === 'loading'}
             value={formattedValues}

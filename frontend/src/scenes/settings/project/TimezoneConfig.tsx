@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,7 +25,7 @@ export function TimezoneConfig(): JSX.Element {
 
     return (
         <div className="max-w-160">
-            <LemonSelectMultiple
+            <LemonInputSelect
                 mode="single"
                 placeholder="Select a time zone"
                 loading={currentTeamLoading}

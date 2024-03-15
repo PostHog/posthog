@@ -1,6 +1,6 @@
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -33,7 +33,7 @@ export function DataAttributes(): JSX.Element {
                 be <code>button[data-custom-id='cta-button']</code>.
             </p>
             <div className="space-y-4 max-w-160">
-                <LemonSelectMultiple
+                <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
                     onChange={(values: string[]) => setValue(values || [])}

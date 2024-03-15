@@ -9,14 +9,14 @@ import { LemonButton } from '../LemonButton'
 import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput } from '../LemonInput'
 
-export interface LemonSelectMultipleOption {
+export interface LemonInputSelectOption {
     key: string
     label: string
     labelComponent?: React.ReactNode
 }
 
-export type LemonSelectMultipleProps = {
-    options?: LemonSelectMultipleOption[]
+export type LemonInputSelectProps = {
+    options?: LemonInputSelectOption[]
     value?: string[] | null
     disabled?: boolean
     loading?: boolean
@@ -29,7 +29,7 @@ export type LemonSelectMultipleProps = {
     'data-attr'?: string
 }
 
-export function LemonSelectMultiple({
+export function LemonInputSelect({
     placeholder,
     options = [],
     value,
@@ -41,7 +41,7 @@ export function LemonSelectMultiple({
     disableFiltering = false,
     allowCustomValues = false,
     ...props
-}: LemonSelectMultipleProps): JSX.Element {
+}: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
     const popoverFocusRef = useRef<boolean>(false)
@@ -50,7 +50,7 @@ export function LemonSelectMultiple({
     const values = value ?? []
 
     const visibleOptions = useMemo(() => {
-        const res: LemonSelectMultipleOption[] = []
+        const res: LemonInputSelectOption[] = []
         const customValues = [...values]
 
         options.forEach((option) => {
@@ -247,7 +247,7 @@ export function LemonSelectMultiple({
                 </div>
             }
         >
-            <span className="LemonSelectMultiple" {...props}>
+            <span className="LemonInputSelect" {...props}>
                 <LemonInput
                     ref={inputRef}
                     placeholder={!values.length ? placeholder : undefined}

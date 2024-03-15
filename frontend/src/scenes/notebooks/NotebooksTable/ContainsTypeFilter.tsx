@@ -1,4 +1,4 @@
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import posthog from 'posthog-js'
 import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 
@@ -38,7 +38,7 @@ export function ContainsTypeFilters({
     return (
         <div className="flex items-center gap-2">
             <span>Containing:</span>
-            <LemonSelectMultiple
+            <LemonInputSelect
                 mode="multiple"
                 placeholder="Any content"
                 options={Object.entries(fromNodeTypeToLabel)
