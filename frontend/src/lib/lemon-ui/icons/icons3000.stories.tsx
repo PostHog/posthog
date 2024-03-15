@@ -5,7 +5,7 @@ import { LemonCollapse } from '../LemonCollapse'
 
 const meta: Meta = {
     title: 'PostHog 3000/Icons',
-    // tags: ['autodocs'],
+    tags: ['test-skip'],
     parameters: {
         previewTabs: {
             'storybook/docs/panel': {
@@ -75,7 +75,7 @@ const OBJECTS = {
 
 const TECHNOLOGY = {
     Messaging: ['IconSend', 'IconHeadset', 'IconMessage', 'IconNotification', 'IconChat', 'IconThoughtBubble'],
-    Devices: [
+    Hardware: [
         'IconLaptop',
         'IconPhone',
         'IconWebcam',
@@ -207,6 +207,8 @@ const TEAMS_AND_COMPANIES = {
     Logos: ['IconLogomark', 'IconGithub'],
 }
 
+export const CATEGORIES = [OBJECTS, TECHNOLOGY, ELEMENTS, TEAMS_AND_COMPANIES]
+
 const IconTemplate = ({ icons }: { icons: { name: string; icon: any }[] }): JSX.Element => {
     return (
         <div className="grid grid-cols-6 gap-4">
@@ -247,16 +249,6 @@ const GroupBase = ({ group }: { group: Record<string, string[]> }): JSX.Element 
     )
 }
 
-export const Technology: StoryObj = (): JSX.Element => {
-    return <GroupBase group={TECHNOLOGY} />
-}
-Technology.storyName = 'Category - Technology'
-
-export const Objects: StoryObj = (): JSX.Element => {
-    return <GroupBase group={OBJECTS} />
-}
-Objects.storyName = 'Category - Objects'
-
 export const Elements: StoryObj = (): JSX.Element => {
     return <GroupBase group={ELEMENTS} />
 }
@@ -266,3 +258,13 @@ export const TeamsAndCompanies: StoryObj = (): JSX.Element => {
     return <GroupBase group={TEAMS_AND_COMPANIES} />
 }
 TeamsAndCompanies.storyName = 'Category - Teams & Companies'
+
+export const Technology: StoryObj = (): JSX.Element => {
+    return <GroupBase group={TECHNOLOGY} />
+}
+Technology.storyName = 'Category - Technology'
+
+export const Objects: StoryObj = (): JSX.Element => {
+    return <GroupBase group={OBJECTS} />
+}
+Objects.storyName = 'Category - Objects'
