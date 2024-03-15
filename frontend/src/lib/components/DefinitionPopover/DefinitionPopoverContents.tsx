@@ -293,7 +293,18 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             onChange={(value) => setLocalDefinition({ id_field: value })}
                         />
 
-                        <label className="definition-popover-edit-form-label" htmlFor="ID Field">
+                        <label className="definition-popover-edit-form-label" htmlFor="Distinct Id Field">
+                            <span className="label-text">Distinct ID field</span>
+                        </label>
+                        <LemonSelect
+                            value={
+                                'distinct_id_field' in localDefinition ? localDefinition.distinct_id_field : undefined
+                            }
+                            options={columnOptions}
+                            onChange={(value) => setLocalDefinition({ distinct_id_field: value })}
+                        />
+
+                        <label className="definition-popover-edit-form-label" htmlFor="Timestamp Field">
                             <span className="label-text">Timestamp field</span>
                         </label>
                         <LemonSelect
@@ -313,7 +324,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 'id_field' in localDefinition &&
                                 localDefinition.id_field &&
                                 'timestamp_field' in localDefinition &&
-                                localDefinition.timestamp_field
+                                localDefinition.timestamp_field &&
+                                'distinct_id_field' in localDefinition &&
+                                localDefinition.distinct_id_field
                                     ? null
                                     : 'Field mappings must be specified'
                             }

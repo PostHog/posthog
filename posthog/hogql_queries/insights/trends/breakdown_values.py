@@ -8,7 +8,15 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import Aggrega
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
-from posthog.schema import BreakdownFilter, BreakdownType, ChartDisplayType, ActionsNode, EventsNode, DataWarehouseNode
+from posthog.schema import (
+    BreakdownFilter,
+    BreakdownType,
+    ChartDisplayType,
+    ActionsNode,
+    EventsNode,
+    DataWarehouseNode,
+    HogQLQueryModifiers,
+)
 from functools import cached_property
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
@@ -29,6 +37,7 @@ class BreakdownValues:
     hide_other_aggregation: Optional[bool]
     breakdown_limit: Optional[int]
     query_date_range: QueryDateRange
+    modifiers: HogQLQueryModifiers
 
     def __init__(
         self,
@@ -38,6 +47,7 @@ class BreakdownValues:
         chart_display_type: ChartDisplayType,
         breakdown_filter: BreakdownFilter,
         query_date_range: QueryDateRange,
+        modifiers: HogQLQueryModifiers,
     ):
         self.team = team
         self.series = series
@@ -58,6 +68,7 @@ class BreakdownValues:
         self.hide_other_aggregation = breakdown_filter.breakdown_hide_other_aggregation
         self.breakdown_limit = breakdown_filter.breakdown_limit
         self.query_date_range = query_date_range
+        self.modifiers = modifiers
 
     def get_breakdown_values(self) -> List[str | int]:
         if self.breakdown_type == "cohort":
@@ -175,6 +186,7 @@ class BreakdownValues:
                 query_type="TrendsQueryBreakdownValues",
                 query=query,
                 team=self.team,
+                modifiers=self.modifiers,
             )
             if response.results and len(response.results) > 0:
                 values = response.results[0][0]
@@ -187,6 +199,7 @@ class BreakdownValues:
                 query_type="TrendsQueryBreakdownValues",
                 query=query,
                 team=self.team,
+                modifiers=self.modifiers,
             )
             value_index = (response.columns or []).index("value")
             values = [row[value_index] for row in response.results or []]
