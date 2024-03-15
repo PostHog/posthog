@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonSelectMultiple, LemonSelectMultipleProps } from './LemonSelectMultiple'
 
-const names = ['ben', 'marius', 'paul', 'tiina', 'tim', 'james', 'neil', 'tom', 'paul', 'thomas']
+const names = ['ben', 'marius', 'paul', 'tiina', 'tim', 'james', 'neil', 'tom', 'annika', 'thomas']
 
 type Story = StoryObj<typeof LemonSelectMultiple>
 const meta: Meta<typeof LemonSelectMultiple> = {
