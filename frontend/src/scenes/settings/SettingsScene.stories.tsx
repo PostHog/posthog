@@ -36,7 +36,7 @@ export const SettingsProject: StoryFn = () => {
     return <App />
 }
 SettingsProject.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections' },
+    testOptions: { waitForSelector: '.Settings__sections button' },
 }
 
 export const SettingsUser: StoryFn = () => {
@@ -46,7 +46,7 @@ export const SettingsUser: StoryFn = () => {
     return <App />
 }
 SettingsUser.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections' },
+    testOptions: { waitForSelector: '.Settings__sections button' },
 }
 
 export const SettingsOrganization: StoryFn = () => {
@@ -56,5 +56,5 @@ export const SettingsOrganization: StoryFn = () => {
     return <App />
 }
 SettingsOrganization.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections' },
+    testOptions: { waitForSelector: '.Settings__sections button' },
 }

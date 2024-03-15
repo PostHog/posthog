@@ -50,7 +50,7 @@ export const CardView: Story = () => {
     return <App />
 }
 CardView.parameters = {
-    testOptions: { waitForSelector: '.funnel-bar' },
+    testOptions: { waitForSelector: '.funnel-bar-percentage' },
 }
 
 export const EmptyState: Story = () => {
