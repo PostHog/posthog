@@ -19,13 +19,10 @@ describe('Billing Upgrade CTA', () => {
     it('Check that events are being sent on each page visit', () => {
         cy.visit('/organization/billing')
         cy.get('[data-attr=product_analytics-upgrade-cta] .LemonButton__content').should('have.text', 'Add credit card')
-        cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture2')
-        cy.wait('@capture2').then(({ request }) => {
-            const data = new Uint8Array(request.body)
-            const decoded = fflate.strFromU8(fflate.decompressSync(data))
-            const decodedJSON = JSON.parse(decoded)
+        cy.window().then((win) => {
+            const events = (win as any)._cypress_posthog_captures
 
-            const matchingEvents = decodedJSON.filter((event) => event.event === 'billing CTA shown')
+            const matchingEvents = events.filter((event) => event.event === 'billing CTA shown')
             // One for each product card
             expect(matchingEvents.length).to.equal(4)
         })
@@ -36,13 +33,10 @@ describe('Billing Upgrade CTA', () => {
 
         cy.get('[data-attr=session_replay-upgrade-cta] .LemonButton__content').should('have.text', 'Add paid plan')
         cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture3')
-        cy.wait('@capture3').then(({ request }) => {
-            const data = new Uint8Array(request.body)
-            const decoded = fflate.strFromU8(fflate.decompressSync(data))
-            const decodedJSON = JSON.parse(decoded)
+        cy.window().then((win) => {
+            const events = (win as any)._cypress_posthog_captures
 
-            console.log('fun', decodedJSON)
-            const matchingEvents = decodedJSON.filter((event) => event.event === 'billing CTA shown')
+            const matchingEvents = events.filter((event) => event.event === 'billing CTA shown')
             expect(matchingEvents.length).to.equal(4)
         })
 
@@ -53,12 +47,10 @@ describe('Billing Upgrade CTA', () => {
         cy.get('[data-attr=onboarding-breadcrumbs] > :nth-child(5)').click()
 
         cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture4')
-        cy.wait('@capture4').then(({ request }) => {
-            const data = new Uint8Array(request.body)
-            const decoded = fflate.strFromU8(fflate.decompressSync(data))
-            const decodedJSON = JSON.parse(decoded)
+        cy.window().then((win) => {
+            const events = (win as any)._cypress_posthog_captures
 
-            const matchingEvents = decodedJSON.filter((event) => event.event === 'billing CTA shown')
+            const matchingEvents = events.filter((event) => event.event === 'billing CTA shown')
             expect(matchingEvents.length).to.equal(3)
         })
     })
