@@ -1,11 +1,10 @@
 import './LemonSelectMultiple.scss'
 
 import { IconCheck } from '@posthog/icons'
-import { Select } from 'antd'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton } from '../LemonButton'
 import { LemonDropdown } from '../LemonDropdown'
@@ -70,12 +69,19 @@ export function LemonSelectMultiple({
               })
             : optionsAsList
 
+    const customValues = values.filter((value) => !optionsAsList.find((option) => option.key === value))
+
+    if (customValues.length) {
+        customValues.forEach((value) => {
+            filteredOptions.unshift({ key: value, label: value })
+        })
+    }
+
     if (mode === 'multiple-custom' && inputValue && !values.includes(inputValue)) {
         filteredOptions.unshift({ key: inputValue, label: inputValue })
     }
 
     useEffect(() => {
-        console.log(filteredOptions.length, selectedIndex)
         if (selectedIndex >= filteredOptions.length) {
             setSelectedIndex(Math.max(0, filteredOptions.length - 1))
         }
@@ -184,16 +190,7 @@ export function LemonSelectMultiple({
             }}
             overlay={
                 <div className="space-y-px overflow-y-auto">
-                    {loading ? (
-                        <>
-                            {range(5).map((x) => (
-                                <div key={x} className="flex gap-2 items-center h-10 px-1">
-                                    <LemonSkeleton.Circle className="w-6 h-6" />
-                                    <LemonSkeleton />
-                                </div>
-                            ))}
-                        </>
-                    ) : (
+                    {filteredOptions.length ? (
                         filteredOptions?.map((option, index) => {
                             return (
                                 <LemonButton
@@ -210,6 +207,21 @@ export function LemonSelectMultiple({
                                 </LemonButton>
                             )
                         })
+                    ) : loading ? (
+                        <>
+                            {range(5).map((x) => (
+                                <div key={x} className="flex gap-2 items-center h-10 px-1">
+                                    <LemonSkeleton.Circle className="w-6 h-6" />
+                                    <LemonSkeleton />
+                                </div>
+                            ))}
+                        </>
+                    ) : (
+                        <p className="text-muted italic p-1">
+                            {mode === 'multiple-custom'
+                                ? 'Start typing and press Enter to add options'
+                                : `No options matching "${inputValue}"`}
+                        </p>
                     )}
                 </div>
             }
