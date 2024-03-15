@@ -25,6 +25,40 @@ DBSCAN_MIN_SAMPLES = settings.REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_MIN_SAMPLES
 
 
 def error_clustering(team: Team):
+
+    return [
+        {
+            "cluster": 0,
+            "samples": [
+                {"session_id": "1234567", "input": "sdfghfds"},
+                {"session_id": "998765432", "input": "fdgbvafvfd"},
+            ],
+            "occurrences": 100,
+            "unique_sessions": 2,
+            "viewed": 4,
+        },
+        {
+            "cluster": 1,
+            "samples": [
+                {"session_id": "1234567", "input": "sdfghfds"},
+                {"session_id": "998765432", "input": "fdgbvafvfd"},
+            ],
+            "occurrences": 234567,
+            "unique_sessions": 10,
+            "viewed": 5,
+        },
+        {
+            "cluster": 2,
+            "samples": [
+                {"session_id": "1234567", "input": "sdfghfds"},
+                {"session_id": "998765432", "input": "fdgbvafvfd"},
+            ],
+            "occurrences": 10,
+            "unique_sessions": 5,
+            "viewed": 8,
+        },
+    ]
+
     results = fetch_error_embeddings(team.pk)
 
     if not results:

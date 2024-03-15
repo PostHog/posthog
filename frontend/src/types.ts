@@ -898,11 +898,12 @@ export interface SessionRecordingsResponse {
 
 export type ErrorClusterSample = { session_id: string; input: string }
 
-type ErrorCluster = {
+export type ErrorCluster = {
     cluster: number
     samples: ErrorClusterSample[]
     occurrences: number
     unique_sessions: number
+    viewed: number
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
 
