@@ -1,5 +1,6 @@
 import * as packageIcons from '@posthog/icons'
 import { Meta, StoryObj } from '@storybook/react'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 import { LemonCollapse } from '../LemonCollapse'
 import { ELEMENTS, OBJECTS, TEAMS_AND_COMPANIES, TECHNOLOGY } from './categories'
@@ -28,7 +29,7 @@ const IconTemplate = ({ icons }: { icons: { name: string; icon: any }[] }): JSX.
                 return (
                     <div key={name} className="flex flex-col items-center space-y-2">
                         <Icon className="w-10 h-10" />
-                        <span className="text-xs">{name}</span>
+                        <CopyToClipboardInline className="text-xs">{name}</CopyToClipboardInline>
                     </div>
                 )
             })}
