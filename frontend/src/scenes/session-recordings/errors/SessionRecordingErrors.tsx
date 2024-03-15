@@ -2,7 +2,6 @@ import { IconFeatures } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -36,18 +35,14 @@ export function SessionRecordingErrors(): JSX.Element {
                         title: 'Error',
                         dataIndex: 'cluster',
                         render: (_, cluster) => (
-                            <LemonTableLink
-                                title={
-                                    String(cluster.cluster) +
-                                    'sdvsdn bsdbvo asdvabfdsgfnbv sdvas vafv adfvdvbd fv vdvbsdf'
-                                }
-                                to={urls.replaySingle(cluster.samples[0].session_id)}
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    openSessionPlayer({ id: cluster.samples[0].session_id })
-                                }}
-                            />
+                            <div
+                                title={cluster.sample.error}
+                                className="font-semibold text-sm text-default line-clamp-1"
+                            >
+                                {cluster.sample.error}
+                            </div>
                         ),
+                        width: '50%',
                     },
                     {
                         title: 'Occurrences',
@@ -55,23 +50,40 @@ export function SessionRecordingErrors(): JSX.Element {
                         sorter: (a, b) => a.occurrences - b.occurrences,
                     },
                     {
-                        title: 'Unique sessions',
+                        title: 'Sessions',
                         dataIndex: 'unique_sessions',
                         sorter: (a, b) => a.unique_sessions - b.unique_sessions,
                     },
                     {
                         title: 'Viewed',
+                        tooltip: "Percentage of the issue you've already seen in other watched recordings",
                         dataIndex: 'viewed',
                         render: function Render(_, cluster) {
-                            return `${(cluster.viewed / cluster.unique_sessions) * 100}% (${cluster.viewed} of ${
-                                cluster.unique_sessions
-                            })`
+                            return `${(cluster.viewed / cluster.unique_sessions) * 100}%`
                         },
                         sorter: (a, b) => a.viewed - b.viewed,
                     },
+                    {
+                        title: 'Actions',
+                        render: function Render(_, cluster) {
+                            return (
+                                <LemonButton
+                                    to={urls.replaySingle(cluster.sample.session_id)}
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        openSessionPlayer({ id: cluster.sample.session_id })
+                                    }}
+                                    className="p-2 whitespace-nowrap"
+                                    type="primary"
+                                >
+                                    Watch example
+                                </LemonButton>
+                            )
+                        },
+                    },
                 ]}
                 dataSource={errors}
-                expandable={{ expandedRowRender: (cluster) => <ExpandedError error={cluster.samples[0].input} /> }}
+                expandable={{ expandedRowRender: (cluster) => <ExpandedError error={cluster.sample.error} /> }}
             />
         </>
     )
