@@ -69,21 +69,6 @@ export function SessionRecordingErrors(): JSX.Element {
                         },
                         sorter: (a, b) => a.viewed - b.viewed,
                     },
-                    {
-                        title: 'Actions',
-                        render: function Render(_, cluster) {
-                            return (
-                                <LemonButton
-                                    tooltip={`Create a playlist with ${cluster.samples.length} examples`}
-                                    type="secondary"
-                                    onClick={() => {}}
-                                    className="p-2 whitespace-nowrap"
-                                >
-                                    Create playlist
-                                </LemonButton>
-                            )
-                        },
-                    },
                 ]}
                 dataSource={errors}
                 expandable={{ expandedRowRender: (cluster) => <ExpandedError error={cluster.samples[0].input} /> }}
