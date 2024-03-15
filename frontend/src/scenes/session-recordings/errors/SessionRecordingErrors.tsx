@@ -59,9 +59,9 @@ export function SessionRecordingErrors(): JSX.Element {
                         tooltip: "Percentage of the issue you've already seen in other watched recordings",
                         dataIndex: 'viewed',
                         render: function Render(_, cluster) {
-                            return `${(cluster.viewed / cluster.unique_sessions) * 100}%`
+                            return `${((cluster.viewed / cluster.unique_sessions) * 100).toFixed(0)}%`
                         },
-                        sorter: (a, b) => a.viewed - b.viewed,
+                        sorter: (a, b) => a.viewed / a.unique_sessions - b.viewed / b.unique_sessions,
                     },
                     {
                         title: 'Actions',
@@ -109,7 +109,10 @@ const ExpandedError = ({ error }: { error: string }): JSX.Element => {
             />
         </div>
     ) : (
-        <div className="py-3 whitespace-pre-line">{error}</div>
+        <div className="py-3 space-y-1">
+            <h3>Example error</h3>
+            <div className="whitespace-pre-line">{error}</div>
+        </div>
     )
 }
 
