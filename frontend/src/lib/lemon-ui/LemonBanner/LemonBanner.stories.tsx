@@ -50,7 +50,7 @@ export const Small: Story = Template.bind({})
 Small.args = {
     type: 'info',
     children: 'This is a one-time message. Acknowledge it and move on with your life.',
-    className: 'w-50 resize-x overflow-hidden',
+    className: 'w-50 overflow-hidden',
 }
 
 export const SmallWithButtons: Story = Template.bind({})
@@ -62,5 +62,5 @@ SmallWithButtons.args = {
         children: 'Acknowledge',
         onClick: () => alert('👋'),
     },
-    className: 'w-50 resize-x overflow-hidden',
+    className: 'w-50 overflow-hidden',
 }
