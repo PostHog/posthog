@@ -32,22 +32,22 @@ const products = [
     {
         name: 'Product OS',
         slug: 'product-os',
-        icon: <IconStack className="text-red h-5 w-5" />,
+        icon: <IconStack className="text-danger h-5 w-5" />,
     },
     {
         name: 'Product analytics',
         slug: 'product-analytics',
-        icon: <IconTrends className="text-blue h-5 w-5" />,
+        icon: <IconTrends className="text-brand-blue h-5 w-5" />,
     },
     {
         name: 'Session replay',
         slug: 'session-replay',
-        icon: <IconRewindPlay className="text-yellow h-5 w-5" />,
+        icon: <IconRewindPlay className="text-warning h-5 w-5" />,
     },
     {
         name: 'Feature flags',
         slug: 'feature-flags',
-        icon: <IconToggle className="text-green h-5 w-5" />,
+        icon: <IconToggle className="text-success h-5 w-5" />,
     },
     {
         name: 'A/B testing',
@@ -57,7 +57,7 @@ const products = [
     {
         name: 'Surveys',
         slug: 'surveys',
-        icon: <IconMessage className="text-red h-5 w-5" />,
+        icon: <IconMessage className="text-danger h-5 w-5" />,
     },
 ]
 
