@@ -441,8 +441,8 @@ devDependencies:
     specifier: ^13.5.0
     version: 13.5.0(@testing-library/dom@8.19.0)
   '@types/chartjs-plugin-crosshair':
-    specifier: ^1.1.1
-    version: 1.1.1
+    specifier: ^1.1.4
+    version: 1.1.4
   '@types/clone':
     specifier: ^2.1.1
     version: 2.1.1
@@ -7562,16 +7562,16 @@ packages:
       '@types/node': 18.18.4
     dev: true
 
-  /@types/chart.js@2.9.37:
-    resolution: {integrity: sha512-9bosRfHhkXxKYfrw94EmyDQcdjMaQPkU1fH2tDxu8DWXxf1mjzWQAV4laJF51ZbC2ycYwNDvIm1rGez8Bug0vg==}
+  /@types/chart.js@2.9.41:
+    resolution: {integrity: sha512-3dvkDvueckY83UyUXtJMalYoH6faOLkWQoaTlJgB4Djde3oORmNP0Jw85HtzTuXyliUHcdp704s0mZFQKio/KQ==}
     dependencies:
-      moment: 2.29.4
+      moment: 2.30.1
     dev: true
 
-  /@types/chartjs-plugin-crosshair@1.1.1:
-    resolution: {integrity: sha512-fAO7SX8sJi4gJS0afd/50JFtzg9vNhQPwNx6Kjo5FLyibgmwzMiqO9LnSIvR6OWiX3oN/mDrAuvqKCRs6cFLNw==}
+  /@types/chartjs-plugin-crosshair@1.1.4:
+    resolution: {integrity: sha512-AvHMQMFh7aK+npOcyqezzaRpCgA5vqg3d885RD2xUyXULeUcgvxbLPf5v6yX5QqmbUZB3xRDOv52vCabBw+YKg==}
     dependencies:
-      '@types/chart.js': 2.9.37
+      '@types/chart.js': 2.9.41
     dev: true
 
   /@types/clone@2.1.1:
@@ -15629,6 +15629,11 @@ packages:
 
   /moment@2.29.4:
     resolution: {integrity: sha512-5LC9SOxjSc2HF6vO2CyuTDNivEdoz2IvyJJGj6X8DJ0eFyfszE0QiEd+iXmBvUP3WHxSjFH/vIsA0EN00cgr8w==}
+    dev: false
+
+  /moment@2.30.1:
+    resolution: {integrity: sha512-uEmtNhbDOrWPFS+hdjFCBfy9f2YoyzRpwcl+DqpC6taX21FzsTLQVbMV/W7PzNSX6x/bhC1zA3c2UQ5NzH6how==}
+    dev: true
 
   /monaco-editor-webpack-plugin@7.0.1(monaco-editor@0.39.0)(webpack@5.88.2):
     resolution: {integrity: sha512-M8qIqizltrPlIbrb73cZdTWfU9sIsUVFvAZkL3KGjAHmVWEJ0hZKa/uad14JuOckc0GwnCaoGHvMoYtJjVyCzw==}
