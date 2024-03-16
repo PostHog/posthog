@@ -119,23 +119,23 @@ dependencies:
     specifier: ^0.1.0
     version: 0.1.0
   chart.js:
-    specifier: ^3.9.1
-    version: 3.9.1
+    specifier: ^4.4.2
+    version: 4.4.2
   chartjs-adapter-dayjs-3:
     specifier: ^1.2.3
-    version: 1.2.3(chart.js@3.9.1)(dayjs@1.11.6)
+    version: 1.2.3(chart.js@4.4.2)(dayjs@1.11.6)
   chartjs-plugin-annotation:
     specifier: 2.2.1
-    version: 2.2.1(chart.js@3.9.1)
+    version: 2.2.1(chart.js@4.4.2)
   chartjs-plugin-crosshair:
     specifier: ^1.2.0
-    version: 1.2.0(chart.js@3.9.1)
+    version: 1.2.0(chart.js@4.4.2)
   chartjs-plugin-datalabels:
     specifier: ^2.2.0
-    version: 2.2.0(chart.js@3.9.1)
+    version: 2.2.0(chart.js@4.4.2)
   chartjs-plugin-stacked100:
     specifier: ^1.4.0
-    version: 1.4.0(chart.js@3.9.1)
+    version: 1.4.0(chart.js@4.4.2)
   chokidar:
     specifier: ^3.5.3
     version: 3.5.3
@@ -4840,6 +4840,10 @@ packages:
 
   /@juggle/resize-observer@3.4.0:
     resolution: {integrity: sha512-dfLbk+PwWvFzSxwk3n5ySL0hfBog779o8h68wK/7/APo/7cgyWp5jcXockbxdk5kFRkbeXWm4Fbi9FrdN381sA==}
+
+  /@kurkle/color@0.3.2:
+    resolution: {integrity: sha512-fuscdXJ9G1qb7W8VdHi+IwRqij3lBkosAm4ydQtEmbY58OzHXqQhvlxqEkoz0yssNVn38bcpRWgA9PP+OGoisw==}
+    dev: false
 
   /@linaria/core@3.0.0-beta.13:
     resolution: {integrity: sha512-3zEi5plBCOsEzUneRVuQb+2SAx3qaC1dj0FfFAI6zIJQoDWu0dlSwKijMRack7oO9tUWrchfj3OkKQAd1LBdVg==}
@@ -9777,51 +9781,54 @@ packages:
     resolution: {integrity: sha512-yrLQ/yVUFXkzg7EDQsPieE/53+0RlaWTs+wBrvW36cyilJ2SaDWfl4Yj7MtLTXleV9uEKefbAGUPv2/iWSooRA==}
     dev: false
 
-  /chart.js@3.9.1:
-    resolution: {integrity: sha512-Ro2JbLmvg83gXF5F4sniaQ+lTbSv18E+TIf2cOeiH1Iqd2PGFOtem+DUufMZsCJwFE7ywPOpfXFBwRTGq7dh6w==}
+  /chart.js@4.4.2:
+    resolution: {integrity: sha512-6GD7iKwFpP5kbSD4MeRRRlTnQvxfQREy36uEtm1hzHzcOqwWx0YEHuspuoNlslu+nciLIB7fjjsHkUv/FzFcOg==}
+    engines: {pnpm: '>=8'}
+    dependencies:
+      '@kurkle/color': 0.3.2
     dev: false
 
-  /chartjs-adapter-dayjs-3@1.2.3(chart.js@3.9.1)(dayjs@1.11.6):
+  /chartjs-adapter-dayjs-3@1.2.3(chart.js@4.4.2)(dayjs@1.11.6):
     resolution: {integrity: sha512-H8m1c2cFi9zdiJ0IfY7txUSSZusnS671sUuE6dbmvcaHmSFTMNoWH5lJvNj+oM1hLRsiP5pSTiB7InAMDJP+rQ==}
     engines: {node: '>=10'}
     peerDependencies:
       chart.js: '>=2.8.0'
       dayjs: ^1.9.7
     dependencies:
-      chart.js: 3.9.1
+      chart.js: 4.4.2
       dayjs: 1.11.6
     dev: false
 
-  /chartjs-plugin-annotation@2.2.1(chart.js@3.9.1):
+  /chartjs-plugin-annotation@2.2.1(chart.js@4.4.2):
     resolution: {integrity: sha512-RL9UtrFr2SXd7C47zD0MZqn6ZLgrcRt3ySC6cYal2amBdANcYB1QcwFXcpKWAYnO4SGJYRok7P5rKDDNgJMA/w==}
     peerDependencies:
       chart.js: '>=3.7.0'
     dependencies:
-      chart.js: 3.9.1
+      chart.js: 4.4.2
     dev: false
 
-  /chartjs-plugin-crosshair@1.2.0(chart.js@3.9.1):
+  /chartjs-plugin-crosshair@1.2.0(chart.js@4.4.2):
     resolution: {integrity: sha512-yohsbME+wT1ODBdErBzWnC6xUDcn2tLeWmGjGDTykjpiT7+FMgibffajxqaCVmdzselxNPirpt76vx33EewSSQ==}
     peerDependencies:
       chart.js: ^3.4.0
     dependencies:
-      chart.js: 3.9.1
+      chart.js: 4.4.2
     dev: false
 
-  /chartjs-plugin-datalabels@2.2.0(chart.js@3.9.1):
+  /chartjs-plugin-datalabels@2.2.0(chart.js@4.4.2):
     resolution: {integrity: sha512-14ZU30lH7n89oq+A4bWaJPnAG8a7ZTk7dKf48YAzMvJjQtjrgg5Dpk9f+LbjCF6bpx3RAGTeL13IXpKQYyRvlw==}
     peerDependencies:
       chart.js: '>=3.0.0'
     dependencies:
-      chart.js: 3.9.1
+      chart.js: 4.4.2
     dev: false
 
-  /chartjs-plugin-stacked100@1.4.0(chart.js@3.9.1):
+  /chartjs-plugin-stacked100@1.4.0(chart.js@4.4.2):
     resolution: {integrity: sha512-49oWqcja9E++uVgmYE1AY8t1g56vZhhkt9CXO/eCMnuoTRjlJPD3lznMyemkZMEVpRoAujMw07eVLJcJnpcUKA==}
     peerDependencies:
       chart.js: '>=3.8.0'
     dependencies:
-      chart.js: 3.9.1
+      chart.js: 4.4.2
     dev: false
 
   /check-more-types@2.24.0:
