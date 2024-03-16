@@ -49,7 +49,7 @@ describe('replay events ingester', () => {
         await ingester.start()
     })
 
-    test('does not ingest messagse from a month in the future', async () => {
+    test('does not ingest messages from a month in the future', async () => {
         const twoMonthsFromNow = DateTime.utc().plus({ months: 2 })
 
         await ingester.consume(makeIncomingMessage("mickey's fun house", twoMonthsFromNow.toMillis()))
