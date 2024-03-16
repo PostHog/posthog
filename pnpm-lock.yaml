@@ -128,8 +128,8 @@ dependencies:
     specifier: 3.0.1
     version: 3.0.1(chart.js@4.4.2)
   chartjs-plugin-crosshair:
-    specifier: ^1.2.0
-    version: 1.2.0(chart.js@4.4.2)
+    specifier: ^2.0.0
+    version: 2.0.0(chart.js@4.4.2)
   chartjs-plugin-datalabels:
     specifier: ^2.2.0
     version: 2.2.0(chart.js@4.4.2)
@@ -9807,10 +9807,10 @@ packages:
       chart.js: 4.4.2
     dev: false
 
-  /chartjs-plugin-crosshair@1.2.0(chart.js@4.4.2):
-    resolution: {integrity: sha512-yohsbME+wT1ODBdErBzWnC6xUDcn2tLeWmGjGDTykjpiT7+FMgibffajxqaCVmdzselxNPirpt76vx33EewSSQ==}
+  /chartjs-plugin-crosshair@2.0.0(chart.js@4.4.2):
+    resolution: {integrity: sha512-Vs6strRvYpzL92v40r/rAWhh+7au8VnfyC/m2ZHXcXeLEWeFjDgMvXjWdX+eARhbgHQo+uGIKyq9fmkS79GIyQ==}
     peerDependencies:
-      chart.js: ^3.4.0
+      chart.js: ^4.0.1
     dependencies:
       chart.js: 4.4.2
     dev: false
