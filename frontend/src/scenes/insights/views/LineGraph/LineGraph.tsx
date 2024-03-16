@@ -382,7 +382,7 @@ export function LineGraph_({
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
-                weight: '500',
+                weight: 500,
             },
         }
         const borderOptions: Partial<BorderOptions> = {
@@ -604,7 +604,7 @@ export function LineGraph_({
                                   padding: 10,
                                   font: {
                                       size: 14,
-                                      weight: '600',
+                                      weight: 600,
                                   },
                               }
                             : {}),
