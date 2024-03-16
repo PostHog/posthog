@@ -132,16 +132,16 @@ export class ReplayEventsIngester {
                 // the replay record timestamp has to be valid and be within a reasonable diff from now
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
-                    if (!asDate.isValid || Math.abs(asDate.diffNow('months').months) >= 0.99) {
+                    if (!asDate.isValid || Math.abs(asDate.diffNow('day').days) >= 2) {
                         await captureIngestionWarning(
                             new KafkaProducerWrapper(this.producer),
                             event.team_id,
-                            'replay_timestamp_invalid',
+                            !asDate.isValid ? 'replay_timestamp_invalid' : 'replay_timestamp_too_far',
                             {
                                 replayRecord,
                                 timestamp: replayRecord.first_timestamp,
                                 isValid: asDate.isValid,
-                                monthsFromNow: Math.abs(asDate.diffNow('months').months),
+                                daysFromNow: Math.round(Math.abs(asDate.diffNow('day').days)),
                             }
                         )
                         return drop('invalid_timestamp')

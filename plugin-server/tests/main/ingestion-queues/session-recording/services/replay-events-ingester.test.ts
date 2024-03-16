@@ -66,12 +66,12 @@ describe('replay events ingester', () => {
 
         expect(value.source).toEqual('plugin-server')
         expect(value.team_id).toEqual(0)
-        expect(value.type).toEqual('replay_timestamp_invalid')
+        expect(value.type).toEqual('replay_timestamp_too_far')
         const details = JSON.parse(value.details)
         expect(details).toEqual(
             expect.objectContaining({
                 isValid: true,
-                monthsFromNow: 1.9999999988425925,
+                daysFromNow: 61,
                 timestamp: expectedTimestamp,
             })
         )
