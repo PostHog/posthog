@@ -10,7 +10,9 @@ import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
+import { KafkaProducerWrapper } from '../../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../../utils/status'
+import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
 import { createSessionReplayEvent } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
@@ -131,6 +133,17 @@ export class ReplayEventsIngester {
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
                     if (!asDate.isValid || Math.abs(asDate.diffNow('months').months) >= 0.99) {
+                        await captureIngestionWarning(
+                            new KafkaProducerWrapper(this.producer),
+                            event.team_id,
+                            'replay_timestamp_invalid',
+                            {
+                                replayRecord,
+                                timestamp: replayRecord.first_timestamp,
+                                isValid: asDate.isValid,
+                                monthsFromNow: Math.abs(asDate.diffNow('months').months),
+                            }
+                        )
                         return drop('invalid_timestamp')
                     }
                 }
