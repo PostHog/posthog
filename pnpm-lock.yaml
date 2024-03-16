@@ -134,8 +134,8 @@ dependencies:
     specifier: ^2.2.0
     version: 2.2.0(chart.js@4.4.2)
   chartjs-plugin-stacked100:
-    specifier: ^1.4.0
-    version: 1.4.0(chart.js@4.4.2)
+    specifier: ^1.5.2
+    version: 1.5.2(chart.js@4.4.2)
   chokidar:
     specifier: ^3.5.3
     version: 3.5.3
@@ -9823,8 +9823,8 @@ packages:
       chart.js: 4.4.2
     dev: false
 
-  /chartjs-plugin-stacked100@1.4.0(chart.js@4.4.2):
-    resolution: {integrity: sha512-49oWqcja9E++uVgmYE1AY8t1g56vZhhkt9CXO/eCMnuoTRjlJPD3lznMyemkZMEVpRoAujMw07eVLJcJnpcUKA==}
+  /chartjs-plugin-stacked100@1.5.2(chart.js@4.4.2):
+    resolution: {integrity: sha512-2pai9PxbyisCjSCBSOsuk1Fi8O2dV/aJtbL4MYyaNIzLoi5R8Bp4F0bi8LIaKiMLCe0BPGmlTqfe3s5XlPgdeA==}
     peerDependencies:
       chart.js: '>=3.8.0'
     dependencies:

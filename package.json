@@ -105,7 +105,7 @@
         "chartjs-plugin-annotation": "3.0.1",
         "chartjs-plugin-crosshair": "^2.0.0",
         "chartjs-plugin-datalabels": "^2.2.0",
-        "chartjs-plugin-stacked100": "^1.4.0",
+        "chartjs-plugin-stacked100": "^1.5.2",
         "chokidar": "^3.5.3",
         "clsx": "^1.1.1",
         "core-js": "^3.32.0",
