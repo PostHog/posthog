@@ -111,9 +111,11 @@ export function Sparkline({
                                     lineHeight: 1,
                                 },
                             },
+                            border: {
+                                dash: [2],
+                                display: false,
+                            },
                             grid: {
-                                borderDash: [2],
-                                drawBorder: false,
                                 display: true,
                                 tickLength: 0,
                             },

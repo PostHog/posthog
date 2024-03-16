@@ -1,5 +1,6 @@
 import {
     ActiveElement,
+    BorderOptions,
     Chart as RawChart,
     ChartDataset,
     ChartEvent,
@@ -49,6 +50,7 @@ Tooltip.positioners.cursor = function (_, coordinates) {
 
 export type {
     ActiveElement,
+    BorderOptions,
     ChartDataset,
     ChartEvent,
     ChartItem,
