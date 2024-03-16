@@ -241,7 +241,7 @@ export class EventsProcessor {
                 // after plugin processing, person & group enrichment, etc.
                 if (error instanceof MessageSizeTooLarge) {
                     if (MessageSizeTooLargeWarningLimiter.consume(`${teamId}`, 1)) {
-                        await captureIngestionWarning(this.db, teamId, 'message_size_too_large', {
+                        await captureIngestionWarning(this.db.kafkaProducer, teamId, 'message_size_too_large', {
                             eventUuid: uuid,
                             distinctId: distinctId,
                         })

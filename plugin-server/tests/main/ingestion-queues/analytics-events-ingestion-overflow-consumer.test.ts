@@ -86,7 +86,7 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
             expect(queue.pluginsServer.teamManager.getTeamForEvent).toHaveBeenCalledTimes(1)
             expect(consume).toHaveBeenCalledWith('1:id', 1)
             expect(captureIngestionWarning).toHaveBeenCalledWith(
-                queue.pluginsServer.db,
+                queue.pluginsServer.db.kafkaProducer,
                 1,
                 'ingestion_capacity_overflow',
                 {

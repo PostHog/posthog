@@ -3,7 +3,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 
 import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
-import { DB } from '../../utils/db/db'
+import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
@@ -61,8 +61,13 @@ export function generateEventDeadLetterQueueMessage(
 // These get displayed under Data Management > Ingestion Warnings
 // These warnings get displayed to end users. Make sure these errors are actionable and useful for them and
 // also update IngestionWarningsView.tsx to display useful context.
-export async function captureIngestionWarning(db: DB, teamId: TeamId, type: string, details: Record<string, any>) {
-    await db.kafkaProducer.queueMessage({
+export async function captureIngestionWarning(
+    kafkaProducer: KafkaProducerWrapper,
+    teamId: TeamId,
+    type: string,
+    details: Record<string, any>
+) {
+    await kafkaProducer.queueMessage({
         topic: KAFKA_INGESTION_WARNINGS,
         messages: [
             {

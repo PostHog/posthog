@@ -145,9 +145,14 @@ export async function eachBatchParallelIngestion(
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
                     if (team && OverflowWarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
                         processingPromises.push(
-                            captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
-                                overflowDistinctId: distinct_id,
-                            })
+                            captureIngestionWarning(
+                                queue.pluginsServer.db.kafkaProducer,
+                                team.id,
+                                'ingestion_capacity_overflow',
+                                {
+                                    overflowDistinctId: distinct_id,
+                                }
+                            )
                         )
                     }
                 }
