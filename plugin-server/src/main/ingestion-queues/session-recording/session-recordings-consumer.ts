@@ -489,7 +489,7 @@ export class SessionRecordingIngester {
             }
 
             if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                return await this.scheduleWork(this.onRevokePartitions(topicPartitions))
+                return this.scheduleWork(this.onRevokePartitions(topicPartitions))
             }
 
             // We had a "real" error
