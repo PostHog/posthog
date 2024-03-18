@@ -15,6 +15,7 @@ import {
 } from '~/types'
 
 import type { accessControlLogicType } from './accessControlLogicType'
+import { roleBasedAccessControlLogic } from './roleBasedAccessControlLogic'
 
 export type AccessControlLogicProps = {
     resource: string
@@ -26,7 +27,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
     key((props) => `${props.resource}-${props.resource_id}`),
     path((key) => ['scenes', 'accessControl', 'accessControlLogic', key]),
     connect({
-        values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam']],
+        values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], roleBasedAccessControlLogic, ['roles']],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
     }),
     actions({
@@ -105,15 +106,6 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     }
 
                     return values.accessControls
-                },
-            },
-        ],
-        roles: [
-            null as RoleType[] | null,
-            {
-                loadRoles: async () => {
-                    const response = await api.roles.list()
-                    return response?.results || []
                 },
             },
         ],
@@ -196,7 +188,6 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadRoles()
         actions.loadAccessControls()
         actions.ensureAllMembersLoaded()
     }),

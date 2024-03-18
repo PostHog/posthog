@@ -6,8 +6,9 @@ import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlType, AccessControlTypeRole, AccessControlUpdateType, RoleType } from '~/types'
+import { AccessControlType, AccessControlTypeRole, AccessControlUpdateType, AvailableFeature, RoleType } from '~/types'
 
 import type { roleBasedAccessControlLogicType } from './roleBasedAccessControlLogicType'
 
@@ -19,7 +20,7 @@ export type RoleWithResourceAccessControls = {
 export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>([
     path(['scenes', 'accessControl', 'roleBasedAccessControlLogic']),
     connect({
-        values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam']],
+        values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
     }),
     actions({
@@ -197,10 +198,12 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
             },
         ],
     }),
-    afterMount(({ actions }) => {
-        actions.loadRoles()
-        actions.loadRoleBasedAccessControls()
-        actions.ensureAllMembersLoaded()
+    afterMount(({ actions, values }) => {
+        if (values.hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS)) {
+            actions.loadRoles()
+            actions.loadRoleBasedAccessControls()
+            actions.ensureAllMembersLoaded()
+        }
     }),
 
     actionToUrl(({ values }) => ({

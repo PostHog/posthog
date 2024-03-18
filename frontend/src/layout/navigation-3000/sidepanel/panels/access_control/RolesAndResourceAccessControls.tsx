@@ -12,12 +12,15 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Form } from 'kea-forms'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { roleBasedAccessControlLogic, RoleWithResourceAccessControls } from './roleBasedAccessControlLogic'
 
@@ -104,22 +107,27 @@ export function RolesAndResourceAccessControls(): JSX.Element {
                 Edit organizational default permission levels for PostHog resources. Use roles to group your
                 organization members and assign them permissions.
             </p>
-            <LemonTable
-                columns={columns}
-                dataSource={rolesWithResourceAccessControls}
-                loading={rolesLoading || roleBasedAccessControlsLoading}
-                expandable={{
-                    isRowExpanded: (record) => !!selectedRoleId && record.role.id === selectedRoleId,
-                    onRowExpand: (record) => selectRoleId(record.role.id),
-                    onRowCollapse: () => selectRoleId(null),
-                    expandedRowRender: ({ role }) => <RoleDetails roleId={role.id} />,
-                }}
-            />
 
-            <LemonButton type="primary" onClick={() => setEditingRoleId('new')}>
-                Create role
-            </LemonButton>
-            <RoleModal />
+            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                <>
+                    <LemonTable
+                        columns={columns}
+                        dataSource={rolesWithResourceAccessControls}
+                        loading={rolesLoading || roleBasedAccessControlsLoading}
+                        expandable={{
+                            isRowExpanded: (record) => !!selectedRoleId && record.role.id === selectedRoleId,
+                            onRowExpand: (record) => selectRoleId(record.role.id),
+                            onRowCollapse: () => selectRoleId(null),
+                            expandedRowRender: ({ role }) => <RoleDetails roleId={role.id} />,
+                        }}
+                    />
+
+                    <LemonButton type="primary" onClick={() => setEditingRoleId('new')}>
+                        Create role
+                    </LemonButton>
+                    <RoleModal />
+                </>
+            </PayGateMini>
         </div>
     )
 }
@@ -134,7 +142,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
 
     const onSubmit = membersToAdd.length
         ? () => {
-              addMembersToRole(role!, membersToAdd)
+              addMembersToRole(role, membersToAdd)
               setMembersToAdd([])
           }
         : undefined

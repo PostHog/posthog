@@ -8,7 +8,8 @@ import {
     LemonTable,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
-import { UserSelectItem, usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -17,7 +18,13 @@ import { useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlType, AccessControlTypeMember, AccessControlTypeRole, OrganizationMemberType } from '~/types'
+import {
+    AccessControlType,
+    AccessControlTypeMember,
+    AccessControlTypeRole,
+    AvailableFeature,
+    OrganizationMemberType,
+} from '~/types'
 
 import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
 
@@ -36,7 +43,9 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                 <AccessControlObjectUsers />
 
                 <h3>Roles with explicit access to {suffix}</h3>
-                <AccessControlObjectRoles />
+                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                    <AccessControlObjectRoles />
+                </PayGateMini>
             </div>
         </BindLogic>
     )
