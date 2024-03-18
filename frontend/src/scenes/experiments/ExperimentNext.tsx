@@ -7,7 +7,10 @@ import { ExperimentImplementationDetails } from './ExperimentImplementationDetai
 import { experimentLogic } from './experimentLogic'
 import {
     DistributionTable,
+    ExperimentExposureModal,
+    ExperimentGoalModal,
     ExperimentProgressBar,
+    ExperimentStatus,
     NoResultsEmptyState,
     QueryViz,
     ReleaseConditionsTable,
@@ -18,7 +21,7 @@ interface ExperimentResultProps {
     secondaryMetricId?: number
 }
 export function ExperimentResults({ secondaryMetricId }: ExperimentResultProps): JSX.Element {
-    const { experiment, experimentResults, secondaryMetricResults } = useValues(experimentLogic)
+    const { experiment, experimentId, experimentResults, secondaryMetricResults } = useValues(experimentLogic)
 
     const isSecondaryMetric = secondaryMetricId !== undefined
     const targetResults = isSecondaryMetric ? secondaryMetricResults?.[secondaryMetricId] : experimentResults
@@ -26,15 +29,18 @@ export function ExperimentResults({ secondaryMetricId }: ExperimentResultProps):
     const validMetric = targetResults && targetResults.insight
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-8 experiment-results">
             {validMetric ? (
                 <>
-                    <h2>Experiment results</h2>
+                    <ExperimentStatus />
                     <ExperimentProgressBar />
                     <SummaryTable />
                     <QueryViz />
                     <DistributionTable />
                     <ReleaseConditionsTable />
+
+                    <ExperimentGoalModal experimentId={experimentId} />
+                    <ExperimentExposureModal experimentId={experimentId} />
                 </>
             ) : (
                 <>

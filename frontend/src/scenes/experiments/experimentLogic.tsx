@@ -1014,6 +1014,22 @@ export const experimentLogic = kea<experimentLogicType>([
                 return variantsWithResults
             },
         ],
+        sortedConversionRates: [
+            (s) => [s.experimentResults, s.variants, s.conversionRateForVariant],
+            (
+                experimentResults: any,
+                variants: any,
+                conversionRateForVariant: any
+            ): { key: string; conversionRate: number; index: number }[] => {
+                const conversionRates = []
+                for (let index = 0; index < variants.length; index++) {
+                    const variant = variants[index].key
+                    const conversionRate = parseFloat(conversionRateForVariant(experimentResults, variant))
+                    conversionRates.push({ key: variant, conversionRate, index })
+                }
+                return conversionRates.sort((a, b) => b.conversionRate - a.conversionRate)
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         experiment: {
