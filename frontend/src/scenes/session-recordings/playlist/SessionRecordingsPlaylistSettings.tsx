@@ -1,8 +1,5 @@
-import { IconPlay } from '@posthog/icons'
-import { LemonSwitch } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconPause } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
 
@@ -11,7 +8,7 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 
 export function SessionRecordingsPlaylistSettings(): JSX.Element {
     const { autoplayDirection, durationTypeToShow, hideViewedRecordings } = useValues(playerSettingsLogic)
-    const { toggleAutoplayDirection, setDurationTypeToShow, setHideViewedRecordings } = useActions(playerSettingsLogic)
+    const { setAutoplayDirection, setDurationTypeToShow, setHideViewedRecordings } = useActions(playerSettingsLogic)
     const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
@@ -22,27 +19,22 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                     title={
                         <div className="text-center">
                             Autoplay next recording
-                            <br />({!autoplayDirection ? 'disabled' : autoplayDirection})
+                            <br />({!autoplayDirection ? 'off' : autoplayDirection})
                         </div>
                     }
                     placement="bottom"
                 >
-                    <LemonSwitch
+                    <LemonSelect
+                        value={autoplayDirection}
                         aria-label="Autoplay next recording"
-                        checked={!!autoplayDirection}
-                        onChange={toggleAutoplayDirection}
-                        handleContent={
-                            <span
-                                className={clsx(
-                                    'transition-all flex items-center',
-                                    !autoplayDirection && 'text-border text-sm',
-                                    !!autoplayDirection && 'text-white text-xs pl-px',
-                                    autoplayDirection === 'newer' && 'rotate-180'
-                                )}
-                            >
-                                {autoplayDirection ? <IconPlay /> : <IconPause />}
-                            </span>
-                        }
+                        onChange={setAutoplayDirection}
+                        dropdownMatchSelectWidth={false}
+                        options={[
+                            { value: null, label: 'off' },
+                            { value: 'newer', label: 'newer recordings' },
+                            { value: 'older', label: 'older recordings' },
+                        ]}
+                        size="small"
                     />
                 </Tooltip>
             </div>
