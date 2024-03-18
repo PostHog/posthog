@@ -297,11 +297,9 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     return results
 
 
-def lib_from_query_params(request) -> Tuple[str, str]:
+def lib_from_query_params(request) -> str:
     # url has a ver parameter from posthog-js
-    # for now we know mobile is newer than web, so we can ignore unknown
-    lib = request.GET.get("ver", "unknown")
-    return "web", lib
+    return request.GET.get("ver", "unknown")
 
 
 @csrf_exempt
@@ -482,7 +480,7 @@ def get_event(request):
 
     try:
         if replay_events:
-            lib, lib_version = lib_from_query_params(request)
+            lib_version = lib_from_query_params(request)
 
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
