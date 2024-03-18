@@ -93,6 +93,6 @@
     .LemonInputSelect & {
         flex-wrap: wrap;
         height: auto;
-        min-height: var(--lemon-input-height); // TODO: Does this break anything?
+        min-height: var(--lemon-input-height);
     }
 }
