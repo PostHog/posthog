@@ -4,11 +4,13 @@ import json
 import uuid
 
 from asgiref.sync import sync_to_async
+from dlt.common.schema.typing import TSchemaTables
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
@@ -106,6 +108,7 @@ class ValidateSchemaInputs:
     run_id: str
     team_id: int
     schemas: list[Tuple[str, str]]
+    table_schema: TSchemaTables
 
 
 @activity.defn
@@ -114,12 +117,24 @@ async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
         run_id=inputs.run_id,
         team_id=inputs.team_id,
         schemas=inputs.schemas,
+        table_schema=inputs.table_schema,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     logger.info(
         f"Validated schema for external data job {inputs.run_id}",
     )
+
+
+@dataclasses.dataclass
+class CreateSourceTemplateInputs:
+    team_id: int
+    run_id: str
+
+
+@activity.defn
+async def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
+    await create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
 
 @dataclasses.dataclass
@@ -137,7 +152,7 @@ class ExternalDataJobInputs:
 
 
 @activity.defn
-async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
+async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
     model: ExternalDataJob = await get_external_data_job(
         job_id=inputs.run_id,
     )
@@ -223,6 +238,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         heartbeat_task.cancel()
         await asyncio.wait([heartbeat_task])
 
+    return source.schema.tables
+
 
 # TODO: update retry policies
 @workflow.defn(name="external-data-job")
@@ -266,7 +283,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schemas=schemas,
             )
 
-            await workflow.execute_activity(
+            table_schemas = await workflow.execute_activity(
                 run_external_data_job,
                 job_inputs,
                 start_to_close_timeout=dt.timedelta(hours=4),
@@ -275,11 +292,21 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             # check schema first
-            validate_inputs = ValidateSchemaInputs(run_id=run_id, team_id=inputs.team_id, schemas=schemas)
+            validate_inputs = ValidateSchemaInputs(
+                run_id=run_id, team_id=inputs.team_id, schemas=schemas, table_schema=table_schemas
+            )
 
             await workflow.execute_activity(
                 validate_schema_activity,
                 validate_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+            # Create source templates
+            await workflow.execute_activity(
+                create_source_templates,
+                CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=run_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )

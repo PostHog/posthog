@@ -59,6 +59,7 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.project import Project
 from posthog.models.sessions.sql import (
     DROP_SESSION_TABLE_SQL,
     DROP_SESSION_MATERIALIZED_VIEW_SQL,
@@ -92,18 +93,20 @@ persons_ordering_int: int = 1
 
 def _setup_test_data(klass):
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
-    klass.team = Team.objects.create(
+    klass.project, klass.team = Project.objects.create_with_team(
         organization=klass.organization,
-        api_token=klass.CONFIG_API_TOKEN,
-        test_account_filters=[
-            {
-                "key": "email",
-                "value": "@posthog.com",
-                "operator": "not_icontains",
-                "type": "person",
-            }
-        ],
-        has_completed_onboarding_for={"product_analytics": True},
+        team_fields=dict(
+            api_token=klass.CONFIG_API_TOKEN,
+            test_account_filters=[
+                {
+                    "key": "email",
+                    "value": "@posthog.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                }
+            ],
+            has_completed_onboarding_for={"product_analytics": True},
+        ),
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
@@ -206,6 +209,7 @@ class PostHogTestCase(SimpleTestCase):
 
     # Test data definition stubs
     organization: Organization = None  # type: ignore
+    project: Project = None  # type: ignore
     team: Team = None  # type: ignore
     user: User = None  # type: ignore
     organization_membership: OrganizationMembership = None  # type: ignore

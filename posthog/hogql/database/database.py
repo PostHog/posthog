@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
+from sentry_sdk import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -198,56 +199,98 @@ def create_hogql_database(
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
 
+    if modifiers.dataWarehouseEventsModifiers:
+        for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
+            # TODO: add all field mappings
+            if "id" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["id"] = ExpressionField(
+                    name="id",
+                    expr=parse_expr(warehouse_modifier.id_field),
+                )
+
+            if "timestamp" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                    name="timestamp",
+                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                )
+
+            # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
+            if "distinct_id" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
+                    name="distinct_id",
+                    expr=parse_expr(warehouse_modifier.distinct_id_field),
+                )
+
+            if "person_id" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+                    name="person_id",
+                    expr=parse_expr(warehouse_modifier.distinct_id_field),
+                )
+
     for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[saved_query.name] = saved_query.hogql_definition()
 
     database.add_warehouse_tables(**tables)
 
     for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
-        source_table = database.get_table(join.source_table_name)
-        joining_table = database.get_table(join.joining_table_name)
+        try:
+            source_table = database.get_table(join.source_table_name)
+            joining_table = database.get_table(join.joining_table_name)
 
-        field = parse_expr(join.source_table_key)
-        if not isinstance(field, ast.Field):
-            raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
-        from_field = field.chain
+            field = parse_expr(join.source_table_key)
+            if not isinstance(field, ast.Field):
+                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+            from_field = field.chain
 
-        field = parse_expr(join.joining_table_key)
-        if not isinstance(field, ast.Field):
-            raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
-        to_field = field.chain
+            field = parse_expr(join.joining_table_key)
+            if not isinstance(field, ast.Field):
+                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+            to_field = field.chain
 
-        source_table.fields[join.field_name] = LazyJoin(
-            from_field=from_field,
-            to_field=to_field,
-            join_table=joining_table,
-            join_function=join.join_function,
-        )
+            source_table.fields[join.field_name] = LazyJoin(
+                from_field=from_field,
+                to_field=to_field,
+                join_table=joining_table,
+                join_function=join.join_function,
+            )
 
-        if join.source_table_name == "persons":
-            person_field = database.events.fields["person"]
-            if isinstance(person_field, ast.FieldTraverser):
-                table_or_field: ast.FieldOrTable = database.events
-                for chain in person_field.chain:
-                    if isinstance(table_or_field, ast.LazyJoin):
-                        table_or_field = table_or_field.resolve_table(HogQLContext(team_id=team_id, database=database))
-                        if table_or_field.has_field(chain):
+            if join.source_table_name == "persons":
+                person_field = database.events.fields["person"]
+                if isinstance(person_field, ast.FieldTraverser):
+                    table_or_field: ast.FieldOrTable = database.events
+                    for chain in person_field.chain:
+                        if isinstance(table_or_field, ast.LazyJoin):
+                            table_or_field = table_or_field.resolve_table(
+                                HogQLContext(team_id=team_id, database=database)
+                            )
+                            if table_or_field.has_field(chain):
+                                table_or_field = table_or_field.get_field(chain)
+                                if isinstance(table_or_field, ast.LazyJoin):
+                                    table_or_field = table_or_field.resolve_table(
+                                        HogQLContext(team_id=team_id, database=database)
+                                    )
+                        elif isinstance(table_or_field, ast.Table):
                             table_or_field = table_or_field.get_field(chain)
-                            if isinstance(table_or_field, ast.LazyJoin):
-                                table_or_field = table_or_field.resolve_table(
-                                    HogQLContext(team_id=team_id, database=database)
-                                )
-                    elif isinstance(table_or_field, ast.Table):
-                        table_or_field = table_or_field.get_field(chain)
 
-                assert isinstance(table_or_field, ast.Table)
+                    assert isinstance(table_or_field, ast.Table)
 
-                table_or_field.fields[join.field_name] = LazyJoin(
-                    from_field=from_field,
-                    to_field=to_field,
-                    join_table=joining_table,
-                    join_function=join.join_function,
-                )
+                    if isinstance(table_or_field, ast.VirtualTable):
+                        table_or_field.fields[join.field_name] = ast.FieldTraverser(chain=["..", join.field_name])
+                        database.events.fields[join.field_name] = LazyJoin(
+                            from_field=from_field,
+                            to_field=to_field,
+                            join_table=joining_table,
+                            join_function=join.join_function,
+                        )
+                    else:
+                        table_or_field.fields[join.field_name] = LazyJoin(
+                            from_field=from_field,
+                            to_field=to_field,
+                            join_table=joining_table,
+                            join_function=join.join_function,
+                        )
+        except Exception as e:
+            capture_exception(e)
 
     return database
 

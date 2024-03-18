@@ -506,11 +506,6 @@ body {
             fill: var(--border-3000);
         }
 
-        .ant-table-tbody > tr.ant-table-row:hover > td,
-        .ant-table-tbody > tr > td.ant-table-cell-row-hover {
-            background-color: var(--mid);
-        }
-
         @include dark-mode-3000-variables;
     }
 
@@ -685,49 +680,21 @@ body {
         max-width: 350px;
     }
 
-    .ant-table-thead > tr > th,
-    .ant-table-small .ant-table-thead > tr > th {
-        background: var(--mid);
-    }
-
-    .ant-table-tbody > tr > td {
-        border-bottom-color: var(--border);
-    }
-
-    .ant-table-tbody > tr.ant-table-placeholder:hover > td {
-        background: inherit;
-    }
-
-    .ant-table {
-        color: var(--text-3000);
-    }
-
-    .ant-pagination-item-active {
-        border-color: var(--link);
-
-        & a {
-            color: var(--link);
-        }
-
-        & a:hover {
-            color: var(--link);
-        }
-    }
-
-    .ant-pagination-item:hover {
-        border-color: var(--link);
-    }
-
-    .ant-pagination-item:hover a,
-    .ant-pagination-prev:hover .ant-pagination-item-link,
-    .ant-pagination-next:hover .ant-pagination-item-link {
-        color: var(--link);
-    }
-
     @include common-variables;
 }
 
 .storybook-test-runner {
+    &.storybook-test-runner--fullscreen {
+        height: fit-content;
+    }
+
+    &.storybook-test-runner--padded {
+        #storybook-root {
+            // Make the root element (which is the default screenshot reference) hug the component
+            display: inline-block;
+        }
+    }
+
     // Only use this class in visual regression tests
     *,
     *::before,
@@ -744,6 +711,16 @@ body {
     .scrollable::after, // Scrollability indicators
     .scrollable::before {
         display: none;
+    }
+
+    #storybook-root > .fixed:only-child {
+        // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
+        position: static !important;
+    }
+
+    #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
+        // Fix for stories of fixed modals - otherwise body would be zero-sized
+        position: static !important;
     }
 }
 
