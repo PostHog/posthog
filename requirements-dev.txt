@@ -59,7 +59,9 @@ coreapi==2.3.3
 coreschema==0.0.4
     # via coreapi
 coverage[toml]==5.5
-    # via pytest-cov
+    # via
+    #   coverage
+    #   pytest-cov
 datamodel-code-generator==0.25.2
     # via -r requirements-dev.in
 django==4.1.13
@@ -90,7 +92,9 @@ exceptiongroup==1.2.0
 faker==17.5.0
     # via -r requirements-dev.in
 fakeredis[lua]==2.11.0
-    # via -r requirements-dev.in
+    # via
+    #   -r requirements-dev.in
+    #   fakeredis
 flaky==3.7.0
     # via -r requirements-dev.in
 freezegun==1.2.2
@@ -156,8 +160,10 @@ pathspec==0.9.0
     # via black
 pip-tools==7.3.0
     # via -r requirements-dev.in
-platformdirs==2.5.2
-    # via black
+platformdirs==3.11.0
+    # via
+    #   -c requirements.txt
+    #   black
 pluggy==0.13.1
     # via pytest
 pprintpp==0.4.0
@@ -166,6 +172,7 @@ pydantic[email]==2.5.3
     # via
     #   -c requirements.txt
     #   datamodel-code-generator
+    #   pydantic
 pydantic-core==2.14.6
     # via
     #   -c requirements.txt

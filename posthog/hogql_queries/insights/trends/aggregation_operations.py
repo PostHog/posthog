@@ -5,6 +5,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 from posthog.schema import EventsNode, ActionsNode, DataWarehouseNode
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 
 
 class QueryAlternator:
@@ -48,7 +49,7 @@ class QueryAlternator:
         self._select_from = join_expr
 
 
-class AggregationOperations:
+class AggregationOperations(DataWarehouseInsightQueryMixin):
     team: Team
     series: Union[EventsNode, ActionsNode, DataWarehouseNode]
     query_date_range: QueryDateRange
@@ -155,6 +156,8 @@ class AggregationOperations:
 
         if self.series.math_property == "$session_duration":
             chain = ["session_duration"]
+        elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
+            chain = [self.series.math_property]
         else:
             chain = ["properties", self.series.math_property]
 
@@ -346,6 +349,14 @@ class AggregationOperations:
                 """
                     SELECT
                         count({id_field}) AS total
+                    FROM {table} AS e
+                    WHERE {events_where_clause}
+                    GROUP BY {person_field}
+                """
+                if isinstance(self.series, DataWarehouseNode)
+                else """
+                    SELECT
+                        count({id_field}) AS total
                     FROM events AS e
                     SAMPLE {sample}
                     WHERE {events_where_clause}
@@ -353,6 +364,7 @@ class AggregationOperations:
                 """,
                 placeholders={
                     "id_field": self._id_field,
+                    "table": self._table_expr,
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,
                     "person_field": ast.Field(

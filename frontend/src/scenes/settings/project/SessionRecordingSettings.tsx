@@ -2,6 +2,7 @@ import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
     LemonSelect,
@@ -22,6 +23,7 @@ import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/cons
 import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic as enabledFlagsLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils'
 import { sessionReplayLinkedFlagLogic } from 'scenes/settings/project/sessionReplayLinkedFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -96,6 +98,26 @@ function CanvasCaptureSettings(): JSX.Element | null {
     )
 }
 
+function PayloadWarning(): JSX.Element {
+    return (
+        <>
+            <p>
+                We automatically scrub some sensitive information from network headers and request and response bodies.
+            </p>{' '}
+            <p>
+                If they could contain sensitive data, you should provide a function to mask the data when you initialise
+                PostHog.{' '}
+                <Link
+                    to="https://posthog.com/docs/session-replay/network-recording#sensitive-information"
+                    target="blank"
+                >
+                    Learn how to mask header and body values in our docs
+                </Link>
+            </p>
+        </>
+    )
+}
+
 function NetworkCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -128,15 +150,7 @@ function NetworkCaptureSettings(): JSX.Element {
                     </Link>
                 </p>
                 <LemonBanner type="info" className="mb-4">
-                    We automatically scrub some sensitive information from network headers, but if your request or
-                    response payloads could contain sensitive data, you can provide a function to mask the data when you
-                    initialise PostHog.{' '}
-                    <Link
-                        to="https://posthog.com/docs/session-replay/network-recording#sensitive-information"
-                        target="blank"
-                    >
-                        Learn how to mask header and payload values in our docs
-                    </Link>
+                    <PayloadWarning />
                 </LemonBanner>
                 <div className="flex flex-row space-x-2">
                     <LemonSwitch
@@ -165,12 +179,32 @@ function NetworkCaptureSettings(): JSX.Element {
                     <LemonSwitch
                         data-attr="opt-in-capture-network-body-switch"
                         onChange={(checked) => {
-                            updateCurrentTeam({
-                                session_recording_network_payload_capture_config: {
-                                    ...currentTeam?.session_recording_network_payload_capture_config,
-                                    recordBody: checked,
-                                },
-                            })
+                            if (checked) {
+                                LemonDialog.open({
+                                    maxWidth: '650px',
+                                    title: 'Network body capture',
+                                    description: <PayloadWarning />,
+                                    primaryButton: {
+                                        'data-attr': 'network-payload-capture-accept-warning-and-enable',
+                                        children: 'Enable body capture',
+                                        onClick: () => {
+                                            updateCurrentTeam({
+                                                session_recording_network_payload_capture_config: {
+                                                    ...currentTeam?.session_recording_network_payload_capture_config,
+                                                    recordBody: true,
+                                                },
+                                            })
+                                        },
+                                    },
+                                })
+                            } else {
+                                updateCurrentTeam({
+                                    session_recording_network_payload_capture_config: {
+                                        ...currentTeam?.session_recording_network_payload_capture_config,
+                                        recordBody: false,
+                                    },
+                                })
+                            }
                         }}
                         label="Capture body"
                         bordered
@@ -473,7 +507,7 @@ export function ReplayCostControl(): JSX.Element | null {
     ) : null
 }
 
-export function ReplaySummarySettings(): JSX.Element | null {
+export function ReplayAISettings(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
 
     const { currentTeam } = useValues(teamLogic)
@@ -498,18 +532,19 @@ export function ReplaySummarySettings(): JSX.Element | null {
         })
     }
 
+    const { opt_in: _discardCurrentOptIn, ...currentComparable } = currentConfig
+    const { opt_in: _discardDefaultOptIn, ...defaultComparable } = defaultConfig
+
     return (
         <div className="flex flex-col gap-2">
             <div>
-                <LemonButton type="secondary" onClick={() => updateSummaryConfig(defaultConfig)}>
-                    Reset to default
-                </LemonButton>
-            </div>
-            <div>
                 <p>
-                    We use several machine learning technologies to process sessions. Some of those are hosted by Open
-                    AI. No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
-                    send the data selected below. s<strong>Data submitted is not used to train Open AI's models</strong>
+                    We use several machine learning technologies to process sessions. Some of those are powered by{' '}
+                    <Link to="https://openai.com/" target="_blank">
+                        OpenAI
+                    </Link>
+                    . No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
+                    send the data selected below. <strong>Data submitted is not used to train OpenAI's models</strong>
                 </p>
                 <LemonSwitch
                     checked={currentConfig.opt_in}
@@ -525,6 +560,16 @@ export function ReplaySummarySettings(): JSX.Element | null {
             </div>
             {currentConfig.opt_in && (
                 <>
+                    {!objectsEqual(currentComparable, defaultComparable) && (
+                        <div>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => updateSummaryConfig({ ...defaultConfig, opt_in: true })}
+                            >
+                                Reset config to default
+                            </LemonButton>
+                        </div>
+                    )}
                     <div>
                         <h3 className="flex items-center gap-2">
                             <IconSelectEvents className="text-lg" />
