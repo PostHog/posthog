@@ -83,7 +83,7 @@ class OrganizationInviteViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object = "organization_member"
     serializer_class = OrganizationInviteSerializer
     queryset = OrganizationInvite.objects.all()
     lookup_field = "id"
@@ -96,7 +96,7 @@ class OrganizationInviteViewSet(
             .order_by(self.ordering)
         )
 
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data)
         if not isinstance(data, list):

@@ -100,6 +100,8 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 }
 const SessionReplayOnboarding = (): JSX.Element => {
     const { hasAvailableFeature } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+
     const configOptions: ProductConfigOption[] = [
         {
             type: 'toggle',
@@ -107,7 +109,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Capture console logs as a part of user session recordings. 
                             Use the console logs alongside recordings to debug any issues with your app.`,
             teamProperty: 'capture_console_log_opt_in',
-            value: true,
+            value: currentTeam?.capture_console_log_opt_in ?? true,
         },
         {
             type: 'toggle',
@@ -115,7 +117,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Capture performance and network information alongside recordings. Use the
                             network requests and timings in the recording player to help you debug issues with your app.`,
             teamProperty: 'capture_performance_opt_in',
-            value: true,
+            value: currentTeam?.capture_performance_opt_in ?? true,
         },
     ]
 
@@ -126,7 +128,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Only record sessions that are longer than the specified duration. 
                             Start with it low and increase it later if you're getting too many short sessions.`,
             teamProperty: 'session_recording_minimum_duration_milliseconds',
-            value: null,
+            value: currentTeam?.session_recording_minimum_duration_milliseconds || null,
             selectOptions: SESSION_REPLAY_MINIMUM_DURATION_OPTIONS,
         })
     }
