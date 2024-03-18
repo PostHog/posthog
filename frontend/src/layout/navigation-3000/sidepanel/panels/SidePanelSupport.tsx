@@ -28,7 +28,7 @@ import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { SIDE_PANEL_TABS } from '../SidePanel'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
-const products = [
+const PRODUCTS = [
     {
         name: 'Product OS',
         slug: 'product-os',
@@ -157,7 +157,7 @@ export const SidePanelSupport = (): JSX.Element => {
 
                     <Section title="Explore the docs">
                         <ul className="border rounded divide-y bg-bg-light dark:bg-transparent font-title font-medium">
-                            {products.map((product, index) => (
+                            {PRODUCTS.map((product, index) => (
                                 <li key={index}>
                                     <Link
                                         to={`https://posthog.com/docs/${product.slug}`}
@@ -180,8 +180,8 @@ export const SidePanelSupport = (): JSX.Element => {
 
                     <Section title="Ask the community">
                         <p>
-                            Questions about features, how to's, or use cases? There are <strong>1,634</strong>{' '}
-                            discussions in our community forums.
+                            Questions about features, how to's, or use cases? There are thousands of discussions in our
+                            community forums.
                         </p>
                         <LemonButton
                             type="primary"
@@ -212,7 +212,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 <LemonButton
                                     type="secondary"
                                     status="alt"
-                                    to="https://posthog.com/roadmap"
+                                    to="https://posthog.com/wip"
                                     icon={<IconHelmet />}
                                     targetBlank
                                 >
@@ -293,7 +293,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                     <p>
                                         Our paid plans offer email support.{' '}
                                         <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
-                                            Explore options
+                                            Explore options.
                                         </Link>
                                     </p>
                                 </li>
