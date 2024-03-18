@@ -66,8 +66,8 @@ def cluster_embeddings(embeddings):
     return dbscan.labels_
 
 
-def construct_response(df, team, user):
-    viewed_session_ids = (
+def construct_response(df: pd.DataFrame, team: Team, user: User):
+    viewed_session_ids = list(
         SessionRecordingViewed.objects.filter(team=team, user=user, session_id__in=df["session_id"].unique())
         .values_list("session_id", flat=True)
         .distinct()
