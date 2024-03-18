@@ -1,3 +1,5 @@
+import json
+import re
 from typing import Union
 from copy import deepcopy
 from datetime import timedelta
@@ -351,6 +353,20 @@ class TrendsQueryRunner(QueryRunner):
 
         return TrendsQueryResponse(results=res, timings=timings, hogql=response_hogql)
 
+    def breakdown_sort_function(self, value, field="count"):
+        if False:  # TODO if self.filter.using_histogram:
+            breakdown_value = value.get("breakdown_value")
+            breakdown_value = re.sub(r"\bnan\b", "NaN", breakdown_value)  # fix NaN values for JSON loading
+            return json.loads(breakdown_value)[0]
+        if value.get("breakdown_value") == "all":
+            return (-1, "")
+        if self.query.breakdownFilter.breakdown_type == "session":
+            # if session duration breakdown, we want ordering based on the time buckets, not the value
+            return (-1, "")
+
+        count_or_aggregated_value = value.get(field) or 0
+        return count_or_aggregated_value * -1, value.get("label")  # reverse it
+
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         if response.results is None:
             return []
@@ -512,6 +528,11 @@ class TrendsQueryRunner(QueryRunner):
                         series_object["label"] = "Other"
 
             res.append(series_object)
+
+        if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
+            field = "count" if not series.aggregate_values else "aggregated_value"
+            res = sorted(res, key=lambda value: self.breakdown_sort_function(value, field=field))
+
         return res
 
     @cached_property
