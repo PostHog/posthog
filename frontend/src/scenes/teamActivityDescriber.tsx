@@ -9,7 +9,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
-import { pluralize } from 'lib/utils'
+import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, TeamType } from '~/types'
@@ -101,9 +101,28 @@ const teamActionsMapping: Record<
         }
     },
     session_recording_network_payload_capture_config(change: ActivityChange | undefined): ChangeMapping | null {
-        return {
-            description: [<>{change?.after ? 'enabled' : 'disabled'} network payload capture in session replay</>],
+        const payloadBefore = isObject(change?.before) ? change?.before.recordBody : !!change?.before
+        const payloadAfter = isObject(change?.after) ? change?.after.recordBody : !!change?.after
+        const payloadChanged = payloadBefore !== payloadAfter
+
+        const headersBefore = isObject(change?.before) ? change?.before.recordHeaders : !!change?.before
+        const headersAfter = isObject(change?.after) ? change?.after.recordHeaders : !!change?.after
+        const headersChanged = headersBefore !== headersAfter
+
+        const descriptions = []
+        if (payloadChanged) {
+            descriptions.push(<>{payloadAfter ? 'enabled' : 'disabled'} network body capture in session replay</>)
         }
+
+        if (headersChanged) {
+            descriptions.push(<>{headersAfter ? 'enabled' : 'disabled'} network headers capture in session replay</>)
+        }
+
+        return descriptions.length
+            ? {
+                  description: descriptions,
+              }
+            : null
     },
     session_recording_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} session recording</>] }
