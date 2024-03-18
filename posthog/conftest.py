@@ -1,7 +1,5 @@
 from typing import Any, Tuple
 
-from boto3 import client
-from contextlib import closing
 import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
@@ -158,24 +156,6 @@ def user(base_test_mixin_fixture):
 @pytest.fixture
 def unittest_snapshot(request, snapshot):
     request.cls.snapshot = snapshot
-
-
-@pytest.fixture
-def minio_client(bucket_name):
-    with closing(
-        client(
-            "s3",
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        )
-    ) as minio_client:
-        try:
-            minio_client.create_bucket(Bucket=bucket_name)
-        except:
-            pass
-        yield minio_client
-        minio_client.delete_bucket(Bucket=bucket_name)
 
 
 @pytest.fixture

@@ -9,6 +9,11 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property_definition import PropertyDefinition
+from pyarrow import parquet as pq
+from boto3 import resource
+from botocore.config import Config
+import pyarrow as pa
+import uuid
 
 from posthog.schema import (
     ActionsNode,
@@ -30,11 +35,18 @@ from posthog.schema import (
     TrendsQuery,
     AggregationAxisFormat,
 )
+from posthog.settings import (
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+)
+
+import s3fs
 
 from posthog.schema import Series as InsightActorsQuerySeries
 from posthog.test.base import (
     APIBaseTest,
-    ObjectStorageMixin,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
@@ -66,9 +78,57 @@ class SeriesTestData:
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest, ObjectStorageMixin):
+class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     default_date_from = "2020-01-09"
     default_date_to = "2020-01-19"
+
+    def teardown_method(self, method) -> None:
+        s3 = resource(
+            "s3",
+            endpoint_url=OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket.objects.filter(Prefix=BUCKET_NAME).delete()
+
+    def _create_data_warehouse_events(self, data: List[SeriesTestData]):
+        fs = s3fs.S3FileSystem(
+            client_kwargs={
+                "region_name": "us-east-1",
+                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
+                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
+                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            },
+        )
+
+        path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{BUCKET_NAME}"
+        id = []
+        created = []
+        events = []
+        distinct_id = []
+        team = []
+        names = ["id", "created", "event", "distinct_id", "team"]
+
+        for person in data:
+            for event in person.events:
+                for timestamp in event.timestamps:
+                    id.append(str(uuid.uuid4()))
+                    created.append(timestamp)
+                    events.append(event.event)
+                    distinct_id.append(person.distinct_id)
+                    team.append(self.team.pk)
+
+        pq.write_to_dataset(
+            pa.Table.from_arrays([id, created, events, distinct_id, team], names=names),
+            path_to_s3_object,
+            filesystem=fs,
+            use_dictionary=True,
+            compression="snappy",
+            version="2.0",
+        )
 
     def _create_events(self, data: List[SeriesTestData]):
         person_result = []
@@ -113,6 +173,67 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest, ObjectStorageMixin
         return person_result
 
     def _create_test_events(self):
+        self._create_data_warehouse_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                                "2020-01-15T12:00:00Z",
+                                "2020-01-17T12:00:00Z",
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"],
+                        ),
+                        Series(
+                            event="$pageleave",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Firefox", "prop": 20, "bool_field": False},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-13T12:00:00Z"]),
+                    ],
+                    properties={"$browser": "Edge", "prop": 30, "bool_field": True},
+                ),
+                SeriesTestData(
+                    distinct_id="p4",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                        Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
+                    ],
+                    properties={"$browser": "Safari", "prop": 40, "bool_field": False},
+                ),
+            ]
+        )
         self._create_events(
             [
                 SeriesTestData(

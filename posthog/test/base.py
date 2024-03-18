@@ -1066,9 +1066,3 @@ def create_person_id_override_by_distinct_id(
         VALUES ({team_id}, '{person_id_from}', '{person_id_to}', {version})
     """
     )
-
-
-class ObjectStorageMixin:
-    @pytest.fixture(autouse=True)
-    def _minio_client(self, minio_client):
-        self.object_storage_client = minio_client
