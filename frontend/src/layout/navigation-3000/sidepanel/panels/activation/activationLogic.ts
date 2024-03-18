@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import posthog from 'posthog-js'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -24,7 +25,7 @@ export enum ActivationTasks {
     SetupSessionRecordings = 'setup_session_recordings',
     TrackCustomEvents = 'track_custom_events',
     InstallFirstApp = 'install_first_app',
-    SetupReverseProxy = 'setup_reverse_proxy',
+    SetUpReverseProxy = 'set_up_reverse_proxy',
 }
 
 export type ActivationTaskType = {
@@ -280,14 +281,14 @@ export const activationLogic = kea<activationLogicType>([
                                 skipped: skippedTasks.includes(ActivationTasks.InstallFirstApp),
                             })
                             break
-                        case ActivationTasks.SetupReverseProxy:
+                        case ActivationTasks.SetUpReverseProxy:
                             tasks.push({
-                                id: ActivationTasks.SetupReverseProxy,
+                                id: ActivationTasks.SetUpReverseProxy,
                                 name: 'Set up a reverse proxy',
                                 description: 'Sent your events from your own domain to avoid tracking blockers',
                                 completed: false,
                                 canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.SetupReverseProxy),
+                                skipped: skippedTasks.includes(ActivationTasks.SetUpReverseProxy),
                                 url: 'https://posthog.com/docs/advanced/proxy',
                             })
                             break
@@ -351,6 +352,9 @@ export const activationLogic = kea<activationLogicType>([
             }
         },
         skipTask: ({ id }) => {
+            posthog.capture('activation sidebar task skipped', {
+                key: id,
+            })
             if (values.currentTeam?.id) {
                 actions.addSkippedTask(values.currentTeam.id, id)
             }
