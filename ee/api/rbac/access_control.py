@@ -1,6 +1,7 @@
 from typing import cast
 
 from rest_framework import exceptions, mixins, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -9,7 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
 from posthog.permissions import PremiumFeaturePermission
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 
 # TODO: Validate that an access control can only have one of team, organization_member, or role
 
@@ -118,3 +119,20 @@ class AccessControlViewSet(
         serializer.save()
 
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=False)
+    def check(self, request: Request, *args, **kwargs):
+        resource = request.GET.get("resource")
+        resource_id = request.GET.get("resource_id")
+
+        if not resource:
+            raise exceptions.ValidationError("Resource must be provided.")
+
+        control = self.user_access_control.access_control_for_object(resource, resource_id)
+        return Response(
+            {
+                "access_level": control.access_level if control else None,
+                "available_access_levels": ordered_access_levels(resource),
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )

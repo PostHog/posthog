@@ -33,7 +33,7 @@ MEMBER_BASED_ACCESS_LEVELS = ["member", "admin"]
 RESOURCE_BASED_ACCESS_LEVELS = ["viewer", "editor"]
 
 
-def _get_access_level_order(resource: APIScopeObject) -> List[str]:
+def ordered_access_levels(resource: APIScopeObject) -> List[str]:
     if resource in ["project", "organization"]:
         return MEMBER_BASED_ACCESS_LEVELS
 
@@ -41,9 +41,7 @@ def _get_access_level_order(resource: APIScopeObject) -> List[str]:
 
 
 def access_level_satisfied(resource: APIScopeObject, current_level: str, required_level: str) -> bool:
-    return _get_access_level_order(resource).index(current_level) >= _get_access_level_order(resource).index(
-        required_level
-    )
+    return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
 
 
 class UserAccessControl:
@@ -104,10 +102,23 @@ class UserAccessControl:
         # TODO: Figure out - do we need also wan to include Resource level controls (i.e. where resource_id is explicitly None?)
         # or are they only applicable when there is no object level controls?
 
-        # TODO: Override this based on your Org membership level
-
         if not self._access_controls_supported:
             return None
+
+        org_membership = self._organization_membership
+
+        if not org_membership:
+            # NOTE: Technically this is covered by Org Permission check so more of a sanity check
+            return False
+
+        # Org admins always have object level access
+        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return AccessControl(
+                organization=self._organization,
+                resource=resource,
+                resource_id=resource_id,
+                access_level=ordered_access_levels(resource)[-1],
+            )
 
         access_controls = self._access_controls_for_object(resource, resource_id)
         if not access_controls:
@@ -115,7 +126,7 @@ class UserAccessControl:
 
         return max(
             access_controls,
-            key=lambda access_control: _get_access_level_order(resource).index(access_control.access_level),
+            key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
         )
 
     def check_access_level_for_object(
@@ -127,16 +138,6 @@ class UserAccessControl:
 
         Returns true or false if access controls are applied, otherwise None
         """
-
-        org_membership = self._organization_membership
-
-        if not org_membership:
-            # NOTE: Here we need to change it to indicate they aren't an org member
-            return False
-
-        # Org admins always have object level access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
-            return True
 
         access_control = self.access_control_for_object(resource, resource_id)
 
