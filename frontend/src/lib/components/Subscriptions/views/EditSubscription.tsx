@@ -268,10 +268,7 @@ export function EditSubscription({
                                             help={
                                                 <>
                                                     Private channels are only shown if you have{' '}
-                                                    <Link
-                                                        to="https://posthog.com/docs/integrate/third-party/slack"
-                                                        target="_blank"
-                                                    >
+                                                    <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
                                                         added the PostHog Slack App
                                                     </Link>{' '}
                                                     to them
@@ -300,7 +297,7 @@ export function EditSubscription({
                                                             to the channel otherwise Subscriptions will fail to be
                                                             delivered.{' '}
                                                             <Link
-                                                                to="https://posthog.com/docs/integrate/third-party/slack"
+                                                                to="https://posthog.com/docs/webhooks/slack"
                                                                 target="_blank"
                                                             >
                                                                 See the Docs for more information
