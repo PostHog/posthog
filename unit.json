@@ -21,8 +21,8 @@
                 "match": {
                     "uri": [
                         "/_health",
-                        "/readyz",
-                        "/livez"
+                        "/_readyz",
+                        "/_livez"
                     ]
                 },
                 "action": {

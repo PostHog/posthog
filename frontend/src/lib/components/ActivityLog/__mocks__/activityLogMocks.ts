@@ -5,6 +5,106 @@ import { ActivityScope, InsightShortId } from '~/types'
 export const teamActivityResponseJson: ActivityLogItem[] = [
     {
         user: {
+            first_name: 'Ben',
+            last_name: 'White',
+            email: 'ben@posthog.com',
+        },
+        unread: false,
+        is_system: false,
+        activity: 'updated',
+        item_id: '2',
+        scope: ActivityScope.TEAM,
+        detail: {
+            merge: null,
+            name: '🦔 PostHog App + Website',
+            type: undefined,
+            changes: [
+                {
+                    type: ActivityScope.TEAM,
+                    after: {
+                        recordBody: false,
+                        recordHeaders: false,
+                    },
+                    field: 'session_recording_network_payload_capture_config',
+                    action: 'changed',
+                    before: {
+                        recordBody: false,
+                        recordHeaders: true,
+                    },
+                },
+            ],
+            trigger: null,
+            short_id: null,
+        },
+        created_at: '2024-03-08T12:55:02.795667Z',
+    },
+    {
+        user: {
+            first_name: 'Paul',
+            last_name: "D'Ambra",
+            email: 'paul@posthog.com',
+        },
+        unread: false,
+        is_system: false,
+        activity: 'updated',
+        item_id: '2',
+        scope: ActivityScope.TEAM,
+        detail: {
+            merge: null,
+            name: '🦔 PostHog App + Website',
+            type: undefined,
+            changes: [
+                {
+                    type: ActivityScope.TEAM,
+                    after: {
+                        recordBody: true,
+                        recordHeaders: false,
+                    },
+                    field: 'session_recording_network_payload_capture_config',
+                    action: 'changed',
+                    before: {
+                        recordBody: false,
+                        recordHeaders: true,
+                    },
+                },
+            ],
+            trigger: null,
+            short_id: null,
+        },
+        created_at: '2024-03-11T14:36:31.179297Z',
+    },
+    {
+        user: {
+            first_name: 'sdavasdadadsadas',
+            last_name: '',
+            email: 'paul@posthog.com',
+        },
+        unread: false,
+        is_staff: false,
+        is_system: false,
+        activity: 'updated',
+        item_id: '1',
+        scope: ActivityScope.TEAM,
+        detail: {
+            name: 'Default Project',
+            type: undefined,
+            merge: null,
+            changes: [
+                {
+                    type: ActivityScope.TEAM,
+                    after: { poe_v2_enabled: true },
+                    field: 'extra_settings',
+                    action: 'created',
+                    before: null,
+                },
+            ],
+            trigger: null,
+            short_id: null,
+        },
+        created_at: '2024-02-08T19:23:53.530402Z',
+    },
+    {
+        user: {
             first_name: 'sdavasdadadsadas',
             last_name: '',
             email: 'paul@posthog.com',
