@@ -16,6 +16,9 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04', // To stabilize relative dates
+        testOptions: {
+            includeNavigationInSnapshot: true,
+        },
     },
     decorators: [
         mswDecorator({

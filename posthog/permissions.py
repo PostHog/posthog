@@ -3,6 +3,7 @@ from typing import cast
 from django.db.models import Model
 from django.core.exceptions import ImproperlyConfigured
 
+from django.views import View
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
@@ -19,7 +20,15 @@ from posthog.utils import get_can_create_org
 CREATE_METHODS = ["POST", "PUT"]
 
 
-def extract_organization(object: Model) -> Organization:
+def extract_organization(object: Model, view: View) -> Organization:
+    # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
+    organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
+    if organization_id_rewrite:
+        for part in organization_id_rewrite.split("__"):
+            if part == "organization_id":
+                break
+            object = getattr(object, part)
+
     if isinstance(object, Organization):
         return object
     try:
@@ -89,8 +98,8 @@ class OrganizationMemberPermissions(BasePermission):
 
         return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        organization = extract_organization(object)
+    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
+        organization = extract_organization(object, view)
         return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
 
@@ -119,12 +128,12 @@ class OrganizationAdminWritePermissions(BasePermission):
             >= OrganizationMembership.Level.ADMIN
         )
 
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
         if request.method in SAFE_METHODS:
             return True
 
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
-        organization = extract_organization(object)
+        organization = extract_organization(object, view)
 
         return (
             OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
