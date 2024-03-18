@@ -7,7 +7,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { LemonButton } from '../LemonButton'
 import { LemonDropdown } from '../LemonDropdown'
-import { LemonInput } from '../LemonInput'
+import { LemonInput, LemonInputProps } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
 
 export interface LemonInputSelectOption {
@@ -16,7 +16,11 @@ export interface LemonInputSelectOption {
     labelComponent?: React.ReactNode
 }
 
-export type LemonInputSelectProps = {
+export type LemonInputSelectProps = Pick<
+    // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
+    LemonInputProps,
+    'autoFocus'
+> & {
     options?: LemonInputSelectOption[]
     value?: string[] | null
     disabled?: boolean
@@ -26,6 +30,7 @@ export type LemonInputSelectProps = {
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
     onChange?: (newValue: string[]) => void
+    onBlur?: () => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
 }
@@ -37,10 +42,12 @@ export function LemonInputSelect({
     loading,
     onChange,
     onInputChange,
+    onBlur,
     mode,
     disabled,
     disableFiltering = false,
     allowCustomValues = false,
+    autoFocus = false,
     ...props
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
@@ -132,6 +139,7 @@ export function LemonInputSelect({
                 setInputValue('')
             }
             setShowPopover(false)
+            onBlur?.()
         }, 100)
     }
 
@@ -175,7 +183,7 @@ export function LemonInputSelect({
                     }
                     return (
                         <>
-                            <LemonSnack title={option?.label} onClose={() => _onActionItem(value)}>
+                            <LemonSnack key={value} title={option?.label} onClose={() => _onActionItem(value)}>
                                 {option?.labelComponent ?? option?.label}
                             </LemonSnack>
                         </>
@@ -262,6 +270,7 @@ export function LemonInputSelect({
                     onChange={setInputValue}
                     onKeyDown={_onKeyDown}
                     disabled={disabled}
+                    autoFocus={autoFocus}
                 />
             </span>
         </LemonDropdown>

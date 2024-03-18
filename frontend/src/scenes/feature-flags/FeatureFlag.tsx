@@ -350,7 +350,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <ObjectTags
                                                     saving={featureFlagLoading}
                                                     tags={value}
-                                                    onChange={(_, tags) => onChange(tags)}
+                                                    onChange={(tags) => onChange(tags)}
                                                     tagsAvailable={tags.filter(
                                                         (tag) => !featureFlag.tags?.includes(tag)
                                                     )}
@@ -498,7 +498,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             {featureFlag.can_edit ? (
                                                 <ObjectTags
                                                     tags={featureFlag.tags}
-                                                    onChange={(_, tags) => {
+                                                    onChange={(tags) => {
                                                         // TODO: Use an existing function instead of this new one for updates
                                                         triggerFeatureFlagUpdate({ tags })
                                                     }}
