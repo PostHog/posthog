@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString } from '../../utils/db/utils'
+import { IngestionWarningLimiter } from '../../utils/token-bucket'
 import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
 
@@ -65,20 +66,26 @@ export async function captureIngestionWarning(
     kafkaProducer: KafkaProducerWrapper,
     teamId: TeamId,
     type: string,
-    details: Record<string, any>
+    details: Record<string, any>,
+    debounce_key?: string
 ) {
-    await kafkaProducer.queueMessage({
-        topic: KAFKA_INGESTION_WARNINGS,
-        messages: [
-            {
-                value: JSON.stringify({
-                    team_id: teamId,
-                    type: type,
-                    source: 'plugin-server',
-                    details: JSON.stringify(details),
-                    timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                }),
-            },
-        ],
-    })
+    const limiter_key = `${teamId}:${type}:${debounce_key}`
+    if (IngestionWarningLimiter.consume(limiter_key, 1)) {
+        await kafkaProducer.queueMessage({
+            topic: KAFKA_INGESTION_WARNINGS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        team_id: teamId,
+                        type: type,
+                        source: 'plugin-server',
+                        details: JSON.stringify(details),
+                        timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                    }),
+                },
+            ],
+        })
+    } else {
+        return Promise.resolve()
+    }
 }

@@ -3,7 +3,7 @@ import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { OverflowWarningLimiter } from '../../../src/utils/token-bucket'
+import { IngestionWarningLimiter } from '../../../src/utils/token-bucket'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 
 jest.mock('../../../src/utils/status')
@@ -77,7 +77,7 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
         'raises ingestion warning when consuming from overflow %s',
         async (mode) => {
             const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent1])
-            const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => true)
+            const consume = jest.spyOn(IngestionWarningLimiter, 'consume').mockImplementation(() => true)
 
             queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
             const tokenBlockList = buildStringMatcher('another_token,more_token', false)
@@ -103,7 +103,7 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
         'does not raise ingestion warning when under threshold %s',
         async (mode) => {
             const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent1])
-            const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => false)
+            const consume = jest.spyOn(IngestionWarningLimiter, 'consume').mockImplementation(() => false)
 
             queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
             const tokenBlockList = buildStringMatcher('another_token,more_token', false)
@@ -126,7 +126,7 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
                 captureEndpointEvent2,
                 captureEndpointEvent1,
             ])
-            const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => false)
+            const consume = jest.spyOn(IngestionWarningLimiter, 'consume').mockImplementation(() => false)
 
             queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
             const tokenBlockList = buildStringMatcher('mytoken,more_token', false)
