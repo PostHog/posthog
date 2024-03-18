@@ -17,6 +17,8 @@ from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
 from posthog.settings.data_stores import (
     CLICKHOUSE_CLUSTER,
     CLICKHOUSE_DATABASE,
+    CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_USER,
     KAFKA_HOSTS,
 )
 
@@ -171,7 +173,7 @@ PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
         override_person_id UUID
     )
     PRIMARY KEY team_id, old_person_id
-    SOURCE(CLICKHOUSE(QUERY '{GET_LATEST_PERSON_OVERRIDE_ID_SQL}'))
+    SOURCE(CLICKHOUSE(USER '{CLICKHOUSE_USER}' PASSWORD '{CLICKHOUSE_PASSWORD}' QUERY '{GET_LATEST_PERSON_OVERRIDE_ID_SQL}'))
     LAYOUT(COMPLEX_KEY_HASHED(PREALLOCATE 1))
 
     -- The LIFETIME setting indicates to ClickHouse to automatically update this dictionary
