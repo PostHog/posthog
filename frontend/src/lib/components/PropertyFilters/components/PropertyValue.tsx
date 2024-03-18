@@ -1,3 +1,5 @@
+import './PropertyValue.scss'
+
 import { AutoComplete } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
