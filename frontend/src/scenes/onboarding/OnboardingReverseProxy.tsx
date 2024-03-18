@@ -1,7 +1,4 @@
 import { LemonDivider, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 
@@ -48,22 +45,12 @@ const proxyDocs = [
 ]
 
 export const OnboardingReverseProxy = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
-    const { preflight } = useValues(preflightLogic)
-    const { inviteTeamMembers } = useActions(inviteLogic)
-    const { invitesToSend, canSubmit: canSubmitInvites } = useValues(inviteLogic)
-
     return (
         <OnboardingStep
             title="Reverse proxy (optional)"
             stepKey={stepKey}
             continueText="I've already done this"
             showSkip
-            continueAction={() =>
-                preflight?.email_service_available &&
-                invitesToSend[0]?.target_email &&
-                canSubmitInvites &&
-                inviteTeamMembers()
-            }
         >
             <div className="mb-6 mt-6">
                 <p>A reverse proxy allows you to send events to PostHog Cloud using your own domain.</p>
