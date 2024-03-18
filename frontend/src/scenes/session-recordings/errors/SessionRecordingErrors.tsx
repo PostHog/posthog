@@ -33,14 +33,14 @@ export function SessionRecordingErrors(): JSX.Element {
                     {
                         title: 'Error',
                         dataIndex: 'cluster',
-                        render: (_, cluster) => (
-                            <div
-                                title={cluster.sample.error}
-                                className="font-semibold text-sm text-default line-clamp-1"
-                            >
-                                {cluster.sample.error}
-                            </div>
-                        ),
+                        render: (_, cluster) => {
+                            const displayTitle = parseTitle(cluster.sample.error)
+                            return (
+                                <div title={displayTitle} className="font-semibold text-sm text-default line-clamp-1">
+                                    {displayTitle}
+                                </div>
+                            )
+                        },
                         width: '50%',
                     },
                     {
@@ -122,5 +122,14 @@ function isJSON(str: string): boolean {
         return true
     } catch {
         return false
+    }
+}
+
+function parseTitle(error: string): string {
+    try {
+        const parsedError = JSON.parse(error)
+        return parsedError.error || error
+    } catch {
+        return error
     }
 }
