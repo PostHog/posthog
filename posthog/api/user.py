@@ -76,6 +76,10 @@ class UserEmailVerificationThrottle(UserRateThrottle):
     rate = "6/day"
 
 
+class UserPasswordResetThrottle(UserRateThrottle):
+    rate = "6/day"
+
+
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserScenePersonalisation
@@ -461,14 +465,24 @@ class UserViewSet(
             )
         return True
 
-    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    @action(
+        methods=["POST"],
+        detail=True,
+        permission_classes=[AllowAny],
+        throttle_classes=[UserPasswordResetThrottle],
+    )
     def validate_password_reset(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
         user_uuid = request.data["uuid"]
         self.validate_password_reset_token(user_uuid, token)
         return Response({"success": True})
 
-    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    @action(
+        methods=["POST"],
+        detail=True,
+        permission_classes=[AllowAny],
+        throttle_classes=[UserPasswordResetThrottle],
+    )
     def reset_password(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
         user_uuid = request.data["uuid"]
@@ -496,7 +510,7 @@ class UserViewSet(
         methods=["POST"],
         detail=True,
         permission_classes=[AllowAny],
-        throttle_classes=[UserEmailVerificationThrottle],
+        throttle_classes=[UserPasswordResetThrottle],
     )
     def request_password_reset(self, request, **kwargs):
         email = request.data["email"]
