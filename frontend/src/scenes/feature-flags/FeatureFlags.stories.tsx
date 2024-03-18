@@ -12,9 +12,6 @@ const meta: Meta = {
     title: 'Scenes-App/Feature Flags',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
     },
