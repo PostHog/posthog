@@ -27,6 +27,7 @@ class TestUserTeamPermissions(BaseTest):
         super().setUp()
         self.organization.available_features = [
             AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            AvailableFeature.ROLE_BASED_ACCESS,
         ]
         self.organization.save()
 
