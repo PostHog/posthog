@@ -36,8 +36,8 @@
 
     .LemonInput__input {
         flex: 1;
-        width: 100%;
         align-self: stretch; // Improves selectability
+        width: 100%;
         text-overflow: ellipsis;
         background: none;
         border: none;
