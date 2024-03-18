@@ -3,8 +3,8 @@ import './SurveyAppearance.scss'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import React, { useEffect, useRef, useState } from 'react'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 import {
     AvailableFeature,
@@ -138,7 +138,7 @@ export function SurveyAppearance({
 
 export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { guardAvailableFeature } = useActions(upgradeModalLogic)
     return (
         <>
             <div className="flex flex-col">

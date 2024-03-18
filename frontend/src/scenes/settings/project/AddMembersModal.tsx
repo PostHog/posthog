@@ -3,13 +3,13 @@ import { LemonButton, LemonModal, LemonSelect, LemonSelectOption } from '@postho
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { membershipLevelToName, teamMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { useState } from 'react'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -20,7 +20,7 @@ import { teamMembersLogic } from './teamMembersLogic'
 export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { addableMembers, allMembersLoading } = useValues(teamMembersLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { guardAvailableFeature } = useActions(upgradeModalLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const [isVisible, setIsVisible] = useState(false)
