@@ -672,6 +672,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 return !!experiment?.start_date
             },
         ],
+        isExperimentStopped: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return (
+                    experiment?.end_date &&
+                    dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                    !experiment.archived
+                )
+            },
+        ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
             (experiment, experimentId): Breadcrumb[] => [
@@ -1030,7 +1040,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return conversionRates.sort((a, b) => b.conversionRate - a.conversionRate)
             },
         ],
-        isDraft: [(s) => [s.experiment], (experiment: Experiment) => !experiment.start_date],
     }),
     forms(({ actions, values }) => ({
         experiment: {

@@ -1,7 +1,16 @@
 import './Experiment.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonModal,
+    LemonTable,
+    LemonTableColumns,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { getSeriesColor } from 'lib/colors'
@@ -26,6 +35,7 @@ import {
 } from '~/types'
 
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
+import { ResetButton } from './Experiment'
 import { experimentLogic } from './experimentLogic'
 import { MetricDisplay } from './ExperimentPreview'
 import { MetricSelector } from './MetricSelector'
@@ -612,5 +622,79 @@ export function ExperimentExposureModal({ experimentId }: { experimentId: Experi
                 </Field>
             </Form>
         </LemonModal>
+    )
+}
+
+export function ExperimentActiveBanner(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+
+    const { resetRunningExperiment, endExperiment } = useActions(experimentLogic)
+
+    return (
+        <LemonBanner type="info">
+            <div className="flex">
+                <div className="w-1/2 flex items-center">
+                    This experiment is <b>&nbsp;active.</b>
+                </div>
+
+                <div className="w-1/2 flex flex-col justify-end">
+                    <div className="ml-auto inline-flex space-x-2">
+                        <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
+                        <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                            Stop
+                        </LemonButton>
+                    </div>
+                </div>
+            </div>
+        </LemonBanner>
+    )
+}
+
+export function ExperimentDraftBanner(): JSX.Element {
+    const { launchExperiment, setEditExperiment } = useActions(experimentLogic)
+
+    return (
+        <LemonBanner type="info">
+            <div className="flex">
+                <div className="w-1/2 flex items-center">
+                    This experiment is <b>&nbsp;draft.</b>
+                </div>
+
+                <div className="w-1/2 flex flex-col justify-end">
+                    <div className="ml-auto inline-flex space-x-2">
+                        <LemonButton type="secondary" onClick={() => setEditExperiment(true)}>
+                            Edit
+                        </LemonButton>
+                        <LemonButton type="primary" onClick={() => launchExperiment()}>
+                            Launch
+                        </LemonButton>
+                    </div>
+                </div>
+            </div>
+        </LemonBanner>
+    )
+}
+
+export function ExperimentStoppedBanner(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { archiveExperiment, resetRunningExperiment } = useActions(experimentLogic)
+
+    return (
+        <LemonBanner type="info">
+            <div className="flex">
+                <div className="w-1/2 flex items-center">
+                    This experiment has been <b>&nbsp;stopped.</b>
+                </div>
+
+                <div className="w-1/2 flex flex-col justify-end">
+                    <div className="ml-auto inline-flex space-x-2">
+                        <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
+                        <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
+                            <b>Archive</b>
+                        </LemonButton>
+                    </div>
+                </div>
+            </div>
+        </LemonBanner>
     )
 }

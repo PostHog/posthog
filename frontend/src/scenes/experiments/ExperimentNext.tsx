@@ -1,6 +1,5 @@
 import './Experiment.scss'
 
-import { LemonBanner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -10,10 +9,13 @@ import { ExperimentImplementationDetails } from './ExperimentImplementationDetai
 import { experimentLogic } from './experimentLogic'
 import {
     DistributionTable,
+    ExperimentActiveBanner,
+    ExperimentDraftBanner,
     ExperimentExposureModal,
     ExperimentGoalModal,
     ExperimentProgressBar,
     ExperimentStatus,
+    ExperimentStoppedBanner,
     NoResultsEmptyState,
     QueryViz,
     ReleaseConditionsTable,
@@ -21,8 +23,15 @@ import {
 } from './ExperimentResultsViz'
 
 export function ExperimentResults(): JSX.Element {
-    const { experiment, isDraft, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
-        useValues(experimentLogic)
+    const {
+        experiment,
+        isExperimentRunning,
+        isExperimentStopped,
+        experimentLoading,
+        experimentResultsLoading,
+        experimentId,
+        experimentResults,
+    } = useValues(experimentLogic)
 
     if (experimentLoading || experimentResultsLoading) {
         return (
@@ -34,14 +43,12 @@ export function ExperimentResults(): JSX.Element {
 
     return (
         <div className="space-y-8 experiment-results">
-            {isDraft ? (
-                <LemonBanner type="info">
-                    This experiment is a <b>draft</b>.
-                </LemonBanner>
+            {isExperimentStopped ? (
+                <ExperimentStoppedBanner />
+            ) : isExperimentRunning ? (
+                <ExperimentActiveBanner />
             ) : (
-                <LemonBanner type="info">
-                    This experiment is <b>active</b>.
-                </LemonBanner>
+                <ExperimentDraftBanner />
             )}
             {experimentResults && experimentResults.insight ? (
                 <>
