@@ -3,7 +3,14 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import external_data_source, saved_query, table, view_link, external_data_schema
+from posthog.warehouse.api import (
+    external_data_schema,
+    external_data_source,
+    saved_query,
+    table,
+    view_link,
+)
+
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
     activity_log,
@@ -33,8 +40,8 @@ from . import (
     plugin_log_entry,
     property_definition,
     query,
-    search,
     scheduled_change,
+    search,
     sharing,
     survey,
     tagged_item,
@@ -296,6 +303,7 @@ projects_router.register(
 router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet)
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
+# remove the below
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")

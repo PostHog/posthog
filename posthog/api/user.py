@@ -1,10 +1,14 @@
 import json
 import os
 import secrets
+import time
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
+from datetime import datetime, timedelta
 from typing import Any, Optional, cast
+
+import jwt
 import requests
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
@@ -21,36 +25,41 @@ from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
+from sentry_sdk import capture_exception
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-import time
-import jwt
-from datetime import datetime, timedelta
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
+from posthog.api.password_reset import PasswordResetter
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import raise_if_user_provided_url_unsafe
-from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, authenticate_secondarily
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    authenticate_secondarily,
+)
+from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_logged_in,
+    report_user_password_reset,
     report_user_updated,
     report_user_verified_email,
 )
-from posthog.models import Team, User, UserScenePersonalisation, Dashboard
+from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.permissions import APIScopePermission
 from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
-from posthog.constants import PERMITTED_FORUM_DOMAINS
 
 
 class UserAuthenticationThrottle(UserRateThrottle):
@@ -410,6 +419,106 @@ class UserViewSet(
             user = None
         if user:
             EmailVerifier.create_token_and_send_email_verification(user)
+
+        return Response({"success": True})
+
+    # Password reset actions
+
+    def validate_password_reset_token(self, user_uuid: str, token: str) -> bool:
+        """
+        Checks that a user with the given UUID exists and that the token is valid.
+        Used when the user first tries to use a link to reset their password before
+        the form is shown, and again when the actual reset request is submitted (via
+        API or form).
+        """
+        if not token:
+            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
+
+        # Special handling for E2E tests
+        if settings.E2E_TESTING and user_uuid == "e2e_test_user" and token == "e2e_test_token":
+            return True
+
+        try:
+            user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+        except User.DoesNotExist:
+            capture_exception(
+                Exception("User not found in password reset serializer"),
+                {"user_uuid": self.context["view"].kwargs["user_uuid"]},
+            )
+            raise serializers.ValidationError(
+                {"token": ["This reset token is invalid or has expired."]},
+                code="invalid_token",
+            )
+        token_valid = PasswordResetter.check_token(user, token)
+        if not token_valid:
+            capture_exception(
+                Exception("Invalid password reset token in serializer"),
+                {"user_uuid": user.uuid, "token": token},
+            )
+            raise serializers.ValidationError(
+                {"token": ["This reset token is invalid or has expired."]},
+                code="invalid_token",
+            )
+        return True
+
+    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    def validate_password_reset(self, request, **kwargs):
+        token = request.data["token"] if "token" in request.data else None
+        user_uuid = request.data["uuid"]
+        self.validate_password_reset_token(user_uuid, token)
+        return Response({"success": True})
+
+    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    def reset_password(self, request, **kwargs):
+        token = request.data["token"] if "token" in request.data else None
+        user_uuid = request.data["uuid"]
+        self.validate_password_reset_token(user_uuid, token)
+
+        user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+
+        password = request.data["password"] if "password" in request.data else None
+
+        try:
+            validate_password(password, user)
+        except ValidationError as e:
+            raise serializers.ValidationError({"password": e.messages})
+
+        user.set_password(password)
+        user.requested_password_reset_at = None
+        user.save()
+
+        login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
+        report_user_password_reset(user)
+        report_user_logged_in(user)
+        return Response({"success": True})
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        permission_classes=[AllowAny],
+        throttle_classes=[UserEmailVerificationThrottle],
+    )
+    def request_password_reset(self, request, **kwargs):
+        email = request.data["email"]
+
+        # Check SSO enforcement (which happens at the domain level)
+        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(email):
+            raise serializers.ValidationError(
+                "Password reset is disabled because SSO login is enforced for this domain.",
+                code="sso_enforced",
+            )
+
+        if not is_email_available():
+            raise serializers.ValidationError(
+                "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.",
+                code="email_not_available",
+            )
+        try:
+            user = User.objects.filter(is_active=True).get(email=email)
+        except User.DoesNotExist:
+            user = None
+        if user:
+            PasswordResetter.create_token_and_send_reset_email(user)
 
         return Response({"success": True})
 

@@ -72,7 +72,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_password_reset(user_id: int, token: str) -> None:
-    user = User.objects.get(pk=user_id)
+    user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
         campaign_key=f"password-reset-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Reset your PostHog password",
@@ -87,6 +87,11 @@ def send_password_reset(user_id: int, token: str) -> None:
     )
     message.add_recipient(user.email)
     message.send()
+    posthoganalytics.capture(
+        user.distinct_id,
+        "password reset email sent",
+        groups={"organization": str(user.current_organization.id)},
+    )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

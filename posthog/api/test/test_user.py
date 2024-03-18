@@ -2,7 +2,7 @@ import datetime
 import uuid
 from typing import Dict, List, cast
 from unittest import mock
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import ANY, Mock, call, patch
 from urllib.parse import quote
 
 from django.contrib.auth.tokens import default_token_generator
@@ -1140,3 +1140,70 @@ class TestEmailVerificationAPI(APIBaseTest):
                     "attr": "token",
                 },
             )
+
+    # Password reset
+    @freeze_time("2020-01-01T12:00:00Z")
+    @patch("posthoganalytics.capture")
+    def test_user_can_request_and_reset_password(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post(f"/api/users/@me/request_password_reset/", {"email": self.user.email})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # check requested_password_reset_at is set
+        self.user.refresh_from_db()
+        assert self.user.requested_password_reset_at == timezone.now()
+
+        self.assertEqual(response.content.decode(), '{"success":true}')
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+
+        self.assertEqual(mail.outbox[0].subject, "Reset your PostHog password")
+        self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
+
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        self.validate_basic_html(
+            html_message,
+            "https://my.posthog.net",
+            preheader="Please follow the link inside to reset your password.",
+        )
+        link_index = html_message.find("https://my.posthog.net/reset")
+        reset_link = html_message[link_index : html_message.find('"', link_index)]
+        token = reset_link.replace("https://my.posthog.net/reset/", "").replace(f"{self.user.uuid}/", "")
+
+        # incorrect token is not validated
+        response = self.client.post(
+            f"/api/users/@me/validate_password_reset/", {"uuid": self.user.uuid, "token": "abcd"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # correct token is validated
+        response = self.client.post(
+            f"/api/users/@me/validate_password_reset/", {"uuid": self.user.uuid, "token": token}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # password can be reset
+        response = self.client.post(
+            f"/api/users/@me/reset_password/", {"uuid": self.user.uuid, "token": token, "password": "newpassword"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("newpassword"))
+        assert self.user.requested_password_reset_at is None
+
+        # assert events were captured
+        self.assertEqual(mock_capture.call_count, 3)
+        assert mock_capture.call_args_list == [
+            call(
+                self.user.distinct_id,
+                "password reset email sent",
+                groups=ANY,
+            ),
+            call(self.user.distinct_id, "user password reset", groups=ANY),
+            call(
+                self.user.distinct_id,
+                "user logged in",
+                properties=ANY,
+                groups=ANY,
+            ),
+        ]
