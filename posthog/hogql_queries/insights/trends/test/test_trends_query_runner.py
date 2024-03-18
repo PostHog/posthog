@@ -34,12 +34,22 @@ from posthog.schema import (
 from posthog.schema import Series as InsightActorsQuerySeries
 from posthog.test.base import (
     APIBaseTest,
+    ObjectStorageMixin,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
 )
+import pytest
+
+BUCKET_NAME = "test-trends-query-runner"
+
+
+@pytest.fixture
+def bucket_name(request) -> str:
+    """Name for a test S3 bucket."""
+    return BUCKET_NAME
 
 
 @dataclass
@@ -56,7 +66,7 @@ class SeriesTestData:
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest, ObjectStorageMixin):
     default_date_from = "2020-01-09"
     default_date_to = "2020-01-19"
 
