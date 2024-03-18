@@ -353,7 +353,7 @@ export const activationLogic = kea<activationLogicType>([
         },
         skipTask: ({ id }) => {
             posthog.capture('activation sidebar task skipped', {
-                key: id,
+                task: id,
             })
             if (values.currentTeam?.id) {
                 actions.addSkippedTask(values.currentTeam.id, id)
