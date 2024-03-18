@@ -12,7 +12,7 @@ from posthog.tasks.email import send_password_reset
 logger = structlog.get_logger(__name__)
 
 
-class PasswordResetTokenGenerator(PasswordResetTokenGenerator):
+class PHPasswordResetTokenGenerator(PasswordResetTokenGenerator):
     def _make_hash_value(self, user: AbstractBaseUser, timestamp):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
@@ -23,7 +23,7 @@ class PasswordResetTokenGenerator(PasswordResetTokenGenerator):
         return f"{usable_user.pk}{usable_user.email}{usable_user.requested_password_reset_at}{timestamp}"
 
 
-password_reset_token_generator = PasswordResetTokenGenerator()
+password_reset_token_generator = PHPasswordResetTokenGenerator()
 
 
 class PasswordResetter:
