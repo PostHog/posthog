@@ -67,7 +67,7 @@ curl -o /dev/null -L --header "Content-Type: application/json" -d "{
     \"properties\": {\"domain\": \"${DOMAIN}\"},
     \"type\": \"capture\",
     \"event\": \"magic_curl_install_start\"
-}" https://app.posthog.com/batch/ &> /dev/null
+}" https://us.i.posthog.com/batch/ &> /dev/null
 
 # update apt cache
 echo "Grabbing latest apt caches"
@@ -223,7 +223,7 @@ curl -o /dev/null -L --header "Content-Type: application/json" -d "{
     \"properties\": {\"domain\": \"${DOMAIN}\"},
     \"type\": \"capture\",
     \"event\": \"magic_curl_install_complete\"
-}" https://app.posthog.com/batch/ &> /dev/null
+}" https://us.i.posthog.com/batch/ &> /dev/null
 echo ""
 echo "To stop the stack run 'docker-compose stop'"
 echo "To start the stack again run 'docker-compose start'"
