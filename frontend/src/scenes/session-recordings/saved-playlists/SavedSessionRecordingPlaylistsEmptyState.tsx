@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import {  useValues } from 'kea'
+import { useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
