@@ -2,6 +2,7 @@ import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
     LemonSelect,
@@ -97,6 +98,26 @@ function CanvasCaptureSettings(): JSX.Element | null {
     )
 }
 
+function PayloadWarning(): JSX.Element {
+    return (
+        <>
+            <p>
+                We automatically scrub some sensitive information from network headers and request and response bodies.
+            </p>{' '}
+            <p>
+                If they could contain sensitive data, you should provide a function to mask the data when you initialise
+                PostHog.{' '}
+                <Link
+                    to="https://posthog.com/docs/session-replay/network-recording#sensitive-information"
+                    target="blank"
+                >
+                    Learn how to mask header and body values in our docs
+                </Link>
+            </p>
+        </>
+    )
+}
+
 function NetworkCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -129,15 +150,7 @@ function NetworkCaptureSettings(): JSX.Element {
                     </Link>
                 </p>
                 <LemonBanner type="info" className="mb-4">
-                    We automatically scrub some sensitive information from network headers, but if your request or
-                    response payloads could contain sensitive data, you can provide a function to mask the data when you
-                    initialise PostHog.{' '}
-                    <Link
-                        to="https://posthog.com/docs/session-replay/network-recording#sensitive-information"
-                        target="blank"
-                    >
-                        Learn how to mask header and payload values in our docs
-                    </Link>
+                    <PayloadWarning />
                 </LemonBanner>
                 <div className="flex flex-row space-x-2">
                     <LemonSwitch
@@ -166,12 +179,32 @@ function NetworkCaptureSettings(): JSX.Element {
                     <LemonSwitch
                         data-attr="opt-in-capture-network-body-switch"
                         onChange={(checked) => {
-                            updateCurrentTeam({
-                                session_recording_network_payload_capture_config: {
-                                    ...currentTeam?.session_recording_network_payload_capture_config,
-                                    recordBody: checked,
-                                },
-                            })
+                            if (checked) {
+                                LemonDialog.open({
+                                    maxWidth: '650px',
+                                    title: 'Network body capture',
+                                    description: <PayloadWarning />,
+                                    primaryButton: {
+                                        'data-attr': 'network-payload-capture-accept-warning-and-enable',
+                                        children: 'Enable body capture',
+                                        onClick: () => {
+                                            updateCurrentTeam({
+                                                session_recording_network_payload_capture_config: {
+                                                    ...currentTeam?.session_recording_network_payload_capture_config,
+                                                    recordBody: true,
+                                                },
+                                            })
+                                        },
+                                    },
+                                })
+                            } else {
+                                updateCurrentTeam({
+                                    session_recording_network_payload_capture_config: {
+                                        ...currentTeam?.session_recording_network_payload_capture_config,
+                                        recordBody: false,
+                                    },
+                                })
+                            }
                         }}
                         label="Capture body"
                         bordered

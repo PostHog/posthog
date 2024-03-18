@@ -1982,7 +1982,7 @@
             "additionalProperties": false,
             "properties": {
                 "average_conversion_time": {
-                    "type": "integer"
+                    "type": ["number", "null"]
                 },
                 "bins": {
                     "items": {

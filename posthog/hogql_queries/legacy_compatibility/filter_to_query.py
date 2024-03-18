@@ -25,6 +25,7 @@ from posthog.schema import (
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
+    FunnelVizType,
 )
 from posthog.types import InsightQueryNode
 
@@ -392,9 +393,15 @@ def _insight_filter(filter: Dict):
             )
         }
     elif _insight_type(filter) == "FUNNELS":
+        funnel_viz_type = filter.get("funnel_viz_type")
+        # Backwards compatibility
+        # Before Filter.funnel_viz_type funnel trends were indicated by Filter.display being TRENDS_LINEAR
+        if funnel_viz_type is None and filter.get("display") == "ActionsLineGraph":
+            funnel_viz_type = FunnelVizType.trends
+
         insight_filter = {
             "funnelsFilter": FunnelsFilter(
-                funnelVizType=filter.get("funnel_viz_type"),
+                funnelVizType=funnel_viz_type,
                 funnelOrderType=filter.get("funnel_order_type"),
                 funnelFromStep=filter.get("funnel_from_step"),
                 funnelToStep=filter.get("funnel_to_step"),
@@ -416,12 +423,16 @@ def _insight_filter(filter: Dict):
                 retentionType=filter.get("retention_type"),
                 retentionReference=filter.get("retention_reference"),
                 totalIntervals=filter.get("total_intervals"),
-                returningEntity=to_base_entity_dict(filter.get("returning_entity"))
-                if filter.get("returning_entity") is not None
-                else None,
-                targetEntity=to_base_entity_dict(filter.get("target_entity"))
-                if filter.get("target_entity") is not None
-                else None,
+                returningEntity=(
+                    to_base_entity_dict(filter.get("returning_entity"))
+                    if filter.get("returning_entity") is not None
+                    else None
+                ),
+                targetEntity=(
+                    to_base_entity_dict(filter.get("target_entity"))
+                    if filter.get("target_entity") is not None
+                    else None
+                ),
                 period=filter.get("period"),
             )
         }

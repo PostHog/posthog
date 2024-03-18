@@ -7,7 +7,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -268,15 +268,17 @@ export function BatchExportsEditFields({
                         </div>
 
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to exclude from the export (optional)"
                             />
                         </LemonField>
                         <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to include in the export (optional)"
                             />
@@ -317,15 +319,17 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to exclude from the export (optional)"
                             />
                         </LemonField>
                         <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to include in the export (optional)"
                             />
@@ -376,15 +380,17 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to exclude from the export (optional)"
                             />
                         </LemonField>
                         <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to include in the export (optional)"
                             />
@@ -431,15 +437,17 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to exclude from the export (optional)"
                             />
                         </LemonField>
                         <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to include in the export (optional)"
                             />
@@ -476,15 +484,17 @@ export function BatchExportsEditFields({
                         ) : null}
 
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to exclude from the export (optional)"
                             />
                         </LemonField>
                         <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to include in the export (optional)"
                             />
@@ -499,15 +509,17 @@ export function BatchExportsEditFields({
                             <LemonInput />
                         </LemonField>
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to exclude from the export (optional)"
                             />
                         </LemonField>
                         <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 options={[]}
                                 placeholder="Input one or more events to include in the export (optional)"
                             />
