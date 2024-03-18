@@ -1403,7 +1403,7 @@ class TestPasswordResetAPI(APIBaseTest):
                 "organization": str(self.team.organization_id),
                 "project": str(self.team.uuid),
             },
-        )
+        )  # user logged in after password successfully reset
         mock_capture.assert_any_call(
             self.user.distinct_id,
             "user password reset",
@@ -1413,7 +1413,9 @@ class TestPasswordResetAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        self.assertEqual(mock_capture.call_count, 2)
+        self.assertEqual(
+            mock_capture.call_count, 3
+        )  # extra login event from user being logged out and back in during the test
 
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)

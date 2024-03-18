@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
-from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
+from posthog.api.password_reset import password_reset_token_generator
 from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import OrganizationInvite, OrganizationMembership

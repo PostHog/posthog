@@ -453,17 +453,18 @@ class UserViewSet(
                 {"token": ["This reset token is invalid or has expired."]},
                 code="invalid_token",
             )
-        token_valid = PasswordResetter.check_token(user, token)
-        if not token_valid:
-            capture_exception(
-                Exception("Invalid password reset token in serializer"),
-                {"user_uuid": user.uuid, "token": token},
-            )
-            raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]},
-                code="invalid_token",
-            )
-        return True
+        else:
+            token_valid = PasswordResetter.check_token(user, token)
+            if not token_valid:
+                capture_exception(
+                    Exception("Invalid password reset token in serializer"),
+                    {"user_uuid": user.uuid, "token": token},
+                )
+                raise serializers.ValidationError(
+                    {"token": ["This reset token is invalid or has expired."]},
+                    code="invalid_token",
+                )
+            return True
 
     @action(
         methods=["POST"],
@@ -476,11 +477,11 @@ class UserViewSet(
         user_uuid = request.data["uuid"]
         try:
             self.validate_password_reset_token(user_uuid, token)
-        except ValidationError as e:
+        except ValidationError:
             error_response = {
                 "type": "validation_error",
-                "code": e.detail["token"][0].code,  # Assuming the error detail structure from your ValidationError
-                "detail": e.detail["token"][0],
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
                 "attr": "token",
             }
             return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
@@ -501,16 +502,15 @@ class UserViewSet(
             return Response(status=status.HTTP_204_NO_CONTENT)
         try:
             self.validate_password_reset_token(user_uuid, token)
-        except ValidationError as e:
+            user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+        except ValidationError:
             error_response = {
                 "type": "validation_error",
-                "code": e.detail["token"][0].code,  # Assuming the error detail structure from your ValidationError
-                "detail": e.detail["token"][0],
-                "attr": "tokenyy",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
             }
             return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
-
-        user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
 
         password = request.data["password"] if "password" in request.data else None
 
