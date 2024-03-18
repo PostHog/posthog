@@ -193,10 +193,17 @@ const Search = (): JSX.Element => {
                 })
                 break
             }
-            case 'Tab': {
+            case 'Tab':
+            case 'ArrowRight': {
                 e.preventDefault()
                 const currTagIndex = tags.findIndex(({ type }) => type === activeTag)
                 setActiveTag(tags[currTagIndex >= tags.length - 1 ? 0 : currTagIndex + 1].type)
+                break
+            }
+            case 'ArrowLeft': {
+                e.preventDefault()
+                const currTagIndex = tags.findIndex(({ type }) => type === activeTag)
+                setActiveTag(tags[currTagIndex <= 0 ? tags.length - 1 : currTagIndex - 1].type)
             }
         }
     }
