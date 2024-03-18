@@ -1,21 +1,18 @@
+from collections import Counter
+from unittest import mock
+
 import base64
 import gzip
 import json
+import lzstring
 import pathlib
+import pytest
 import random
 import string
+import structlog
 import zlib
-from collections import Counter
 from datetime import datetime, timedelta
 from datetime import timezone as tz
-from typing import Any, Dict, List, Union, cast
-from unittest import mock
-from unittest.mock import ANY, MagicMock, call, patch
-from urllib.parse import quote
-
-import lzstring
-import pytest
-import structlog
 from django.http import HttpResponse
 from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
@@ -27,6 +24,9 @@ from parameterized import parameterized
 from prance import ResolvingParser
 from rest_framework import status
 from token_bucket import Limiter, MemoryStorage
+from typing import Any, Dict, List, Union, cast
+from unittest.mock import ANY, MagicMock, call, patch
+from urllib.parse import quote
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api import capture
@@ -41,7 +41,9 @@ from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProd
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 )
+from posthog.redis import get_client
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
     KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
@@ -1598,6 +1600,45 @@ class TestCapture(BaseTest):
             assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_overflow_from_forced_tokens(self, kafka_produce) -> None:
+        with self.settings(
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
+            REPLAY_OVERFLOW_FORCED_TOKENS={"another", self.team.api_token},
+            REPLAY_OVERFLOW_SESSIONS_ENABLED=False,
+        ):
+            self._send_august_2023_version_session_recording_event(event_data=large_data_array)
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+
+            assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW: 1})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_overflow_from_redis_instructions(self, kafka_produce) -> None:
+        with self.settings(SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480, REPLAY_OVERFLOW_SESSIONS_ENABLED=True):
+            redis = get_client()
+            redis.zadd(
+                "@posthog/capture-overflow/replay",
+                {
+                    "overflowing": timezone.now().timestamp() + 1000,
+                    "expired_overflow": timezone.now().timestamp() - 1000,
+                },
+            )
+
+            # Session is currently overflowing
+            self._send_august_2023_version_session_recording_event(
+                event_data=large_data_array, session_id="overflowing"
+            )
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW: 1})
+
+            # This session's entry is expired, data should go to the main topic
+            kafka_produce.reset_mock()
+            self._send_august_2023_version_session_recording_event(
+                event_data=large_data_array, session_id="expired_overflow"
+            )
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce: MagicMock) -> None:
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
@@ -1605,6 +1646,7 @@ class TestCapture(BaseTest):
             self._send_august_2023_version_session_recording_event()
 
             assert kafka_produce.mock_calls[0].kwargs["headers"] == [("token", "token123")]
+            assert kafka_produce.mock_calls[0].kwargs["topic"] == "session_recording_snapshot_item_events"
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
