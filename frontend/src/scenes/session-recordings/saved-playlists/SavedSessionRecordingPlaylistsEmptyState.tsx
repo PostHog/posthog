@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
+import {  useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -10,7 +10,7 @@ import { createPlaylist } from '../playlist/playlistUtils'
 import { savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 
 export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
-    const { guardAvailableFeature } = useActions(upgradeModalLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists, loadPlaylistsFailed } = useValues(playlistsLogic)
     return loadPlaylistsFailed ? (
@@ -28,8 +28,7 @@ export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
                         guardAvailableFeature(
                             AvailableFeature.RECORDINGS_PLAYLISTS,
                             () => void createPlaylist({}, true),
-                            undefined,
-                            playlists.count
+                            { currentUsage: playlists.count }
                         )
                     }
                 >

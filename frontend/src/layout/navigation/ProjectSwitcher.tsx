@@ -27,7 +27,7 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
 export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () => void }): JSX.Element {
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { guardAvailableFeature } = useActions(upgradeModalLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
 
     return (
@@ -48,12 +48,9 @@ export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () =
                 tooltip={projectCreationForbiddenReason}
                 onClick={() => {
                     onClickInside?.()
-                    guardAvailableFeature(
-                        AvailableFeature.ORGANIZATIONS_PROJECTS,
-                        showCreateProjectModal,
-                        undefined,
-                        currentOrganization?.teams?.length
-                    )
+                    guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
+                        currentUsage: currentOrganization?.teams?.length,
+                    })
                 }}
             >
                 New project

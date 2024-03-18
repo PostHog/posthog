@@ -34,7 +34,7 @@ export function SessionsRecordings(): JSX.Element {
     const { tab } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
-    const { guardAvailableFeature } = useActions(upgradeModalLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
@@ -87,8 +87,7 @@ export function SessionsRecordings(): JSX.Element {
                                                     ? newPlaylistHandler.onEvent?.(e)
                                                     : saveFiltersPlaylistHandler.onEvent?.(e)
                                             },
-                                            undefined,
-                                            playlists.count
+                                            { currentUsage: playlists.count }
                                         )
                                     }
                                 >
@@ -111,8 +110,7 @@ export function SessionsRecordings(): JSX.Element {
                                     guardAvailableFeature(
                                         AvailableFeature.RECORDINGS_PLAYLISTS,
                                         () => newPlaylistHandler.onEvent?.(e),
-                                        undefined,
-                                        playlists.count
+                                        { currentUsage: playlists.count }
                                     )
                                 }
                                 data-attr="save-recordings-playlist-button"

@@ -48,7 +48,7 @@ export function OtherOrganizationButton({
 export function NewOrganizationButton(): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
-    const { guardAvailableFeature } = useActions(upgradeModalLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     return (
         <LemonButton
@@ -61,8 +61,7 @@ export function NewOrganizationButton(): JSX.Element {
                         showCreateOrganizationModal()
                     },
                     {
-                        cloud: false,
-                        selfHosted: true,
+                        guardOnCloud: false,
                     }
                 )
             }

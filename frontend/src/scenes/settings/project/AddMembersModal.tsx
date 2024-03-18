@@ -1,6 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -20,7 +20,7 @@ import { teamMembersLogic } from './teamMembersLogic'
 export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { addableMembers, allMembersLoading } = useValues(teamMembersLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { guardAvailableFeature } = useActions(upgradeModalLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const [isVisible, setIsVisible] = useState(false)
@@ -35,14 +35,11 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
                 type="primary"
                 data-attr="add-project-members-button"
                 onClick={() =>
-                    guardAvailableFeature(
-                        AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                        () => setIsVisible(true),
-                        undefined,
-                        undefined,
-                        !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) &&
-                            currentTeam?.access_control
-                    )
+                    guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => setIsVisible(true), {
+                        isGrandfathered:
+                            !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) &&
+                            currentTeam?.access_control,
+                    })
                 }
                 icon={<IconPlus />}
                 disabled={isRestricted}

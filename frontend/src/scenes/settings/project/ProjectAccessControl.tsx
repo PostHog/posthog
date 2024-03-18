@@ -208,7 +208,7 @@ export function ProjectAccessControl(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { guardAvailableFeature } = useActions(upgradeModalLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const isRestricted = !!useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,

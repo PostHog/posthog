@@ -8,6 +8,17 @@ import { AvailableFeature } from '~/types'
 
 import type { upgradeModalLogicType } from './upgradeModalLogicType'
 
+export type GuardAvailableFeatureFn = (
+    featureKey: AvailableFeature,
+    featureAvailableCallback?: () => void,
+    options?: {
+        guardOnCloud?: boolean
+        guardOnSelfHosted?: boolean
+        currentUsage?: number
+        isGrandfathered?: boolean
+    }
+) => boolean
+
 export const upgradeModalLogic = kea<upgradeModalLogicType>([
     path(['lib', 'components', 'UpgradeModal', 'upgradeModalLogic']),
     connect(() => ({
@@ -19,21 +30,6 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
             currentUsage,
             isGrandfathered,
         }),
-        guardAvailableFeature: (
-            featureKey: AvailableFeature,
-            featureAvailableCallback?: () => void,
-            guardOn: {
-                cloud: boolean
-                selfHosted: boolean
-            } = {
-                cloud: true,
-                selfHosted: true,
-            },
-            // how much of the feature has been used (eg. number of recording playlists created),
-            // which will be compared to the limit for their subscriptions
-            currentUsage?: number,
-            isGrandfathered?: boolean
-        ) => ({ featureKey, featureAvailableCallback, guardOn, currentUsage, isGrandfathered }),
         hideUpgradeModal: true,
     }),
     reducers({
@@ -59,35 +55,42 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
             },
         ],
     }),
-    selectors({
-        // sceneConfig: [
-        //     (s) => [s.scene],
-        //     (scene: Scene): SceneConfig | null => {
-        //         return sceneConfigurations[scene] || null
-        //     },
-        // ],
-    }),
-    listeners(({ actions }) => ({
+    selectors(({ actions }) => ({
+        guardAvailableFeature: [
+            (s) => [s.preflight, s.hasAvailableFeature],
+            (preflight, hasAvailableFeature): GuardAvailableFeatureFn => {
+                return (featureKey, featureAvailableCallback, options): boolean => {
+                    const {
+                        guardOnCloud = true,
+                        guardOnSelfHosted = true,
+                        currentUsage,
+                        isGrandfathered,
+                    } = options || {}
+                    let featureAvailable: boolean
+                    if (!preflight) {
+                        featureAvailable = false
+                    } else if (!guardOnCloud && preflight.cloud) {
+                        featureAvailable = true
+                    } else if (!guardOnSelfHosted && !preflight.cloud) {
+                        featureAvailable = true
+                    } else {
+                        featureAvailable = hasAvailableFeature(featureKey, currentUsage)
+                    }
+
+                    if (!featureAvailable) {
+                        actions.showUpgradeModal(featureKey, currentUsage, isGrandfathered)
+                    } else {
+                        featureAvailableCallback?.()
+                    }
+
+                    return featureAvailable
+                }
+            },
+        ],
+    })),
+    listeners(() => ({
         showUpgradeModal: ({ featureKey }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureKey)
-        },
-        guardAvailableFeature: ({ featureKey, featureAvailableCallback, guardOn, currentUsage, isGrandfathered }) => {
-            const { preflight } = preflightLogic.values
-            let featureAvailable: boolean
-            if (!preflight) {
-                featureAvailable = false
-            } else if (!guardOn.cloud && preflight.cloud) {
-                featureAvailable = true
-            } else if (!guardOn.selfHosted && !preflight.cloud) {
-                featureAvailable = true
-            } else {
-                featureAvailable = userLogic.values.hasAvailableFeature(featureKey, currentUsage)
-            }
-            if (featureAvailable) {
-                featureAvailableCallback?.()
-            } else {
-                actions.showUpgradeModal(featureKey, currentUsage, isGrandfathered)
-            }
         },
     })),
 ])
