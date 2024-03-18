@@ -285,7 +285,7 @@ export const activationLogic = kea<activationLogicType>([
                             tasks.push({
                                 id: ActivationTasks.SetUpReverseProxy,
                                 name: 'Set up a reverse proxy',
-                                description: 'Sent your events from your own domain to avoid tracking blockers',
+                                description: 'Send your events from your own domain to avoid tracking blockers',
                                 completed: false,
                                 canSkip: true,
                                 skipped: skippedTasks.includes(ActivationTasks.SetUpReverseProxy),
