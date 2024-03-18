@@ -23,6 +23,7 @@ from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
+from sentry_sdk import capture_exception
 from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
@@ -296,12 +297,20 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         try:
             user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
         except User.DoesNotExist:
+            capture_exception(
+                Exception("User not found in password reset serializer"),
+                {"user_uuid": self.context["view"].kwargs["user_uuid"]},
+            )
             raise serializers.ValidationError(
                 {"token": ["This reset token is invalid or has expired."]},
                 code="invalid_token",
             )
 
         if not password_reset_token_generator.check_token(user, validated_data["token"]):
+            capture_exception(
+                Exception("Invalid password reset token in serializer"),
+                {"user_uuid": user.uuid, "token": validated_data["token"]},
+            )
             raise serializers.ValidationError(
                 {"token": ["This reset token is invalid or has expired."]},
                 code="invalid_token",
@@ -353,9 +362,18 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
         try:
             user = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
-            user = None
+            capture_exception(
+                Exception("User not found in password reset viewset"), {"user_uuid": user_uuid, "token": token}
+            )
+            raise serializers.ValidationError(
+                {"token": ["This reset token is invalid or has expired."]},
+                code="invalid_token",
+            )
 
-        if not user or not password_reset_token_generator.check_token(user, token):
+        if not password_reset_token_generator.check_token(user, token):
+            capture_exception(
+                Exception("Invalid password reset token in viewset"), {"user_uuid": user_uuid, "token": token}
+            )
             raise serializers.ValidationError(
                 {"token": ["This reset token is invalid or has expired."]},
                 code="invalid_token",
