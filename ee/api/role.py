@@ -118,7 +118,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         user_uuid = validated_data.pop("user_uuid")
         try:
-            validated_data["organization_member"] = OrganizationMembership.objects.prefetch_related("user").get(
+            validated_data["organization_member"] = OrganizationMembership.objects.select_related("user").get(
                 organization_id=self.context["organization_id"], user__uuid=user_uuid, user__is_active=True
             )
 

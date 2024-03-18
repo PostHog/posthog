@@ -26,7 +26,7 @@ def extract_organization(object: Model, view: View) -> Organization:
     if organization_id_rewrite:
         for part in organization_id_rewrite.split("__"):
             if part == "organization_id":
-                continue
+                break
             object = getattr(object, part)
 
     if isinstance(object, Organization):
