@@ -36,11 +36,20 @@ class RoleMembership(UUIDModel):
         related_name="roles",
         related_query_name="role",
     )
+    # TODO: Eventually remove this as we only need the organization membership
     user: models.ForeignKey = models.ForeignKey(
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="role_memberships",
         related_query_name="role_membership",
+    )
+
+    organization_member: models.ForeignKey = models.ForeignKey(
+        "posthog.OrganizationMembership",
+        on_delete=models.CASCADE,
+        related_name="role_memberships",
+        related_query_name="role_membership",
+        null=True,
     )
     joined_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)

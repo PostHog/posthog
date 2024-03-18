@@ -155,7 +155,6 @@ export function CohortPersonPropertiesValuesField({
 
     return (
         <PropertyValue
-            className={clsx('CohortField', 'CohortField__CohortPersonPropertiesValuesField')}
             operator={operator || PropertyOperator.Exact}
             propertyKey={propertyKey as string}
             type={PropertyFilterType.Person}

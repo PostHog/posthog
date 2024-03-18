@@ -6,7 +6,7 @@ import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { membershipLevelToName, teamMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { useState } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -56,7 +56,7 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
                     </LemonModal.Header>
                     <LemonModal.Content className="space-y-2">
                         <LemonField name="userUuids">
-                            <LemonSelectMultiple
+                            <LemonInputSelect
                                 mode="multiple"
                                 placeholder="Organization members"
                                 loading={allMembersLoading}
