@@ -2,9 +2,9 @@ import {
     LemonButton,
     LemonDialog,
     LemonInput,
+    LemonInputSelect,
     LemonModal,
     LemonSelect,
-    LemonSelectMultiple,
     LemonTable,
     LemonTableColumns,
     ProfileBubbles,
@@ -142,7 +142,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
 
     const onSubmit = membersToAdd.length
         ? () => {
-              addMembersToRole(role, membersToAdd)
+              role && addMembersToRole(role, membersToAdd)
               setMembersToAdd([])
           }
         : undefined
@@ -162,11 +162,10 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
             <div className="flex items-center gap-2 justify-between min-h-10">
                 <div className="flex items-center gap-2">
                     <div className="min-w-[16rem]">
-                        <LemonSelectMultiple
+                        <LemonInputSelect
                             placeholder="Search for members to add..."
                             value={membersToAdd}
                             onChange={(newValues: string[]) => setMembersToAdd(newValues)}
-                            filterOption={true}
                             mode="multiple"
                             options={usersLemonSelectOptions(
                                 membersNotInRole.map((member) => member.user),

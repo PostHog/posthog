@@ -2,8 +2,8 @@ import { IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
+    LemonInputSelect,
     LemonSelect,
-    LemonSelectMultiple,
     LemonSelectProps,
     LemonTable,
 } from '@posthog/lemon-ui'
@@ -396,11 +396,10 @@ function AddItemsControls(props: {
     return (
         <div className="flex gap-2">
             <div className="min-w-[16rem]">
-                <LemonSelectMultiple
+                <LemonInputSelect
                     placeholder={props.placeholder}
                     value={items}
                     onChange={(newValues: string[]) => setItems(newValues)}
-                    filterOption={true}
                     mode="multiple"
                     options={props.options}
                 />
