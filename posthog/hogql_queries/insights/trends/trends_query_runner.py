@@ -697,13 +697,19 @@ class TrendsQueryRunner(QueryRunner):
         ):
             return False
 
-        if self.query.breakdownFilter.breakdown_type == "data_warehouse":
+        if (
+            isinstance(self.query.series[0], DataWarehouseNode)
+            and self.query.breakdownFilter.breakdown_type == "data_warehouse"
+        ):
             series = self.query.series[0]  # only one series when data warehouse is active
             table_model = (
                 DataWarehouseTable.objects.filter(name=series.table_name, team=self.team).exclude(deleted=True).first()
             )
 
-            field_type = table_model.columns[self.query.breakdownFilter.breakdown]
+            if not table_model:
+                raise ValueError(f"Table {series.table_name} not found")
+
+            field_type = dict(table_model.columns)[self.query.breakdownFilter.breakdown]
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]
