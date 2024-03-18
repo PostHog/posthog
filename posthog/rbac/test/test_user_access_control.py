@@ -1,11 +1,18 @@
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role, RoleMembership
-from ee.rbac.user_access_control import UserAccessControl
+import pytest
 from posthog.constants import AvailableFeature
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.test.base import BaseTest
 
 
+try:
+    from ee.models.rbac.access_control import AccessControl
+    from ee.models.rbac.role import Role, RoleMembership
+except ImportError:
+    pass
+
+
+@pytest.mark.ee
 class TestUserTeamPermissions(BaseTest):
     user_access_control: UserAccessControl
 

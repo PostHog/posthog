@@ -2,9 +2,8 @@ from rest_framework.permissions import BasePermission
 
 from functools import cached_property
 from django.db.models import Q, QuerySet
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
-from ee.models.rbac.access_control import AccessControl
 from posthog.constants import AvailableFeature
 from posthog.models import (
     Organization,
@@ -14,6 +13,21 @@ from posthog.models import (
 )
 from posthog.models.personal_api_key import APIScopeObject
 from posthog.permissions import extract_organization
+
+
+if TYPE_CHECKING:
+    from ee.models import AccessControl
+
+    _AccessControl = AccessControl
+else:
+    _AccessControl = object
+
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
+
 
 MEMBER_BASED_ACCESS_LEVELS = ["member", "admin"]
 RESOURCE_BASED_ACCESS_LEVELS = ["viewer", "editor"]
@@ -39,8 +53,9 @@ class UserAccessControl:
         self._organization = organization
 
     @cached_property
-    def _organization_membership(self, organization: Organization) -> Optional[OrganizationMembership]:
-        return OrganizationMembership.objects.get(organization=organization, user=self.user)
+    def _organization_membership(self) -> Optional[OrganizationMembership]:
+        # TODO: Don't throw if none
+        return OrganizationMembership.objects.get(organization=self._organization, user=self._user)
 
     @property
     def _rbac_supported(self) -> bool:
@@ -56,7 +71,7 @@ class UserAccessControl:
         ) or self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
     # @cached_property
-    def _access_controls_for_object(self, resource: APIScopeObject, resource_id: str) -> List[AccessControl]:
+    def _access_controls_for_object(self, resource: APIScopeObject, resource_id: str) -> List[_AccessControl]:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
@@ -80,7 +95,7 @@ class UserAccessControl:
             )
         )
 
-    def access_control_for_object(self, resource: APIScopeObject, resource_id: str) -> Optional[AccessControl]:
+    def access_control_for_object(self, resource: APIScopeObject, resource_id: str) -> Optional[_AccessControl]:
         """
         Access levels are strings - the order of which is determined at run time.
         We find all relevant access controls and then return the highest value
@@ -113,12 +128,23 @@ class UserAccessControl:
         Returns true or false if access controls are applied, otherwise None
         """
 
+        org_membership = self._organization_membership
+
+        if not org_membership:
+            # NOTE: Here we need to change it to indicate they aren't an org member
+            return False
+
+        # Org admins always have object level access
+        if org_membership.level == OrganizationMembership.Level.ADMIN:
+            return True
+
         access_control = self.access_control_for_object(resource, resource_id)
 
-        if not access_control:
-            return
-
-        return access_level_satisfied(resource, access_control.access_level, required_level)
+        return (
+            None
+            if not access_control
+            else access_level_satisfied(resource, access_control.access_level, required_level)
+        )
 
     # Used for filtering a queryset by access level
     def filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
