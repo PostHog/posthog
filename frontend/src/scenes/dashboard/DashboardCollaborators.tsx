@@ -6,8 +6,8 @@ import { DashboardPrivilegeLevel, DashboardRestrictionLevel, privilegeLevelToNam
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -75,16 +75,14 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                     {canEditDashboard && (
                                         <div className="flex gap-2">
                                             <div className="flex-1">
-                                                <LemonSelectMultiple
+                                                <LemonInputSelect
                                                     placeholder="Search for team members to add…"
                                                     value={explicitCollaboratorsToBeAdded}
                                                     loading={explicitCollaboratorsLoading}
                                                     onChange={(newValues: string[]) =>
                                                         setExplicitCollaboratorsToBeAdded(newValues)
                                                     }
-                                                    filterOption={true}
                                                     mode="multiple"
-                                                    data-attr="subscribed-emails"
                                                     options={usersLemonSelectOptions(addableMembers, 'uuid')}
                                                 />
                                             </div>

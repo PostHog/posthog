@@ -4,10 +4,7 @@ import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import {
-    LemonSelectMultiple,
-    LemonSelectMultipleOptionItem,
-} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
@@ -34,7 +31,7 @@ interface ResourcePermissionProps {
     canEdit: boolean
 }
 
-function roleLemonSelectOptions(roles: RoleType[]): LemonSelectMultipleOptionItem[] {
+function roleLemonSelectOptions(roles: RoleType[]): LemonInputSelectOption[] {
     return roles.map((role) => ({
         key: role.id,
         label: `${role.name}`,
@@ -201,12 +198,11 @@ export function ResourcePermission({
                     <h5 className="mt-4">Custom edit roles</h5>
                     <div className="flex gap-2">
                         <div className="flex-1">
-                            <LemonSelectMultiple
+                            <LemonInputSelect
                                 placeholder="Search for roles to add…"
                                 loading={addableRolesLoading}
                                 onChange={onChange}
                                 value={rolesToAdd}
-                                filterOption={true}
                                 mode="multiple"
                                 data-attr="resource-permissioning-select"
                                 options={roleLemonSelectOptions(addableRoles)}
