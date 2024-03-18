@@ -2,6 +2,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -65,6 +66,8 @@ export const activationLogic = kea<activationLogicType>([
             ['loadPluginsSuccess', 'loadPluginsFailure'],
             sidePanelStateLogic,
             ['openSidePanel'],
+            eventUsageLogic,
+            ['reportActivationSideBarShown'],
             savedInsightsLogic,
             ['loadInsights', 'loadInsightsSuccess', 'loadInsightsFailure'],
             dashboardsModel,
