@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
+from django.views import View
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
@@ -10,7 +11,7 @@ from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -48,11 +49,11 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 
 class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
-        organization = extract_organization(object)
+        organization = extract_organization(object, view)
         min_level = (
             OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
         )
@@ -66,6 +67,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
+    member_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
@@ -84,6 +86,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "metadata",
             "customer_id",
             "enforce_2fa",
+            "member_count",
         ]
         read_only_fields = [
             "id",
@@ -97,6 +100,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "available_product_features",
             "metadata",
             "customer_id",
+            "member_count",
         ]
         extra_kwargs = {
             "slug": {
@@ -123,6 +127,16 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         return {
             "instance_tag": settings.INSTANCE_TAG,
         }
+
+    def get_member_count(self, organization: Organization):
+        return (
+            OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+            .filter(
+                user__is_active=True,
+            )
+            .filter(organization=organization)
+            .count()
+        )
 
 
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

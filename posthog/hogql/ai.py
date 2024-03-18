@@ -59,7 +59,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         database=database,
         modifiers=create_default_modifiers_for_team(team),
     )
-    serialized_database = serialize_database(database)
+    serialized_database = serialize_database(context)
     schema_description = "\n\n".join(
         (
             f"Table {table_name} with fields:\n"

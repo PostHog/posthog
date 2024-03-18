@@ -53,6 +53,8 @@ export enum NodeKind {
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
+    FunnelsActorsQuery = 'FunnelsActorsQuery',
+    FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
 
     // Interface nodes
@@ -70,6 +72,7 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
+    FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -138,6 +141,7 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | FunnelCorrelationQuery
 
     // Misc
     | DatabaseSchemaQuery
@@ -176,6 +180,14 @@ export interface HogQLQueryModifiers {
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
+}
+
+export interface DataWarehouseEventsModifier {
+    table_name: string
+    timestamp_field: string
+    distinct_id_field: string
+    id_field: string
 }
 
 export interface HogQLQueryResponse {
@@ -372,6 +384,7 @@ export interface DataWarehouseNode extends EntityNode {
     id_field: string
     table_name: string
     timestamp_field: string
+    distinct_id_field: string
 }
 
 export interface ActionsNode extends EntityNode {
@@ -709,8 +722,7 @@ type BinNumber = number
 export type FunnelStepsResults = Record<string, any>[]
 export type FunnelStepsBreakdownResults = Record<string, any>[][]
 export type FunnelTimeToConvertResults = {
-    /** @asType integer */
-    average_conversion_time: number
+    average_conversion_time: number | null
     bins: [BinNumber, BinNumber][]
 }
 export type FunnelTrendsResults = Record<string, any>[]
@@ -919,7 +931,7 @@ export interface ActorsQueryResponse {
 
 export interface ActorsQuery extends DataNode {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | FunnelsActorsQuery | HogQLQuery
+    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
@@ -965,6 +977,7 @@ export interface WebAnalyticsQueryBase {
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
+    useSessionsTable?: boolean
 }
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
@@ -1088,7 +1101,7 @@ export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySo
 }
 
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {
-    kind: NodeKind.InsightActorsQuery
+    kind: NodeKind.FunnelsActorsQuery
     source: FunnelsQuery
     /** Index of the step for which we want to get the timestamp for, per person.
      * Positive for converted persons, negative for dropped of persons. */
@@ -1101,6 +1114,69 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     funnelTrendsDropOff?: boolean
     /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
     funnelTrendsEntrancePeriodStart?: string
+}
+
+export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.FunnelCorrelationActorsQuery
+    source: FunnelCorrelationQuery
+    funnelCorrelationPersonConverted?: boolean
+    funnelCorrelationPersonEntity?: AnyEntityNode
+    funnelCorrelationPropertyValues?: AnyPropertyFilter[]
+}
+
+export interface EventDefinition {
+    event: string
+    properties: Record<string, any>
+    elements: any[]
+}
+
+export interface EventOddsRatioSerialized {
+    event: EventDefinition
+    success_count: integer
+    failure_count: integer
+    odds_ratio: number
+    correlation_type: 'success' | 'failure'
+}
+
+export interface FunnelCorrelationResult {
+    events: EventOddsRatioSerialized[]
+    skewed: boolean
+}
+
+export interface FunnelCorrelationResponse {
+    results: FunnelCorrelationResult
+    columns?: any[]
+    types?: any[]
+    hogql?: string
+    timings?: QueryTiming[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export enum FunnelCorrelationResultsType {
+    Events = 'events',
+    Properties = 'properties',
+    EventWithProperties = 'event_with_properties',
+}
+
+export interface FunnelCorrelationQuery {
+    kind: NodeKind.FunnelCorrelationQuery
+    source: FunnelsActorsQuery
+    funnelCorrelationType: FunnelCorrelationResultsType
+
+    /* Events */
+    funnelCorrelationExcludeEventNames?: string[]
+
+    /* Events with properties */
+    funnelCorrelationEventNames?: string[]
+    funnelCorrelationEventExcludePropertyNames?: string[]
+
+    /* Properties */
+    funnelCorrelationNames?: string[]
+    funnelCorrelationExcludeNames?: string[]
+
+    response?: FunnelCorrelationResponse
 }
 
 export type BreakdownValueInt = integer
@@ -1131,7 +1207,7 @@ export interface InsightActorsQueryOptionsResponse {
 
 export interface InsightActorsQueryOptions {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery | FunnelsActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
     response?: InsightActorsQueryOptionsResponse
 }
 

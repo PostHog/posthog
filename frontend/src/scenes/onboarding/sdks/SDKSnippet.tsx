@@ -11,7 +11,7 @@ export const SDKSnippet = ({ sdk, sdkInstructions }: { sdk: SDK; sdkInstructions
                     Read the docs
                 </Link>
             </div>
-            {sdkInstructions()}
+            <div className="space-y-4">{sdkInstructions()}</div>
         </div>
     )
 }

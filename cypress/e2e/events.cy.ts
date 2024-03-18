@@ -7,19 +7,19 @@ const interceptPropertyDefinitions = (): void => {
         fixture: 'api/event/property_definitions',
     })
 
-    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=false&search=&*', {
+    cy.intercept('/api/projects/*/property_definitions?is_feature_flag=false&search=&*', {
         fixture: 'api/event/property_definitions',
     })
 
-    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=false&search=%24time*', {
+    cy.intercept('/api/projects/*/property_definitions?is_feature_flag=false&search=%24time*', {
         fixture: 'api/event/only_time_property_definition',
     })
 
-    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=false&search=%24browser*', {
+    cy.intercept('/api/projects/*/property_definitions?is_feature_flag=false&search=%24browser*', {
         fixture: 'api/event/only_browser_version_property_definition',
     })
 
-    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=true*', {
+    cy.intercept('/api/projects/*/property_definitions?is_feature_flag=true*', {
         fixture: 'api/event/feature_flag_property_definition',
     })
 }

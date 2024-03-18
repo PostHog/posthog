@@ -14,11 +14,12 @@ import { listHeatmapStatsAPIResponse } from './__mocks__/list-heatmap-stats-resp
 import { listMyFlagsAPIResponse } from './__mocks__/list-my-flags-response'
 import { MenuState, toolbarLogic } from './bar/toolbarLogic'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
+import { TOOLBAR_ID } from './utils'
 
 function useToolbarStyles(): void {
     useEffect(() => {
         const head = document.getElementsByTagName('head')[0]
-        const shadowRoot = window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
+        const shadowRoot = window.document.getElementById(TOOLBAR_ID)?.shadowRoot
         const styleTags: HTMLStyleElement[] = Array.from(head.getElementsByTagName('style'))
         styleTags.forEach((tag) => {
             const style = document.createElement('style')

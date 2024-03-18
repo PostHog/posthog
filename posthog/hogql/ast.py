@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FieldTraverser,
     LazyJoin,
@@ -33,34 +34,34 @@ class FieldAliasType(Type):
     alias: str
     type: Type
 
-    def get_child(self, name: str) -> Type:
-        return self.type.get_child(name)
+    def get_child(self, name: str, context: HogQLContext) -> Type:
+        return self.type.get_child(name, context)
 
-    def has_child(self, name: str) -> bool:
-        return self.type.has_child(name)
+    def has_child(self, name: str, context: HogQLContext) -> bool:
+        return self.type.has_child(name, context)
 
-    def resolve_constant_type(self):
-        return self.type.resolve_constant_type()
+    def resolve_constant_type(self, context: HogQLContext):
+        return self.type.resolve_constant_type(context)
 
-    def resolve_database_field(self):
+    def resolve_database_field(self, context: HogQLContext):
         if isinstance(self.type, FieldType):
-            return self.type.resolve_database_field()
+            return self.type.resolve_database_field(context)
         raise NotImplementedException("FieldAliasType.resolve_database_field not implemented")
 
 
 @dataclass(kw_only=True)
 class BaseTableType(Type):
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self, context: HogQLContext) -> Table:
         raise NotImplementedException("BaseTableType.resolve_database_table not overridden")
 
-    def has_child(self, name: str) -> bool:
-        return self.resolve_database_table().has_field(name)
+    def has_child(self, name: str, context: HogQLContext) -> bool:
+        return self.resolve_database_table(context).has_field(name)
 
-    def get_child(self, name: str) -> Type:
+    def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
             return AsteriskType(table_type=self)
-        if self.has_child(name):
-            field = self.resolve_database_table().get_field(name)
+        if self.has_child(name, context):
+            field = self.resolve_database_table(context).get_field(name)
             if isinstance(field, LazyJoin):
                 return LazyJoinType(table_type=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):
@@ -79,7 +80,7 @@ class BaseTableType(Type):
 class TableType(BaseTableType):
     table: Table
 
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.table
 
 
@@ -88,7 +89,7 @@ class TableAliasType(BaseTableType):
     alias: str
     table_type: TableType
 
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.table_type.table
 
 
@@ -98,15 +99,15 @@ class LazyJoinType(BaseTableType):
     field: str
     lazy_join: LazyJoin
 
-    def resolve_database_table(self) -> Table:
-        return self.lazy_join.join_table
+    def resolve_database_table(self, context: HogQLContext) -> Table:
+        return self.lazy_join.resolve_table(context)
 
 
 @dataclass(kw_only=True)
 class LazyTableType(BaseTableType):
     table: LazyTable
 
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.table
 
 
@@ -116,10 +117,10 @@ class VirtualTableType(BaseTableType):
     field: str
     virtual_table: VirtualTable
 
-    def resolve_database_table(self) -> Table:
+    def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.virtual_table
 
-    def has_child(self, name: str) -> bool:
+    def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.virtual_table.has_field(name)
 
 
@@ -148,14 +149,14 @@ class SelectQueryType(Type):
                 return key
         return None
 
-    def get_child(self, name: str) -> Type:
+    def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
             return AsteriskType(table_type=self)
         if name in self.columns:
             return FieldType(name=name, table_type=self)
         raise HogQLException(f"Column not found: {name}")
 
-    def has_child(self, name: str) -> bool:
+    def has_child(self, name: str, context: HogQLContext) -> bool:
         return name in self.columns
 
 
@@ -166,11 +167,11 @@ class SelectUnionQueryType(Type):
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
 
-    def get_child(self, name: str) -> Type:
-        return self.types[0].get_child(name)
+    def get_child(self, name: str, context: HogQLContext) -> Type:
+        return self.types[0].get_child(name, context)
 
-    def has_child(self, name: str) -> bool:
-        return self.types[0].has_child(name)
+    def has_child(self, name: str, context: HogQLContext) -> bool:
+        return self.types[0].has_child(name, context)
 
 
 @dataclass(kw_only=True)
@@ -178,15 +179,15 @@ class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectUnionQueryType
 
-    def get_child(self, name: str) -> Type:
+    def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
             return AsteriskType(table_type=self)
-        if self.select_query_type.has_child(name):
+        if self.select_query_type.has_child(name, context):
             return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
 
-    def has_child(self, name: str) -> bool:
-        return self.select_query_type.has_child(name)
+    def has_child(self, name: str, context: HogQLContext) -> bool:
+        return self.select_query_type.has_child(name, context)
 
 
 @dataclass(kw_only=True)
@@ -270,7 +271,7 @@ class CallType(Type):
     param_types: Optional[List[ConstantType]] = None
     return_type: ConstantType
 
-    def resolve_constant_type(self) -> ConstantType:
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
         return self.return_type
 
 
@@ -297,21 +298,21 @@ class FieldType(Type):
     name: str
     table_type: TableOrSelectType
 
-    def resolve_database_field(self) -> Optional[FieldOrTable]:
+    def resolve_database_field(self, context: HogQLContext) -> Optional[FieldOrTable]:
         if isinstance(self.table_type, BaseTableType):
-            table = self.table_type.resolve_database_table()
+            table = self.table_type.resolve_database_table(context)
             if table is not None:
                 return table.get_field(self.name)
         return None
 
-    def is_nullable(self) -> bool:
-        database_field = self.resolve_database_field()
+    def is_nullable(self, context: HogQLContext) -> bool:
+        database_field = self.resolve_database_field(context)
         if isinstance(database_field, DatabaseField):
             return database_field.nullable
         return True
 
-    def resolve_constant_type(self) -> ConstantType:
-        database_field = self.resolve_database_field()
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        database_field = self.resolve_database_field(context)
         if isinstance(database_field, IntegerDatabaseField):
             return IntegerType()
         elif isinstance(database_field, FloatDatabaseField):
@@ -326,8 +327,8 @@ class FieldType(Type):
             return DateType()
         return UnknownType()
 
-    def get_child(self, name: str | int) -> Type:
-        database_field = self.resolve_database_field()
+    def get_child(self, name: str | int, context: HogQLContext) -> Type:
+        database_field = self.resolve_database_field(context)
         if database_field is None:
             raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
@@ -348,10 +349,10 @@ class PropertyType(Type):
     joined_subquery: Optional[SelectQueryAliasType] = field(default=None, init=False)
     joined_subquery_field_name: Optional[str] = field(default=None, init=False)
 
-    def get_child(self, name: str | int) -> "Type":
+    def get_child(self, name: str | int, context: HogQLContext) -> "Type":
         return PropertyType(chain=self.chain + [name], field_type=self.field_type)
 
-    def has_child(self, name: str | int) -> bool:
+    def has_child(self, name: str | int, context: HogQLContext) -> bool:
         return True
 
 

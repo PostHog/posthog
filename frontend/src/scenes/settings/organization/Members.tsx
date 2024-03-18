@@ -11,13 +11,13 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { fullName } from 'lib/utils'
+import { capitalizeFirstLetter, fullName } from 'lib/utils'
 import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -136,8 +136,8 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 
 export function Members(): JSX.Element | null {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { setSearch, ensureAllMembersLoaded, loadAllMembers } = useActions(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { setSearch } = useActions(membersLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const [is2FAModalVisible, set2FAModalVisible] = useState(false)
     const { preflight } = useValues(preflightLogic)
@@ -146,6 +146,10 @@ export function Members(): JSX.Element | null {
     if (!user) {
         return null
     }
+
+    useEffect(() => {
+        ensureAllMembersLoaded()
+    }, [])
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -191,9 +195,7 @@ export function Members(): JSX.Element | null {
             render: function LevelRender(_, member) {
                 return (
                     <LemonTag data-attr="membership-level">
-                        {member.level === OrganizationMembershipLevel.Owner
-                            ? 'Organization owner'
-                            : `Project ${membershipLevelToName.get(member.level) ?? `unknown (${member.level})`}`}
+                        {capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? `unknown (${member.level})`)}
                     </LemonTag>
                 )
             },
@@ -212,7 +214,7 @@ export function Members(): JSX.Element | null {
                                     onSuccess={() => {
                                         set2FAModalVisible(false)
                                         userLogic.actions.updateUser({})
-                                        membersLogic.actions.loadMembers()
+                                        loadAllMembers()
                                     }}
                                 />
                             </LemonModal>
@@ -266,7 +268,7 @@ export function Members(): JSX.Element | null {
             <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
 
             <LemonTable
-                dataSource={filteredMembers}
+                dataSource={filteredMembers ?? []}
                 columns={columns}
                 rowKey="id"
                 style={{ marginTop: '1rem' }}

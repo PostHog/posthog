@@ -1,3 +1,4 @@
+from typing import Dict
 from django.db import models
 
 from posthog.client import sync_execute
@@ -20,6 +21,7 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.warehouse.models.util import remove_named_tuples
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from django.db.models import Q
 from .credential import DataWarehouseCredential
 from uuid import UUID
@@ -31,6 +33,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "String": StringDatabaseField,
     "DateTime64": DateTimeDatabaseField,
     "DateTime32": DateTimeDatabaseField,
+    "DateTime": DateTimeDatabaseField,
     "Date": DateDatabaseField,
     "Date32": DateDatabaseField,
     "UInt8": IntegerDatabaseField,
@@ -50,6 +53,16 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Map": StringJSONDatabaseField,
     "Bool": BooleanDatabaseField,
     "Decimal": IntegerDatabaseField,
+}
+
+STR_TO_HOGQL_MAPPING = {
+    "BooleanDatabaseField": BooleanDatabaseField,
+    "DateDatabaseField": DateDatabaseField,
+    "DateTimeDatabaseField": DateTimeDatabaseField,
+    "IntegerDatabaseField": IntegerDatabaseField,
+    "StringArrayDatabaseField": StringArrayDatabaseField,
+    "StringDatabaseField": StringDatabaseField,
+    "StringJSONDatabaseField": StringJSONDatabaseField,
 }
 
 ExtractErrors = {
@@ -85,12 +98,12 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     __repr__ = sane_repr("name")
 
-    def get_columns(self, safe_expose_ch_error=True):
+    def get_columns(self, safe_expose_ch_error=True) -> Dict[str, str]:
         try:
             result = sync_execute(
                 """DESCRIBE TABLE (
                 SELECT * FROM
-                    s3Cluster('posthog', %(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)
+                    s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)
                 LIMIT 1
             )""",
                 {
@@ -116,17 +129,29 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         fields = {}
         structure = []
         for column, type in self.columns.items():
-            if type.startswith("Nullable("):
-                type = type.replace("Nullable(", "")[:-1]
+            # Support for 'old' style columns
+            if isinstance(type, str):
+                clickhouse_type = type
+            else:
+                clickhouse_type = type["clickhouse"]
+
+            if clickhouse_type.startswith("Nullable("):
+                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
-            if type.startswith("Array("):
-                type = remove_named_tuples(type)
+            if clickhouse_type.startswith("Array("):
+                clickhouse_type = remove_named_tuples(clickhouse_type)
 
-            structure.append(f"{column} {type}")
-            type = type.partition("(")[0]
-            type = CLICKHOUSE_HOGQL_MAPPING[type]
-            fields[column] = type(name=column)
+            structure.append(f"{column} {clickhouse_type}")
+
+            # Support for 'old' style columns
+            if isinstance(type, str):
+                hogql_type_str = clickhouse_type.partition("(")[0]
+                hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
+            else:
+                hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+
+            fields[column] = hogql_type(name=column)
 
         return S3Table(
             name=self.name,
@@ -151,6 +176,11 @@ def get_table_by_url_pattern_and_source(url_pattern: str, source_id: UUID, team_
     return DataWarehouseTable.objects.filter(Q(deleted=False) | Q(deleted__isnull=True)).get(
         team_id=team_id, external_data_source_id=source_id, url_pattern=url_pattern
     )
+
+
+@database_sync_to_async
+def get_table_by_schema_id(schema_id: str, team_id: int):
+    return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id).table
 
 
 @database_sync_to_async

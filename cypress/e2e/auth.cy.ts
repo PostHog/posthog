@@ -84,7 +84,7 @@ describe('Auth', () => {
         cy.visit('/signup')
         cy.location('pathname').should('eq', '/project/1')
     })
-    
+
     it('Logout in another tab results in logout in the current tab too', () => {
         cy.window().then(async (win) => {
             // Hit /logout *in the background* by using fetch()

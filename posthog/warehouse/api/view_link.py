@@ -65,14 +65,9 @@ class ViewLinkSerializer(serializers.ModelSerializer):
 
         database = create_hogql_database(team_id)
         try:
-            table_instance = database.get_table(table)
+            database.get_table(table)
         except Exception:
             raise serializers.ValidationError(f"Invalid table: {table}")
-
-        try:
-            table_instance.fields[join_key]
-        except Exception:
-            raise serializers.ValidationError(f"Invalid join key: {join_key}")
 
         return
 

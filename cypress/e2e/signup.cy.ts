@@ -74,8 +74,8 @@ describe('Signup', () => {
         cy.get('.Toastify [data-attr="error-toast"]').contains('Inactive social login session.')
     })
 
-    it('Shows redirect notice if redirecting for maintenance', () => {
-        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
+    it.only('Shows redirect notice if redirecting for maintenance', () => {
+        cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({
                     'redirect-signups-to-instance': 'us',

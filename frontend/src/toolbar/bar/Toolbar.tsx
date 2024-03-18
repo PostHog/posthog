@@ -84,7 +84,7 @@ function MoreMenu(): JSX.Element {
 
 export function ToolbarInfoMenu(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { visibleMenu, isDragging, menuProperties, minimized } = useValues(toolbarLogic)
+    const { visibleMenu, isDragging, menuProperties, minimized, isBlurred } = useValues(toolbarLogic)
     const { setMenu } = useActions(toolbarLogic)
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
@@ -108,6 +108,7 @@ export function ToolbarInfoMenu(): JSX.Element {
                 'ToolbarMenu',
                 !!content && 'ToolbarMenu--visible',
                 isDragging && 'ToolbarMenu--dragging',
+                isBlurred && 'ToolbarMenu--blurred',
                 menuProperties.isBelow && 'ToolbarMenu--below'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -132,7 +133,7 @@ export function ToolbarInfoMenu(): JSX.Element {
 export function Toolbar(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarLogic)
-    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement } = useActions(toolbarLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
 
@@ -167,6 +168,7 @@ export function Toolbar(): JSX.Element {
                     isDragging && 'Toolbar--dragging'
                 )}
                 onMouseDown={(e) => onMouseDown(e as any)}
+                onMouseOver={() => setIsBlurred(false)}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
                     {

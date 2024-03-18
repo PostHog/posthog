@@ -20,7 +20,7 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
-import { PostHog } from 'posthog-js'
+import type { PostHog } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
@@ -300,6 +300,7 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     metadata?: OrganizationMetadata
+    member_count: number
 }
 
 export interface OrganizationDomainType {
@@ -330,7 +331,6 @@ export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
     is_2fa_enabled: boolean
-    has_social_auth: boolean
 }
 
 export interface ExplicitTeamMemberType extends BaseMemberType {
@@ -359,6 +359,12 @@ export interface FusedTeamMemberType extends BaseMemberType {
     organization_level: OrganizationMembershipLevel
     /** Effective level of the user within the project. */
     level: OrganizationMembershipLevel
+}
+
+export interface ListOrganizationMembersParams {
+    offset?: number
+    limit?: number
+    updated_after?: string
 }
 
 export interface APIErrorType {
@@ -586,6 +592,7 @@ export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
     FilePlayback = 'file-playback',
+    Errors = 'errors',
 }
 
 export enum ExperimentsTabs {
@@ -660,6 +667,7 @@ export interface EventPropertyFilter extends BasePropertyFilter {
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
     operator: PropertyOperator
+    table?: string
 }
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {
@@ -888,6 +896,16 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
+export type ErrorClusterSample = { session_id: string; input: string }
+
+type ErrorCluster = {
+    cluster: number
+    samples: ErrorClusterSample[]
+    occurrences: number
+    unique_sessions: number
+}
+export type ErrorClusterResponse = ErrorCluster[] | null
+
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
 
 export interface Entity {
@@ -926,6 +944,7 @@ export interface ActionFilter extends EntityFilter {
 export interface DataWarehouseFilter extends ActionFilter {
     id_field: string
     timestamp_field: string
+    distinct_id_field: string
     table_name: string
 }
 
@@ -1454,7 +1473,7 @@ export interface BillingV2PlanType {
     note: string | null
     unit: string | null
     product_key: ProductKeyUnion
-    current_plan?: any
+    current_plan?: boolean | null
     tiers?: BillingV2TierType[] | null
     unit_amount_usd?: string
     included_if?: 'no_active_subscription' | 'has_subscription' | null
@@ -1535,7 +1554,7 @@ export interface InsightModel extends Cacheable {
     created_at: string
     created_by: UserBasicType | null
     is_sample: boolean
-    /** @deprecated Use `dashboard_tiles instead */
+    /** @deprecated Use `dashboard_tiles` instead */
     dashboards: number[] | null
     dashboard_tiles: DashboardTileBasicType[] | null
     updated_at: string
@@ -2783,6 +2802,9 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
+
+    // For Data warehouse person properties
+    table?: string
 }
 
 export enum PropertyDefinitionState {
@@ -2795,9 +2817,10 @@ export enum PropertyDefinitionState {
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
-    id: number
+    id: string | number
     name: string
     count: number
+    table?: string
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4

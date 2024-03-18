@@ -136,6 +136,7 @@ export class SessionManager {
             partition,
             topic,
             sessionId,
+            teamId,
         })
     }
 
