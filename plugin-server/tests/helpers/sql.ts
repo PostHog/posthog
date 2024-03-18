@@ -224,8 +224,15 @@ export async function createUserTeamAndOrganization(
         joined_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     })
+    await insertRow(db, 'posthog_project', {
+        id: teamId,
+        organization_id: organizationId,
+        name: 'TEST PROJECT',
+        created_at: new Date().toISOString(),
+    })
     await insertRow(db, 'posthog_team', {
         id: teamId,
+        project_id: teamId,
         organization_id: organizationId,
         app_urls: [],
         name: 'TEST PROJECT',
@@ -315,10 +322,19 @@ export const createOrganization = async (pg: PostgresRouter) => {
 }
 
 export const createTeam = async (pg: PostgresRouter, organizationId: string, token?: string) => {
-    const team = await insertRow(pg, 'posthog_team', {
-        // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
-        id: Math.round(Math.random() * 1000000000),
+    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
+    const id = Math.round(Math.random() * 1000000000)
+    await insertRow(pg, 'posthog_project', {
+        // Every team (aka environment) must be a child of a project
+        id,
         organization_id: organizationId,
+        name: 'TEST PROJECT',
+        created_at: new Date().toISOString(),
+    })
+    await insertRow(pg, 'posthog_team', {
+        id,
+        organization_id: organizationId,
+        project_id: id,
         app_urls: [],
         name: 'TEST PROJECT',
         event_names: [],
@@ -343,7 +359,7 @@ export const createTeam = async (pg: PostgresRouter, organizationId: string, tok
         person_display_name_properties: [],
         access_control: false,
     })
-    return team.id
+    return id
 }
 
 export const createUser = async (pg: PostgresRouter, distinctId: string) => {
