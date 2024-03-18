@@ -175,7 +175,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
         setHideViewedRecordings: (hideViewedRecordings: boolean) => ({ hideViewedRecordings }),
-        toggleAutoplayDirection: true,
+        setAutoplayDirection: (autoplayDirection: AutoplayDirection) => ({ autoplayDirection }),
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
@@ -246,9 +246,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             'older' as AutoplayDirection,
             { persist: true },
             {
-                toggleAutoplayDirection: (state) => {
-                    return !state ? 'older' : state === 'older' ? 'newer' : null
-                },
+                setAutoplayDirection: (_, { autoplayDirection }) => autoplayDirection,
             },
         ],
         hideViewedRecordings: [

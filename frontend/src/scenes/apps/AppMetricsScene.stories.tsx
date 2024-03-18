@@ -14,9 +14,6 @@ const meta: Meta = {
     title: 'Scenes-App/Apps/App Metrics',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
         viewMode: 'story',
     },
     decorators: [

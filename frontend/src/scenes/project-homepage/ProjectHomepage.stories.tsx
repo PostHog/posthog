@@ -22,9 +22,6 @@ const meta: Meta = {
     ],
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
         viewMode: 'story',
         mockDate: '2023-02-01',
     },

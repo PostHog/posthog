@@ -94,7 +94,7 @@ describe('Surveys', () => {
         // select the first property
         cy.get('[data-attr="property-select-toggle-0"]').click()
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
-        cy.get('[data-attr=prop-val] .ant-select-selector').click({ force: true })
+        cy.get('[data-attr=prop-val] .LemonInput').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
         cy.get('[data-attr="rollout-percentage"]').type('100')
