@@ -419,7 +419,7 @@ posthog/api/feature_flag.py:0: error: Item "Sequence[Any]" of "Any | Sequence[An
 posthog/api/feature_flag.py:0: error: Item "None" of "Any | Sequence[Any] | None" has no attribute "filters"  [union-attr]
 posthog/api/survey.py:0: error: Incompatible types in assignment (expression has type "Any | Sequence[Any] | None", variable has type "Survey | None")  [assignment]
 posthog/api/user.py:0: error: "User" has no attribute "social_auth"  [attr-defined]
-ee/api/role.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
+ee/api/rbac/role.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 ee/api/dashboard_collaborator.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 ee/api/test/base.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "License")  [assignment]
 ee/api/test/base.py:0: error: "setUpTestData" undefined in superclass  [misc]
