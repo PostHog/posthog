@@ -5,7 +5,10 @@ import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
-export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | 'width' | 'inline' | 'footer'> & {
+export type LemonDialogProps = Pick<
+    LemonModalProps,
+    'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer'
+> & {
     primaryButton?: LemonButtonProps | null
     secondaryButton?: LemonButtonProps | null
     tertiaryButton?: LemonButtonProps | null

@@ -943,6 +943,7 @@ export interface ActionFilter extends EntityFilter {
 export interface DataWarehouseFilter extends ActionFilter {
     id_field: string
     timestamp_field: string
+    distinct_id_field: string
     table_name: string
 }
 
