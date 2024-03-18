@@ -4,7 +4,9 @@ from rest_framework.response import Response
 
 from ee.models.rbac.access_control import AccessControl
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.constants import AvailableFeature
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
+from posthog.permissions import PremiumFeaturePermission
 
 
 # TODO: Validate that an access control can only have one of team, organization_member, or role
@@ -48,9 +50,11 @@ class AccessControlViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "INTERNAL"
-    # TODO: Add permissions
     serializer_class = AccessControlSerializer
     queryset = AccessControl.objects.all()
+    permission_classes = [PremiumFeaturePermission]
+    # NOTE: DashboardCollaborators that should be replaced by this use ADVANCED_PERMISSIONS - what do with that?
+    premium_feature = AvailableFeature.PROJECT_BASED_PERMISSIONING
 
     def filter_queryset(self, queryset):
         params = self.request.GET
