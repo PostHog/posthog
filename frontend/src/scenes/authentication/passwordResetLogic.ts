@@ -34,7 +34,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
             {
                 validateResetToken: async ({ uuid, token }: { uuid: string; token: string }) => {
                     try {
-                        await api.get(`api/reset/${uuid}/?token=${token}`)
+                        await api.create(`api/users/@me/validate_password_reset/`, { token, uuid })
                         return { success: true, token, uuid }
                     } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
@@ -67,7 +67,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 breakpoint()
 
                 try {
-                    await api.create('api/reset/', { email })
+                    await api.create('api/users/@me/request_password_reset/', { email })
                 } catch (e: any) {
                     actions.setRequestPasswordResetManualErrors(e)
                 }
@@ -95,9 +95,10 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                     return
                 }
                 try {
-                    await api.create(`api/reset/${values.validatedResetToken.uuid}/`, {
+                    await api.create(`api/users/@me/reset_password/`, {
                         password,
                         token: values.validatedResetToken.token,
+                        uuid: values.validatedResetToken.uuid,
                     })
                     lemonToast.success('Your password has been changed. Redirecting…')
                     await breakpoint(3000)
