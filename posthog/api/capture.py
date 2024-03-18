@@ -297,7 +297,7 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     return results
 
 
-def lib_from_query_params(request) -> str:
+def lib_version_from_query_params(request) -> str:
     # url has a ver parameter from posthog-js
     return request.GET.get("ver", "unknown")
 
@@ -480,7 +480,7 @@ def get_event(request):
 
     try:
         if replay_events:
-            lib_version = lib_from_query_params(request)
+            lib_version = lib_version_from_query_params(request)
 
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
