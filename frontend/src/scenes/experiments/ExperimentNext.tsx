@@ -1,6 +1,8 @@
 import './Experiment.scss'
 
 import { useValues } from 'kea'
+import { AnimationType } from 'lib/animations/animations'
+import { Animation } from 'lib/components/Animation/Animation'
 
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
@@ -17,20 +19,21 @@ import {
     SummaryTable,
 } from './ExperimentResultsViz'
 
-interface ExperimentResultProps {
-    secondaryMetricId?: number
-}
-export function ExperimentResults({ secondaryMetricId }: ExperimentResultProps): JSX.Element {
-    const { experiment, experimentId, experimentResults, secondaryMetricResults } = useValues(experimentLogic)
+export function ExperimentResults(): JSX.Element {
+    const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
+        useValues(experimentLogic)
 
-    const isSecondaryMetric = secondaryMetricId !== undefined
-    const targetResults = isSecondaryMetric ? secondaryMetricResults?.[secondaryMetricId] : experimentResults
-
-    const validMetric = targetResults && targetResults.insight
+    if (experimentLoading || experimentResultsLoading) {
+        return (
+            <div className="flex flex-col flex-1 justify-center items-center">
+                <Animation type={AnimationType.LaptopHog} />
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-8 experiment-results">
-            {validMetric ? (
+            {experimentResults && experimentResults.insight ? (
                 <>
                     <ExperimentStatus />
                     <ExperimentProgressBar />

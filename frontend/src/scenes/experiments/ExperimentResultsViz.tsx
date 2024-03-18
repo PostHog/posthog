@@ -5,6 +5,7 @@ import { LemonButton, LemonDivider, LemonModal, LemonTable, LemonTableColumns, L
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { getSeriesColor } from 'lib/colors'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
@@ -31,42 +32,75 @@ import { MetricSelector } from './MetricSelector'
 import { transformResultFilters } from './utils'
 
 export function ExperimentStatus(): JSX.Element {
-    const { sortedConversionRates } = useValues(experimentLogic)
+    const {
+        experimentResults,
+        getIndexForVariant,
+        experimentInsightType,
+        sortedConversionRates,
+        highestProbabilityVariant,
+    } = useValues(experimentLogic)
 
-    const winningVariant = sortedConversionRates[0]
-    const secondBestVariant = sortedConversionRates[1]
-    const difference = winningVariant.conversionRate - secondBestVariant.conversionRate
+    if (experimentInsightType === InsightType.FUNNELS) {
+        const winningVariant = sortedConversionRates[0]
+        const secondBestVariant = sortedConversionRates[1]
+        const difference = winningVariant.conversionRate - secondBestVariant.conversionRate
 
-    return (
-        <div>
-            <h2 className="font-semibold text-lg">Status</h2>
-            <LemonDivider />
-            <div className="items-center inline-flex">
-                <div
-                    className="w-2 h-2 rounded-full mr-1"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ backgroundColor: getSeriesColor(winningVariant.index + 1) }}
-                />
-                <span className="font-semibold">{capitalizeFirstLetter(winningVariant.key)}</span>
-                &nbsp;
-                <span>is winning with a</span>
-                &nbsp;
-                <span className="font-semibold text-success items-center">{`${difference}% lift`}</span>
-                &nbsp;
-                <span>in conversion rate (vs</span>
-                &nbsp;
-                <div
-                    className="w-2 h-2 rounded-full mr-1"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        backgroundColor: getSeriesColor(secondBestVariant.index + 1),
-                    }}
-                />
-                <span className="font-semibold">{capitalizeFirstLetter(secondBestVariant.key)}</span>
-                <span>)</span>
+        return (
+            <div>
+                <h2 className="font-semibold text-lg">Status</h2>
+                <LemonDivider />
+                <div className="items-center inline-flex">
+                    <div
+                        className="w-2 h-2 rounded-full mr-1"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ backgroundColor: getSeriesColor(winningVariant.index + 1) }}
+                    />
+                    <span className="font-semibold">{capitalizeFirstLetter(winningVariant.key)}</span>
+                    <span>&nbsp;is winning with a&nbsp;</span>
+                    <span className="font-semibold text-success items-center">{`${difference}% lift`}</span>
+                    <span>&nbsp;in conversion rate (vs&nbsp;</span>
+                    <div
+                        className="w-2 h-2 rounded-full mr-1"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            backgroundColor: getSeriesColor(secondBestVariant.index + 1),
+                        }}
+                    />
+                    <span className="font-semibold">{capitalizeFirstLetter(secondBestVariant.key)}</span>
+                    <span>).</span>
+                </div>
             </div>
-        </div>
-    )
+        )
+    }
+
+    const index = getIndexForVariant(experimentResults, highestProbabilityVariant || '')
+    if (highestProbabilityVariant && index !== null && experimentResults) {
+        const { probability } = experimentResults
+
+        return (
+            <div>
+                <h2 className="font-semibold text-lg">Status</h2>
+                <LemonDivider />
+                <div className="items-center inline-flex">
+                    <div
+                        className="w-2 h-2 rounded-full mr-1"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            backgroundColor: getSeriesColor(index + 2),
+                        }}
+                    />
+                    <span className="font-semibold">{capitalizeFirstLetter(highestProbabilityVariant)}</span>
+                    <span>&nbsp;is winning with a&nbsp;</span>
+                    <span className="font-semibold text-success items-center">{`${
+                        probability[highestProbabilityVariant] * 100
+                    }% probability`}</span>
+                    <span>&nbsp;of being best.</span>
+                </div>
+            </div>
+        )
+    }
+
+    return <></>
 }
 
 export function ExperimentProgressBar(): JSX.Element {
@@ -137,7 +171,20 @@ export function ExperimentProgressBar(): JSX.Element {
 }
 
 export function SummaryTable(): JSX.Element {
-    const { experimentResults, conversionRateForVariant, sortedConversionRates } = useValues(experimentLogic)
+    const {
+        experimentResults,
+        experimentInsightType,
+        exposureCountDataForVariant,
+        conversionRateForVariant,
+        sortedConversionRates,
+        experimentMathAggregationForTrends,
+        countDataForVariant,
+        areTrendResultsConfusing,
+    } = useValues(experimentLogic)
+
+    if (!experimentResults) {
+        return <></>
+    }
 
     const columns: LemonTableColumns<TrendExperimentVariant | FunnelExperimentVariant> = [
         {
@@ -157,7 +204,50 @@ export function SummaryTable(): JSX.Element {
                 )
             },
         },
-        {
+    ]
+
+    if (experimentInsightType === InsightType.TRENDS) {
+        columns.push({
+            className: 'w-1/4',
+            key: 'counts',
+            title: (
+                <div className="flex">
+                    {experimentResults.insight?.[0] && 'action' in experimentResults.insight[0] && (
+                        <EntityFilterInfo filter={experimentResults.insight[0].action} />
+                    )}
+                    <span className="pl-1">
+                        {experimentMathAggregationForTrends(experimentResults?.filters) ? 'metric' : 'count'}
+                    </span>
+                </div>
+            ),
+            render: function Key(_, item, index): JSX.Element {
+                return (
+                    <div className="flex">
+                        {countDataForVariant(experimentResults, item.key)}{' '}
+                        {areTrendResultsConfusing && index === 0 && (
+                            <Tooltip
+                                placement="right"
+                                title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
+                            >
+                                <IconInfo className="py-1 px-0.5" />
+                            </Tooltip>
+                        )}
+                    </div>
+                )
+            },
+        })
+        columns.push({
+            className: 'w-1/4',
+            key: 'exposure',
+            title: 'Exposure',
+            render: function Key(_, item): JSX.Element {
+                return <div>{exposureCountDataForVariant(experimentResults, item.key)}</div>
+            },
+        })
+    }
+
+    if (experimentInsightType === InsightType.FUNNELS) {
+        columns.push({
             className: 'w-1/4',
             key: 'conversionRate',
             title: 'Conversion rate',
@@ -170,31 +260,33 @@ export function SummaryTable(): JSX.Element {
                     )}%`}</div>
                 )
             },
-        },
-        {
-            className: 'w-1/4',
-            key: 'winProbability',
-            title: 'Win probability',
-            render: function Key(_, item): JSX.Element {
-                const percentage =
-                    experimentResults?.probability?.[item.key] != undefined &&
-                    experimentResults.probability?.[item.key] * 100
+        })
+    }
 
-                return (
-                    <>
-                        {percentage ? (
-                            <span className="inline-flex items-center w-30 space-x-4">
-                                <LemonProgress className="inline-flex w-3/4" percent={percentage} />
-                                <span className="w-1/4">{percentage.toFixed(1)}%</span>
-                            </span>
-                        ) : (
-                            '--'
-                        )}
-                    </>
-                )
-            },
+    columns.push({
+        className: 'w-1/4',
+        key: 'winProbability',
+        title: 'Win probability',
+        render: function Key(_, item): JSX.Element {
+            const percentage =
+                experimentResults?.probability?.[item.key] != undefined &&
+                experimentResults.probability?.[item.key] * 100
+
+            return (
+                <>
+                    {percentage ? (
+                        <span className="inline-flex items-center w-30 space-x-4">
+                            <LemonProgress className="inline-flex w-3/4" percent={percentage} />
+                            <span className="w-1/4">{percentage.toFixed(1)}%</span>
+                        </span>
+                    ) : (
+                        '--'
+                    )}
+                </>
+            )
         },
-    ]
+    })
+
     return <LemonTable loading={false} columns={columns} dataSource={experimentResults?.variants || []} />
 }
 
