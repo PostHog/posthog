@@ -2,11 +2,12 @@ import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
-import { sceneLogic } from './sceneLogic'
+import { upgradeModalLogic } from './upgradeModalLogic'
 
 export function UpgradeModal(): JSX.Element {
-    const { upgradeModalFeatureKey, upgradeModalFeatureUsage, upgradeModalIsGrandfathered } = useValues(sceneLogic)
-    const { hideUpgradeModal } = useActions(sceneLogic)
+    const { upgradeModalFeatureKey, upgradeModalFeatureUsage, upgradeModalIsGrandfathered } =
+        useValues(upgradeModalLogic)
+    const { hideUpgradeModal } = useActions(upgradeModalLogic)
 
     return upgradeModalFeatureKey ? (
         <LemonModal onClose={hideUpgradeModal} isOpen={!!upgradeModalFeatureKey}>
