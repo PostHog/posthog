@@ -76,7 +76,7 @@ jobs:
                   python-version: '3.11'
 
             - if: ${{ endsWith(matrix.os, '-arm') }}
-              uses: deadsnakes/action@v3.0.1 # Unfortunately actions/setup-python@v4 just doesn't work on ARM! This does
+              uses: deadsnakes/action@v3.1.0 # Unfortunately actions/setup-python@v4 just doesn't work on ARM! This does
               with:
                   python-version: '3.11'
 
