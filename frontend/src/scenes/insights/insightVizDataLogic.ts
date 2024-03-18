@@ -219,6 +219,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdownFilter?.breakdown
             },
         ],
+        isBreakdownSeries: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter): boolean => {
+                return !!breakdownFilter?.breakdown
+            },
+        ],
 
         isDataWarehouseSeries: [
             (s) => [s.isTrends, s.series],
@@ -228,9 +234,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         currentDataWarehouseSchemaColumns: [
-            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.externalTablesMap],
-            (series, isSingleSeries, isDataWarehouseSeries, externalTablesMap): DatabaseSchemaQueryResponseField[] => {
-                if (!series || series.length === 0 || !isSingleSeries || !isDataWarehouseSeries) {
+            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.externalTablesMap],
+            (
+                series,
+                isSingleSeries,
+                isDataWarehouseSeries,
+                isBreakdownSeries,
+                externalTablesMap
+            ): DatabaseSchemaQueryResponseField[] => {
+                if (
+                    !series ||
+                    series.length === 0 ||
+                    (!isSingleSeries && !isBreakdownSeries) ||
+                    !isDataWarehouseSeries
+                ) {
                     return []
                 }
 
