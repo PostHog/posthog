@@ -13,17 +13,18 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
 
     return (
         <div className="relative flex flex-col gap-2 p-3 bg-side border-b">
-            <div className="flex flex-row items-center justify-between space-x-2">
-                <span className="text-black font-medium">Autoplay</span>
-                <Tooltip
-                    title={
-                        <div className="text-center">
-                            Autoplay next recording
-                            <br />({!autoplayDirection ? 'off' : autoplayDirection})
-                        </div>
-                    }
-                    placement="bottom"
-                >
+            <Tooltip
+                title={
+                    <div className="text-center">
+                        Autoplay next recording
+                        <br />({!autoplayDirection ? 'off' : autoplayDirection})
+                    </div>
+                }
+                placement="right"
+            >
+                <div className="flex flex-row items-center justify-between space-x-2">
+                    <span className="text-black font-medium">Autoplay</span>
+
                     <LemonSelect
                         value={autoplayDirection}
                         aria-label="Autoplay next recording"
@@ -36,8 +37,8 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                         ]}
                         size="small"
                     />
-                </Tooltip>
-            </div>
+                </div>
+            </Tooltip>
             <div className="flex flex-row items-center justify-between space-x-2">
                 <span className="text-black font-medium">Hide viewed</span>
                 <LemonSwitch
