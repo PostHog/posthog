@@ -82,11 +82,3 @@ def filter_queryset_by_access_level(user: User, queryset: QuerySet) -> QuerySet:
     queryset = queryset.filter(
         id__in=(access_control.resource_id for access_control in access_controls_for_resource(user))
     )
-
-    # First get the general rule for view level access - this decides if we are filtering out or filtering in
-    # TODO: Does this mean we need to standardize access levels?
-
-    # If the default for the org / project / role is no access then we need to filter in all things that the user has explicit access to
-
-    # Otherwise we need to filter out all resource_ids that have at least one associated access control that the user does not have access to
-    explicit_access_ids = []
