@@ -61,7 +61,7 @@ export function ObjectTags({
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
     const logic = objectTagsLogic({ id: objectTagId, onChange, tags })
-    const { guardAvailableFeature } = useActions(upgradeModalLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { addingNewTag, cleanedNewTag, deletedTags } = useValues(logic)
     const { setAddingNewTag, setNewTag, handleDelete, handleAdd } = useActions(logic)
 
