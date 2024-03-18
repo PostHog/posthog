@@ -214,9 +214,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowReverseProxyStep: [
-            (s) => [s.product],
-            (product: BillingProductV2Type | null) => {
-                const productsWithReverseProxy = [ProductKey.FEATURE_FLAGS]
+            (s) => [s.product, s.featureFlags],
+            (product: BillingProductV2Type | null, featureFlags: FeatureFlagsSet) => {
+                const productsWithReverseProxy = []
+                if (featureFlags[FEATURE_FLAGS.REVERSE_PROXY_ONBOARDING] === 'test') {
+                    productsWithReverseProxy.push(ProductKey.FEATURE_FLAGS)
+                }
                 return productsWithReverseProxy.includes(product?.type as ProductKey)
             },
         ],
