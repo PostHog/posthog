@@ -143,7 +143,14 @@ class AccessControlPermission(BasePermission):
         uac = self._get_user_access_control(request, view)
 
         # TODO: How to determine action level to check...
-        uac.check_access_level_for_object(view.scope_object, str(object.id), "viewer")
+        required_level = "viewer"
+        has_access = uac.check_access_level_for_object(view.scope_object, str(object.id), required_level=required_level)
+
+        if not has_access:
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
+
+        return True
 
     def has_permission(self, request, view) -> bool:
         # At this level we are checking that the user can generically access the resource kind.
