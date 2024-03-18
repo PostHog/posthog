@@ -676,7 +676,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment): boolean => {
                 return (
-                    experiment?.end_date &&
+                    !!experiment?.end_date &&
                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
                     !experiment.archived
                 )

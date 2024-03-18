@@ -18,6 +18,7 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -458,7 +459,7 @@ export function NoResultsEmptyState(): JSX.Element {
     const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
 
     return (
-        <div className="no-experiment-results p-4">
+        <div className="no-experiment-results border rounded p-10">
             {!experimentResultsLoading && (
                 <div className="text-center">
                     <div className="mb-4">
@@ -697,4 +698,42 @@ export function ExperimentStoppedBanner(): JSX.Element {
             </div>
         </LemonBanner>
     )
+}
+
+export function ExperimentLoader(): JSX.Element {
+    return (
+        <LemonTable
+            dataSource={[]}
+            columns={[
+                {
+                    title: '',
+                    dataIndex: '',
+                },
+            ]}
+            loadingSkeletonRows={8}
+            loading={true}
+        />
+    )
+}
+
+export function EllipsisAnimation(): JSX.Element {
+    const [ellipsis, setEllipsis] = useState('.')
+
+    useEffect(() => {
+        let count = 1
+        let direction = 1
+
+        const interval = setInterval(() => {
+            setEllipsis('.'.repeat(count))
+            count += direction
+
+            if (count === 3 || count === 1) {
+                direction *= -1
+            }
+        }, 300)
+
+        return () => clearInterval(interval)
+    }, [])
+
+    return <span>{ellipsis}</span>
 }

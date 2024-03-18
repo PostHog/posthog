@@ -9,10 +9,12 @@ import { ExperimentImplementationDetails } from './ExperimentImplementationDetai
 import { experimentLogic } from './experimentLogic'
 import {
     DistributionTable,
+    EllipsisAnimation,
     ExperimentActiveBanner,
     ExperimentDraftBanner,
     ExperimentExposureModal,
     ExperimentGoalModal,
+    ExperimentLoader,
     ExperimentProgressBar,
     ExperimentStatus,
     ExperimentStoppedBanner,
@@ -33,40 +35,57 @@ export function ExperimentResults(): JSX.Element {
         experimentResults,
     } = useValues(experimentLogic)
 
-    if (experimentLoading || experimentResultsLoading) {
-        return (
-            <div className="flex flex-col flex-1 justify-center items-center">
-                <Animation type={AnimationType.LaptopHog} />
-            </div>
-        )
-    }
-
     return (
-        <div className="space-y-8 experiment-results">
-            {isExperimentStopped ? (
-                <ExperimentStoppedBanner />
-            ) : isExperimentRunning ? (
-                <ExperimentActiveBanner />
+        <div className="space-y-8 experiment-view">
+            {experimentLoading ? (
+                <ExperimentLoader />
             ) : (
-                <ExperimentDraftBanner />
-            )}
-            {experimentResults && experimentResults.insight ? (
                 <>
-                    <ExperimentStatus />
-                    <ExperimentProgressBar />
-                    <SummaryTable />
-                    <QueryViz />
+                    {isExperimentStopped ? (
+                        <ExperimentStoppedBanner />
+                    ) : isExperimentRunning ? (
+                        <ExperimentActiveBanner />
+                    ) : (
+                        <ExperimentDraftBanner />
+                    )}
+                </>
+            )}
+
+            <>
+                {!experimentLoading && (
+                    <>
+                        {experimentResultsLoading ? (
+                            <div className="flex flex-col flex-1 justify-center items-center">
+                                <Animation type={AnimationType.LaptopHog} />
+                                <div className="text-xs text-muted w-44">
+                                    <span className="mr-1">Fetching experiment results</span>
+                                    <EllipsisAnimation />
+                                </div>
+                            </div>
+                        ) : experimentResults && experimentResults.insight ? (
+                            <>
+                                <ExperimentStatus />
+                                <ExperimentProgressBar />
+                                <SummaryTable />
+                                <QueryViz />
+
+                                <ExperimentGoalModal experimentId={experimentId} />
+                                <ExperimentExposureModal experimentId={experimentId} />
+                            </>
+                        ) : (
+                            <>
+                                <ExperimentImplementationDetails experiment={experiment} />
+                                <NoResultsEmptyState />
+                            </>
+                        )}
+                    </>
+                )}
+            </>
+
+            {!experimentLoading && (
+                <>
                     <DistributionTable />
                     <ReleaseConditionsTable />
-
-                    <ExperimentGoalModal experimentId={experimentId} />
-                    <ExperimentExposureModal experimentId={experimentId} />
-                </>
-            ) : (
-                <>
-                    <h2>Experiment draft/no results yet</h2>
-                    <ExperimentImplementationDetails experiment={experiment} />
-                    <NoResultsEmptyState />
                 </>
             )}
         </div>
