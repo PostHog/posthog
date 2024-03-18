@@ -73,8 +73,12 @@ export function ObjectTags({
     const hasTags = tagsAvailable && tagsAvailable.length > 0
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={style} className={clsx(className, 'flex flex-wrap gap-2 items-center')} data-attr={dataAttr}>
+        <div
+            // eslint-disable-next-line react/forbid-dom-props
+            style={style}
+            className={clsx(className, 'inline-flex flex-wrap space-x-1 items-center')}
+            data-attr={dataAttr}
+        >
             {editingTags ? (
                 <LemonInputSelect
                     mode="multiple"
