@@ -277,7 +277,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                                 />
                                                 <small>
                                                     <Link
-                                                        to="https://posthog.com/docs/integrate/webhooks/message-formatting"
+                                                        to="https://posthog.com/docs/webhooks#message-formatting"
                                                         target="_blank"
                                                     >
                                                         See documentation on how to format webhook messages.
