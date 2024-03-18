@@ -162,8 +162,6 @@ export function ActionFilterRow({
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
-    const mathDisabledReason =
-        filter.type === EntityTypes.DATA_WAREHOUSE ? 'Data Warehouse Series only supports total counts' : ''
 
     let name: string | null | undefined, value: PropertyFilterValue
     const {
@@ -239,6 +237,7 @@ export function ActionFilterRow({
                         name: item?.name ?? '',
                         id_field: item?.id_field,
                         timestamp_field: item?.timestamp_field,
+                        distinct_id_field: item?.distinct_id_field,
                         table_name: item?.name,
                         index,
                     })
@@ -375,7 +374,6 @@ export function ActionFilterRow({
                                         index={index}
                                         onMathSelect={onMathSelect}
                                         disabled={readOnly}
-                                        disabledReason={mathDisabledReason}
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                         mathAvailability={mathAvailability}
                                     />
@@ -385,9 +383,15 @@ export function ActionFilterRow({
                                             <TaxonomicStringPopover
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 groupTypes={[
+                                                    TaxonomicFilterGroupType.DataWarehouseProperties,
                                                     TaxonomicFilterGroupType.NumericalEventProperties,
                                                     TaxonomicFilterGroupType.Sessions,
                                                 ]}
+                                                schemaColumns={
+                                                    filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                                                        ? externalTablesMap[filter.name]?.columns
+                                                        : []
+                                                }
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}

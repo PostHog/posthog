@@ -4,7 +4,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.data_warehouse_trends_query_builder import DataWarehouseTrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BreakdownFilter,
@@ -12,6 +12,7 @@ from posthog.schema import (
     ChartDisplayType,
     DateRange,
     DataWarehouseNode,
+    DataWarehouseEventsModifier,
     TrendsQuery,
     TrendsFilter,
 )
@@ -41,7 +42,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
 
-class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
+class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
             "s3",
@@ -66,7 +67,16 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         modifiers = create_default_modifiers_for_team(self.team)
 
         if isinstance(trends_query.series[0], DataWarehouseNode):
-            query_builder = DataWarehouseTrendsQueryBuilder(
+            series = trends_query.series[0]
+            modifiers.dataWarehouseEventsModifiers = [
+                DataWarehouseEventsModifier(
+                    table_name=series.table_name,
+                    timestamp_field=series.timestamp_field,
+                    id_field=series.id_field,
+                    distinct_id_field=series.distinct_id_field,
+                )
+            ]
+            query_builder = TrendsQueryBuilder(
                 trends_query=trends_query,
                 team=self.team,
                 query_date_range=query_date_range,
@@ -84,6 +94,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
             query=query,
             team=self.team,
             timings=timings,
+            modifiers=modifiers,
         )
 
     def create_parquet_file(self):
@@ -143,7 +154,15 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(id=table_name, table_name=table_name, id_field="id", timestamp_field="created")],
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
         )
 
         with freeze_time("2023-01-07"):
@@ -166,6 +185,7 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
                     table_name=table_name,
                     id_field="id",
                     timestamp_field="created",
+                    distinct_id_field="customer_email",
                     properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
                 )
             ],
@@ -185,7 +205,15 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(id=table_name, table_name=table_name, id_field="id", timestamp_field="created")],
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
             properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
         )
 
@@ -203,7 +231,15 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(id=table_name, table_name=table_name, id_field="id", timestamp_field="created")],
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.data_warehouse, breakdown="prop_1"),
         )
 
@@ -232,7 +268,15 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(id=table_name, table_name=table_name, id_field="id", timestamp_field="created")],
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
             properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.data_warehouse, breakdown="prop_1"),
         )
@@ -253,7 +297,15 @@ class TestDataWarehouseQueryBuilder(ClickhouseTestMixin, BaseTest):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=DateRange(date_from="2023-01-01"),
-            series=[DataWarehouseNode(id=table_name, table_name=table_name, id_field="id", timestamp_field="created")],
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
             trendsFilter=TrendsFilter(display=display_type),
         )
 
