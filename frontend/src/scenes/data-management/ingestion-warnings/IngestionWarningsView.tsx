@@ -148,7 +148,7 @@ const WARNING_TYPE_RENDERER = {
         }
         return (
             <>
-                Session replay data dropped due to invalid timestamp::
+                Session replay data dropped due to invalid timestamp:
                 <ul>
                     <li>invalid timestamp: {details.timestamp}</li>
                     <li>session_id: {details.session_id}</li>
