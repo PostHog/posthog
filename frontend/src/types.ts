@@ -43,6 +43,7 @@ import { NodeKind } from './queries/schema'
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
 // Keep this in sync with backend constants/features/{product_name}.yml
+
 export enum AvailableFeature {
     APPS = 'apps',
     SLACK_INTEGRATION = 'slack_integration',
@@ -143,6 +144,7 @@ export enum AvailableFeature {
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
+    PRIORITY_SUPPORT = 'priority_support',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -944,6 +946,7 @@ export interface ActionFilter extends EntityFilter {
 export interface DataWarehouseFilter extends ActionFilter {
     id_field: string
     timestamp_field: string
+    distinct_id_field: string
     table_name: string
 }
 

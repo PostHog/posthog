@@ -28,7 +28,7 @@ pod install`}
             <p>
                 PostHog is most easily used via the <code>PostHogProvider</code> component but if you need to
                 instantiate it directly,{' '}
-                <Link to="https://posthog.com/docs/integrate/client/react-native#without-the-posthogprovider">
+                <Link to="https://posthog.com/docs/libraries/react-native#without-the-posthogprovider">
                     check out the docs
                 </Link>{' '}
                 which explain how to do this correctly.

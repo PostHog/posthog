@@ -180,6 +180,14 @@ export interface HogQLQueryModifiers {
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
+}
+
+export interface DataWarehouseEventsModifier {
+    table_name: string
+    timestamp_field: string
+    distinct_id_field: string
+    id_field: string
 }
 
 export interface HogQLQueryResponse {
@@ -376,6 +384,7 @@ export interface DataWarehouseNode extends EntityNode {
     id_field: string
     table_name: string
     timestamp_field: string
+    distinct_id_field: string
 }
 
 export interface ActionsNode extends EntityNode {
@@ -713,7 +722,7 @@ type BinNumber = number
 export type FunnelStepsResults = Record<string, any>[]
 export type FunnelStepsBreakdownResults = Record<string, any>[][]
 export type FunnelTimeToConvertResults = {
-    average_conversion_time: number
+    average_conversion_time: number | null
     bins: [BinNumber, BinNumber][]
 }
 export type FunnelTrendsResults = Record<string, any>[]

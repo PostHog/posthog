@@ -15,6 +15,13 @@
   <a href="https://posthog.com/docs">Docs</a> - <a href="https://posthog.com/community">Community</a> - <a href="https://posthog.com/roadmap">Roadmap</a> - <a href="https://posthog.com/changelog">Changelog</a> - <a href="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md">Bug reports</a> 
 </p>
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=2jQco8hEvTI">
+    <img src="https://img.youtube.com/vi/2jQco8hEvTI/0.jpg" alt="PostHog Demonstration">
+  </a>
+  <em>See PostHog in action</em>
+</p>
+
 ## PostHog is an all-in-one, open source platform for building better products
 
 - Specify events manually, or use autocapture to get started quickly
@@ -65,7 +72,7 @@ PostHog brings all the tools and data you need to build better products.
 
 ### Analytics and optimization tools
 
-- **Event-based analytics:** Capture your product's usage [automatically](https://posthog.com/docs/integrate/client/js#autocapture), or [customize](https://posthog.com/docs/integrate) it to your needs
+- **Event-based analytics:** Capture your product's usage [automatically](https://posthog.com/docs/libraries/js#autocapture), or [customize](https://posthog.com/docs/getting-started/install) it to your needs
 - **User and group tracking:** Understand the [people](https://posthog.com/manual/persons) and [groups](https://posthog.com/manual/group-analytics) behind the events and track properties about them
 - **Data visualizations:** Create and share [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)
 - **SQL access:** Use [SQL](https://posthog.com/docs/product-analytics/sql) to get a deeper understanding of your users, breakdown information and create completely tailored visualizations

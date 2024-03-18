@@ -23,6 +23,7 @@ export type LocalFilter = ActionFilter & {
     uuid: string
     id_field?: string
     timestamp_field?: string
+    distinct_id_field?: string
     table_name?: string
 }
 
@@ -74,7 +75,16 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     path((key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key]),
     connect((props: EntityFilterProps) => ({
         logic: [eventUsageLogic],
-        actions: [insightDataLogic({ dashboardItemId: props.typeKey as InsightShortId }), ['loadData']],
+        actions: [
+            insightDataLogic({
+                dashboardItemId: props.typeKey as InsightShortId,
+                // this can be mounted in replay filters
+                // in which case there's not really an insightDataLogic to mount
+                // disable attempts to load data that will never work
+                doNotLoad: props.typeKey === 'session-recordings',
+            }),
+            ['loadData'],
+        ],
     })),
     actions({
         selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
@@ -95,6 +105,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 index: number
                 id_field?: string
                 timestamp_field?: string
+                distinct_id_field?: string
                 table_name?: string
             }
         ) => ({
@@ -187,7 +198,17 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         hideModal: () => {
             actions.selectFilter(null)
         },
-        updateFilter: async ({ type, index, name, id, custom_name, id_field, timestamp_field, table_name }) => {
+        updateFilter: async ({
+            type,
+            index,
+            name,
+            id,
+            custom_name,
+            id_field,
+            timestamp_field,
+            distinct_id_field,
+            table_name,
+        }) => {
             actions.setFilters(
                 values.localFilters.map((filter, i) => {
                     if (i === index) {
@@ -201,11 +222,16 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                                 id_field: typeof id_field === 'undefined' ? filter.id_field : id_field,
                                 timestamp_field:
                                     typeof timestamp_field === 'undefined' ? filter.timestamp_field : timestamp_field,
+                                distinct_id_field:
+                                    typeof distinct_id_field === 'undefined'
+                                        ? filter.distinct_id_field
+                                        : distinct_id_field,
                                 table_name: typeof table_name === 'undefined' ? filter.table_name : table_name,
                             }
                         } else {
                             delete filter.id_field
                             delete filter.timestamp_field
+                            delete filter.distinct_id_field
                             delete filter.table_name
                             return {
                                 ...filter,

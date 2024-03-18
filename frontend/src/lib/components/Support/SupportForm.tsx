@@ -1,4 +1,4 @@
-import { IconBug, IconQuestion } from '@posthog/icons'
+import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
 import {
     LemonBanner,
     LemonInput,
@@ -6,6 +6,7 @@ import {
     LemonSegmentedButtonOption,
     lemonToast,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -90,8 +91,11 @@ export function SupportForm(): JSX.Element | null {
                     </LemonField>
                 </>
             )}
-            <LemonField name="kind" label="What type of message is this?">
+            <LemonField name="kind" label="Message type">
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
+            </LemonField>
+            <LemonField name="target_area" label="Topic">
+                <LemonSelect fullWidth options={TARGET_AREA_TO_NAME} />
             </LemonField>
             {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
                 sendSupportRequest.target_area === 'session_replay' && (
@@ -127,18 +131,6 @@ export function SupportForm(): JSX.Element | null {
                         </>
                     </LemonBanner>
                 )}
-            <LemonField name="target_area" label="What area does this best relate to?">
-                <LemonSelect fullWidth type="secondary" options={TARGET_AREA_TO_NAME} />
-            </LemonField>
-            <LemonField name="severity_level" label="What is the severity of this issue?">
-                <LemonSelect
-                    fullWidth
-                    options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
-                        label: value,
-                        value: key,
-                    }))}
-                />
-            </LemonField>
             <LemonField
                 name="message"
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
@@ -162,6 +154,30 @@ export function SupportForm(): JSX.Element | null {
                         )}
                     </div>
                 )}
+            </LemonField>
+            <LemonField name="severity_level">
+                <>
+                    <div className="flex justify-between items-center">
+                        <label className="LemonLabel">
+                            Severity level
+                            <Tooltip title="Severity levels help us prioritize your request.">
+                                <span>
+                                    <IconInfo className="opacity-75" />
+                                </span>
+                            </Tooltip>
+                        </label>
+                        <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
+                            Definitions
+                        </Link>
+                    </div>
+                    <LemonSelect
+                        fullWidth
+                        options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
+                            label: value,
+                            value: key,
+                        }))}
+                    />
+                </>
             </LemonField>
         </Form>
     )
