@@ -10,10 +10,12 @@ from uuid import uuid4
 import aioboto3
 import botocore.exceptions
 import brotli
+import pyarrow.parquet as pq
 import pytest
 import pytest_asyncio
 from django.conf import settings
 from django.test import override_settings
+from pyarrow import fs
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -138,6 +140,42 @@ async def minio_client(bucket_name):
         await minio_client.delete_bucket(Bucket=bucket_name)
 
 
+async def read_parquet_from_s3(bucket_name: str, key: str) -> list:
+    async with aioboto3.Session().client("sts") as sts:
+        try:
+            await sts.get_caller_identity()
+        except botocore.exceptions.NoCredentialsError:
+            s3 = fs.S3FileSystem(
+                access_key="object_storage_root_user",
+                secret_key="object_storage_root_password",
+                endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
+            )
+
+        else:
+            s3 = fs.S3FileSystem()
+
+    table = pq.read_table(f"{bucket_name}/{key}", filesystem=s3)
+
+    parquet_data = []
+    for batch in table.to_batches():
+        parquet_data.extend(batch.to_pylist())
+
+    return parquet_data
+
+
+def read_s3_data_as_json(data: bytes, compression: str | None) -> list:
+    match compression:
+        case "gzip":
+            data = gzip.decompress(data)
+        case "brotli":
+            data = brotli.decompress(data)
+        case _:
+            pass
+
+    json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
+    return json_data
+
+
 async def assert_clickhouse_records_in_s3(
     s3_compatible_client,
     clickhouse_client: ClickHouseClient,
@@ -150,6 +188,7 @@ async def assert_clickhouse_records_in_s3(
     include_events: list[str] | None = None,
     batch_export_schema: BatchExportSchema | None = None,
     compression: str | None = None,
+    file_format: str = "JSONLines",
 ):
     """Assert ClickHouse records are written to JSON in key_prefix in S3 bucket_name.
 
@@ -175,20 +214,16 @@ async def assert_clickhouse_records_in_s3(
     # Get the object.
     key = objects["Contents"][0].get("Key")
     assert key
-    s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
-    data = await s3_object["Body"].read()
 
-    # Check that the data is correct.
-    match compression:
-        case "gzip":
-            data = gzip.decompress(data)
-        case "brotli":
-            data = brotli.decompress(data)
-        case _:
-            pass
+    if file_format == "Parquet":
+        s3_data = await read_parquet_from_s3(bucket_name, key)
 
-    json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
-    # Pull out the fields we inserted only
+    elif file_format == "JSONLines":
+        s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
+        data = await s3_object["Body"].read()
+        s3_data = read_s3_data_as_json(data, compression)
+    else:
+        raise ValueError(f"Unsupported file format: {file_format}")
 
     if batch_export_schema is not None:
         schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
@@ -225,9 +260,9 @@ async def assert_clickhouse_records_in_s3(
 
             expected_records.append(expected_record)
 
-    assert len(json_data) == len(expected_records)
-    assert json_data[0] == expected_records[0]
-    assert json_data == expected_records
+    assert len(s3_data) == len(expected_records)
+    assert s3_data[0] == expected_records[0]
+    assert s3_data == expected_records
 
 
 TEST_S3_SCHEMAS: list[BatchExportSchema | None] = [
@@ -255,6 +290,7 @@ TEST_S3_SCHEMAS: list[BatchExportSchema | None] = [
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
+@pytest.mark.parametrize("file_format", ["JSONLines", "Parquet"])
 async def test_insert_into_s3_activity_puts_data_into_s3(
     clickhouse_client,
     bucket_name,
@@ -262,6 +298,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     activity_environment,
     compression,
     exclude_events,
+    file_format,
     batch_export_schema: BatchExportSchema | None,
 ):
     """Test that the insert_into_s3_activity function ends up with data into S3.
@@ -339,6 +376,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         compression=compression,
         exclude_events=exclude_events,
         batch_export_schema=batch_export_schema,
+        file_format=file_format,
     )
 
     with override_settings(
@@ -358,6 +396,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         exclude_events=exclude_events,
         include_events=None,
         compression=compression,
+        file_format=file_format,
     )
 
 
@@ -1206,6 +1245,49 @@ base_inputs = {
             ),
             "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl.br",
         ),
+        (
+            S3InsertInputs(
+                prefix="/nested/prefix/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                file_format="Parquet",
+                compression="snappy",
+                **base_inputs,  # type: ignore
+            ),
+            "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.parquet.sz",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/nested/prefix/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                file_format="Parquet",
+                **base_inputs,  # type: ignore
+            ),
+            "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.parquet",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/nested/prefix/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                compression="gzip",
+                file_format="Parquet",
+                **base_inputs,  # type: ignore
+            ),
+            "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.parquet.gz",
+        ),
+        (
+            S3InsertInputs(
+                prefix="/nested/prefix/",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                compression="brotli",
+                file_format="Parquet",
+                **base_inputs,  # type: ignore
+            ),
+            "nested/prefix/2023-01-01 00:00:00-2023-01-01 01:00:00.parquet.br",
+        ),
     ],
 )
 def test_get_s3_key(inputs, expected):
@@ -1271,7 +1353,7 @@ async def test_insert_into_s3_activity_heartbeats(
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
     )
 
-    with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+    with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=1, CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=1):
         await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     # This checks that the assert_heartbeat_details function was actually called.
