@@ -15,7 +15,6 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { useState } from 'react'
 import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
@@ -140,14 +139,15 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 export const SidePanelSupport = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelStateLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { openEmailForm, closeEmailForm } = useActions(supportLogic)
+    const { isEmailFormOpen } = useValues(supportLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
     const { title } = useValues(theLogic)
-    const [showSupportForm, setShowSupportForm] = useState(false)
 
     return (
         <>
-            <SidePanelPaneHeader title={showSupportForm ? title : SIDE_PANEL_TABS[SidePanelTab.Support].label} />
+            <SidePanelPaneHeader title={isEmailFormOpen ? title : SIDE_PANEL_TABS[SidePanelTab.Support].label} />
 
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <div className="p-3 max-w-160 w-full mx-auto">
@@ -246,12 +246,12 @@ export const SidePanelSupport = (): JSX.Element => {
 
                     {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
                         <Section title="More options">
-                            {showSupportForm ? (
-                                <SupportFormBlock onCancel={() => setShowSupportForm(false)} />
+                            {isEmailFormOpen ? (
+                                <SupportFormBlock onCancel={() => closeEmailForm()} />
                             ) : (
                                 <p>
                                     Can't find what you need in the docs?{' '}
-                                    <Link onClick={() => setShowSupportForm(true)}>Email an engineer</Link>
+                                    <Link onClick={() => openEmailForm()}>Email an engineer</Link>
                                 </p>
                             )}
                         </Section>

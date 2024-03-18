@@ -237,6 +237,8 @@ export const supportLogic = kea<supportLogicType>([
         openSupportForm: (values: Partial<SupportFormFields>) => values,
         submitZendeskTicket: (form: SupportFormFields) => form,
         updateUrlParams: true,
+        openEmailForm: true,
+        closeEmailForm: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -244,6 +246,13 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openSupportForm: () => true,
                 closeSupportForm: () => false,
+            },
+        ],
+        isEmailFormOpen: [
+            false,
+            {
+                openEmailForm: () => true,
+                closeEmailForm: () => false,
             },
         ],
     })),
