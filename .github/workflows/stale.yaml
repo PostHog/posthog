@@ -9,7 +9,7 @@ jobs:
         if: ${{ github.repository == 'PostHog/posthog' }}
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/stale@v6
+            - uses: actions/stale@v9
               with:
                   days-before-issue-stale: 730
                   days-before-issue-close: 14
