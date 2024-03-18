@@ -482,7 +482,6 @@ async def test_s3_export_workflow_with_minio_bucket(
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            # We patch the S3 client to return our client that targets MinIO.
             await activity_environment.client.execute_workflow(
                 S3BatchExportWorkflow.run,
                 inputs,
