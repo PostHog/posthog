@@ -57,7 +57,12 @@ export const seriesNodeToFilter = (
         math_group_type_index: node.math_group_type_index,
         properties: node.properties as any, // TODO,
         ...(isDataWarehouseNode(node)
-            ? { table_name: node.table_name, id_field: node.id_field, timestamp_field: node.timestamp_field }
+            ? {
+                  table_name: node.table_name,
+                  id_field: node.id_field,
+                  timestamp_field: node.timestamp_field,
+                  distinct_id_field: node.distinct_id_field,
+              }
             : {}),
     })
     return entity

@@ -1,4 +1,4 @@
-import { LemonSelectMultipleOptionItem } from 'lib/lemon-ui/LemonSelectMultiple'
+import { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import { UserBasicType, UserType } from '~/types'
@@ -21,7 +21,7 @@ export function UserSelectItem({ user }: UserSelectItemProps): JSX.Element {
 export function usersLemonSelectOptions(
     users: (UserBasicType | UserType)[],
     key: 'email' | 'uuid' = 'email'
-): LemonSelectMultipleOptionItem[] {
+): LemonInputSelectOption[] {
     return users.map((user) => ({
         key: user[key],
         label: `${user.first_name} ${user.email}`,

@@ -684,6 +684,17 @@ body {
 }
 
 .storybook-test-runner {
+    &.storybook-test-runner--fullscreen {
+        height: fit-content;
+    }
+
+    &.storybook-test-runner--padded {
+        #storybook-root {
+            // Make the root element (which is the default screenshot reference) hug the component
+            display: inline-block;
+        }
+    }
+
     // Only use this class in visual regression tests
     *,
     *::before,
@@ -700,6 +711,16 @@ body {
     .scrollable::after, // Scrollability indicators
     .scrollable::before {
         display: none;
+    }
+
+    #storybook-root > .fixed:only-child {
+        // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
+        position: static !important;
+    }
+
+    #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
+        // Fix for stories of fixed modals - otherwise body would be zero-sized
+        position: static !important;
     }
 }
 

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { EditorFilterProps } from '~/types'
@@ -9,11 +9,12 @@ export function PathsWildcardGroups({ insightProps }: EditorFilterProps): JSX.El
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
     return (
-        <LemonSelectMultiple
+        <LemonInputSelect
             onChange={(pathGroupings: string[]) => updateInsightFilter({ pathGroupings })}
             value={pathsFilter?.pathGroupings || []}
-            filterOption={false}
-            mode="multiple-custom"
+            disableFiltering
+            mode="multiple"
+            allowCustomValues
         />
     )
 }

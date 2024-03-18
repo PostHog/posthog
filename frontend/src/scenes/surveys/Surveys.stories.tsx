@@ -143,9 +143,6 @@ const meta: Meta = {
     title: 'Scenes-App/Surveys',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
         viewMode: 'story',
         mockDate: '2023-06-28', // To stabilize relative dates
     },
@@ -233,6 +230,11 @@ export const NewSurveyTargetingSection: StoryFn = () => {
         })
     }, [])
     return <App />
+}
+NewSurveyTargetingSection.parameters = {
+    testOptions: {
+        waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row.width-small'],
+    },
 }
 
 export const NewSurveyAppearanceSection: StoryFn = () => {
