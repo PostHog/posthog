@@ -297,6 +297,13 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     return results
 
 
+def lib_from_query_params(request) -> Tuple[str, str]:
+    # url has a ver parameter from posthog-js
+    # for now we know mobile is newer than web, so we can ignore unknown
+    lib = request.GET.get("ver", "unknown")
+    return "web", lib
+
+
 @csrf_exempt
 @timed("posthog_cloud_event_endpoint")
 def get_event(request):
@@ -475,6 +482,8 @@ def get_event(request):
 
     try:
         if replay_events:
+            lib, lib_version = lib_from_query_params(request)
+
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
@@ -496,6 +505,7 @@ def get_event(request):
                             sent_at,
                             event_uuid,
                             token,
+                            extra_headers=[("lib_version", lib_version)],
                         )
                     )
 
@@ -546,9 +556,23 @@ def parse_event(event):
     return event
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=None, token=None, historical=False):
+def capture_internal(
+    event,
+    distinct_id,
+    ip,
+    site_url,
+    now,
+    sent_at,
+    event_uuid=None,
+    token=None,
+    historical=False,
+    extra_headers: List[Tuple[str, str]] | None = None,
+):
     if event_uuid is None:
         event_uuid = UUIDT()
+
+    if extra_headers is None:
+        extra_headers = []
 
     parsed_event = build_kafka_event_data(
         distinct_id=distinct_id,
@@ -568,9 +592,11 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
 
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         kafka_partition_key = event["properties"]["$session_id"]
+
         headers = [
             ("token", token),
-        ]
+        ] + extra_headers
+
         return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, headers=headers)
 
     candidate_partition_key = f"{token}:{distinct_id}"
