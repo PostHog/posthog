@@ -1,6 +1,6 @@
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { range, uniqueBy } from 'lib/utils'
+import { range } from 'lib/utils'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -29,7 +29,6 @@ export type LemonInputSelectProps = Pick<
     disableFiltering?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
-    allowDuplicates?: boolean
     onChange?: (newValue: string[]) => void
     onBlur?: () => void
     onInputChange?: (newValue: string) => void
@@ -49,7 +48,6 @@ export function LemonInputSelect({
     disableFiltering = false,
     allowCustomValues = false,
     autoFocus = false,
-    allowDuplicates = true,
     ...props
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
@@ -60,7 +58,7 @@ export function LemonInputSelect({
     const values = value ?? []
 
     const visibleOptions = useMemo(() => {
-        let res: LemonInputSelectOption[] = []
+        const res: LemonInputSelectOption[] = []
         const customValues = [...values]
 
         options.forEach((option) => {
@@ -88,10 +86,6 @@ export function LemonInputSelect({
         // Finally we show the input value if custom values are allowed and it's not in the list
         if (allowCustomValues && inputValue && !values.includes(inputValue)) {
             res.unshift({ key: inputValue, label: inputValue })
-        }
-
-        if (!allowDuplicates) {
-            res = uniqueBy(res, (i) => i.key)
         }
 
         return res

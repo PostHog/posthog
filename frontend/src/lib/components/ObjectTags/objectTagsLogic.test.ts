@@ -24,31 +24,26 @@ describe('objectTagsLogic', () => {
                 editingTags: false,
             })
         })
-        it('handle adding a new tag', async () => {
+        it('cleans new tags', async () => {
             await expectLogic(logic, async () => {
                 logic.actions.setEditingTags(true)
                 logic.actions.setTags(['a', 'b', 'c', 'Nightly'])
+            }).toMatchValues({
+                editingTags: true,
             })
-                .toDispatchActions([logic.actionCreators.setTags(['a', 'b', 'c', 'nightly'])])
-                .toMatchValues({
-                    editingTags: true,
-                })
             // @ts-expect-error
             const mockedOnChange = props.onChange?.mock
             expect(mockedOnChange.calls.length).toBe(1)
-            expect(mockedOnChange.calls[0]).toEqual(['a', 'b', 'c', 'nightly'])
+            expect(mockedOnChange.calls[0][0]).toEqual(['a', 'b', 'c', 'nightly'])
         })
-        // it('noop on duplicate tag', async () => {
-        //     await expectLogic(logic, async () => {
-        //         logic.actions.handleAdd('a')
-        //     })
-        //         .toDispatchActions(['handleAdd'])
-        //         .toNotHaveDispatchedActions(['setTags'])
-        //         .toMatchValues({
-        //             tags: ['a', 'b', 'c'],
-        //         })
-        //     // @ts-expect-error
-        //     expect(props.onChange?.mock.calls.length).toBe(0)
-        // })
+        it('removes duplicate tags', async () => {
+            await expectLogic(logic, async () => {
+                logic.actions.setTags(['a', 'nightly', 'b', 'c', 'nightly'])
+            })
+            // @ts-expect-error
+            const mockedOnChange = props.onChange?.mock
+            expect(mockedOnChange.calls.length).toBe(1)
+            expect(mockedOnChange.calls[0][0]).toEqual(['a', 'nightly', 'b', 'c'])
+        })
     })
 })

@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { uniqueBy } from 'lib/utils'
 
 import type { objectTagsLogicType } from './objectTagsLogicType'
 
@@ -32,7 +33,7 @@ export const objectTagsLogic = kea<objectTagsLogicType>([
     })),
     listeners(({ props }) => ({
         setTags: ({ tags }) => {
-            const nextTags = tags.map(cleanTag)
+            const nextTags = uniqueBy(tags.map(cleanTag), (i) => i)
             props.onChange?.(nextTags)
         },
     })),
