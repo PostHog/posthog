@@ -8,6 +8,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { LemonButton } from '../LemonButton'
 import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput } from '../LemonInput'
+import { PopoverReferenceContext } from '../Popover'
 
 export interface LemonInputSelectOption {
     key: string
@@ -163,22 +164,25 @@ export function LemonInputSelect({
         }
     }
 
+    // TRICKY: We don't want the popover to affect the snack buttons
     const prefix = (
-        <>
-            {values.map((value) => {
-                const option = options.find((option) => option.key === value) ?? {
-                    label: value,
-                    labelComponent: null,
-                }
-                return (
-                    <>
-                        <LemonSnack title={option?.label} onClose={() => _onActionItem(value)}>
-                            {option?.labelComponent ?? option?.label}
-                        </LemonSnack>
-                    </>
-                )
-            })}
-        </>
+        <PopoverReferenceContext.Provider value={null}>
+            <>
+                {values.map((value) => {
+                    const option = options.find((option) => option.key === value) ?? {
+                        label: value,
+                        labelComponent: null,
+                    }
+                    return (
+                        <>
+                            <LemonSnack title={option?.label} onClose={() => _onActionItem(value)}>
+                                {option?.labelComponent ?? option?.label}
+                            </LemonSnack>
+                        </>
+                    )
+                })}
+            </>
+        </PopoverReferenceContext.Provider>
     )
 
     return (
