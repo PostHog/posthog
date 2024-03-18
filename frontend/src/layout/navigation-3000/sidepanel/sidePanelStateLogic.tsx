@@ -57,11 +57,11 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         // NOTE: We explicitly reference the actions instead of connecting so that people don't accidentally
         // use this logic instead of sidePanelStateLogic
         openSidePanel: ({ tab }) => {
-            posthog.capture('activation sidebar closed', { tab })
+            posthog.capture('activation sidebar opened', { tab })
             actions.setSidePanelOpen(true)
         },
         closeSidePanel: ({ tab }) => {
-            posthog.capture('activation sidebar opened', { tab })
+            posthog.capture('activation sidebar closed', { tab })
             if (!tab) {
                 // If we aren't specifiying the tab we always close
                 actions.setSidePanelOpen(false)
