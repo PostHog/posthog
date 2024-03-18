@@ -47,33 +47,18 @@ class AccessControlSerializer(serializers.ModelSerializer):
         resource = data["resource"]
         resource_id = data.get("resource_id")
 
-        if resource == "project" and resource_id:
-            # Special check for modifying a specific project's access
-            if not access_control.check_access_level_for_object("project", data["resource_id"], "admin"):
-                raise exceptions.PermissionDenied("You must be an admin to modify project permissions.")
-
-        # new_level = attrs.get("level")
-
-        # if requesting_level is None:
-        #     raise exceptions.PermissionDenied("You do not have the required access to this project.")
-
-        # if attrs.get("user_uuid") == requesting_user.uuid:
-        #     # Create-only check
-        #     raise exceptions.PermissionDenied("You can't explicitly add yourself to projects.")
-
-        # if new_level is not None and new_level > requesting_level:
-        #     raise exceptions.PermissionDenied("You can only set access level to lower or equal to your current one.")
-
-        # if membership_being_accessed is not None:
-        #     # Update-only checks
-        #     if membership_being_accessed.parent_membership.user_id != requesting_user.id:
-        #         # Requesting user updating someone else
-        #         if membership_being_accessed.level > requesting_level:
-        #             raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
-        #     else:
-        #         # Requesting user updating themselves
-        #         if new_level is not None:
-        #             raise exceptions.PermissionDenied("You can't set your own access level.")
+        if resource_id:
+            # Check that they have the right access level for this specific resource object
+            if not access_control.check_access_level_for_object(resource, data["resource_id"], required_level="admin"):
+                # TODO: Human readable resource name
+                raise exceptions.PermissionDenied(f"You must be an admin to modify {resource} permissions.")
+        else:
+            # If modifying the base resource rules then we are checking the parent membership (project or organization)
+            # NOTE: Currently we only support org level in the UI so its simply an org level check
+            if not access_control.check_access_level_for_object("organization", required_level="admin"):
+                raise exceptions.PermissionDenied(
+                    "You must be an Organization admin to modify project-wide permissions."
+                )
 
         return data
 

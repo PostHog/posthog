@@ -135,7 +135,7 @@ class UserAccessControl:
             return False
 
         # Org admins always have object level access
-        if org_membership.level == OrganizationMembership.Level.ADMIN:
+        if org_membership.level >= OrganizationMembership.Level.ADMIN:
             return True
 
         access_control = self.access_control_for_object(resource, resource_id)
