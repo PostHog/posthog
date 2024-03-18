@@ -1,5 +1,6 @@
 import './Experiment.scss'
 
+import { LemonBanner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -20,7 +21,7 @@ import {
 } from './ExperimentResultsViz'
 
 export function ExperimentResults(): JSX.Element {
-    const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
+    const { experiment, isDraft, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
         useValues(experimentLogic)
 
     if (experimentLoading || experimentResultsLoading) {
@@ -33,6 +34,15 @@ export function ExperimentResults(): JSX.Element {
 
     return (
         <div className="space-y-8 experiment-results">
+            {isDraft ? (
+                <LemonBanner type="info">
+                    This experiment is a <b>draft</b>.
+                </LemonBanner>
+            ) : (
+                <LemonBanner type="info">
+                    This experiment is <b>active</b>.
+                </LemonBanner>
+            )}
             {experimentResults && experimentResults.insight ? (
                 <>
                     <ExperimentStatus />

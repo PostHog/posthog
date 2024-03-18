@@ -1030,6 +1030,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 return conversionRates.sort((a, b) => b.conversionRate - a.conversionRate)
             },
         ],
+        isDraft: [(s) => [s.experiment], (experiment: Experiment) => !experiment.start_date],
     }),
     forms(({ actions, values }) => ({
         experiment: {
