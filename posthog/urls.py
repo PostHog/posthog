@@ -1,11 +1,17 @@
 from typing import Any, Callable, List, Optional, cast
-from posthog.models.instance_setting import get_instance_setting
 from urllib.parse import urlparse
 
+import structlog
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, HttpResponseServerError, HttpResponseRedirect
+from django.http import (
+    HttpRequest,
+    HttpResponse,
+    HttpResponseRedirect,
+    HttpResponseServerError,
+)
 from django.template import loader
 from django.urls import URLPattern, include, path, re_path
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import (
     csrf_exempt,
     ensure_csrf_cookie,
@@ -18,7 +24,6 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 from revproxy.views import ProxyView
-from django.utils.http import url_has_allowed_host_and_scheme
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -42,8 +47,11 @@ from posthog.api import (
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
 from posthog.api.survey import surveys
+from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
+from posthog.models.instance_setting import get_instance_setting
+
 from .utils import render_template
 from .views import (
     health,
@@ -54,9 +62,6 @@ from .views import (
     stats,
 )
 from .year_in_posthog import year_in_posthog
-from posthog.constants import PERMITTED_FORUM_DOMAINS
-
-import structlog
 
 logger = structlog.get_logger(__name__)
 
@@ -186,10 +191,6 @@ urlpatterns = [
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
-    path(
-        "api/reset/<str:user_uuid>/",
-        authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
-    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(

@@ -1,4 +1,3 @@
-import datetime
 import time
 from typing import Any, Dict, Optional, cast
 from uuid import uuid4
@@ -6,11 +5,6 @@ from uuid import uuid4
 from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
-from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.tokens import (
-    PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator,
-)
-from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -23,7 +17,6 @@ from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
-from sentry_sdk import capture_exception
 from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
@@ -34,9 +27,8 @@ from two_factor.views.utils import (
 
 from posthog.api.email_verification import EmailVerifier
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.event_usage import report_user_logged_in
 from posthog.models import OrganizationDomain, User
-from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
 
 
@@ -250,149 +242,3 @@ class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = LoginPrecheckSerializer
     permission_classes = (permissions.AllowAny,)
-
-
-class PasswordResetSerializer(serializers.Serializer):
-    email = serializers.EmailField(write_only=True)
-
-    def create(self, validated_data):
-        email = validated_data.pop("email")
-
-        # Check SSO enforcement (which happens at the domain level)
-        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(email):
-            raise serializers.ValidationError(
-                "Password reset is disabled because SSO login is enforced for this domain.",
-                code="sso_enforced",
-            )
-
-        if not is_email_available():
-            raise serializers.ValidationError(
-                "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.",
-                code="email_not_available",
-            )
-
-        try:
-            user = User.objects.filter(is_active=True).get(email=email)
-        except User.DoesNotExist:
-            user = None
-
-        if user:
-            user.requested_password_reset_at = datetime.datetime.now(datetime.timezone.utc)
-            user.save()
-            token = password_reset_token_generator.make_token(user)
-            send_password_reset(user.id, token)
-
-        return True
-
-
-class PasswordResetCompleteSerializer(serializers.Serializer):
-    token = serializers.CharField(write_only=True)
-    password = serializers.CharField(write_only=True)
-
-    def create(self, validated_data):
-        # Special handling for E2E tests (note we don't actually change anything in the DB, just simulate the response)
-        if settings.E2E_TESTING and validated_data["token"] == "e2e_test_token":
-            return True
-
-        try:
-            user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
-        except User.DoesNotExist:
-            capture_exception(
-                Exception("User not found in password reset serializer"),
-                {"user_uuid": self.context["view"].kwargs["user_uuid"]},
-            )
-            raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]},
-                code="invalid_token",
-            )
-
-        if not password_reset_token_generator.check_token(user, validated_data["token"]):
-            capture_exception(
-                Exception("Invalid password reset token in serializer"),
-                {"user_uuid": user.uuid, "token": validated_data["token"]},
-            )
-            raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]},
-                code="invalid_token",
-            )
-        password = validated_data["password"]
-        try:
-            validate_password(password, user)
-        except ValidationError as e:
-            raise serializers.ValidationError({"password": e.messages})
-
-        user.set_password(password)
-        user.requested_password_reset_at = None
-        user.save()
-
-        login(
-            self.context["request"],
-            user,
-            backend="django.contrib.auth.backends.ModelBackend",
-        )
-        report_user_password_reset(user)
-        return True
-
-
-class PasswordResetViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
-    queryset = User.objects.none()
-    serializer_class = PasswordResetSerializer
-    permission_classes = (permissions.AllowAny,)
-    throttle_classes = [UserPasswordResetThrottle]
-    SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT
-
-
-class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    queryset = User.objects.none()
-    serializer_class = PasswordResetCompleteSerializer
-    permission_classes = (permissions.AllowAny,)
-    SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT
-
-    def get_object(self):
-        token = self.request.query_params.get("token")
-        user_uuid = self.kwargs.get("user_uuid")
-
-        if not token:
-            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
-
-        # Special handling for E2E tests
-        if settings.E2E_TESTING and user_uuid == "e2e_test_user" and token == "e2e_test_token":
-            return {"success": True, "token": token}
-
-        try:
-            user = User.objects.filter(is_active=True).get(uuid=user_uuid)
-        except User.DoesNotExist:
-            capture_exception(
-                Exception("User not found in password reset viewset"), {"user_uuid": user_uuid, "token": token}
-            )
-            raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]},
-                code="invalid_token",
-            )
-
-        if not password_reset_token_generator.check_token(user, token):
-            capture_exception(
-                Exception("Invalid password reset token in viewset"), {"user_uuid": user_uuid, "token": token}
-            )
-            raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]},
-                code="invalid_token",
-            )
-
-        return {"success": True, "token": token}
-
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        response = super().retrieve(request, *args, **kwargs)
-        response.status_code = self.SUCCESS_STATUS_CODE
-        return response
-
-
-class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
-    def _make_hash_value(self, user, timestamp):
-        # Due to type differences between the user model and the token generator, we need to
-        # re-fetch the user from the database to get the correct type.
-        usable_user: User = User.objects.get(pk=user.pk)
-        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}"
-
-
-password_reset_token_generator = PasswordResetTokenGenerator()
