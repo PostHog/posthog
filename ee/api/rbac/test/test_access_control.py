@@ -58,7 +58,31 @@ class TestAccessControlAPI(APILicensedTest):
     def test_project_change_if_in_access_control(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         # Add ourselves to access
-        res = self._put_access_control({"team": self.team.id})
+        res = self._put_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
         assert res.status_code == status.HTTP_200_OK, res.json()
 
-        # TODO
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        # Now change ourselves to a member
+        res = self._put_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "member"}
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["access_level"] == "member"
+
+        # Now try and change our own membership and fail!
+        res = self._put_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN
+        assert res.json()["detail"] == "You must be an admin to modify project permissions."
+
+    def test_project_change_rejected_if_not_in_organization(self):
+        self.organization_membership.delete()
+        # Add ourselves to access
+        res = self._put_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()

@@ -50,20 +50,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
         if resource == "project" and resource_id:
             # Special check for modifying a specific project's access
             if not access_control.check_access_level_for_object("project", data["resource_id"], "admin"):
-                raise exceptions.PermissionDenied("You do not have the required access to this project.")
-
-        # team: Team = self.context["get_team"]()
-        # if not team.access_control:
-        #     raise exceptions.ValidationError(
-        #         "Explicit members can only be accessed for projects with project-based permissioning enabled."
-        #     )
-        # requesting_user: User = self.context["request"].user
-        # membership_being_accessed = cast(Optional[ExplicitTeamMembership], self.instance)
-        # try:
-        #     requesting_level = self.user_permissions.team(team).effective_membership_level
-        # except OrganizationMembership.DoesNotExist:
-        #     # Requesting user does not belong to the project's organization, so we spoof a 404 for enhanced security
-        #     raise exceptions.NotFound("Project not found.")
+                raise exceptions.PermissionDenied("You must be an admin to modify project permissions.")
 
         # new_level = attrs.get("level")
 

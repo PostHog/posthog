@@ -22,7 +22,6 @@ export interface PayGateMiniProps {
     currentUsage?: number
     children: React.ReactNode
     overrideShouldShowGate?: boolean
-    className?: string
     background?: boolean
     isGrandfathered?: boolean
 }
@@ -35,7 +34,6 @@ export interface PayGateMiniProps {
 export function PayGateMini({
     feature,
     currentUsage,
-    className,
     children,
     overrideShouldShowGate,
     background = true,
@@ -71,7 +69,6 @@ export function PayGateMini({
         gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
             <div
                 className={clsx(
-                    className,
                     background && 'bg-side border border-border',
                     'PayGateMini rounded flex flex-col items-center p-4 text-center'
                 )}
@@ -137,12 +134,11 @@ export function PayGateMini({
                 <PayGateMiniButton product={productWithFeature} featureInfo={featureInfo} gateVariant={gateVariant} />
             </div>
         ) : (
-            <div className={className}>{children}</div>
+            <>{children}</>
         )
     ) : gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
         <div
             className={clsx(
-                className,
                 background && 'bg-side border border-border',
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
@@ -234,6 +230,6 @@ export function PayGateMini({
             </LemonButton>
         </div>
     ) : (
-        <div className={className}>{children}</div>
+        <>{children}</>
     )
 }
