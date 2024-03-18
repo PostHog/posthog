@@ -6,6 +6,7 @@ import uuid
 from string import Template
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
