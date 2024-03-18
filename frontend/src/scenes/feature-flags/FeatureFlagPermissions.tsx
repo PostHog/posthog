@@ -1,6 +1,7 @@
 import { IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
@@ -10,7 +11,7 @@ import {
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
-import { AccessLevel, FeatureFlagType, Resource, RoleType } from '~/types'
+import { AccessLevel, AvailableFeature, FeatureFlagType, Resource, RoleType } from '~/types'
 
 import {
     FormattedResourceLevel,
@@ -63,19 +64,19 @@ export function FeatureFlagPermissions({ featureFlag }: { featureFlag: FeatureFl
     }
 
     return (
-        // <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-        <ResourcePermission
-            resourceType={Resource.FEATURE_FLAGS}
-            onChange={(roleIds) => setRolesToAdd(roleIds)}
-            rolesToAdd={rolesToAdd}
-            addableRoles={addableRoles}
-            addableRolesLoading={unfilteredAddableRolesLoading}
-            onAdd={() => addAssociatedRoles()}
-            roles={derivedRoles}
-            deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-            canEdit={featureFlag.can_edit}
-        />
-        // </PayGateMini>
+        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+            <ResourcePermission
+                resourceType={Resource.FEATURE_FLAGS}
+                onChange={(roleIds) => setRolesToAdd(roleIds)}
+                rolesToAdd={rolesToAdd}
+                addableRoles={addableRoles}
+                addableRolesLoading={unfilteredAddableRolesLoading}
+                onAdd={() => addAssociatedRoles()}
+                roles={derivedRoles}
+                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                canEdit={featureFlag.can_edit}
+            />
+        </PayGateMini>
     )
 }
 

@@ -9,6 +9,7 @@ import {
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -54,12 +55,15 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 function AccessControlObjectDefaults(): JSX.Element | null {
     const { accessControlProject, accessControlsLoading, availableLevels } = useValues(accessControlLogic)
     const { updateAccessControlProject } = useActions(accessControlLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     return (
         <LemonSelect
             value={accessControlProject?.access_level ?? null}
             onChange={(newValue) => {
-                updateAccessControlProject(newValue)
+                guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => {
+                    updateAccessControlProject(newValue)
+                })
             }}
             disabledReason={accessControlsLoading ? 'Loading…' : undefined}
             dropdownMatchSelectWidth={false}
@@ -83,6 +87,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
     const { membersById, addableMembers, accessControlMembers, accessControlsLoading, availableLevels } =
         useValues(accessControlLogic)
     const { updateAccessControlMembers } = useAsyncActions(accessControlLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     if (!user) {
         return null
@@ -157,7 +162,11 @@ function AccessControlObjectUsers(): JSX.Element | null {
         <div className="space-y-2">
             <AddItemsControls
                 placeholder="Search for team members to add…"
-                onAdd={(newValues, level) => updateAccessControlMembers(newValues.map((member) => ({ member, level })))}
+                onAdd={async (newValues, level) => {
+                    if (guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)) {
+                        await updateAccessControlMembers(newValues.map((member) => ({ member, level })))
+                    }
+                }}
                 options={addableMembers.map((member) => ({
                     key: member.id,
                     label: `${member.user.first_name} ${member.user.email}`,
@@ -174,6 +183,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
 function AccessControlObjectRoles(): JSX.Element | null {
     const { accessControlRoles, accessControlsLoading, addableRoles, rolesById } = useValues(accessControlLogic)
     const { updateAccessControlRoles } = useAsyncActions(accessControlLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const columns: LemonTableColumns<AccessControlTypeRole> = [
         {
@@ -240,7 +250,11 @@ function AccessControlObjectRoles(): JSX.Element | null {
         <div className="space-y-2">
             <AddItemsControls
                 placeholder="Search for roles to add…"
-                onAdd={(newValues, level) => updateAccessControlRoles(newValues.map((role) => ({ role, level })))}
+                onAdd={async (newValues, level) => {
+                    if (guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)) {
+                        await updateAccessControlRoles(newValues.map((role) => ({ role, level })))
+                    }
+                }}
                 options={addableRoles.map((role) => ({
                     key: role.id,
                     label: role.name,

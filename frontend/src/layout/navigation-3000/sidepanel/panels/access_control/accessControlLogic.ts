@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -27,7 +28,16 @@ export const accessControlLogic = kea<accessControlLogicType>([
     key((props) => `${props.resource}-${props.resource_id}`),
     path((key) => ['scenes', 'accessControl', 'accessControlLogic', key]),
     connect({
-        values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], roleBasedAccessControlLogic, ['roles']],
+        values: [
+            membersLogic,
+            ['sortedMembers'],
+            teamLogic,
+            ['currentTeam'],
+            roleBasedAccessControlLogic,
+            ['roles'],
+            upgradeModalLogic,
+            ['guardAvailableFeature'],
+        ],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
     }),
     actions({
