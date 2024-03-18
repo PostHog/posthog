@@ -7,12 +7,12 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { FeatureFlagType } from '~/types'
 
 interface InstructionsModalProps {
-    featureFlag: FeatureFlagType
+    flag: FeatureFlagType['key']
     visible: boolean
     onClose: () => void
 }
 
-export function InstructionsModal({ onClose, visible, featureFlag }: InstructionsModalProps): JSX.Element {
+export function InstructionsModal({ onClose, visible, flag }: InstructionsModalProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     const getCloudPanels = (): JSX.Element => (
@@ -38,12 +38,12 @@ export function InstructionsModal({ onClose, visible, featureFlag }: Instruction
                         <div>
                             <b>Opt user in</b>
                             <div>
-                                <FeatureEnrollInstructions featureFlag={featureFlag} />
+                                <FeatureEnrollInstructions flag={flag} />
                             </div>
 
                             <b>Opt user out</b>
                             <div>
-                                <FeatureUnenrollInstructions featureFlag={featureFlag} />
+                                <FeatureUnenrollInstructions flag={flag} />
                             </div>
 
                             <b>Retrieve Previews</b>
@@ -61,12 +61,12 @@ export function InstructionsModal({ onClose, visible, featureFlag }: Instruction
         <div>
             <b>Opt user in</b>
             <div>
-                <FeatureEnrollInstructions featureFlag={featureFlag} />
+                <FeatureEnrollInstructions flag={flag} />
             </div>
 
             <b>Opt user out</b>
             <div>
-                <FeatureUnenrollInstructions featureFlag={featureFlag} />
+                <FeatureUnenrollInstructions flag={flag} />
             </div>
 
             <b>Retrieve Previews</b>
@@ -91,19 +91,19 @@ export function InstructionsModal({ onClose, visible, featureFlag }: Instruction
     )
 }
 
-function FeatureEnrollInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+function FeatureEnrollInstructions({ flag }: { flag: string }): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
-            {`posthog.updateEarlyAccessFeatureEnrollment("${featureFlag.key}", true)
+            {`posthog.updateEarlyAccessFeatureEnrollment("${flag}", true)
 `}
         </CodeSnippet>
     )
 }
 
-function FeatureUnenrollInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+function FeatureUnenrollInstructions({ flag }: { flag: string }): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript} wrap>
-            {`posthog.updateEarlyAccessFeatureEnrollment("${featureFlag.key}", false)
+            {`posthog.updateEarlyAccessFeatureEnrollment("${flag}", false)
 `}
         </CodeSnippet>
     )

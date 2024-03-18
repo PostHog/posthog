@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -92,6 +93,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['featureFlags'],
             userLogic,
             ['user'],
+            preflightLogic,
+            ['isCloudOrDev'],
         ],
         actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
     }),
@@ -200,8 +203,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowBillingStep: [
-            (s) => [s.product, s.subscribedDuringOnboarding],
-            (product: BillingProductV2Type | null, subscribedDuringOnboarding: boolean) => {
+            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev],
+            (product: BillingProductV2Type | null, subscribedDuringOnboarding: boolean, isCloudOrDev) => {
+                if (!isCloudOrDev) {
+                    return false
+                }
                 const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
                 return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
             },

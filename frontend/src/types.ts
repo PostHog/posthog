@@ -20,7 +20,7 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
-import { PostHog } from 'posthog-js'
+import type { PostHog } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
@@ -43,6 +43,7 @@ import { NodeKind } from './queries/schema'
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
 // Keep this in sync with backend constants/features/{product_name}.yml
+
 export enum AvailableFeature {
     APPS = 'apps',
     SLACK_INTEGRATION = 'slack_integration',
@@ -143,6 +144,7 @@ export enum AvailableFeature {
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
+    PRIORITY_SUPPORT = 'priority_support',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -896,9 +898,11 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
+export type ErrorClusterSample = { session_id: string; input: string }
+
 type ErrorCluster = {
     cluster: number
-    samples: { session_id: string; message: string }[]
+    samples: ErrorClusterSample[]
     occurrences: number
     unique_sessions: number
 }
@@ -942,6 +946,7 @@ export interface ActionFilter extends EntityFilter {
 export interface DataWarehouseFilter extends ActionFilter {
     id_field: string
     timestamp_field: string
+    distinct_id_field: string
     table_name: string
 }
 
@@ -1470,7 +1475,7 @@ export interface BillingV2PlanType {
     note: string | null
     unit: string | null
     product_key: ProductKeyUnion
-    current_plan?: any
+    current_plan?: boolean | null
     tiers?: BillingV2TierType[] | null
     unit_amount_usd?: string
     included_if?: 'no_active_subscription' | 'has_subscription' | null

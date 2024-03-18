@@ -17,10 +17,10 @@ export function UpgradeModal(): JSX.Element {
                     isGrandfathered={upgradeModalIsGrandfathered ?? undefined}
                     background={false}
                 >
-                    <>
+                    <div className="pr-7">
                         You should have access to this feature already. If you are still seeing this modal, please let
                         us know 🙂
-                    </>
+                    </div>
                 </PayGateMini>
             </div>
         </LemonModal>

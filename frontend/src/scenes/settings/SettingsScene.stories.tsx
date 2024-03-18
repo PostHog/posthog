@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
@@ -22,29 +22,39 @@ const meta: Meta = {
                     cloud: true,
                     realm: 'cloud',
                 },
+                '/api/projects/:id/integrations': { results: [] },
             },
         }),
     ],
 }
 export default meta
 
-export function SettingsProject(): JSX.Element {
+export const SettingsProject: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.settings('project'))
     }, [])
     return <App />
 }
+SettingsProject.parameters = {
+    testOptions: { waitForSelector: '.Settings__sections button' },
+}
 
-export function SettingsUser(): JSX.Element {
+export const SettingsUser: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.settings('user'))
     }, [])
     return <App />
 }
+SettingsUser.parameters = {
+    testOptions: { waitForSelector: '.Settings__sections button' },
+}
 
-export function SettingsOrganization(): JSX.Element {
+export const SettingsOrganization: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.settings('organization'))
     }, [])
     return <App />
+}
+SettingsOrganization.parameters = {
+    testOptions: { waitForSelector: '.Settings__sections button' },
 }

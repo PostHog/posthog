@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { settingsLogic } from './settingsLogic'
@@ -32,7 +32,7 @@ export function Settings({
         }
     )
 
-    const isCompact = size === 'small'
+    const isCompact = !inStorybookTestRunner() && size === 'small'
 
     const showSections = isCompact ? isCompactNavigationOpen : true
 
