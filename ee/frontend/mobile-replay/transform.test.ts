@@ -58,6 +58,7 @@ describe('replay/transform', () => {
         beforeEach(async () => {
             posthogEEModule = await posthogEE()
         })
+
         test('can process unknown types without error', () => {
             expect(
                 posthogEEModule.mobileReplay?.transformToWeb([
@@ -554,8 +555,10 @@ describe('replay/transform', () => {
                                     height: 30,
                                     type: 'input',
                                     inputType: 'text',
-                                    paddingLeft: '16px',
-                                    paddingRight: 16,
+                                    style: {
+                                        paddingLeft: '16px',
+                                        paddingRight: 16,
+                                    },
                                 },
                             ],
                         },

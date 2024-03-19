@@ -5507,7 +5507,7 @@ exports[`replay/transform transform inputs input gets 0 padding by default but c
                 {
                   "attributes": {
                     "data-rrweb-id": 12361,
-                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;padding-left: 16px;padding-right: 16px;",
                     "type": "text",
                     "value": "",
                   },
