@@ -1,7 +1,9 @@
+from collections import OrderedDict
 from typing import cast
 
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -39,7 +41,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
     # validate that access control is a valid option
     def validate_access_level(self, access_level):
-        if access_level not in ordered_access_levels(self.initial_data["resource"]):
+        if access_level and access_level not in ordered_access_levels(self.initial_data["resource"]):
             raise serializers.ValidationError(
                 f"Invalid access level. Must be one of: {', '.join(ordered_access_levels(self.initial_data['resource']))}"
             )
@@ -71,6 +73,35 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
+class AccessControlLimitOffsetPagination(LimitOffsetPagination):
+    """
+    To help the UI do its job we can return information about the access levels for the requested resource
+    """
+
+    def get_paginated_response(self, data):
+        return Response(
+            OrderedDict(
+                [
+                    ("count", self.count),
+                    ("next", self.get_next_link()),
+                    ("previous", self.get_previous_link()),
+                    ("available_access_levels", ordered_access_levels(self.request.GET.get("resource"))),
+                    ("results", data),
+                ]
+            )
+        )
+
+    def get_paginated_response_schema(self, schema):
+        schema = super().get_paginated_response_schema(schema)
+
+        schema["properties"]["available_access_levels"] = {
+            "type": "array",
+            "items": {"type": "string"},
+        }
+
+        return schema
+
+
 class AccessControlViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -82,6 +113,7 @@ class AccessControlViewSet(
     permission_classes = [PremiumFeaturePermission]
     # NOTE: DashboardCollaborators that should be replaced by this use ADVANCED_PERMISSIONS - what do with that?
     premium_feature = AvailableFeature.PROJECT_BASED_PERMISSIONING
+    pagination_class = AccessControlLimitOffsetPagination
 
     def filter_queryset(self, queryset):
         params = self.request.GET

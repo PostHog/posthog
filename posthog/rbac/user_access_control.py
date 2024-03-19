@@ -29,7 +29,7 @@ except ImportError:
     pass
 
 
-MEMBER_BASED_ACCESS_LEVELS = ["member", "admin"]
+MEMBER_BASED_ACCESS_LEVELS = ["none", "member", "admin"]
 RESOURCE_BASED_ACCESS_LEVELS = ["viewer", "editor"]
 
 
@@ -38,6 +38,12 @@ def ordered_access_levels(resource: APIScopeObject) -> List[str]:
         return MEMBER_BASED_ACCESS_LEVELS
 
     return RESOURCE_BASED_ACCESS_LEVELS
+
+
+def default_access_level(resource: APIScopeObject) -> bool:
+    if resource in ["project", "organization"]:
+        return MEMBER_BASED_ACCESS_LEVELS[0]
+    return RESOURCE_BASED_ACCESS_LEVELS[-1]
 
 
 def access_level_satisfied(resource: APIScopeObject, current_level: str, required_level: str) -> bool:
@@ -122,7 +128,12 @@ class UserAccessControl:
 
         access_controls = self._access_controls_for_object(resource, resource_id)
         if not access_controls:
-            return
+            return AccessControl(
+                organization=self._organization,
+                resource=resource,
+                resource_id=resource_id,
+                access_level=default_access_level(resource),
+            )
 
         return max(
             access_controls,

@@ -53,31 +53,21 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 }
 
 function AccessControlObjectDefaults(): JSX.Element | null {
-    const { accessControlProject, accessControlsLoading, availableLevels } = useValues(accessControlLogic)
-    const { updateAccessControlProject } = useActions(accessControlLogic)
+    const { accessControlDefault, accessControlDefaultOptions, accessControlsLoading } = useValues(accessControlLogic)
+    const { updateAccessControlDefault } = useActions(accessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     return (
         <LemonSelect
-            value={accessControlProject?.access_level ?? null}
+            value={accessControlDefault?.access_level ?? null}
             onChange={(newValue) => {
                 guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => {
-                    updateAccessControlProject(newValue)
+                    updateAccessControlDefault(newValue)
                 })
             }}
             disabledReason={accessControlsLoading ? 'Loading…' : undefined}
             dropdownMatchSelectWidth={false}
-            options={[
-                {
-                    value: null,
-                    label: 'No access by default',
-                },
-                ...availableLevels.map((level) => ({
-                    value: level,
-                    // TODO: Correct "a" and "an"
-                    label: `Everyone is a ${level} by default`,
-                })),
-            ]}
+            options={accessControlDefaultOptions}
         />
     )
 }

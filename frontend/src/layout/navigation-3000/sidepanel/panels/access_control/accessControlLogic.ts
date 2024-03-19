@@ -1,3 +1,4 @@
+import { LemonSelectOption } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -44,7 +45,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControl: (
             accessControl: Pick<AccessControlType, 'access_level' | 'organization_member' | 'team' | 'role'>
         ) => ({ accessControl }),
-        updateAccessControlProject: (level: AccessControlType['access_level']) => ({
+        updateAccessControlDefault: (level: AccessControlType['access_level']) => ({
             level,
         }),
         updateAccessControlRoles: (
@@ -72,7 +73,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     return response?.results || []
                 },
 
-                updateAccessControlProject: async ({ level }) => {
+                updateAccessControlDefault: async ({ level }) => {
                     if (!values.currentTeam) {
                         return values.accessControls
                     }
@@ -121,30 +122,55 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
-        updateAccessControlProjectSuccess: () => actions.loadAccessControls(),
+        updateAccessControlDefaultSuccess: () => actions.loadAccessControls(),
         updateAccessControlRolesSuccess: () => actions.loadAccessControls(),
         updateAccessControlMembersSuccess: () => actions.loadAccessControls(),
     })),
     selectors({
         availableLevels: [
             () => [(_, props) => props],
-            (props): AccessControlTypeProject['access_level'][] => {
+            (props): string[] => {
                 if (!props.resource) {
                     return []
                 }
 
                 if (props.resource === 'project') {
-                    return ['member', 'admin']
+                    return ['none', 'member', 'admin']
                 }
 
                 return ['viewer', 'editor']
             },
         ],
-        accessControlProject: [
-            (s) => [s.accessControls],
-            (accessControls): AccessControlTypeProject | null => {
+
+        accessControlDefaultLevel: [
+            () => [(_, props) => props],
+            (props): string => {
+                if (props.resource === 'project') {
+                    return 'member'
+                }
+
+                return 'editor'
+            },
+        ],
+
+        accessControlDefaultOptions: [
+            (s) => [s.availableLevels],
+            (availableLevels): LemonSelectOption<string>[] => {
+                return availableLevels.map((level) => ({
+                    value: level,
+                    // TODO: Correct "a" and "an"
+                    label: level === 'none' ? 'No access by default' : `Everyone is a ${level} by default`,
+                }))
+            },
+        ],
+        accessControlDefault: [
+            (s) => [s.accessControls, s.accessControlDefaultLevel],
+            (accessControls, accessControlDefaultLevel): AccessControlTypeProject => {
+                const found = accessControls?.find((accessControl) => !!accessControl.team) as AccessControlTypeProject
                 return (
-                    (accessControls?.find((accessControl) => !!accessControl.team) as AccessControlTypeProject) || null
+                    found ?? {
+                        access_level: accessControlDefaultLevel,
+                    }
                 )
             },
         ],

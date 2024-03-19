@@ -60,6 +60,12 @@ class TestAccessControlAPI(APILicensedTest):
         res = self._put_access_control({"team": self.team.id})
         assert res.status_code == status.HTTP_200_OK, res.json()
 
+    def test_project_removed_with_null(self):
+        self._org_membership(OrganizationMembership.Level.OWNER)
+        res = self._put_access_control({"team": self.team.id})
+        res = self._put_access_control({"team": self.team.id, "access_level": None})
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+
     def test_project_change_if_in_access_control(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         # Add ourselves to access
