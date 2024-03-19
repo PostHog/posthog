@@ -35,7 +35,7 @@ def redis_heartbeat() -> None:
 @shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES.value)
 def process_query_task(
     team_id: int,
-    user_id: str,
+    user_id: int,
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext] = None,
