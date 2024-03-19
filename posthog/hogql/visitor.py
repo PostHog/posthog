@@ -248,7 +248,7 @@ class TraversingVisitor(Visitor):
         self.visit(node.expr)
 
     def visit_expression_field_type(self, node: ast.ExpressionFieldType):
-        self.visit(node.expr)
+        pass
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         for attribute in node.attributes:
