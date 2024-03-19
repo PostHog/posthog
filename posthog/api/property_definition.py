@@ -313,6 +313,7 @@ PROPERTY_NAME_ALIASES = {
     "$group_4": "Group 5",
     "$ip": "IP Address",
     "$lib": "Library",
+    "$lib_custom_api_host": "Library Custom API Host",
     "$lib_version": "Library Version",
     "$lib_version__major": "Library Version (Major)",
     "$lib_version__minor": "Library Version (Minor)",
