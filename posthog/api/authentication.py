@@ -40,10 +40,6 @@ from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
 
 
-class UserLoginThrottle(UserOrEmailRateThrottle):
-    rate = "5/minute"
-
-
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     rate = "6/hour"
 
@@ -194,7 +190,7 @@ class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = LoginSerializer
     permission_classes = (permissions.AllowAny,)
-    throttle_classes = [UserLoginThrottle]
+    # NOTE: Throttling is handled by the `axes` package
 
 
 class TwoFactorSerializer(serializers.Serializer):
