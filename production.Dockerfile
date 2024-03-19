@@ -36,7 +36,7 @@ COPY frontend/ frontend/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN pnpm build
+RUN pnpm build && pnpm typescript:check
 
 
 #
@@ -69,7 +69,7 @@ RUN apt-get update && \
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
-RUN pnpm build && pnpm typescript:check
+RUN pnpm build
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder
