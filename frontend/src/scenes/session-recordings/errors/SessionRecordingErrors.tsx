@@ -1,13 +1,18 @@
 import { IconFeatures } from '@posthog/icons'
-import { LemonButton, LemonCollapse, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { JSONViewer } from 'lib/components/JSONViewer'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { ErrorClusterSample } from '~/types'
-
+import { SessionPlayerModal } from '../player/modal/SessionPlayerModal'
+import { sessionPlayerModalLogic } from '../player/modal/sessionPlayerModalLogic'
 import { sessionRecordingErrorsLogic } from './sessionRecordingErrorsLogic'
 
+const MAX_TITLE_LENGTH = 75
+
 export function SessionRecordingErrors(): JSX.Element {
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { errors, errorsLoading } = useValues(sessionRecordingErrorsLogic)
     const { loadErrorClusters } = useActions(sessionRecordingErrorsLogic)
 
@@ -24,57 +29,112 @@ export function SessionRecordingErrors(): JSX.Element {
     }
 
     return (
-        <LemonCollapse
-            panels={errors.map((error) => ({
-                key: error.cluster,
-                header: (
-                    <ErrorPanelHeader
-                        occurrenceCount={error.occurrences}
-                        sessionCount={error.unique_sessions}
-                        example={error.samples[0]}
-                    />
-                ),
-                content: <ErrorPanelContent samples={error.samples} />,
-            }))}
-        />
+        <>
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Error',
+                        dataIndex: 'cluster',
+                        render: (_, cluster) => {
+                            const displayTitle = parseTitle(cluster.sample.error)
+                            return (
+                                <div title={displayTitle} className="font-semibold text-sm text-default line-clamp-1">
+                                    {displayTitle}
+                                </div>
+                            )
+                        },
+                        width: '50%',
+                    },
+                    {
+                        title: 'Occurrences',
+                        dataIndex: 'occurrences',
+                        sorter: (a, b) => a.occurrences - b.occurrences,
+                    },
+                    {
+                        title: 'Sessions',
+                        dataIndex: 'unique_sessions',
+                        sorter: (a, b) => a.unique_sessions - b.unique_sessions,
+                    },
+                    {
+                        title: 'Viewed',
+                        tooltip: "How many of these you've already viewed",
+                        dataIndex: 'viewed',
+                        render: function Render(_, cluster) {
+                            return `${((cluster.viewed / cluster.unique_sessions) * 100).toFixed(0)}%`
+                        },
+                        sorter: (a, b) => a.viewed / a.unique_sessions - b.viewed / b.unique_sessions,
+                    },
+                    {
+                        title: 'Actions',
+                        render: function Render(_, cluster) {
+                            return (
+                                <LemonButton
+                                    to={urls.replaySingle(cluster.sample.session_id)}
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        openSessionPlayer({ id: cluster.sample.session_id })
+                                    }}
+                                    className="p-2 whitespace-nowrap"
+                                    type="primary"
+                                >
+                                    Watch example
+                                </LemonButton>
+                            )
+                        },
+                    },
+                ]}
+                dataSource={errors}
+                expandable={{ expandedRowRender: (cluster) => <ExpandedError error={cluster.sample.error} /> }}
+            />
+            <SessionPlayerModal />
+        </>
     )
 }
 
-const ErrorPanelHeader = ({
-    occurrenceCount,
-    sessionCount,
-    example,
-}: {
-    occurrenceCount: number
-    sessionCount: number
-    example: ErrorClusterSample
-}): JSX.Element => {
-    return (
-        <div className="w-full flex justify-between items-center gap-2">
-            <span className="truncate">{example.input}</span>
-            <div className="flex items-center gap-2">
-                <span className="text-muted">
-                    {occurrenceCount} occurrences / {sessionCount} sessions
-                </span>
-                <LemonButton type="secondary" to={urls.replaySingle(example.session_id)}>
-                    Watch recording
-                </LemonButton>
-            </div>
+const ExpandedError = ({ error }: { error: string }): JSX.Element => {
+    const hasJson = isJSON(error)
+    const [activeTab, setActiveTab] = useState(hasJson ? 'json' : 'raw')
+
+    return hasJson ? (
+        <div className="pb-3">
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                tabs={[
+                    hasJson && {
+                        key: 'json',
+                        label: 'JSON',
+                        content: <JSONViewer src={JSON.parse(error)} style={{ whiteSpace: 'pre-wrap' }} />,
+                    },
+                    { key: 'raw', label: 'Raw', content: <span className="whitespace-pre-line">{error}</span> },
+                ]}
+            />
+        </div>
+    ) : (
+        <div className="py-3 space-y-1">
+            <h3>Example error</h3>
+            <div className="whitespace-pre-line">{error}</div>
         </div>
     )
 }
 
-const ErrorPanelContent = ({ samples }: { samples: ErrorClusterSample[] }): JSX.Element => {
-    return (
-        <div className="flex flex-col space-y-2">
-            {samples.map((error) => (
-                <div key={error.session_id} className="flex justify-between items-center">
-                    <span>{error.input}</span>
-                    <LemonButton type="secondary" to={urls.replaySingle(error.session_id)}>
-                        Watch recording
-                    </LemonButton>
-                </div>
-            ))}
-        </div>
-    )
+function isJSON(str: string): boolean {
+    try {
+        JSON.parse(str)
+        return true
+    } catch {
+        return false
+    }
+}
+
+function parseTitle(error: string): string {
+    let input
+    try {
+        const parsedError = JSON.parse(error)
+        input = parsedError.error || error
+    } catch {
+        input = error
+    }
+
+    return input.split('\n')[0].trim().substring(0, MAX_TITLE_LENGTH)
 }
