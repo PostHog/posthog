@@ -33,7 +33,6 @@ from datetime import datetime, timedelta
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
-from posthog.api.services.unauthenticated_rate_limiter import UserOrEmailRateThrottle
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, authenticate_secondarily
@@ -52,20 +51,6 @@ from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
 from posthog.constants import PERMITTED_FORUM_DOMAINS
-
-
-class UserAuthenticationThrottle(UserOrEmailRateThrottle):
-    rate = "5/minute"
-
-    def allow_request(self, request, view):
-        # only throttle non-GET requests
-        if request.method == "GET":
-            return True
-        return super().allow_request(request, view)
-
-
-class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
-    rate = "6/day"
 
 
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):

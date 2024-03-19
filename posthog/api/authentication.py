@@ -32,16 +32,11 @@ from two_factor.views.utils import (
 )
 
 from posthog.api.email_verification import EmailVerifier
-from posthog.api.services.unauthenticated_rate_limiter import UserOrEmailRateThrottle
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
 from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
-
-
-class UserPasswordResetThrottle(UserOrEmailRateThrottle):
-    rate = "6/hour"
 
 
 @csrf_protect
