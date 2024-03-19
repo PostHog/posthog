@@ -1,37 +1,40 @@
 import hashlib
 import json
 import re
-import time
-from datetime import datetime
-from typing import Any, Dict, Iterator, List, Optional, Tuple
-
 import structlog
+import time
+from datetime import datetime, timedelta
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from enum import Enum
 from kafka.errors import KafkaError, MessageSizeTooLargeError
 from kafka.producer.future import FutureRecordMetadata
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Set
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
+from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
 from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 )
 from posthog.logging.timing import timed
 from posthog.metrics import KLUDGES_COUNTER, LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
+from posthog.redis import get_client
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
@@ -85,6 +88,12 @@ TOKEN_SHAPE_INVALID_COUNTER = Counter(
     labelnames=["reason"],
 )
 
+OVERFLOWING_KEYS_LOADED_GAUGE = Gauge(
+    "capture_overflowing_keys_loaded",
+    "Number of keys loaded for the overflow redirection, per resource_type.",
+    labelnames=[LABEL_RESOURCE_TYPE],
+)
+
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
 # don't refer to the same underlying person we prefer to partition them randomly
@@ -111,6 +120,13 @@ LIKELY_ANONYMOUS_IDS = {
     "undefined",
 }
 
+OVERFLOWING_REDIS_KEY = "@posthog/capture-overflow/"
+
+
+class InputType(Enum):
+    EVENTS = "events"
+    REPLAY = "replay"
+
 
 def build_kafka_event_data(
     distinct_id: str,
@@ -135,7 +151,7 @@ def build_kafka_event_data(
     }
 
 
-def _kafka_topic(event_name: str, data: Dict, historical: bool = False) -> str:
+def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = False) -> str:
     # To allow for different quality of service on session recordings
     # and other events, we push to a different topic.
 
@@ -143,6 +159,8 @@ def _kafka_topic(event_name: str, data: Dict, historical: bool = False) -> str:
         case "$snapshot":
             return KAFKA_SESSION_RECORDING_EVENTS
         case "$snapshot_items":
+            if overflowing:
+                return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         case _:
             # If the token is in the TOKENS_HISTORICAL_DATA list, we push to the
@@ -158,8 +176,9 @@ def log_event(
     partition_key: Optional[str],
     headers: Optional[List] = None,
     historical: bool = False,
+    overflowing: bool = False,
 ) -> FutureRecordMetadata:
-    kafka_topic = _kafka_topic(event_name, data, historical=historical)
+    kafka_topic = _kafka_topic(event_name, historical=historical, overflowing=overflowing)
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
@@ -589,13 +608,20 @@ def capture_internal(
     kafka_partition_key = None
 
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
-        kafka_partition_key = event["properties"]["$session_id"]
-
+        session_id = event["properties"]["$session_id"]
         headers = [
             ("token", token),
         ] + extra_headers
 
-        return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, headers=headers)
+        overflowing = False
+        if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
+            overflowing = True
+        elif settings.REPLAY_OVERFLOW_SESSIONS_ENABLED:
+            overflowing = session_id in _list_overflowing_keys(InputType.REPLAY)
+
+        return log_event(
+            parsed_event, event["event"], partition_key=session_id, headers=headers, overflowing=overflowing
+        )
 
     candidate_partition_key = f"{token}:{distinct_id}"
 
@@ -657,3 +683,19 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
     keys_to_override = settings.EVENT_PARTITION_KEYS_TO_OVERRIDE
 
     return candidate_partition_key in keys_to_override
+
+
+@cache_for(timedelta(seconds=30), background_refresh=True)
+def _list_overflowing_keys(input_type: InputType) -> Set[str]:
+    """Retrieve the active overflows from Redis with caching and pre-fetching
+
+    cache_for will keep the old value if Redis is temporarily unavailable.
+    In case of a prolonged Redis outage, new pods would fail to retrieve anything and fail
+    to ingest, but Django is currently unable to start if the common Redis is unhealthy.
+    Setting REPLAY_OVERFLOW_SESSIONS_ENABLED back to false neutralizes this code path.
+    """
+    now = timezone.now()
+    redis_client = get_client()
+    results = redis_client.zrangebyscore(f"{OVERFLOWING_REDIS_KEY}{input_type.value}", min=now.timestamp(), max="+inf")
+    OVERFLOWING_KEYS_LOADED_GAUGE.labels(input_type.value).set(len(results))
+    return {x.decode("utf-8") for x in results}
