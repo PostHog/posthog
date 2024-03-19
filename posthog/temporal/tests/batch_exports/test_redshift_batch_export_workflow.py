@@ -433,6 +433,7 @@ async def test_redshift_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 100
 
     await assert_clickhouse_records_in_redshfit(
         redshift_connection=psycopg_connection,
@@ -559,3 +560,4 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
     run = runs[0]
     assert run.status == "Failed"
     assert run.latest_error == "InsufficientPrivilege: A useful error message"
+    assert run.records_completed == 0
