@@ -16,7 +16,7 @@ import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
 
 const counterLibVersionWarning = new Counter({
     name: 'lib_version_warning_counter',
-    help: 'the number of times we have seen aa message with a lib version that is too old, each _might_ cause an ingestion warning if not debounced',
+    help: 'the number of times we have seen a message with a lib version that is too old, each _might_ cause an ingestion warning if not debounced',
 })
 
 // Helper to return now as a milliseconds timestamp
