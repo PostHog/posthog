@@ -507,8 +507,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
         reportCommandBarActionSearch: (query: string) => ({ query }),
         reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
+        reportBillingCTAShown: true,
     }),
     listeners(({ values }) => ({
+        reportBillingCTAShown: () => {
+            posthog.capture('billing CTA shown')
+        },
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },

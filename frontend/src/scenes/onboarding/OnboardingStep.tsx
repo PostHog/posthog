@@ -96,6 +96,7 @@ export const OnboardingStep = ({
                                 onSkip && onSkip()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
+                            data-attr="onboarding-skip-button"
                         >
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
@@ -106,6 +107,7 @@ export const OnboardingStep = ({
                         <LemonButton
                             type="primary"
                             status="alt"
+                            data-attr="onboarding-continue"
                             onClick={() => {
                                 continueAction && continueAction()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()

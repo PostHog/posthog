@@ -297,6 +297,11 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     return results
 
 
+def lib_version_from_query_params(request) -> str:
+    # url has a ver parameter from posthog-js
+    return request.GET.get("ver", "unknown")
+
+
 @csrf_exempt
 @timed("posthog_cloud_event_endpoint")
 def get_event(request):
@@ -475,6 +480,8 @@ def get_event(request):
 
     try:
         if replay_events:
+            lib_version = lib_version_from_query_params(request)
+
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
@@ -496,6 +503,7 @@ def get_event(request):
                             sent_at,
                             event_uuid,
                             token,
+                            extra_headers=[("lib_version", lib_version)],
                         )
                     )
 
@@ -546,9 +554,23 @@ def parse_event(event):
     return event
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=None, token=None, historical=False):
+def capture_internal(
+    event,
+    distinct_id,
+    ip,
+    site_url,
+    now,
+    sent_at,
+    event_uuid=None,
+    token=None,
+    historical=False,
+    extra_headers: List[Tuple[str, str]] | None = None,
+):
     if event_uuid is None:
         event_uuid = UUIDT()
+
+    if extra_headers is None:
+        extra_headers = []
 
     parsed_event = build_kafka_event_data(
         distinct_id=distinct_id,
@@ -568,16 +590,18 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
 
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         kafka_partition_key = event["properties"]["$session_id"]
+
         headers = [
             ("token", token),
-        ]
+        ] + extra_headers
+
         return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, headers=headers)
 
     candidate_partition_key = f"{token}:{distinct_id}"
 
     if (
         distinct_id.lower() not in LIKELY_ANONYMOUS_IDS
-        and is_randomly_partitioned(candidate_partition_key) is False
+        and not is_randomly_partitioned(candidate_partition_key)
         or historical
     ):
         kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
@@ -613,7 +637,7 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
     if settings.PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED:
         has_capacity = LIMITER.consume(candidate_partition_key)
 
-        if has_capacity is False:
+        if not has_capacity:
             if not LOG_RATE_LIMITER.consume(candidate_partition_key):
                 # Return early if we have logged this key already.
                 return True

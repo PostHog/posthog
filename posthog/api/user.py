@@ -23,7 +23,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
+
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
@@ -46,25 +46,12 @@ from posthog.models import Team, User, UserScenePersonalisation, Dashboard
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.permissions import APIScopePermission
+from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
 from posthog.constants import PERMITTED_FORUM_DOMAINS
-
-
-class UserAuthenticationThrottle(UserRateThrottle):
-    rate = "5/minute"
-
-    def allow_request(self, request, view):
-        # only throttle non-GET requests
-        if request.method == "GET":
-            return True
-        return super().allow_request(request, view)
-
-
-class UserEmailVerificationThrottle(UserRateThrottle):
-    rate = "6/day"
 
 
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
