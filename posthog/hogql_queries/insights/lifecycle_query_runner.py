@@ -157,6 +157,7 @@ class LifecycleQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
         # TODO: can we move the data conversion part into the query as well? It would make it easier to swap
