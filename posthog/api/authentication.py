@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import time
 from typing import Any, Dict, Optional, cast
 from uuid import uuid4
@@ -22,7 +23,6 @@ from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
 from sentry_sdk import capture_exception
 from social_django.views import auth
 from two_factor.utils import default_device
@@ -33,6 +33,7 @@ from two_factor.views.utils import (
 )
 
 from posthog.api.email_verification import EmailVerifier
+from posthog.api.services.unauthenticated_rate_limiter import UserOrEmailRateThrottle
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
@@ -40,8 +41,12 @@ from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
 
 
-class UserPasswordResetThrottle(UserRateThrottle):
-    rate = "6/day"
+class UserLoginThrottle(UserOrEmailRateThrottle):
+    rate = "5/minute"
+
+
+class UserPasswordResetThrottle(UserOrEmailRateThrottle):
+    rate = "6/hour"
 
 
 @csrf_protect
@@ -190,6 +195,7 @@ class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = LoginSerializer
     permission_classes = (permissions.AllowAny,)
+    throttle_classes = [UserLoginThrottle]
 
 
 class TwoFactorSerializer(serializers.Serializer):
