@@ -46,6 +46,7 @@ from posthog.models import Team, User, UserScenePersonalisation, Dashboard
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.permissions import APIScopePermission
+from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
