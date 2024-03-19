@@ -673,6 +673,7 @@ async def execute_batch_export_insert_activity(
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )
+        update_inputs.records_completed = records_completed
 
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
@@ -693,7 +694,6 @@ async def execute_batch_export_insert_activity(
     finally:
         get_export_finished_metric(status=update_inputs.status.lower()).add(1)
 
-        update_inputs.records_completed = records_completed
         await workflow.execute_activity(
             update_export_run_status,
             update_inputs,
