@@ -136,6 +136,7 @@ export class SessionRecordingIngesterV3 {
          */
         this.promises.add(promise)
 
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         promise.finally(() => this.promises.delete(promise))
 
         return promise
