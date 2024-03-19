@@ -152,7 +152,7 @@ export async function eachBatchParallelIngestion(
                                 {
                                     overflowDistinctId: distinct_id,
                                 },
-                                distinct_id
+                                { key: distinct_id }
                             )
                         )
                     }

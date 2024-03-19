@@ -67,10 +67,10 @@ export async function captureIngestionWarning(
     teamId: TeamId,
     type: string,
     details: Record<string, any>,
-    debounce_key?: string
+    debounce?: { key?: string; neverDebounce?: boolean }
 ) {
-    const limiter_key = `${teamId}:${type}:${debounce_key}`
-    if (IngestionWarningLimiter.consume(limiter_key, 1)) {
+    const limiter_key = `${teamId}:${type}:${debounce?.key || ''}`
+    if (!!debounce?.neverDebounce || IngestionWarningLimiter.consume(limiter_key, 1)) {
         await kafkaProducer.queueMessage({
             topic: KAFKA_INGESTION_WARNINGS,
             messages: [

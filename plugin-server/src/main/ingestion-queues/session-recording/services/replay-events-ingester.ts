@@ -144,7 +144,7 @@ export class ReplayEventsIngester {
                                 daysFromNow: Math.round(Math.abs(asDate.diffNow('day').days)),
                                 processingTimestamp: DateTime.now().toISO(),
                             },
-                            event.session_id
+                            { key: event.session_id }
                         )
                         return drop('invalid_timestamp')
                     }
