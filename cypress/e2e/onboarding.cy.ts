@@ -31,10 +31,10 @@ describe('Onboarding', () => {
 
         // Confirm we're on the product_intro page
         cy.get('[data-attr=top-bar-name] > span').contains('Onboarding')
-        cy.get('[data-attr=product-intro-title]').contains('Watch how users experience your app')
+        cy.get('[data-attr=product-intro-title]').contains('Product analytics with autocapture')
 
-        cy.get('[data-attr=start-onboarding]').should('be.visible')
-        cy.get('[data-attr=skip-onboarding]').should('not.exist')
+        cy.get('[data-attr=start-onboarding-sdk]').should('be.visible')
+        cy.get('[data-attr=skip-onboarding]').should('be.visible')
     })
 
     it('Step through PA onboarding', () => {
@@ -62,7 +62,7 @@ describe('Onboarding', () => {
         cy.get('table.PlanComparison').should('be.visible')
 
         // Confirm buttons on pricing comparison
-        cy.get('[data-attr=upgrade-Paid] .LemonButton__content').should('have.text', 'Subscribe')
+        cy.get('[data-attr=upgrade-Paid] .LemonButton__content').should('have.text', 'Upgrade')
         cy.get('[data-attr=upgrade-Free] .LemonButton__content').should('have.text', 'Current plan')
 
         // Continue
@@ -113,7 +113,7 @@ describe('Onboarding', () => {
         cy.get('.BillingHero').should('be.visible')
         cy.get('table.PlanComparison').should('be.visible')
         // Confirm buttons on pricing comparison
-        cy.get('[data-attr=upgrade-Paid] .LemonButton__content').should('have.text', 'Subscribe')
+        cy.get('[data-attr=upgrade-Paid] .LemonButton__content').should('have.text', 'Upgrade')
         cy.get('[data-attr=upgrade-Free] .LemonButton__content').should('have.text', 'Current plan')
         // Continue through to finish
         cy.get('[data-attr=onboarding-skip-button]').click()
@@ -168,7 +168,7 @@ describe('Onboarding', () => {
         cy.get('table.PlanComparison').should('be.visible')
 
         // Confirm buttons on pricing comparison
-        cy.get('[data-attr=upgrade-Paid] .LemonButton__content').should('have.text', 'Subscribe')
+        cy.get('[data-attr=upgrade-Paid] .LemonButton__content').should('have.text', 'Upgrade')
         cy.get('[data-attr=upgrade-Free] .LemonButton__content').should('have.text', 'Current plan')
 
         // Continue

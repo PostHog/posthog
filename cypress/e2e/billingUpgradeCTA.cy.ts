@@ -51,7 +51,7 @@ describe('Billing Upgrade CTA', () => {
             const events = (win as any)._cypress_posthog_captures
 
             const matchingEvents = events.filter((event) => event.event === 'billing CTA shown')
-            expect(matchingEvents.length).to.equal(3)
+            expect(matchingEvents.length).to.equal(4)
         })
     })
 })
