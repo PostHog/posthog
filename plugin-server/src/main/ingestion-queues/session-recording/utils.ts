@@ -2,6 +2,7 @@ import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
+import { Counter } from 'prom-client'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
@@ -12,6 +13,11 @@ import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
+
+const counterLibVersionWarning = new Counter({
+    name: 'lib_version_warning_counter',
+    help: 'the number of times we have seen aa message with a lib version that is too old, each _might_ cause an ingestion warning if not debounced',
+})
 
 // Helper to return now as a milliseconds timestamp
 export const now = () => DateTime.now().toMillis()
@@ -203,6 +209,8 @@ export const parseKafkaMessage = async (
         const libVersion = readLibVersionFromHeaders(message.headers)
         const minorVersion = minorVersionFrom(libVersion)
         if (minorVersion && minorVersion <= 74) {
+            counterLibVersionWarning.inc()
+
             await captureIngestionWarning(
                 ingestionWarningProducer,
                 teamIdWithConfig.teamId,
