@@ -77,6 +77,7 @@ export function ProductCard({
                             e.stopPropagation()
                             router.actions.push(getProductUri(product.type as ProductKey))
                         }}
+                        data-attr={`return-to-${product.type}`}
                     >
                         <Icons.IconCheckCircle className="absolute top-0 right-0" color="green" />
                     </div>

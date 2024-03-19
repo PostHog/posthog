@@ -230,6 +230,7 @@ class TestCapture(BaseTest):
         distinct_id="ghi789",
         timestamp=1658516991883,
         content_type: str | None = None,
+        query_params: str = "",
     ) -> HttpResponse:
         if event_data is None:
             # event_data is an array of RRWeb events
@@ -262,7 +263,7 @@ class TestCapture(BaseTest):
             post_data = {"api_key": self.team.api_token, "data": json.dumps([event for _ in range(number_of_events)])}
 
         return self.client.post(
-            "/s/",
+            "/s/" + "?" + query_params if query_params else "/s/",
             data=post_data,
             content_type=content_type or MULTIPART_CONTENT,
         )
@@ -1604,7 +1605,30 @@ class TestCapture(BaseTest):
         ):
             self._send_august_2023_version_session_recording_event()
 
-            assert kafka_produce.mock_calls[0].kwargs["headers"] == [("token", "token123")]
+            assert kafka_produce.mock_calls[0].kwargs["headers"] == [
+                ("token", "token123"),
+                (
+                    # without setting a version in the URL the default is unknown
+                    "lib_version",
+                    "unknown",
+                ),
+            ]
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_read_version_from_request(self, kafka_produce: MagicMock) -> None:
+        with self.settings(
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
+        ):
+            self._send_august_2023_version_session_recording_event(query_params="ver=1.123.4")
+
+            assert kafka_produce.mock_calls[0].kwargs["headers"] == [
+                ("token", "token123"),
+                (
+                    # without setting a version in the URL the default is unknown
+                    "lib_version",
+                    "1.123.4",
+                ),
+            ]
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
