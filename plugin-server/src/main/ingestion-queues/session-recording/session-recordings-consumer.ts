@@ -1,13 +1,22 @@
 import { captureException } from '@sentry/node'
 import crypto from 'crypto'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
+import {
+    CODES,
+    features,
+    HighLevelProducer,
+    KafkaConsumer,
+    librdkafkaVersion,
+    Message,
+    TopicPartition,
+} from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
+import { createKafkaProducer } from '../../../kafka/producer'
 import { PluginsServerConfig, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
@@ -143,6 +152,7 @@ export class SessionRecordingIngester {
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
     // this allows us to output more information for that partition
     private debugPartition: number | undefined = undefined
+    private ingestionWarningProducer?: HighLevelProducer
 
     constructor(
         private globalServerConfig: PluginsServerConfig,
@@ -227,7 +237,6 @@ export class SessionRecordingIngester {
          */
         this.promises.add(promise)
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         promise.finally(() => this.promises.delete(promise))
 
         return promise
@@ -326,11 +335,14 @@ export class SessionRecordingIngester {
 
                             counterKafkaMessageReceived.inc({ partition })
 
-                            const recordingMessage = await parseKafkaMessage(message, (token) =>
-                                this.teamsRefresher.get().then((teams) => ({
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                }))
+                            const recordingMessage = await parseKafkaMessage(
+                                message,
+                                (token) =>
+                                    this.teamsRefresher.get().then((teams) => ({
+                                        teamId: teams[token]?.teamId || null,
+                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                    })),
+                                this.ingestionWarningProducer
                             )
 
                             if (recordingMessage) {
@@ -505,6 +517,10 @@ export class SessionRecordingIngester {
             status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
             await this.stop()
         })
+
+        const producerConfig = createRdProducerConfigFromEnvVars(this.config)
+        this.ingestionWarningProducer = await createKafkaProducer(connectionConfig, producerConfig)
+        this.ingestionWarningProducer.connect()
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
