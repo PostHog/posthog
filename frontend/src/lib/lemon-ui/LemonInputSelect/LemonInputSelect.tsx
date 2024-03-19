@@ -25,7 +25,7 @@ export type LemonInputSelectProps = {
     disableFiltering?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
-    onChange?: (newValue: string[]) => void
+    onChange?: (newValue: string[] | string) => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
 }
@@ -114,7 +114,7 @@ export function LemonInputSelect({
             setInputValue('')
         }
 
-        onChange?.(newValues)
+        onChange?.(mode === 'single' ? newValues?.[0] ?? newValues : newValues)
     }
 
     const _onBlur = (): void => {
@@ -157,7 +157,7 @@ export function LemonInputSelect({
             }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
-            setSelectedIndex(Math.min(selectedIndex + 1, options.length - 1))
+            setSelectedIndex(Math.min(selectedIndex + 1, visibleOptions.length - 1))
         } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setSelectedIndex(Math.max(selectedIndex - 1, 0))
@@ -214,7 +214,7 @@ export function LemonInputSelect({
                                     onClick={() => _onActionItem(option.key)}
                                     onMouseEnter={() => setSelectedIndex(index)}
                                 >
-                                    <span className="flex-1 flex items-center justify-between gap-1">
+                                    <span className="flex items-center justify-between flex-1 gap-1">
                                         {option.labelComponent ?? option.label}
                                         {isHighlighted ? (
                                             <span>
@@ -235,14 +235,14 @@ export function LemonInputSelect({
                     ) : loading ? (
                         <>
                             {range(5).map((x) => (
-                                <div key={x} className="flex gap-2 items-center h-10 px-1">
+                                <div key={x} className="flex items-center h-10 gap-2 px-1">
                                     <LemonSkeleton.Circle className="w-6 h-6" />
                                     <LemonSkeleton />
                                 </div>
                             ))}
                         </>
                     ) : (
-                        <p className="text-muted italic p-1">
+                        <p className="p-1 italic text-muted">
                             {allowCustomValues
                                 ? 'Start typing and press Enter to add options'
                                 : `No options matching "${inputValue}"`}
