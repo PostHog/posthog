@@ -37,6 +37,15 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
         return resource
 
+    # validate that access control is a valid option
+    def validate_access_level(self, access_level):
+        if access_level not in ordered_access_levels(self.initial_data["resource"]):
+            raise serializers.ValidationError(
+                f"Invalid access level. Must be one of: {', '.join(ordered_access_levels(self.initial_data['resource']))}"
+            )
+
+        return access_level
+
     def validate(self, data):
         # Ensure that only one of team, organization_member, or role is set
         if sum([bool(data.get("team")), bool(data.get("organization_member")), bool(data.get("role"))]) != 1:

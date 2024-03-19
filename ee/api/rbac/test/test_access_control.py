@@ -86,8 +86,12 @@ class TestAccessControlAPI(APILicensedTest):
 
     def test_project_change_rejected_if_not_in_organization(self):
         self.organization_membership.delete()
-        # Add ourselves to access
         res = self._put_access_control(
             {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
         )
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+    def test_project_change_rejected_if_bad_access_level(self):
+        res = self._put_access_control({"team": self.team.id, "access_level": "bad"})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["detail"] == "Invalid access level. Must be one of: member, admin", res.json()
