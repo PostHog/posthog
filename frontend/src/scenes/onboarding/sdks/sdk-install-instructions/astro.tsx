@@ -13,7 +13,7 @@ touch posthog.astro`}
     )
 }
 
-export function AstroSetupSnippet(): JSX.Element {
+function AstroSetupSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     return (
         <>

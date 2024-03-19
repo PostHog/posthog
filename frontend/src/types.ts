@@ -3743,6 +3743,7 @@ export enum SDKKey {
     ANGULAR = 'angular',
     ASTRO = 'astro',
     API = 'api',
+    BUBBLE = 'bubble',
     DOCUSAURUS = 'docusaurus',
     ELIXIR = 'elixir',
     FLUTTER = 'flutter',

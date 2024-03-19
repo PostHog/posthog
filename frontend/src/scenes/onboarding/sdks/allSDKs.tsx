@@ -34,6 +34,13 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/astro',
     },
     {
+        name: 'Bubble',
+        key: SDKKey.BUBBLE,
+        tags: [SDKTag.WEB],
+        image: require('./logos/bubble.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/bubble',
+    },
+    {
         name: 'React',
         key: SDKKey.REACT,
         tags: [SDKTag.WEB, SDKTag.RECOMMENDED],
