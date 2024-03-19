@@ -434,6 +434,23 @@ class TestPasswordResetAPI(APIBaseTest):
         # Three emails should be sent, fourth should not
         self.assertEqual(len(mail.outbox), 6)
 
+    def test_is_rate_limited_on_email_not_ip(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        for email in ["email@posthog.com", "other-email@posthog.com"]:
+            for i in range(7):
+                with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+                    response = self.client.post("/api/reset/", {"email": email})
+                if i < 6:
+                    self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+                else:
+                    # Fourth request should fail
+                    self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                    self.assertDictContainsSubset(
+                        {"attr": None, "code": "throttled", "type": "throttled_error"},
+                        response.json(),
+                    )
+
     # Token validation
 
     def test_can_validate_token(self):
