@@ -110,7 +110,7 @@ export function SDKs({
                             allowClear
                             onChange={(v) => setSourceFilter(v)}
                             options={sourceOptions}
-                            placeholder="Select a framework type"
+                            placeholder="Select a source type"
                             value={sourceFilter}
                             fullWidth
                         />
