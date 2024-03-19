@@ -31,7 +31,6 @@ from posthog.test.base import (
     snapshot_postgres_queries,
     FuzzyInt,
     _create_event,
-    snapshot_clickhouse_queries,
 )
 
 
@@ -62,8 +61,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
     @snapshot_postgres_queries
-    @snapshot_clickhouse_queries
-    @freeze_time("2023-01-01T12:00:00.000Z")
+    # we can't take snapshots of the CH queries
+    # because we use `now()` in the CH queries which don't know about any frozen time
+    # @snapshot_clickhouse_queries
     def test_get_session_recordings(self):
         twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
 
