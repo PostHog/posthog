@@ -116,6 +116,7 @@ export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
             projected_amount_usd: '0',
             plans: [],
             usage_key: '',
+            contact_support: false,
         },
     ]
 

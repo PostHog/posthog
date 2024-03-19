@@ -14,6 +14,7 @@
         "discord_integration",
         "apps",
         "boolean_flags",
+        "multivariate_flags",
         "persist_flags_cross_authentication",
         "feature_flag_payloads",
         "multiple_release_conditions",
@@ -21,6 +22,10 @@
         "targeting_by_group",
         "local_evaluation_and_bootstrapping",
         "flag_usage_stats",
+        "experimentation",
+        "funnel_experiments",
+        "secondary_metrics",
+        "statistical_analysis",
         "feature_flags_data_retention",
         "console_logs",
         "recordings_performance",
@@ -174,6 +179,14 @@
             "note": null
         },
         {
+            "key": "multivariate_flags",
+            "name": "Multivariate feature flags & experiments",
+            "description": "Create three or more variants of a feature flag to test or release different versions of a feature.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
             "key": "persist_flags_cross_authentication",
             "name": "Persist flags across authentication",
             "description": "Persist feature flags across authentication events so that flag values don't change when an anonymous user logs in and becomes identified.",
@@ -225,6 +238,38 @@
             "key": "flag_usage_stats",
             "name": "Flag usage stats",
             "description": "See how many times a flag has been evaluated, how many times each variant has been returned, and what values users received.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "experimentation",
+            "name": "A/B testing",
+            "description": "Test changes to your product and evaluate the impacts those changes make.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "funnel_experiments",
+            "name": "Funnel & trend experiments",
+            "description": "Measure the impact of a change on a aggregate values or a series of events, like a signup flow.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "secondary_metrics",
+            "name": "Secondary experiment metrics",
+            "description": "Track additional metrics to see how your experiment affects other parts of your app or different flows.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "statistical_analysis",
+            "name": "Statistical analysis",
+            "description": "Get a statistical analysis of your experiment results to see if the results are significant, or if they're likely just due to chance.",
             "unit": null,
             "limit": null,
             "note": null
@@ -1718,6 +1763,14 @@
                             "note": null
                         },
                         {
+                            "key": "multivariate_flags",
+                            "name": "Multivariate feature flags & experiments",
+                            "description": "Create three or more variants of a feature flag to test or release different versions of a feature.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
                             "key": "persist_flags_cross_authentication",
                             "name": "Persist flags across authentication",
                             "description": "Persist feature flags across authentication events so that flag values don't change when an anonymous user logs in and becomes identified.",
@@ -1769,6 +1822,38 @@
                             "key": "flag_usage_stats",
                             "name": "Flag usage stats",
                             "description": "See how many times a flag has been evaluated, how many times each variant has been returned, and what values users received.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "experimentation",
+                            "name": "A/B testing",
+                            "description": "Test changes to your product and evaluate the impacts those changes make.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "funnel_experiments",
+                            "name": "Funnel & trend experiments",
+                            "description": "Measure the impact of a change on a aggregate values or a series of events, like a signup flow.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "secondary_metrics",
+                            "name": "Secondary experiment metrics",
+                            "description": "Track additional metrics to see how your experiment affects other parts of your app or different flows.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "statistical_analysis",
+                            "name": "Statistical analysis",
+                            "description": "Get a statistical analysis of your experiment results to see if the results are significant, or if they're likely just due to chance.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -1880,14 +1965,6 @@
                             "note": null
                         },
                         {
-                            "key": "group_experiments",
-                            "name": "Group experiments",
-                            "description": "Target experiments to specific groups of users so everyone in the same group gets the same variant.",
-                            "unit": null,
-                            "limit": null,
-                            "note": null
-                        },
-                        {
                             "key": "funnel_experiments",
                             "name": "Funnel & trend experiments",
                             "description": "Measure the impact of a change on a aggregate values or a series of events, like a signup flow.",
@@ -1907,6 +1984,22 @@
                             "key": "statistical_analysis",
                             "name": "Statistical analysis",
                             "description": "Get a statistical analysis of your experiment results to see if the results are significant, or if they're likely just due to chance.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "group_experiments",
+                            "name": "Group experiments",
+                            "description": "Target experiments to specific groups of users so everyone in the same group gets the same variant.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "multiple_environments",
+                            "name": "Multi-environment support",
+                            "description": "Test flags in local development or staging by using the same flag key across PostHog projects.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -3637,5 +3730,11 @@
     "discount_amount_usd": null,
     "amount_off_expires_at": null,
     "never_drop_data": null,
-    "stripe_portal_url": "https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QZzdwUjRPMXBobnRsdHdKaDVpbEVzbkREcE9RQnFT0100S0djyn8G"
+    "customer_trust_scores": {
+        "surveys": 0,
+        "feature_flags": 0,
+        "session_replay": 3,
+        "product_analytics": 3
+    },
+    "stripe_portal_url": "https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QaEVaQ0hCTUE0aE8wUFhlVWVqd29MaElGd3lwRjFa010044U4IxJp"
 }
