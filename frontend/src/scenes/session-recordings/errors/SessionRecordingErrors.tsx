@@ -9,6 +9,8 @@ import { SessionPlayerModal } from '../player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from '../player/modal/sessionPlayerModalLogic'
 import { sessionRecordingErrorsLogic } from './sessionRecordingErrorsLogic'
 
+const MAX_TITLE_LENGTH = 75
+
 export function SessionRecordingErrors(): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { errors, errorsLoading } = useValues(sessionRecordingErrorsLogic)
@@ -126,10 +128,13 @@ function isJSON(str: string): boolean {
 }
 
 function parseTitle(error: string): string {
+    let input
     try {
         const parsedError = JSON.parse(error)
-        return parsedError.error || error
+        input = parsedError.error || error
     } catch {
-        return error
+        input = error
     }
+
+    return input.split('\n')[0].trim().substring(0, MAX_TITLE_LENGTH)
 }
