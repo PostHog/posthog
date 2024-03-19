@@ -135,7 +135,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 }
 
                 if (props.resource === 'project') {
-                    return ['none', 'member', 'admin']
+                    return ['member', 'admin']
                 }
 
                 return ['viewer', 'editor']
@@ -154,13 +154,22 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
 
         accessControlDefaultOptions: [
-            (s) => [s.availableLevels],
-            (availableLevels): LemonSelectOption<string>[] => {
-                return availableLevels.map((level) => ({
+            (s) => [s.availableLevels, (_, props) => props.resource],
+            (availableLevels, resource): LemonSelectOption<string>[] => {
+                const options = availableLevels.map((level) => ({
                     value: level,
                     // TODO: Correct "a" and "an"
-                    label: level === 'none' ? 'No access by default' : `Everyone is a ${level} by default`,
+                    label: `Everyone is a ${level} by default`,
                 }))
+
+                if (resource === 'project') {
+                    options.unshift({
+                        value: 'none',
+                        label: 'No access by default',
+                    })
+                }
+
+                return options
             },
         ],
         accessControlDefault: [

@@ -5,20 +5,10 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 
 
-class TestAccessControlAPI(APILicensedTest):
-    # def _create_access_control(
-    #     self, resource="project", resource_id=None, access_level="admin", organization_member=None, team=None, role=None
-    # ):
-    #     return AccessControl.objects.create(
-    #         organization=self.organization,
-    #         resource=resource,
-    #         resource_id=resource_id or self.team.id,
-    #         access_level=access_level,
-    #         # Targets
-    #         organization_member=organization_member,
-    #         team=team,
-    #         role=role,
-    #     )
+class BaseAccessControlTest(APILicensedTest):
+    default_resource = "project"
+    default_resource_id = None
+    default_access_level = "admin"
 
     def setUp(self):
         super().setUp()
@@ -28,11 +18,13 @@ class TestAccessControlAPI(APILicensedTest):
         ]
         self.organization.save()
 
+        self.default_resource_id = self.team.id
+
     def _put_access_control(self, data):
         payload = {
-            "resource": "project",
-            "resource_id": self.team.id,
-            "access_level": "admin",
+            "resource": self.default_resource,
+            "resource_id": self.default_resource_id,
+            "access_level": self.default_access_level,
         }
 
         payload.update(data)
@@ -45,6 +37,8 @@ class TestAccessControlAPI(APILicensedTest):
         self.organization_membership.level = level
         self.organization_membership.save()
 
+
+class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
     def test_project_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         res = self._put_access_control({"team": self.team.id})
@@ -100,4 +94,15 @@ class TestAccessControlAPI(APILicensedTest):
     def test_project_change_rejected_if_bad_access_level(self):
         res = self._put_access_control({"team": self.team.id, "access_level": "bad"})
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
-        assert res.json()["detail"] == "Invalid access level. Must be one of: member, admin", res.json()
+        assert res.json()["detail"] == "Invalid access level. Must be one of: none, member, admin", res.json()
+
+
+class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
+    default_resource = "dashboard"
+    default_resource_id = 1
+    default_access_level = "editor"
+
+    def test_change_rejected_if_not_org_admin(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self._put_access_control({"team": self.team.id})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()

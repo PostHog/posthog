@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { LemonButton } from '../LemonButton'
-import { LemonDropdown } from '../LemonDropdown'
+import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { LemonInput } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
 
@@ -28,6 +28,7 @@ export type LemonInputSelectProps = {
     onChange?: (newValue: string[]) => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
+    dropdownProps?: Partial<LemonDropdownProps>
 }
 
 export function LemonInputSelect({
@@ -41,6 +42,7 @@ export function LemonInputSelect({
     disabled,
     disableFiltering = false,
     allowCustomValues = false,
+    dropdownProps = {},
     ...props
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
@@ -187,9 +189,10 @@ export function LemonInputSelect({
 
     return (
         <LemonDropdown
-            closeOnClickInside={false}
-            visible={showPopover}
             sameWidth
+            closeOnClickInside={false}
+            {...dropdownProps}
+            visible={showPopover}
             actionable
             onClickOutside={() => {
                 popoverFocusRef.current = false

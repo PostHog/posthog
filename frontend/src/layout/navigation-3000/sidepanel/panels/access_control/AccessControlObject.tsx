@@ -171,7 +171,8 @@ function AccessControlObjectUsers(): JSX.Element | null {
 }
 
 function AccessControlObjectRoles(): JSX.Element | null {
-    const { accessControlRoles, accessControlsLoading, addableRoles, rolesById } = useValues(accessControlLogic)
+    const { accessControlRoles, accessControlsLoading, addableRoles, rolesById, availableLevels } =
+        useValues(accessControlLogic)
     const { updateAccessControlRoles } = useAsyncActions(accessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
@@ -249,7 +250,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                     key: role.id,
                     label: role.name,
                 }))}
-                levels={['member', 'admin']}
+                levels={availableLevels}
             />
 
             <LemonTable columns={columns} dataSource={accessControlRoles} loading={accessControlsLoading} />
@@ -371,20 +372,21 @@ function AddItemsControls(props: {
     }[]
     levels: AccessControlType['access_level'][]
 }): JSX.Element | null {
+    // TODO: Move this into a form logic
     const [items, setItems] = useState<string[]>([])
-    const [level, setLevel] = useState<AccessControlType['access_level']>(null)
+    const [level, setLevel] = useState<AccessControlType['access_level']>(props.levels[0] ?? null)
 
     const onSubmit =
         items.length && level
             ? (): void =>
                   void props.onAdd(items, level).then(() => {
                       setItems([])
-                      setLevel(null)
+                      setLevel(props.levels[0] ?? null)
                   })
             : undefined
 
     return (
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
             <div className="min-w-[16rem]">
                 <LemonInputSelect
                     placeholder={props.placeholder}
@@ -392,6 +394,9 @@ function AddItemsControls(props: {
                     onChange={(newValues: string[]) => setItems(newValues)}
                     mode="multiple"
                     options={props.options}
+                    dropdownProps={{
+                        sameWidth: false,
+                    }}
                 />
             </div>
             <SimplLevelComponent level={level} onChange={setLevel} />
