@@ -69,7 +69,7 @@ RUN apt-get update && \
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
-RUN pnpm build
+RUN pnpm build && pnpm typescript:check
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder
