@@ -40,7 +40,6 @@ export function PasswordReset(): JSX.Element {
                 )
             )}
             <h2>Reset password</h2>
-            <ResetThrottled />
             {preflightLoading ? (
                 <Spinner />
             ) : !preflight?.email_service_available ? (
