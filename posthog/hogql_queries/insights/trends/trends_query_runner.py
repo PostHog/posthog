@@ -721,12 +721,15 @@ class TrendsQueryRunner(QueryRunner):
         group_type_index: Optional[int],
     ) -> str:
         try:
-            return PropertyDefinition.objects.get(
-                name=field,
-                team=self.team,
-                type=field_type,
-                group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
-            ).property_type
+            return (
+                PropertyDefinition.objects.get(
+                    name=field,
+                    team=self.team,
+                    type=field_type,
+                    group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
+                ).property_type
+                or "String"
+            )
         except PropertyDefinition.DoesNotExist:
             return "String"
 
