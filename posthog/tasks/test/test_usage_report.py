@@ -616,26 +616,32 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
+        all_reports = self._test_usage_report()
         with self.settings(SITE_URL="http://test.posthog.com"):
-            self._create_sample_usage_data()
-            self._create_plugin("Installed but not enabled", False)
-            self._create_plugin("Installed and enabled", True)
+            send_all_org_usage_reports()
 
-            period = get_previous_day()
-            period_start, period_end = period
-            all_reports = _get_all_org_reports(period_start, period_end)
-            report = _get_full_org_usage_report_as_dict(
-                _get_full_org_usage_report(
-                    all_reports[str(self.organization.id)],
-                    get_instance_metadata(period),
-                )
-            )
+        # Check calls to other services
+        mock_post.assert_not_called()
 
-            assert report["table_sizes"]
-            assert report["table_sizes"]["posthog_event"] < 10**7  # <10MB
-            assert report["table_sizes"]["posthog_sessionrecordingevent"] < 10**7  # <10MB
+        calls = [
+            call(
+                get_machine_id(),
+                "organization usage report",
+                {**all_reports[0], "scope": "machine"},
+                groups={"instance": ANY},
+                timestamp=None,
+            ),
+            call(
+                get_machine_id(),
+                "organization usage report",
+                {**all_reports[1], "scope": "machine"},
+                groups={"instance": ANY},
+                timestamp=None,
+            ),
+        ]
 
-            assert len(all_reports) == 2
+        assert mock_posthog.capture.call_count == 2
+        mock_posthog.capture.assert_has_calls(calls, any_order=True)
 
     @freeze_time("2022-01-10T00:01:00Z")
     @patch("os.environ", {"DEPLOYMENT": "tests"})
@@ -1162,12 +1168,6 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             distinct_id=1,
             timestamp="2021-10-09T13:01:01Z",
         )
-        # _create_event(
-        #     event="$$internal_metrics_shouldnt_be_billed",
-        #     team=self.team,
-        #     distinct_id=1,
-        #     timestamp="2021-10-09T13:01:01Z",
-        # )
         _create_event(
             event="$pageview",
             team=self.team2,
