@@ -268,10 +268,18 @@ class APIScopePermission(BasePermission):
 
     """
 
-    write_actions: list[str] = ["create", "update", "partial_update", "destroy"]
+    write_actions: list[str] = ["create", "update", "partial_update", "patch", "destroy"]
     read_actions: list[str] = ["list", "retrieve"]
     scope_object_read_actions: list[str] = []
     scope_object_write_actions: list[str] = []
+
+    def _get_action(self, request, view) -> str:
+        # TRICKY: DRF doesn't have an action for non-detail level "patch" calls which we use sometimes
+
+        if not view.action:
+            if request.method == "PATCH" and not view.detail:
+                return "patch"
+        return view.action
 
     def has_permission(self, request, view) -> bool:
         # NOTE: We do this first to error out quickly if the view is missing the required attribute
@@ -341,12 +349,13 @@ class APIScopePermission(BasePermission):
         if scope_object == "INTERNAL":
             raise PermissionDenied(f"This action does not support Personal API Key access")
 
+        action = self._get_action(request, view)
         read_actions = getattr(view, "scope_object_read_actions", self.read_actions)
         write_actions = getattr(view, "scope_object_write_actions", self.write_actions)
 
-        if view.action in write_actions:
+        if action in write_actions:
             return [f"{scope_object}:write"]
-        elif view.action in read_actions or request.method == "OPTIONS":
+        elif action in read_actions or request.method == "OPTIONS":
             return [f"{scope_object}:read"]
 
         # If we get here this typically means an action was called without a required scope
