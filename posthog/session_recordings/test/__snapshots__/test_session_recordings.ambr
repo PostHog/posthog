@@ -19,9 +19,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2024-02-27 16:34:46'
+    AND s.min_first_timestamp >= '2024-02-27 16:54:20'
     AND s.min_first_timestamp >= '2024-03-12 00:00:00'
-    AND s.max_last_timestamp <= '2024-03-19 16:34:46'
+    AND s.max_last_timestamp <= '2024-03-19 16:54:20'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
