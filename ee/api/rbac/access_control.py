@@ -12,8 +12,6 @@ from posthog.models.personal_api_key import API_SCOPE_OBJECTS
 from posthog.permissions import PremiumFeaturePermission
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 
-# TODO: Validate that an access control can only have one of team, organization_member, or role
-
 
 class AccessControlSerializer(serializers.ModelSerializer):
     access_level = serializers.CharField(allow_null=True)
