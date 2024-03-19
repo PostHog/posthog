@@ -27,6 +27,13 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/angular',
     },
     {
+        name: 'Astro',
+        key: SDKKey.ASTRO,
+        tags: [SDKTag.WEB],
+        image: require('./logos/astro.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/astro',
+    },
+    {
         name: 'React',
         key: SDKKey.REACT,
         tags: [SDKTag.WEB, SDKTag.RECOMMENDED],

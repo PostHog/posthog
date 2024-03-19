@@ -6,6 +6,7 @@ import {
     ProductAnalyticsAndroidInstructions,
     ProductAnalyticsAngularInstructions,
     ProductAnalyticsAPIInstructions,
+    ProductAnalyticsAstroInstructions,
     ProductAnalyticsElixirInstructions,
     ProductAnalyticsFlutterInstructions,
     ProductAnalyticsGoInstructions,
@@ -23,6 +24,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANDROID]: ProductAnalyticsAndroidInstructions,
     [SDKKey.ANGULAR]: ProductAnalyticsAngularInstructions,
     [SDKKey.API]: ProductAnalyticsAPIInstructions,
+    [SDKKey.ASTRO]: ProductAnalyticsAstroInstructions,
     [SDKKey.ELIXIR]: ProductAnalyticsElixirInstructions,
     [SDKKey.FLUTTER]: ProductAnalyticsFlutterInstructions,
     [SDKKey.GO]: ProductAnalyticsGoInstructions,
@@ -33,5 +35,5 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PHP]: ProductAnalyticsPHPInstructions,
     [SDKKey.PYTHON]: ProductAnalyticsPythonInstructions,
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructions,
-    [SDKKey.RUBY]: ProductAnalyticsRubyInstructions,    
+    [SDKKey.RUBY]: ProductAnalyticsRubyInstructions,
 }

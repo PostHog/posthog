@@ -1,4 +1,5 @@
 export * from './angular'
+export * from './astro'
 export * from './html-snippet'
 export * from './js-web'
 export * from './next-js'

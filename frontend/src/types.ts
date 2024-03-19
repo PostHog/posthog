@@ -3741,6 +3741,7 @@ export type SDK = {
 export enum SDKKey {
     ANDROID = 'android',
     ANGULAR = 'angular',
+    ASTRO = 'astro',
     API = 'api',
     DOCUSAURUS = 'docusaurus',
     ELIXIR = 'elixir',

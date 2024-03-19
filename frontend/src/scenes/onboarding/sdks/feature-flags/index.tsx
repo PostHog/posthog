@@ -1,6 +1,7 @@
 export * from './android'
 export * from './angular'
 export * from './api'
+export * from './astro'
 export * from './flutter'
 export * from './go'
 export * from './ios'
