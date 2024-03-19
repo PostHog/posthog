@@ -1,6 +1,6 @@
 import os
 from functools import wraps
-from typing import Dict, Union, cast
+from typing import Dict, Union
 
 import sentry_sdk
 from django.conf import settings
