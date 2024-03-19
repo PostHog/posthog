@@ -7,7 +7,11 @@ import { useState } from 'react'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
-export function TaxonomicBreakdownButton(): JSX.Element {
+interface TaxonomicBreakdownButtonProps {
+    disabledReason?: string
+}
+
+export function TaxonomicBreakdownButton({ disabledReason }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
 
     const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
@@ -20,6 +24,7 @@ export function TaxonomicBreakdownButton(): JSX.Element {
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 sideIcon={null}
+                disabledReason={disabledReason}
             >
                 {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
                     ? 'Add cohort'
