@@ -603,7 +603,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError("clustered errors is not enabled for this user")
 
         # Clustering will eventually be done during a scheduled background task
-        clusters = error_clustering(self.team)
+        clusters = error_clustering(self.team, user)
 
         if clusters:
             cache.set(cache_key, clusters, timeout=30)

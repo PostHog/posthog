@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -23,6 +24,7 @@ export enum OnboardingStepKey {
     PLANS = 'plans',
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
+    REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
 }
 
@@ -206,6 +208,16 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }
                 const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
                 return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
+            },
+        ],
+        shouldShowReverseProxyStep: [
+            (s) => [s.product, s.featureFlags],
+            (product: BillingProductV2Type | null, featureFlags: FeatureFlagsSet) => {
+                const productsWithReverseProxy = []
+                if (featureFlags[FEATURE_FLAGS.REVERSE_PROXY_ONBOARDING] === 'test') {
+                    productsWithReverseProxy.push(ProductKey.FEATURE_FLAGS)
+                }
+                return productsWithReverseProxy.includes(product?.type as ProductKey)
             },
         ],
         isStepKeyInvalid: [

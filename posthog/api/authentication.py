@@ -179,6 +179,10 @@ class NonCreatingViewSetMixin(mixins.CreateModelMixin):
         """
         response = super().create(request, *args, **kwargs)
         response.status_code = getattr(self, "SUCCESS_STATUS_CODE", status.HTTP_200_OK)
+
+        if response.status_code == status.HTTP_204_NO_CONTENT:
+            response.data = None
+
         return response
 
 
