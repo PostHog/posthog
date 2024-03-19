@@ -1,6 +1,6 @@
 import os
 from functools import wraps
-from typing import Dict, Union
+from typing import Dict, Union, cast
 
 import sentry_sdk
 from django.conf import settings
@@ -125,7 +125,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "object_storage": is_cloud() or is_object_storage_available(),
         "request": {
             # Helpful for debugging what remote address we have detected
-            "ident": BaseThrottle().get_ident(Request(request)),
+            "ident": BaseThrottle().get_ident(cast(Request, request)),
             "ip": get_ip_address(request),
         },
     }
