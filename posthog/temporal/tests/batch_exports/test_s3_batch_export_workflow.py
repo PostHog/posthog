@@ -524,7 +524,7 @@ async def s3_client(bucket_name, s3_key_prefix):
     async with aioboto3.Session().client("s3") as s3_client:
         yield s3_client
 
-        await delete_all_from_s3(minio_client, bucket_name, key_prefix=s3_key_prefix)
+        await delete_all_from_s3(s3_client, bucket_name, key_prefix=s3_key_prefix)
 
 
 @pytest.mark.skipif(
@@ -593,7 +593,11 @@ async def test_s3_export_workflow_with_s3_bucket(
             )
 
     workflow_id = str(uuid4())
-    destination_config = s3_batch_export.destination.config | {"endpoint_url": None}
+    destination_config = s3_batch_export.destination.config | {
+        "endpoint_url": None,
+        "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
+        "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
+    }
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(s3_batch_export.id),
@@ -631,7 +635,7 @@ async def test_s3_export_workflow_with_s3_bucket(
     assert run.status == "Completed"
 
     await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
+        s3_compatible_client=s3_client,
         clickhouse_client=clickhouse_client,
         bucket_name=bucket_name,
         key_prefix=s3_key_prefix,
