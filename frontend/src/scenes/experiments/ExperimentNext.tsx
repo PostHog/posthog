@@ -1,6 +1,6 @@
 import './Experiment.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 
@@ -21,6 +21,7 @@ import {
     NoResultsEmptyState,
     QueryViz,
     ReleaseConditionsTable,
+    SecondaryMetricsTable,
     SummaryTable,
 } from './ExperimentResultsViz'
 
@@ -34,6 +35,8 @@ export function ExperimentResults(): JSX.Element {
         experimentId,
         experimentResults,
     } = useValues(experimentLogic)
+
+    const { updateExperimentSecondaryMetrics } = useActions(experimentLogic)
 
     return (
         <div className="space-y-8 experiment-view">
@@ -68,7 +71,12 @@ export function ExperimentResults(): JSX.Element {
                                 <ExperimentProgressBar />
                                 <SummaryTable />
                                 <QueryViz />
-
+                                <SecondaryMetricsTable
+                                    experimentId={experiment.id}
+                                    onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
+                                    initialMetrics={experiment.secondary_metrics}
+                                    defaultAggregationType={experiment.parameters?.aggregation_group_type_index}
+                                />
                                 <ExperimentGoalModal experimentId={experimentId} />
                                 <ExperimentExposureModal experimentId={experimentId} />
                             </>
