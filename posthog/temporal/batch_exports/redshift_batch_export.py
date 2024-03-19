@@ -271,7 +271,7 @@ class RedshiftInsertInputs(PostgresInsertInputs):
 
 
 @activity.defn
-async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
+async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> int:
     """Activity to insert data from ClickHouse to Redshift.
 
     This activity executes the following steps:
@@ -313,7 +313,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return
+            return 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -390,12 +390,14 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
             return record
 
         async with postgres_connection(inputs) as connection:
-            await insert_records_to_redshift(
+            records_completed = await insert_records_to_redshift(
                 (map_to_record(record) for record_batch in record_iterator for record in record_batch.to_pylist()),
                 connection,
                 inputs.schema,
                 inputs.table_name,
             )
+
+        return records_completed
 
 
 @workflow.defn(name="redshift-export")
