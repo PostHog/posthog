@@ -147,7 +147,7 @@ class UserSerializer(serializers.ModelSerializer):
         return is_impersonated_session(self.context["request"])
 
     def get_has_social_auth(self, instance: User) -> bool:
-        return instance.social_auth.exists()
+        return instance.social_auth.exists()  # type: ignore
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
@@ -453,18 +453,18 @@ class UserViewSet(
                 {"token": ["This reset token is invalid or has expired."]},
                 code="invalid_token",
             )
-        else:
-            token_valid = PasswordResetter.check_token(user, token)
-            if not token_valid:
-                capture_exception(
-                    Exception("Invalid password reset token in serializer"),
-                    {"user_uuid": user.uuid, "token": token},
-                )
-                raise serializers.ValidationError(
-                    {"token": ["This reset token is invalid or has expired."]},
-                    code="invalid_token",
-                )
-            return True
+        user = cast(User, user)  # this makes mypy happy
+        token_valid = PasswordResetter.check_token(user, token)
+        if not token_valid:
+            capture_exception(
+                Exception("Invalid password reset token in serializer"),
+                {"user_uuid": user.uuid, "token": token},
+            )
+            raise serializers.ValidationError(
+                {"token": ["This reset token is invalid or has expired."]},
+                code="invalid_token",
+            )
+        return True
 
     @action(
         methods=["POST"],
@@ -502,7 +502,6 @@ class UserViewSet(
             return Response(status=status.HTTP_204_NO_CONTENT)
         try:
             self.validate_password_reset_token(user_uuid, token)
-            user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except ValidationError:
             error_response = {
                 "type": "validation_error",
@@ -512,6 +511,8 @@ class UserViewSet(
             }
             return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
 
+        user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+        user = cast(User, user)  # this makes mypy happy
         password = request.data["password"] if "password" in request.data else None
 
         try:
