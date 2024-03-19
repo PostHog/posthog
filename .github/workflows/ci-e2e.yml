@@ -279,9 +279,8 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [django, async-migrations]
         runs-on: ubuntu-latest
-        if: needs.changes.outputs.backend == 'true'
+        if: needs.changes.outputs.shouldTriggerCypress == 'true'
         steps:
             - name: Calculate running time
               run: |
