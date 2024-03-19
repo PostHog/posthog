@@ -24,14 +24,13 @@ class AccessControlSerializer(serializers.ModelSerializer):
             "resource",
             "resource_id",
             "access_level",
-            "team",
             "organization_member",
             "role",
             "created_by",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "created_by", "team"]
+        read_only_fields = ["id", "created_at", "created_by"]
 
     def validate_resource(self, resource):
         if resource not in API_SCOPE_OBJECTS:
@@ -49,14 +48,15 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return access_level
 
     def validate(self, data):
-        # Ensure that only one of team, organization_member, or role is set
-        if sum([bool(data.get("team")), bool(data.get("organization_member")), bool(data.get("role"))]) != 1:
-            raise serializers.ValidationError("Exactly one of 'team', 'organization_member', or 'role' must be set.")
+        # Ensure that only one of organization_member or role is set
+        if data.get("organization_member") and data.get("role"):
+            raise serializers.ValidationError("You can not scope an access control to both a member and a role.")
 
         access_control = cast(UserAccessControl, self.context["view"].user_access_control)
         resource = data["resource"]
         resource_id = data.get("resource_id")
 
+        # We assume the highest level is required for the given resource to edit access controls
         required_level = ordered_access_levels(resource)[-1]
 
         # NOTE: For specific resources you are permitted if you are:
@@ -144,10 +144,10 @@ class AccessControlViewSet(
         params = partial_serializer.validated_data
 
         instance = self.queryset.filter(
+            team=self.team,
             resource=params["resource"],
             resource_id=params.get("resource_id"),
             organization_member=params.get("organization_member"),
-            team=params.get("team"),
             role=params.get("role"),
         ).first()
 
@@ -163,7 +163,7 @@ class AccessControlViewSet(
             serializer = self.get_serializer(data=request.data)
 
         serializer.is_valid(raise_exception=True)
-        serializer.validated_data["organization"] = self.organization
+        serializer.validated_data["team"] = self.team
         serializer.save()
 
         return Response(serializer.data, status=status.HTTP_200_OK)

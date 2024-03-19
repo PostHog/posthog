@@ -20,7 +20,7 @@ class BaseAccessControlTest(APILicensedTest):
 
         self.default_resource_id = self.team.id
 
-    def _put_access_control(self, data):
+    def _put_access_control(self, data={}):
         payload = {
             "resource": self.default_resource,
             "resource_id": self.default_resource_id,
@@ -29,7 +29,7 @@ class BaseAccessControlTest(APILicensedTest):
 
         payload.update(data)
         return self.client.put(
-            "/api/organizations/@current/access_controls",
+            "/api/projects/@current/access_controls",
             payload,
         )
 
@@ -41,23 +41,23 @@ class BaseAccessControlTest(APILicensedTest):
 class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
     def test_project_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        res = self._put_access_control({"team": self.team.id})
+        res = self._put_access_control()
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
 
     def test_project_change_accepted_if_org_admin(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        res = self._put_access_control({"team": self.team.id})
+        res = self._put_access_control()
         assert res.status_code == status.HTTP_200_OK, res.json()
 
     def test_project_change_accepted_if_org_owner(self):
         self._org_membership(OrganizationMembership.Level.OWNER)
-        res = self._put_access_control({"team": self.team.id})
+        res = self._put_access_control()
         assert res.status_code == status.HTTP_200_OK, res.json()
 
     def test_project_removed_with_null(self):
         self._org_membership(OrganizationMembership.Level.OWNER)
-        res = self._put_access_control({"team": self.team.id})
-        res = self._put_access_control({"team": self.team.id, "access_level": None})
+        res = self._put_access_control()
+        res = self._put_access_control({"access_level": None})
         assert res.status_code == status.HTTP_204_NO_CONTENT
 
     def test_project_change_if_in_access_control(self):
@@ -92,7 +92,7 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
     def test_project_change_rejected_if_bad_access_level(self):
-        res = self._put_access_control({"team": self.team.id, "access_level": "bad"})
+        res = self._put_access_control({"access_level": "bad"})
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
         assert res.json()["detail"] == "Invalid access level. Must be one of: none, member, admin", res.json()
 
@@ -104,12 +104,12 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
 
     def test_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        res = self._put_access_control({"team": self.team.id})
+        res = self._put_access_control()
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
 
     def test_change_permitted_if_creator_of_the_resource(self):
         # TODO: Implement this test
         assert False
         # self._org_membership(OrganizationMembership.Level.MEMBER)
-        # res = self._put_access_control({"team": self.team.id})
+        # res = self._put_access_control()
         # assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()

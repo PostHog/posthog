@@ -3367,22 +3367,19 @@ export interface RoleMemberType {
 }
 
 export interface AccessControlTypeBase {
+    created_by: UserBasicType | null
+    created_at: string
+    updated_at: string
+
     resource: string // TODO: Change to enum
     resource_id?: string | null
     access_level: string | null // TODO: Change to enum
 
-    team?: TeamType['id'] | null
     organization_member?: OrganizationMemberType['id'] | null
     role?: RoleType['id'] | null
-
-    created_by: UserBasicType | null
-    created_at: string
-    updated_at: string
 }
 
-export interface AccessControlTypeProject extends AccessControlTypeBase {
-    team: TeamType['id']
-}
+export interface AccessControlTypeProject extends AccessControlTypeBase {}
 
 export interface AccessControlTypeMember extends AccessControlTypeBase {
     organization_member: OrganizationMemberType['id']

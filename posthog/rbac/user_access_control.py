@@ -51,10 +51,10 @@ def access_level_satisfied(resource: APIScopeObject, current_level: str, require
 
 
 class UserAccessControl:
-    def __init__(self, user: User, organization: Organization, team: Optional[Team] = None):
+    def __init__(self, user: User, team: Team):
         self._user = user
         self._team = team
-        self._organization = organization
+        self._organization: Organization = team.organization
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
@@ -85,17 +85,17 @@ class UserAccessControl:
 
         # TODO: Need to determine if there exists any ACs for the resource to determine if we should return None or not
         return AccessControl.objects.filter(
-            Q(  # Access controls applying to this user
-                organization=self._organization,
-                organization_member__user=self._user,
+            Q(  # Access controls applying to this team
+                team=self._team, resource=resource, resource_id=resource_id
+            )
+            | Q(  # Access controls applying to this user
+                team=self._team,
                 resource=resource,
                 resource_id=resource_id,
-            )
-            | Q(  # Access controls applying to this team
-                organization=self._organization, team=self._team, resource=resource, resource_id=resource_id
+                organization_member__user=self._user,
             )
             | Q(  # Access controls applying to this user's roles
-                organization=self._organization, role__in=role_ids, resource=resource, resource_id=resource_id
+                team=self._team, resource=resource, resource_id=resource_id, role__in=role_ids
             )
         )
 
@@ -120,7 +120,7 @@ class UserAccessControl:
         # Org admins always have object level access
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
             return AccessControl(
-                organization=self._organization,
+                team=self._team,
                 resource=resource,
                 resource_id=resource_id,
                 access_level=ordered_access_levels(resource)[-1],
@@ -129,7 +129,7 @@ class UserAccessControl:
         access_controls = self._access_controls_for_object(resource, resource_id)
         if not access_controls:
             return AccessControl(
-                organization=self._organization,
+                team=self._team,
                 resource=resource,
                 resource_id=resource_id,
                 access_level=default_access_level(resource),

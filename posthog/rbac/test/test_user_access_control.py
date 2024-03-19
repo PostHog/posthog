@@ -42,11 +42,11 @@ class TestUserTeamPermissions(BaseTest):
         self.role_b = Role.objects.create(name="Administrators", organization=self.organization)
 
         RoleMembership.objects.create(user=self.user, role=self.role_a)
-        self.user_access_control = UserAccessControl(self.user, self.organization, self.team)
+        self.user_access_control = UserAccessControl(self.user, self.team)
 
         self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "testtest")
         RoleMembership.objects.create(user=self.other_user, role=self.role_b)
-        self.other_user_access_control = UserAccessControl(self.other_user, self.organization, self.team)
+        self.other_user_access_control = UserAccessControl(self.other_user, self.team)
 
         self.user_with_no_role = User.objects.create_and_join(self.organization, "norole@posthog.com", "testtest")
         self.user_with_no_role_access_control = UserAccessControl(self.user_with_no_role, self.organization, self.team)
