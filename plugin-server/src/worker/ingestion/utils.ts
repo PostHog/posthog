@@ -67,10 +67,17 @@ export async function captureIngestionWarning(
     teamId: TeamId,
     type: string,
     details: Record<string, any>,
-    debounce_key?: string
+    /**
+     * Optional key to debounce the warning. If not provided, the teamId and type will be used as the key.
+     * If a function is provided, it will be called with the teamId and type and should return a string key.
+     * If a string is provided it is combined with the teamId and type.
+     */
+    debounceKey?: string | ((teamId: number, type: string) => string)
 ) {
-    const limiter_key = `${teamId}:${type}:${debounce_key}`
-    if (IngestionWarningLimiter.consume(limiter_key, 1)) {
+    const limiterKey =
+        typeof debounceKey === 'function' ? debounceKey(teamId, type) : `${teamId}:${type}:${debounceKey}`
+
+    if (IngestionWarningLimiter.consume(limiterKey, 1)) {
         await kafkaProducer.queueMessage({
             topic: KAFKA_INGESTION_WARNINGS,
             messages: [
