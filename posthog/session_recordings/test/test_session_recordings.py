@@ -61,6 +61,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
     @snapshot_postgres_queries
+    # we can't take snapshots of the CH queries
+    # because we use `now()` in the CH queries which don't know about any frozen time
+    # @snapshot_clickhouse_queries
     def test_get_session_recordings(self):
         twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
 
@@ -78,8 +81,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         session_id_one = f"test_get_session_recordings-1"
         self.create_snapshot("user_one_0", session_id_one, base_time)
-        self.create_snapshot("user_one_1", session_id_one, base_time + relativedelta(seconds=10))
-        self.create_snapshot("user_one_2", session_id_one, base_time + relativedelta(seconds=30))
+        self.create_snapshot("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
+        self.create_snapshot("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
         session_id_two = f"test_get_session_recordings-2"
         self.create_snapshot("user2", session_id_two, base_time + relativedelta(seconds=20))
 
@@ -120,6 +123,44 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 1,  # even though the user has many distinct ids we don't load them
             ),
         ]
+
+        # user distinct id varies because we're adding more than one
+        assert results_[0]["distinct_id"] == "user2"
+        assert results_[1]["distinct_id"] in twelve_distinct_ids
+
+    def test_can_list_recordings_even_when_the_person_has_multiple_distinct_ids(self):
+        # almost duplicate of test_get_session_recordings above
+        # but if we have multiple distinct ids on a recording the snapshot
+        # varies which makes the snapshot useless
+        twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=twelve_distinct_ids,  # that's too many! we should limit them
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user2"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        )
+
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        session_id_one = f"test_get_session_recordings-1"
+        self.create_snapshot("user_one_0", session_id_one, base_time)
+        self.create_snapshot("user_one_1", session_id_one, base_time + relativedelta(seconds=10))
+        self.create_snapshot("user_one_2", session_id_one, base_time + relativedelta(seconds=30))
+        session_id_two = f"test_get_session_recordings-2"
+        self.create_snapshot("user2", session_id_two, base_time + relativedelta(seconds=20))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        results_ = response_data["results"]
+        assert results_ is not None
+        # detailed assertion is in the other test
+        assert len(results_) == 2
 
         # user distinct id varies because we're adding more than one
         assert results_[0]["distinct_id"] == "user2"
