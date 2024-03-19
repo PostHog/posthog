@@ -57,9 +57,18 @@ class AccessControlSerializer(serializers.ModelSerializer):
         resource = data["resource"]
         resource_id = data.get("resource_id")
 
+        required_level = ordered_access_levels(resource)[-1]
+
+        # NOTE: For specific resources you are permitted if you are:
+        # 1. The creator of the resource
+        # 2. An Organization admin
+        # 3. A Project admin
+
         if resource_id:
             # Check that they have the right access level for this specific resource object
-            if not access_control.check_access_level_for_object(resource, data["resource_id"], required_level="admin"):
+            if not access_control.check_access_level_for_object(
+                resource, data["resource_id"], required_level=required_level
+            ):
                 # TODO: Human readable resource name
                 raise exceptions.PermissionDenied(f"You must be an admin to modify {resource} permissions.")
         else:

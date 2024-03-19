@@ -106,3 +106,10 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         res = self._put_access_control({"team": self.team.id})
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    def test_change_permitted_if_creator_of_the_resource(self):
+        # TODO: Implement this test
+        assert False
+        # self._org_membership(OrganizationMembership.Level.MEMBER)
+        # res = self._put_access_control({"team": self.team.id})
+        # assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
