@@ -332,7 +332,7 @@ export class PersonState {
                     otherDistinctId: otherPersonDistinctId,
                     eventUuid: this.event.uuid,
                 },
-                { neverDebounce: true }
+                { alwaysSend: true }
             )
             return undefined
         }
@@ -346,7 +346,7 @@ export class PersonState {
                     otherDistinctId: mergeIntoDistinctId,
                     eventUuid: this.event.uuid,
                 },
-                { neverDebounce: true }
+                { alwaysSend: true }
             )
             return undefined
         }
@@ -424,7 +424,7 @@ export class PersonState {
                     targetPersonDistinctId: mergeIntoDistinctId,
                     eventUuid: this.event.uuid,
                 },
-                { neverDebounce: true }
+                { alwaysSend: true }
             )
             status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
             return mergeInto // We're returning the original person tied to distinct_id used for the event
