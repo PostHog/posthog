@@ -141,7 +141,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
     })),
     selectors({
-        selectedItemMeta: [(_, p) => [p.filter], (filter) => filter],
+        selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
