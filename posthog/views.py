@@ -1,6 +1,6 @@
 import os
 from functools import wraps
-from typing import Dict, Union
+from typing import Dict, Union, cast
 
 import sentry_sdk
 from django.conf import settings
@@ -12,6 +12,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 from rest_framework.throttling import BaseThrottle
+from rest_framework.request import Request
 
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
@@ -124,7 +125,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "object_storage": is_cloud() or is_object_storage_available(),
         "request": {
             # Helpful for debugging what remote address we have detected
-            "ident": BaseThrottle().get_ident(request),
+            "ident": BaseThrottle().get_ident(Request(request)),
             "ip": get_ip_address(request),
         },
     }
