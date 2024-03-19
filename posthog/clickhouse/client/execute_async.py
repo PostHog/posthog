@@ -70,7 +70,12 @@ class QueryStatusManager:
 
 
 def execute_process_query(
-    team_id: int, user_id: int, query_id: str, query_json: str, limit_context: LimitContext, refresh_requested: bool
+    team_id: int,
+    user_id: int,
+    query_id: str,
+    query_json: dict,
+    limit_context: Optional[LimitContext],
+    refresh_requested: bool,
 ):
     manager = QueryStatusManager(query_id, team_id)
 
@@ -112,7 +117,7 @@ def execute_process_query(
 def enqueue_process_query_task(
     team_id: int,
     user_id: int,
-    query_json: str,
+    query_json: dict,
     query_id: Optional[str] = None,
     refresh_requested: bool = False,
     force: bool = False,

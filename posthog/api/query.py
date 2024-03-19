@@ -70,7 +70,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 user_id=self.request.user.pk,
                 query_json=request.data["query"],
                 query_id=client_query_id,
-                refresh_requested=data.refresh,
+                refresh_requested=data.refresh or False,
             )
             return Response(query_status.model_dump(), status=status.HTTP_202_ACCEPTED)
 
