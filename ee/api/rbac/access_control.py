@@ -189,13 +189,11 @@ class AccessControlViewSetMixin:
     Adds an "access_control" action to the viewset that handles access control for the given resource
     """
 
-    @action(methods=["GET", "PATCH"], detail=True, url_path="access_control")
-    def access_control(self, request: Request, *args, **kwargs):
-        resource = request.GET.get("resource")
-        resource_id = request.GET.get("resource_id")
-
-        if not resource:
-            raise exceptions.ValidationError("Resource must be provided.")
+    @action(methods=["GET", "PATCH"], detail=True)
+    def access_controls(self, request: Request, *args, **kwargs):
+        resource = getattr(self, "scope_object", None)
+        obj = self.get_object()
+        resource_id = obj.id
 
         control = self.user_access_control.access_control_for_object(resource, resource_id)
         return Response(

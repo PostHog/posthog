@@ -1410,7 +1410,7 @@ const api = {
 
     accessControls: {
         async list(
-            params: Partial<Pick<AccessControlType, 'resource' | 'resource_id' | 'team'>>
+            params: Partial<Pick<AccessControlType, 'resource' | 'resource_id'>>
         ): Promise<PaginatedResponse<AccessControlType>> {
             return await new ApiRequest().accessControls().withQueryString(params).get()
         },
