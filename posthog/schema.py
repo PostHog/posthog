@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, TypeAlias, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
@@ -3001,38 +3001,6 @@ class HogQLMetadata(BaseModel):
     table: Optional[str] = Field(default=None, description="Table to validate the expression against")
 
 
-AnyQuery: TypeAlias = Union[
-    EventsNode,
-    ActionsNode,
-    PersonsNode,
-    DataWarehouseNode,
-    TimeToSeeDataSessionsQuery,
-    EventsQuery,
-    ActorsQuery,
-    InsightActorsQuery,
-    InsightActorsQueryOptions,
-    SessionsTimelineQuery,
-    HogQLQuery,
-    HogQLMetadata,
-    HogQLAutocomplete,
-    WebOverviewQuery,
-    WebStatsTableQuery,
-    WebTopClicksQuery,
-    DataVisualizationNode,
-    DataTableNode,
-    SavedInsightNode,
-    InsightVizNode,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
-    FunnelCorrelationQuery,
-    DatabaseSchemaQuery,
-]
-
-
 class QueryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3046,7 +3014,36 @@ class QueryRequest(BaseModel):
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
-    query: AnyQuery = Field(
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+    ] = Field(
         ...,
         description='Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access).',
         discriminator="kind",
@@ -3088,7 +3085,36 @@ class QuerySchemaRoot(
         ]
     ]
 ):
-    root: AnyQuery = Field(..., discriminator="kind")
+    root: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+    ] = Field(..., discriminator="kind")
 
 
 PropertyGroupFilterValue.model_rebuild()
