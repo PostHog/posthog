@@ -3,6 +3,7 @@
 The Cypress tests run with a PostHog instance that has no feature flags set up.
 
 To test feature flags you can intercept the call to the `decide` endpoint
+ANY CHANGE SO THE CYPRESS TESTS RUN ON THE PR
 
 ```javascript
 // sometimes the system under test calls `/decide`
