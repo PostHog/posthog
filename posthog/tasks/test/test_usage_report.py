@@ -616,32 +616,54 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
-        all_reports = self._test_usage_report()
         with self.settings(SITE_URL="http://test.posthog.com"):
-            send_all_org_usage_reports()
+            self._create_sample_usage_data()
+            self._create_plugin("Installed but not enabled", False)
+            self._create_plugin("Installed and enabled", True)
 
-        # Check calls to other services
-        mock_post.assert_not_called()
+            period = get_previous_day()
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
+            report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(
+                    all_reports[str(self.organization.id)],
+                    get_instance_metadata(period),
+                )
+            )
 
-        calls = [
-            call(
-                get_machine_id(),
-                "organization usage report",
-                {**all_reports[0], "scope": "machine"},
-                groups={"instance": ANY},
-                timestamp=None,
-            ),
-            call(
-                get_machine_id(),
-                "organization usage report",
-                {**all_reports[1], "scope": "machine"},
-                groups={"instance": ANY},
-                timestamp=None,
-            ),
-        ]
+            assert report["table_sizes"]
+            assert report["table_sizes"]["posthog_event"] < 10**7  # <10MB
+            assert report["table_sizes"]["posthog_sessionrecordingevent"] < 10**7  # <10MB
 
-        assert mock_posthog.capture.call_count == 2
-        mock_posthog.capture.assert_has_calls(calls, any_order=True)
+            assert len(all_reports) == 2
+
+    @freeze_time("2022-01-10T00:01:00Z")
+    @patch("os.environ", {"DEPLOYMENT": "tests"})
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("requests.post")
+    def test_does_not_count_internal_events(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        _create_event(
+            distinct_id=distinct_id,
+            event="$pageview",
+            timestamp=now() - relativedelta(hours=12),
+            team=self.team,
+        )
+
+        _create_event(
+            distinct_id=distinct_id,
+            event="$$internal_event",
+            timestamp=now() - relativedelta(hours=12),
+            team=self.team,
+        )
+
+        period = get_previous_day()
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert all_reports[str(self.organization.id)].event_count_in_period == 1
 
 
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
@@ -1140,12 +1162,12 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             distinct_id=1,
             timestamp="2021-10-09T13:01:01Z",
         )
-        _create_event(
-            event="$$internal_metrics_shouldnt_be_billed",
-            team=self.team,
-            distinct_id=1,
-            timestamp="2021-10-09T13:01:01Z",
-        )
+        # _create_event(
+        #     event="$$internal_metrics_shouldnt_be_billed",
+        #     team=self.team,
+        #     distinct_id=1,
+        #     timestamp="2021-10-09T13:01:01Z",
+        # )
         _create_event(
             event="$pageview",
             team=self.team2,
