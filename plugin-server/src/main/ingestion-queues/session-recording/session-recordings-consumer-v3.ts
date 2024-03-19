@@ -460,54 +460,57 @@ export class SessionRecordingIngesterV3 {
 
     private setupHttpRoutes() {
         // Mimic the app server's endpoint
-        expressApp.get('/api/projects/:projectId/session_recordings/:sessionId/snapshots', async (req, res) => {
-            await runInstrumentedFunction({
-                statsKey: `recordingingester.http.getSnapshots`,
-                func: async () => {
-                    try {
-                        const startTime = Date.now()
-                        res.on('finish', function () {
-                            status.info('⚡️', `GET ${req.url} - ${res.statusCode} - ${Date.now() - startTime}ms`)
-                        })
+        expressApp.get(
+            '/api/projects/:projectId/session_recordings/:sessionId/snapshots',
+            async (req: any, res: any) => {
+                await runInstrumentedFunction({
+                    statsKey: `recordingingester.http.getSnapshots`,
+                    func: async () => {
+                        try {
+                            const startTime = Date.now()
+                            res.on('finish', function () {
+                                status.info('⚡️', `GET ${req.url} - ${res.statusCode} - ${Date.now() - startTime}ms`)
+                            })
 
-                        // validate that projectId is a number and sessionId is UUID like
-                        const projectId = parseInt(req.params.projectId)
-                        if (isNaN(projectId)) {
-                            res.sendStatus(404)
-                            return
-                        }
-
-                        const sessionId = req.params.sessionId
-                        if (!/^[0-9a-f-]+$/.test(sessionId)) {
-                            res.sendStatus(404)
-                            return
-                        }
-
-                        status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
-
-                        // We don't know the partition upfront so we have to recursively check all partitions
-                        const partitions = await readdir(this.rootDir).catch(() => [])
-
-                        for (const partition of partitions) {
-                            const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
-                            const exists = await stat(sessionDir).catch(() => null)
-
-                            if (!exists) {
-                                continue
+                            // validate that projectId is a number and sessionId is UUID like
+                            const projectId = parseInt(req.params.projectId)
+                            if (isNaN(projectId)) {
+                                res.sendStatus(404)
+                                return
                             }
 
-                            const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
-                            fileStream.pipe(res)
-                            return
-                        }
+                            const sessionId = req.params.sessionId
+                            if (!/^[0-9a-f-]+$/.test(sessionId)) {
+                                res.sendStatus(404)
+                                return
+                            }
 
-                        res.sendStatus(404)
-                    } catch (e) {
-                        status.error('🔥', 'session-replay-ingestion - failed to fetch session', e)
-                        res.sendStatus(500)
-                    }
-                },
-            })
-        })
+                            status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
+
+                            // We don't know the partition upfront so we have to recursively check all partitions
+                            const partitions = await readdir(this.rootDir).catch(() => [])
+
+                            for (const partition of partitions) {
+                                const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
+                                const exists = await stat(sessionDir).catch(() => null)
+
+                                if (!exists) {
+                                    continue
+                                }
+
+                                const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
+                                fileStream.pipe(res)
+                                return
+                            }
+
+                            res.sendStatus(404)
+                        } catch (e) {
+                            status.error('🔥', 'session-replay-ingestion - failed to fetch session', e)
+                            res.sendStatus(500)
+                        }
+                    },
+                })
+            }
+        )
     }
 }
