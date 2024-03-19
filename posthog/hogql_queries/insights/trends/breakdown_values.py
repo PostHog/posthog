@@ -83,17 +83,22 @@ class BreakdownValues:
         if self.breakdown_type == "hogql":
             select_field = ast.Alias(
                 alias="value",
-                expr=parse_expr(str(self.breakdown_field)),
+                expr=ast.Call(name="toString", args=[parse_expr(str(self.breakdown_field))]),
             )
         else:
             select_field = ast.Alias(
                 alias="value",
-                expr=ast.Field(
-                    chain=get_properties_chain(
-                        breakdown_type=self.breakdown_type,
-                        breakdown_field=str(self.breakdown_field),
-                        group_type_index=self.group_type_index,
-                    )
+                expr=ast.Call(
+                    name="toString",
+                    args=[
+                        ast.Field(
+                            chain=get_properties_chain(
+                                breakdown_type=self.breakdown_type,
+                                breakdown_field=str(self.breakdown_field),
+                                group_type_index=self.group_type_index,
+                            )
+                        )
+                    ],
                 ),
             )
 
@@ -211,23 +216,9 @@ class BreakdownValues:
 
             # Add "other" value if "other" is not hidden and we're not bucketing numeric values
             if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
-                all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
-                all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
-                all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values)
-
-                if all_values_are_string_or_none:
-                    values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
-                    if needs_other:
-                        values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
-                elif all_values_are_ints_or_none or all_values_are_floats_or_none:
-                    if all_values_are_ints_or_none:
-                        values = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values]
-                        if needs_other:
-                            values.insert(0, BREAKDOWN_OTHER_NUMERIC_LABEL)
-                    else:
-                        values = [float(BREAKDOWN_NULL_NUMERIC_LABEL) if value is None else value for value in values]
-                        if needs_other:
-                            values.insert(0, float(BREAKDOWN_OTHER_NUMERIC_LABEL))
+                values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
+                if needs_other:
+                    values = [BREAKDOWN_OTHER_STRING_LABEL] + values
 
         if len(values) == 0:
             values.insert(0, None)
