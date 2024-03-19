@@ -822,11 +822,13 @@ class _Printer(Visitor):
                                 break  # Found an overload matching the first function org
 
                 if func_meta.tz_aware:
+                    has_tz_override = len(node.args) == func_meta.max_args
                     if (relevant_clickhouse_name == "now64" and len(node.args) == 0) or (
                         relevant_clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
                     ):
                         args.append("6")  # These two CH functions require the precision argument before timezone
-                    args.append(self.visit(ast.Constant(value=self._get_timezone())))
+                    if not has_tz_override:
+                        args.append(self.visit(ast.Constant(value=self._get_timezone())))
                 if node.name == "toStartOfWeek" and len(node.args) == 1:
                     # If week mode hasn't been specified, use the project's default.
                     # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)

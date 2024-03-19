@@ -1524,3 +1524,33 @@ class TestPrinter(BaseTest):
             ),
             printed,
         )
+
+    def test_override_timezone(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database(None, WeekStartDay.SUNDAY),
+        )
+        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
+
+        self.assertEqual(
+            self._select(
+                """
+                    SELECT
+                        toDateTime(timestamp),
+                        toDateTime(timestamp, 'US/Pacific')
+                    FROM events
+                """,
+                context,
+            ),
+            f"SELECT toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+        self.assertEqual(
+            context.values,
+            {
+                "hogql_val_0": "UTC",
+                "hogql_val_1": "UTC",
+                "hogql_val_2": "UTC",
+                "hogql_val_3": "US/Pacific",
+            },
+        )
