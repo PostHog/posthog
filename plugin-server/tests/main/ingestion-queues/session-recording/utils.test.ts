@@ -15,7 +15,7 @@ import { KafkaProducerWrapper } from '../../../../src/utils/db/kafka-producer-wr
 describe('session-recording utils', () => {
     const validMessage = (distinctId: number | string, headers?: MessageHeader[], value?: Record<string, any>) =>
         ({
-            headers,
+            headers: headers || [{ token: 'the_token' }],
             value: Buffer.from(
                 JSON.stringify({
                     uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
@@ -103,6 +103,7 @@ describe('session-recording utils', () => {
 
             const createMessage = ($snapshot_items: unknown[]) => {
                 return {
+                    headers: [{ token: Buffer.from('the_token') }],
                     value: Buffer.from(
                         JSON.stringify({
                             uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
@@ -250,7 +251,7 @@ describe('session-recording utils', () => {
             expect(jest.mocked(fakeProducer.queueMessage).mock.calls).toEqual(expectedCalls)
         })
 
-        describe('team token can be in header or body', () => {
+        describe('team token must be in header *not* body', () => {
             const mockTeamResolver = jest.fn()
 
             beforeEach(() => {
@@ -260,13 +261,13 @@ describe('session-recording utils', () => {
 
             test.each([
                 [
-                    'calls the team id resolver once when token is in header, not in the body',
+                    'calls the team id resolver once when token is in header, even if not in the body',
                     'the_token',
                     undefined,
                     ['the_token'],
                 ],
                 [
-                    'calls the team id resolver once when token is in header, and in the body',
+                    'calls the team id resolver once when token is in header, even if it is in the body',
                     'the_token',
                     'the body token',
                     ['the_token'],
@@ -278,14 +279,14 @@ describe('session-recording utils', () => {
                     undefined,
                 ],
                 [
-                    'calls the team id resolver twice when token is not in header, and is in body',
+                    'calls the team id resolver once when token is not in header, even though it is in the body',
                     undefined,
                     'the body token',
-                    ['the body token'],
+                    undefined,
                 ],
             ])('%s', async (_name, headerToken, payloadToken, expectedCalls) => {
                 await parseKafkaMessage(
-                    validMessage(12345, headerToken ? [{ token: Buffer.from(headerToken) }] : undefined, {
+                    validMessage(12345, headerToken ? [{ token: Buffer.from(headerToken) }] : [], {
                         token: payloadToken,
                     }),
                     mockTeamResolver,
