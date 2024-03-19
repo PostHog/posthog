@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -62,13 +61,10 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey, featureFlags?: FeatureFlagsSet): string => {
+export const getProductUri = (productKey: ProductKey): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return featureFlags &&
-                featureFlags[FEATURE_FLAGS.REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
-                ? urls.insightNew()
-                : combineUrl(urls.insights(), {}, { panel: 'activation' }).url
+            return urls.insightNew()
         case ProductKey.SESSION_REPLAY:
             return urls.replay()
         case ProductKey.FEATURE_FLAGS:
@@ -168,9 +164,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.featureFlags, s.productKey],
-            (featureFlags: FeatureFlagsSet, productKey: string | null) => {
-                return productKey ? getProductUri(productKey as ProductKey, featureFlags) : urls.default()
+            (s) => [s.productKey],
+            (productKey: string | null) => {
+                return productKey ? getProductUri(productKey as ProductKey) : urls.default()
             },
         ],
         totalOnboardingSteps: [
