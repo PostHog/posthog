@@ -46,12 +46,13 @@ export function createKafkaMessage(
     messageOverrides: Partial<Message> = {},
     eventProperties: Record<string, any> = {}
 ): Message {
-    const message: Message = {
+    return {
         partition: 1,
         topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         offset: 0,
         timestamp: messageOverrides.timestamp ?? Date.now(),
         size: 1,
+        headers: [{ token: token.toString() }],
         ...messageOverrides,
 
         value: Buffer.from(
@@ -70,8 +71,6 @@ export function createKafkaMessage(
             })
         ),
     }
-
-    return message
 }
 
 export function createTP(partition: number, topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS) {
