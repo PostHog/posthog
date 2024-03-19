@@ -129,7 +129,7 @@ export function PropertyValue({
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
             allowCustomValues
-            onChange={(nextVal) => setValue(nextVal)}
+            onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
             options={displayOptions.map(({ name: _name }, index) => {
