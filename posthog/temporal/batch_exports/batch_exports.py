@@ -1,3 +1,4 @@
+import abc
 import collections.abc
 import csv
 import dataclasses
@@ -488,13 +489,52 @@ FlushCallable = collections.abc.Callable[
 ]
 
 
-class BatchExportWriter(typing.Protocol):
-    batch_export_file: BatchExportTemporaryFile
-    flush_callable: FlushCallable
-    records_total: int = 0
-    records_since_last_flush: int = 0
-    max_bytes: int = 0
-    last_inserted_at: dt.datetime | None = None
+class BatchExportWriter(abc.ABC):
+    """A temporary file writer to be used by batch export workflows.
+
+    Subclasses should define `_write_record_batch` with the particular intricacies
+    of the format they are writing as.
+
+    Actual writing calls are passed to the underlying `batch_export_file`.
+
+    Attributes:
+        batch_export_file: The temporary file we are writing to.
+        bytes_flush_threshold: Flush the temporary file with the provided `flush_callable`
+            upon reaching or surpassing this threshold. Keep in mind we write on a RecordBatch
+            per RecordBatch basis, which means the threshold will be surpassed by at most the
+            size of a RecordBatch before a flush occurs.
+        flush_callable: A callback to flush the temporary file when `bytes_flush_treshold` is reached.
+            The temporary file will be reset after calling `flush_callable`.
+        records_total: The total number of records (not RecordBatches!) written.
+        records_since_last_flush: The number of records written since last flush.
+        last_inserted_at: Latest `_inserted_at` written. This attribute leaks some implementation
+            details, as we are making two assumptions about the RecordBatches being written:
+                * We assume RecordBatches are sorted on `_inserted_at`, which currently happens with
+                    an `ORDER BY` clause.
+                * We assume `_inserted_at` is present, as it's added to all batch export queries.
+    """
+
+    def __init__(
+        self,
+        batch_export_file: BatchExportTemporaryFile,
+        flush_callable: FlushCallable,
+        max_bytes: int,
+    ):
+        self.batch_export_file = batch_export_file
+        self.max_bytes = max_bytes
+        self.flush_callable = flush_callable
+        self.records_total = 0
+        self.records_since_last_flush = 0
+        self.last_inserted_at: dt.datetime | None = None
+
+    @abc.abstractmethod
+    def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
+        """Write a record batch to the underlying `BatchExportTemporaryFile`.
+
+        Subclasses must override this to provide the actual implementation according to the supported
+        file format.
+        """
+        pass
 
     async def __aenter__(self):
         """Context-manager protocol enter method."""
@@ -502,15 +542,17 @@ class BatchExportWriter(typing.Protocol):
         return self
 
     async def __aexit__(self, exc, value, tb):
-        """Context-manager protocol exit method."""
+        """Context-manager protocol exit method.
+
+        We flush the latest data available in the file. Subclasses that implement formats that require
+        written footers should override this method to write the footers before the last flush.
+        """
         if self.last_inserted_at is not None and self.records_since_last_flush > 0:
             await self.flush(self.last_inserted_at, is_last=True)
         return self.batch_export_file.__exit__(exc, value, tb)
 
-    def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
-        ...
-
     async def write_record_batch(self, record_batch: pa.RecordBatch) -> None:
+        """Issue a record batch write tracking progress and flushing if required."""
         last_inserted_at = record_batch.column("_inserted_at")[0].as_py()
 
         column_names = record_batch.column_names
@@ -524,6 +566,7 @@ class BatchExportWriter(typing.Protocol):
             await self.flush(last_inserted_at)
 
     async def flush(self, last_inserted_at: dt.datetime, is_last: bool = False) -> None:
+        """Call the provided `flush_callable` and reset underlying file."""
         await self.flush_callable(
             self.batch_export_file,
             self.records_since_last_flush,
@@ -536,10 +579,13 @@ class BatchExportWriter(typing.Protocol):
 
     @property
     def bytes_since_last_flush(self) -> int:
+        """Access written bytes from underlying file for convenience."""
         return self.batch_export_file.bytes_since_last_reset
 
 
 class JSONLBatchExportWriter(BatchExportWriter):
+    """A `BatchExportWriter` for JSONLines format."""
+
     def __init__(
         self,
         max_bytes: int,
@@ -547,13 +593,13 @@ class JSONLBatchExportWriter(BatchExportWriter):
         compression: None | str = None,
         default: typing.Callable = str,
     ):
-        self.batch_export_file = BatchExportTemporaryFile(compression=compression)
-        self.flush_callable = flush_callable
+        super().__init__(
+            batch_export_file=BatchExportTemporaryFile(compression=compression),
+            max_bytes=max_bytes,
+            flush_callable=flush_callable,
+        )
 
         self.default = default
-
-        self.max_bytes = max_bytes
-        self.last_inserted_at = None
 
     def write(self, content: bytes) -> int:
         n = self.batch_export_file.write(orjson.dumps(content, default=str) + b"\n")
@@ -568,7 +614,9 @@ class JSONLBatchExportWriter(BatchExportWriter):
             self.records_since_last_flush += 1
 
 
-class CSVBatchExportWriter(csv.DictWriter, BatchExportWriter):
+class CSVBatchExportWriter(BatchExportWriter):
+    """A `BatchExportWriter` for CSV format."""
+
     def __init__(
         self,
         max_bytes: int,
@@ -582,10 +630,13 @@ class CSVBatchExportWriter(csv.DictWriter, BatchExportWriter):
         quoting=csv.QUOTE_NONE,
         compression: str | None = None,
     ):
-        self.batch_export_file = BatchExportTemporaryFile(compression=compression)
-        self.flush_callable = flush_callable
-
         super().__init__(
+            batch_export_file=BatchExportTemporaryFile(compression=compression),
+            max_bytes=max_bytes,
+            flush_callable=flush_callable,
+        )
+
+        self._csv_writer = csv.DictWriter(
             self.batch_export_file,
             fieldnames=field_names,
             extrasaction=extras_action,
@@ -596,17 +647,16 @@ class CSVBatchExportWriter(csv.DictWriter, BatchExportWriter):
             lineterminator=line_terminator,
         )
 
-        self.max_bytes = max_bytes
-        self.last_inserted_at = None
-
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
-        """Write records to a temporary file as JSONL."""
-        self.writerows(record_batch.to_pylist())
+        """Write records to a temporary file as CSV."""
+        self._csv_writer.writerows(record_batch.to_pylist())
         self.records_total += record_batch.num_rows
         self.records_since_last_flush += record_batch.num_rows
 
 
-class ParquetBatchExportWriter(pq.ParquetWriter, BatchExportWriter):
+class ParquetBatchExportWriter(BatchExportWriter):
+    """A `BatchExportWriter` for Apache Parquet format."""
+
     def __init__(
         self,
         max_bytes: int,
@@ -617,31 +667,32 @@ class ParquetBatchExportWriter(pq.ParquetWriter, BatchExportWriter):
         compression: str | None = "snappy",
         compression_level: int | None = None,
     ):
-        self.batch_export_file = BatchExportTemporaryFile(compression=None)  # Handle compression in ParquetWriter
-        self.flush_callable = flush_callable
-
         super().__init__(
+            batch_export_file=BatchExportTemporaryFile(compression=None),  # Handle compression in ParquetWriter
+            max_bytes=max_bytes,
+            flush_callable=flush_callable,
+        )
+
+        self._parquet_writer = pq.ParquetWriter(
             self.batch_export_file,
             schema=schema,
             version=version,
             use_dictionary=use_dictionary,
-            compression=compression,
+            # Compression *can* be `None`.
+            compression=compression,  # type: ignore
             compression_level=compression_level,
         )
 
-        self.max_bytes = max_bytes
-        self.last_inserted_at = None
-
     async def __aexit__(self, exc, value, tb):
-        """Close underlying Parquet writer to include footer bytes before flushing last."""
-        self.writer.close()
-        self.is_open = False
+        """Close underlying Parquet writer to include Parquet footer bytes before flushing last."""
+        self._parquet_writer.writer.close()
+        self._parquet_writer.is_open = False
 
         await super().__aexit__(exc, value, tb)
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
-        """Write records to a temporary file as JSONL."""
-        self.write_batch(record_batch.select(self.schema.names))
+        """Write records to a temporary file as Parquet."""
+        self._parquet_writer.write_batch(record_batch.select(self._parquet_writer.schema.names))
         self.records_total += record_batch.num_rows
         self.records_since_last_flush += record_batch.num_rows
 
