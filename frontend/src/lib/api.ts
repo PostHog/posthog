@@ -499,8 +499,8 @@ class ApiRequest {
     }
 
     // # AccessControls
-    public accessControls(): ApiRequest {
-        return this.organizations().current().addPathComponent('access_controls')
+    public accessControls(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('access_controls')
     }
 
     // # OrganizationMembers

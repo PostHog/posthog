@@ -50,11 +50,12 @@ def extend_api_router(
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
-    organizations_router.register(
+
+    projects_router.register(
         r"access_controls",
         access_control.AccessControlViewSet,
-        "organization_access_controls",
-        ["organization_id"],
+        "project_access_controls",
+        ["team_id"],
     )
 
     # ROUTES TO BE DEPRECATED

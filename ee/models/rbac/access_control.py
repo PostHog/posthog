@@ -1,20 +1,22 @@
 from django.db import models
 
-from posthog.models.organization import Organization
+from posthog.models.utils import UUIDModel
 
 
-# TODO: Should this be a uuidmodel - we don't need the ID
-class AccessControl(models.Model):
+class AccessControl(UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "resource", "resource_id", "team", "organization_member", "role"],
+                fields=["resource", "resource_id", "team", "organization_member", "role"],
                 name="unique resource per target",
             )
         ]
 
-    organization: models.ForeignKey = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="access_controls"
+    team: models.ForeignKey = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="access_controls",
+        related_query_name="access_controls",
     )
 
     # Configuration of what we are accessing
@@ -22,16 +24,7 @@ class AccessControl(models.Model):
     access_level: models.CharField = models.CharField(max_length=32)
     resource_id: models.CharField = models.CharField(max_length=36, null=True)
 
-    # Optional scoping of the resource to a specific team
-    team: models.ForeignKey = models.ForeignKey(
-        "posthog.Team",
-        on_delete=models.CASCADE,
-        related_name="access_controls",
-        related_query_name="access_controls",
-        null=True,
-    )
-
-    # Optional which organization membership does this apply to
+    # Optional scope it to a specific member
     organization_member: models.ForeignKey = models.ForeignKey(
         "posthog.OrganizationMembership",
         on_delete=models.CASCADE,
@@ -40,7 +33,7 @@ class AccessControl(models.Model):
         null=True,
     )
 
-    # Optional which role does this apply to
+    # Optional scope it to a specific role
     role: models.ForeignKey = models.ForeignKey(
         "Role",
         on_delete=models.CASCADE,

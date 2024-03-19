@@ -31,7 +31,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "created_by", "organization"]
+        read_only_fields = ["id", "created_at", "created_by", "team"]
 
     def validate_resource(self, resource):
         if resource not in API_SCOPE_OBJECTS:
