@@ -75,7 +75,7 @@ export function ExperimentResults(): JSX.Element {
                         ) : (
                             <>
                                 <ExperimentImplementationDetails experiment={experiment} />
-                                <NoResultsEmptyState />
+                                {experiment.start_date && <NoResultsEmptyState />}
                             </>
                         )}
                     </>

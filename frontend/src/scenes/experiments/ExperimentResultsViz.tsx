@@ -15,6 +15,8 @@ import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
@@ -25,8 +27,11 @@ import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersTo
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import {
+    ActionFilter as ActionFilterType,
+    AnyPropertyFilter,
     Experiment,
     FeatureFlagGroupType,
+    FilterType,
     FunnelExperimentVariant,
     FunnelStep,
     InsightShortId,
@@ -38,7 +43,6 @@ import {
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import { ResetButton } from './Experiment'
 import { experimentLogic } from './experimentLogic'
-import { MetricDisplay } from './ExperimentPreview'
 import { MetricSelector } from './MetricSelector'
 import { transformResultFilters } from './utils'
 
@@ -309,18 +313,22 @@ export function QueryViz(): JSX.Element {
     return (
         <div>
             <div className="flex">
-                <div className="w-1/2">
-                    {experimentInsightType === InsightType.TRENDS &&
-                        !experimentMathAggregationForTrends(experiment.filters) && (
-                            <ExposureMetric experimentId={experimentId} />
-                        )}
+                <div className="w-1/2 pb-2">
+                    <div className="card-secondary mb-2 mt-4">
+                        {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
+                    </div>
+                    <MetricDisplay filters={experiment.filters} />
+                    <LemonButton size="small" type="secondary" onClick={openExperimentGoalModal}>
+                        Change experiment goal
+                    </LemonButton>
                 </div>
 
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="mt-auto ml-auto">
-                        <LemonButton className="mb-2 ml-auto" type="secondary" onClick={openExperimentGoalModal}>
-                            Change experiment goal
-                        </LemonButton>
+                        {experimentInsightType === InsightType.TRENDS &&
+                            !experimentMathAggregationForTrends(experiment.filters) && (
+                                <ExposureMetric experimentId={experimentId} />
+                            )}
                     </div>
                 </div>
             </div>
@@ -507,7 +515,6 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
                             type="secondary"
                             status="danger"
                             size="small"
-                            className="mr-2"
                             onClick={() => updateExperimentExposure(null)}
                         >
                             Reset exposure
@@ -713,6 +720,39 @@ export function ExperimentLoader(): JSX.Element {
             loadingSkeletonRows={8}
             loading={true}
         />
+    )
+}
+
+export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Element {
+    const experimentInsightType = filters?.insight || InsightType.TRENDS
+
+    return (
+        <>
+            {([...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[])
+                .sort((a, b) => (a.order || 0) - (b.order || 0))
+                .map((event: ActionFilterType, idx: number) => (
+                    <div key={idx} className="mb-2">
+                        <div className="flex mb-1">
+                            <div className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt bg-white border rounded">
+                                {experimentInsightType === InsightType.FUNNELS ? (event.order || 0) + 1 : idx + 1}
+                            </div>
+                            <b>
+                                <InsightLabel
+                                    action={event}
+                                    showCountedByTag={experimentInsightType === InsightType.TRENDS}
+                                    hideIcon
+                                    showEventName
+                                />
+                            </b>
+                        </div>
+                        <div className="space-y-1">
+                            {event.properties?.map((prop: AnyPropertyFilter) => (
+                                <PropertyFilterButton key={prop.key} item={prop} />
+                            ))}
+                        </div>
+                    </div>
+                ))}
+        </>
     )
 }
 
