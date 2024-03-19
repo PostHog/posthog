@@ -55,7 +55,7 @@ export function SessionRecordingErrors(): JSX.Element {
                     },
                     {
                         title: 'Viewed',
-                        tooltip: "Percentage of the issue you've already seen in other watched recordings",
+                        tooltip: "How many of these you've already viewed",
                         dataIndex: 'viewed',
                         render: function Render(_, cluster) {
                             return `${((cluster.viewed / cluster.unique_sessions) * 100).toFixed(0)}%`
