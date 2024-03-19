@@ -3,6 +3,7 @@ from datetime import timedelta
 from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
@@ -419,6 +420,23 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         query = EventsQuery(select=["event", "distinct_id"])
         response = self.client.post(
             f"/api/projects/{self.team.id}/query/", {"query": query.dict()}, HTTP_AUTHORIZATION=f"Bearer {self.value}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_works_with_routes_missing_action(self):
+        insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)
+
+        self.key.scopes = ["sharing_configuration:read"]
+        self.key.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/sharing?personal_api_key={self.value}"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        self.key.scopes = ["sharing_configuration:write"]
+        self.key.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/sharing?personal_api_key={self.value}"
         )
         assert response.status_code == status.HTTP_200_OK
 

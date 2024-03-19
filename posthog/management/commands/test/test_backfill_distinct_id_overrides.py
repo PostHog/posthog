@@ -2,7 +2,7 @@ import operator
 import uuid
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.management.commands.backfill_distinct_id_overrides import BackfillQuery
+from posthog.management.commands.backfill_distinct_id_overrides import Backfill
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
@@ -32,7 +32,7 @@ class ExecuteBackfillTestCase(ClickhouseTestMixin, BaseTest):
             {"team_id": self.team.id},
         ) == [(0,)]
 
-        BackfillQuery(self.team.id).execute(dry_run=dry_run)
+        Backfill(self.team.id).execute(dry_run=dry_run)
 
         read_columns = ["team_id", "distinct_id", "person_id", "version"]
         distinct_id_override_rows = sync_execute(
