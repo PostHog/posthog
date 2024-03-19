@@ -665,25 +665,27 @@ class TrendsQueryRunner(QueryRunner):
                     res.append(new_result)
             return res
 
-        if self._trends_display.should_aggregate_values():
-            series_data = list(map(lambda s: [s["aggregated_value"]], results))
-            new_series_data = FormulaAST(series_data).call(formula)
+        if len(results) > 0:
+            if self._trends_display.should_aggregate_values():
+                series_data = list(map(lambda s: [s["aggregated_value"]], results))
+                new_series_data = FormulaAST(series_data).call(formula)
 
-            new_result = results[0]
-            new_result["aggregated_value"] = float(sum(new_series_data))
-            new_result["data"] = None
-            new_result["count"] = 0
-            new_result["label"] = f"Formula ({formula})"
-        else:
-            series_data = list(map(lambda s: s["data"], results))
-            new_series_data = FormulaAST(series_data).call(formula)
+                new_result = results[0]
+                new_result["aggregated_value"] = float(sum(new_series_data))
+                new_result["data"] = None
+                new_result["count"] = 0
+                new_result["label"] = f"Formula ({formula})"
+            else:
+                series_data = list(map(lambda s: s["data"], results))
+                new_series_data = FormulaAST(series_data).call(formula)
 
-            new_result = results[0]
-            new_result["data"] = new_series_data
-            new_result["count"] = float(sum(new_series_data))
-            new_result["label"] = f"Formula ({formula})"
+                new_result = results[0]
+                new_result["data"] = new_series_data
+                new_result["count"] = float(sum(new_series_data))
+                new_result["label"] = f"Formula ({formula})"
 
-        return [new_result]
+            return [new_result]
+        return []
 
     def _is_breakdown_field_boolean(self):
         if not self.query.breakdownFilter or not self.query.breakdownFilter.breakdown_type:

@@ -364,6 +364,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("Formula (A+B)", response.results[0]["label"])
         self.assertEqual([1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1], response.results[0]["data"])
 
+    def test_trends_query_formula_breakdown_no_data(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.day,
+            [EventsNode(event="$pageviewxxx"), EventsNode(event="$pageleavexxx")],
+            TrendsFilter(formula="A+B"),
+            BreakdownFilter(breakdown_type=BreakdownType.person, breakdown="$browser"),
+        )
+        self.assertEqual([], response.results)
+
     def test_trends_query_formula_aggregate(self):
         self._create_test_events()
 
