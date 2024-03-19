@@ -280,6 +280,7 @@ jobs:
     calculate-running-time:
         name: Calculate running time
         runs-on: ubuntu-latest
+        needs: [cypress]
         if: needs.changes.outputs.shouldTriggerCypress == 'true'
         steps:
             - name: Calculate running time
