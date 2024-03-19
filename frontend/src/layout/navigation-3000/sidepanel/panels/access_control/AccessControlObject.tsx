@@ -351,7 +351,7 @@ function RemoveAccessButton({
             onClick={() =>
                 LemonDialog.open({
                     title: 'Remove access',
-                    content: `Are you sure you want to remove this ${subject}'s access?`,
+                    content: `Are you sure you want to remove this ${subject}'s explicit access?`,
                     primaryButton: {
                         children: 'Remove',
                         status: 'danger',
