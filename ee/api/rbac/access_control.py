@@ -70,14 +70,12 @@ class AccessControlSerializer(serializers.ModelSerializer):
                 resource, data["resource_id"], required_level=required_level
             ):
                 # TODO: Human readable resource name
-                raise exceptions.PermissionDenied(f"You must be an admin to modify {resource} permissions.")
+                raise exceptions.PermissionDenied(f"Must be {required_level} to modify {resource} permissions.")
         else:
             # If modifying the base resource rules then we are checking the parent membership (project or organization)
             # NOTE: Currently we only support org level in the UI so its simply an org level check
             if not access_control.check_access_level_for_object("organization", required_level="admin"):
-                raise exceptions.PermissionDenied(
-                    "You must be an Organization admin to modify project-wide permissions."
-                )
+                raise exceptions.PermissionDenied("Must be an Organization admin to modify project-wide permissions.")
 
         return data
 
@@ -170,6 +168,29 @@ class AccessControlViewSet(
 
     @action(methods=["GET"], detail=False)
     def check(self, request: Request, *args, **kwargs):
+        resource = request.GET.get("resource")
+        resource_id = request.GET.get("resource_id")
+
+        if not resource:
+            raise exceptions.ValidationError("Resource must be provided.")
+
+        control = self.user_access_control.access_control_for_object(resource, resource_id)
+        return Response(
+            {
+                "access_level": control.access_level if control else None,
+                "available_access_levels": ordered_access_levels(resource),
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class AccessControlViewSetMixin:
+    """
+    Adds an "access_control" action to the viewset that handles access control for the given resource
+    """
+
+    @action(methods=["GET", "PATCH"], detail=True, url_path="access_control")
+    def access_control(self, request: Request, *args, **kwargs):
         resource = request.GET.get("resource")
         resource_id = request.GET.get("resource_id")
 

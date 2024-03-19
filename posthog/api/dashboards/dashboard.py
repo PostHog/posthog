@@ -31,6 +31,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
+from posthog.rbac.user_access_control import AccessControlViewSetMixin
 from posthog.user_permissions import UserPermissionsSerializerMixin
 
 logger = structlog.get_logger(__name__)
@@ -402,10 +403,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
 
 class DashboardsViewSet(
-    TeamAndOrgViewSetMixin,
-    TaggedItemViewSetMixin,
-    ForbidDestroyModel,
-    viewsets.ModelViewSet,
+    TeamAndOrgViewSetMixin, TaggedItemViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet, AccessControlViewSetMixin
 ):
     scope_object = "dashboard"
     queryset = Dashboard.objects.order_by("name")

@@ -25,8 +25,11 @@ else:
 
 try:
     from ee.models.rbac.access_control import AccessControl
+    from ee.api.rbac.access_control import AccessControlViewSetMixin as _AccessControlViewSetMixin
+
+    AccessControlViewSetMixin = _AccessControlViewSetMixin
 except ImportError:
-    pass
+    AccessControlViewSetMixin = object
 
 
 MEMBER_BASED_ACCESS_LEVELS = ["none", "member", "admin"]
