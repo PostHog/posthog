@@ -24,7 +24,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import { useCallback, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
@@ -406,11 +406,10 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                                         <ul className="space-y-px">
                                             {matchedRecordings?.length
                                                 ? matchedRecordings.map((recording, i) => (
-                                                      <>
+                                                      <React.Fragment key={i}>
                                                           <LemonDivider className="my-0" />
-                                                          <li key={i}>
+                                                          <li>
                                                               <LemonButton
-                                                                  key={i}
                                                                   fullWidth
                                                                   onClick={() => {
                                                                       recording.session_id &&
@@ -431,7 +430,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                                                                   </div>
                                                               </LemonButton>
                                                           </li>
-                                                      </>
+                                                      </React.Fragment>
                                                   ))
                                                 : null}
                                         </ul>

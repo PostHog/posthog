@@ -144,6 +144,9 @@ export enum AvailableFeature {
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
+    HIPAA_BAA = 'hipaa_baa',
+    CUSTOMM_MSA = 'custom_msa',
+    TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
 }
 
@@ -1403,7 +1406,7 @@ export interface BillingProductV2Type {
     unit: string | null
     unit_amount_usd: string | null
     plans: BillingV2PlanType[]
-    contact_support: boolean
+    contact_support: boolean | null
     inclusion_only: any
     features: BillingV2FeatureType[]
     addons: BillingProductV2AddonType[]
@@ -1424,7 +1427,7 @@ export interface BillingProductV2AddonType {
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
     included_with_main_product?: boolean
-    contact_support?: boolean
+    contact_support: boolean | null
     unit: string | null
     unit_amount_usd: string | null
     current_amount_usd: string | null
@@ -1477,10 +1480,10 @@ export interface BillingV2PlanType {
     product_key: ProductKeyUnion
     current_plan?: boolean | null
     tiers?: BillingV2TierType[] | null
-    unit_amount_usd?: string
+    unit_amount_usd: string | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
-    contact_support?: boolean
+    contact_support: boolean | null
 }
 
 export interface PlanInterface {
