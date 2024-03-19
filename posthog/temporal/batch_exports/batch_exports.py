@@ -534,6 +534,7 @@ class UpdateBatchExportRunStatusInputs:
     status: str
     team_id: int
     latest_error: str | None = None
+    records_completed: int = 0
 
 
 @activity.defn
@@ -545,6 +546,7 @@ async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs) -> 
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
+        records_completed=inputs.records_completed,
     )
 
     if batch_export_run.status in (BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE):
@@ -664,7 +666,7 @@ async def execute_batch_export_insert_activity(
     )
 
     try:
-        await workflow.execute_activity(
+        records_completed = await workflow.execute_activity(
             activity,
             inputs,
             start_to_close_timeout=dt.timedelta(seconds=start_to_close_timeout_seconds),
@@ -690,6 +692,8 @@ async def execute_batch_export_insert_activity(
 
     finally:
         get_export_finished_metric(status=update_inputs.status.lower()).add(1)
+
+        update_inputs.records_completed = records_completed
         await workflow.execute_activity(
             update_export_run_status,
             update_inputs,

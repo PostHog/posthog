@@ -805,6 +805,7 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 100
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
@@ -893,6 +894,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 100
 
     expected_key_prefix = s3_key_prefix.format(
         table="events",
@@ -968,6 +970,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
     run = runs[0]
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
+    assert run.records_completed == 0
 
 
 async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(ateam, s3_batch_export, interval):

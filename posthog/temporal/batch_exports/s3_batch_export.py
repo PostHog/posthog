@@ -382,7 +382,7 @@ def s3_default_fields() -> list[BatchExportField]:
 
 
 @activity.defn
-async def insert_into_s3_activity(inputs: S3InsertInputs):
+async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
     """Activity to batch export data from PostHog's ClickHouse to S3.
 
     It currently only creates a single file per run, and uploads as a multipart upload.
@@ -418,7 +418,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return
+            return 0
 
         logger.info("BatchExporting %s rows to S3", count)
 
@@ -502,6 +502,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     await flush_to_s3(last_uploaded_part_timestamp, last=True)
 
             await s3_upload.complete()
+
+        return local_results_file.records_total
 
 
 @workflow.defn(name="s3-export")
