@@ -136,7 +136,6 @@ export class SessionRecordingIngesterV3 {
          */
         this.promises.add(promise)
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         promise.finally(() => this.promises.delete(promise))
 
         return promise
@@ -191,11 +190,15 @@ export class SessionRecordingIngesterV3 {
                         for (const message of messages) {
                             counterKafkaMessageReceived.inc({ partition: message.partition })
 
-                            const recordingMessage = await parseKafkaMessage(message, (token) =>
-                                this.teamsRefresher.get().then((teams) => ({
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                }))
+                            const recordingMessage = await parseKafkaMessage(
+                                message,
+                                (token) =>
+                                    this.teamsRefresher.get().then((teams) => ({
+                                        teamId: teams[token]?.teamId || null,
+                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                    })),
+                                // v3 consumer does not emit ingestion warnings
+                                undefined
                             )
 
                             if (recordingMessage) {
@@ -456,7 +459,7 @@ export class SessionRecordingIngesterV3 {
     }
 
     private setupHttpRoutes() {
-        // Mimic the app sever's endpoint
+        // Mimic the app server's endpoint
         expressApp.get('/api/projects/:projectId/session_recordings/:sessionId/snapshots', async (req, res) => {
             await runInstrumentedFunction({
                 statsKey: `recordingingester.http.getSnapshots`,
