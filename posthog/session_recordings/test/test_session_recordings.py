@@ -63,6 +63,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @snapshot_postgres_queries
     @snapshot_clickhouse_queries
+    @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_session_recordings(self):
         twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
 
