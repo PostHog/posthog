@@ -38,7 +38,7 @@ export const SIDE_PANEL_TABS: Record<
         noModalSupport: true,
     },
     [SidePanelTab.Support]: {
-        label: 'Support',
+        label: 'Help',
         Icon: IconSupport,
         Content: SidePanelSupport,
     },
