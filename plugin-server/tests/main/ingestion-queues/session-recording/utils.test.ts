@@ -1,3 +1,4 @@
+import { Settings } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 
 import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
@@ -9,6 +10,7 @@ import {
     parseKafkaMessage,
     reduceRecordingMessages,
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
+import { KafkaProducerWrapper } from '../../../../src/utils/db/kafka-producer-wrapper'
 
 describe('session-recording utils', () => {
     const validMessage = (distinctId: number | string, headers?: MessageHeader[], value?: Record<string, any>) =>
@@ -64,16 +66,26 @@ describe('session-recording utils', () => {
         } satisfies Message)
 
     describe('parsing the message', () => {
+        let fakeProducer: KafkaProducerWrapper
+        beforeEach(() => {
+            Settings.now = () => new Date('2023-08-30T19:15:54.887316+00:00').getTime()
+            fakeProducer = { queueMessage: jest.fn() } as unknown as KafkaProducerWrapper
+        })
+
         it('can parse a message correctly', async () => {
-            const parsedMessage = await parseKafkaMessage(validMessage('my-distinct-id'), () =>
-                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            const parsedMessage = await parseKafkaMessage(
+                validMessage('my-distinct-id'),
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                fakeProducer
             )
             expect(parsedMessage).toMatchSnapshot()
         })
         it('can handle numeric distinct_ids', async () => {
             const numericId = 12345
-            const parsedMessage = await parseKafkaMessage(validMessage(numericId), () =>
-                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            const parsedMessage = await parseKafkaMessage(
+                validMessage(numericId),
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                fakeProducer
             )
             expect(parsedMessage).toMatchObject({
                 distinct_id: String(numericId),
@@ -126,7 +138,8 @@ describe('session-recording utils', () => {
                         timestamp: null,
                     },
                 ]),
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true })
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true }),
+                fakeProducer
             )
             expect(parsedMessage).toEqual(undefined)
 
@@ -143,7 +156,8 @@ describe('session-recording utils', () => {
                         timestamp: 123,
                     },
                 ]),
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true })
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true }),
+                fakeProducer
             )
             expect(parsedMessage2).toMatchObject({
                 eventsByWindowId: {
@@ -157,10 +171,83 @@ describe('session-recording utils', () => {
                 },
             })
 
-            const parsedMessage3 = await parseKafkaMessage(createMessage([null]), () =>
-                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            const parsedMessage3 = await parseKafkaMessage(
+                createMessage([null]),
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                fakeProducer
             )
             expect(parsedMessage3).toEqual(undefined)
+        })
+
+        function expectedIngestionWarningMessage(details: Record<string, any>): Record<string, any> {
+            return {
+                value: JSON.stringify({
+                    team_id: 1,
+                    type: 'replay_lib_version_too_old',
+                    source: 'plugin-server',
+                    details: JSON.stringify(details),
+                    timestamp: '2023-08-30 19:15:54.887',
+                }),
+            }
+        }
+
+        test.each([
+            ['absent lib version means no call to capture ingestion warning', [], []],
+            ['unknown lib version means no call to capture ingestion warning', [{ lib_version: 'unknown' }], []],
+            ['not-three-part lib version means no call to capture ingestion warning', [{ lib_version: '1.25' }], []],
+            [
+                'three-part non-numeric lib version means no call to capture ingestion warning',
+                [{ lib_version: '1.twenty.2' }],
+                [],
+            ],
+            [
+                'three-part lib version that is recent enough means no call to capture ingestion warning',
+                [{ lib_version: '1.75.0' }],
+                [],
+            ],
+            [
+                'three-part lib version that is too old means call to capture ingestion warning',
+                [{ lib_version: '1.74.0' }],
+                [
+                    [
+                        {
+                            messages: [
+                                expectedIngestionWarningMessage({
+                                    libVersion: '1.74.0',
+                                    minorVersion: 74,
+                                }),
+                            ],
+                            topic: 'clickhouse_ingestion_warnings_test',
+                        },
+                    ],
+                ],
+            ],
+            [
+                'another three-part lib version that is too old means call to capture ingestion warning',
+                [{ lib_version: '1.32.0' }],
+                [
+                    [
+                        {
+                            messages: [
+                                expectedIngestionWarningMessage({
+                                    libVersion: '1.32.0',
+                                    minorVersion: 32,
+                                }),
+                            ],
+                            topic: 'clickhouse_ingestion_warnings_test',
+                        },
+                    ],
+                ],
+            ],
+        ])('lib_version - captureIngestionWarning - %s', async (_name, headers, expectedCalls) => {
+            await parseKafkaMessage(
+                validMessage(12345, [{ token: 'q123' } as MessageHeader].concat(headers), {
+                    $snapshot_consumer: 'v2',
+                }),
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                fakeProducer
+            )
+            expect(jest.mocked(fakeProducer.queueMessage).mock.calls).toEqual(expectedCalls)
         })
 
         describe('team token can be in header or body', () => {
@@ -201,7 +288,8 @@ describe('session-recording utils', () => {
                     validMessage(12345, headerToken ? [{ token: Buffer.from(headerToken) }] : undefined, {
                         token: payloadToken,
                     }),
-                    mockTeamResolver
+                    mockTeamResolver,
+                    fakeProducer
                 )
                 expect(mockTeamResolver.mock.calls).toEqual([expectedCalls])
             })

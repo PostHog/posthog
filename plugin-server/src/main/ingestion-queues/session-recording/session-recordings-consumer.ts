@@ -1,15 +1,7 @@
 import { captureException } from '@sentry/node'
 import crypto from 'crypto'
 import { mkdirSync, rmSync } from 'node:fs'
-import {
-    CODES,
-    features,
-    HighLevelProducer,
-    KafkaConsumer,
-    librdkafkaVersion,
-    Message,
-    TopicPartition,
-} from 'node-rdkafka'
+import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
@@ -19,6 +11,7 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { createKafkaProducer } from '../../../kafka/producer'
 import { PluginsServerConfig, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { createRedisPool } from '../../../utils/utils'
@@ -152,7 +145,7 @@ export class SessionRecordingIngester {
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
     // this allows us to output more information for that partition
     private debugPartition: number | undefined = undefined
-    private ingestionWarningProducer?: HighLevelProducer
+    private ingestionWarningProducer?: KafkaProducerWrapper
 
     constructor(
         private globalServerConfig: PluginsServerConfig,
@@ -519,8 +512,9 @@ export class SessionRecordingIngester {
         })
 
         const producerConfig = createRdProducerConfigFromEnvVars(this.config)
-        this.ingestionWarningProducer = await createKafkaProducer(connectionConfig, producerConfig)
-        this.ingestionWarningProducer.connect()
+        const producer = await createKafkaProducer(connectionConfig, producerConfig)
+        producer.connect()
+        this.ingestionWarningProducer = new KafkaProducerWrapper(producer)
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {

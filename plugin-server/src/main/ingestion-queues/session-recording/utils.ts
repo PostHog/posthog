@@ -1,13 +1,6 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import {
-    HighLevelProducer,
-    KafkaConsumer,
-    Message,
-    MessageHeader,
-    PartitionMetadata,
-    TopicPartition,
-} from 'node-rdkafka'
+import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
@@ -146,7 +139,14 @@ function readLibVersionFromHeaders(headers: MessageHeader[] | undefined): string
 
 function minorVersionFrom(libVersion: string | undefined): number | undefined {
     try {
-        const minorString = libVersion && libVersion.includes('.') ? libVersion.split('.')[1] : undefined
+        let minorString: string | undefined = undefined
+        if (libVersion && libVersion.includes('.')) {
+            const splat = libVersion.split('.')
+            // very loose check for three part semantic version number
+            if (splat.length === 3) {
+                minorString = splat[1]
+            }
+        }
         return minorString ? parseInt(minorString) : undefined
     } catch (e) {
         status.warn('⚠️', 'could_not_read_minor_lib_version', { libVersion })
@@ -157,7 +157,7 @@ function minorVersionFrom(libVersion: string | undefined): number | undefined {
 export const parseKafkaMessage = async (
     message: Message,
     getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>,
-    ingestionWarningProducer: HighLevelProducer | undefined
+    ingestionWarningProducer: KafkaProducerWrapper | undefined
 ): Promise<IncomingRecordingMessage | void> => {
     const dropMessage = (reason: string, extra?: Record<string, any>) => {
         eventDroppedCounter
@@ -191,23 +191,6 @@ export const parseKafkaMessage = async (
         return dropMessage('header_token_present_team_missing_or_disabled', {
             token: token,
         })
-    }
-
-    if (ingestionWarningProducer && teamIdWithConfig?.teamId) {
-        const libVersion = readLibVersionFromHeaders(message.headers)
-        const minorVersion = minorVersionFrom(libVersion)
-        if (minorVersion && minorVersion <= 74) {
-            await captureIngestionWarning(
-                new KafkaProducerWrapper(ingestionWarningProducer),
-                teamIdWithConfig.teamId,
-                'replay_lib_version_too_old',
-                {
-                    libVersion,
-                    minorVersion,
-                },
-                { key: libVersion || minorVersion.toString() }
-            )
-        }
     }
 
     let messagePayload: RawEventMessage
@@ -251,6 +234,23 @@ export const parseKafkaMessage = async (
         })
     }
     // end of deprecated mechanism
+
+    if (!!ingestionWarningProducer && !!teamIdWithConfig.teamId) {
+        const libVersion = readLibVersionFromHeaders(message.headers)
+        const minorVersion = minorVersionFrom(libVersion)
+        if (minorVersion && minorVersion <= 74) {
+            await captureIngestionWarning(
+                ingestionWarningProducer,
+                teamIdWithConfig.teamId,
+                'replay_lib_version_too_old',
+                {
+                    libVersion,
+                    minorVersion,
+                },
+                { key: libVersion || minorVersion.toString() }
+            )
+        }
+    }
 
     const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
         // we sometimes see events that are null
