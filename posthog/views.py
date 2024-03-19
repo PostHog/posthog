@@ -11,6 +11,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
+from rest_framework.throttling import BaseThrottle
 
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
@@ -91,6 +92,10 @@ def security_txt(request):
 
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
+    """
+    WARNING: This endpoint is public and is needed for the app to understand what features are enabled in the instance.
+    Be sure to never include anything sensitive here.
+    """
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
 
@@ -116,6 +121,10 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         },
         "data_warehouse_integrations": {"hubspot": {"client_id": hubspot_client_id}},
         "object_storage": is_cloud() or is_object_storage_available(),
+        "request": {
+            # Helpful for debugging what remote address we have detected
+            "ident": BaseThrottle().get_ident(request),
+        },
     }
 
     if settings.DEBUG or settings.E2E_TESTING:
