@@ -101,7 +101,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     __repr__ = sane_repr("name")
 
     def table_name_without_prefix(self) -> str:
-        prefix = self.external_data_source.prefix
+        if self.external_data_source is not None and self.external_data_source.prefix is not None:
+            prefix = self.external_data_source.prefix
+        else:
+            prefix = ""
         return self.name[len(prefix) :]
 
     def get_columns(self, safe_expose_ch_error=True) -> Dict[str, str]:
