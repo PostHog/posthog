@@ -25,6 +25,7 @@ from posthog.utils import (
     get_instance_available_sso_providers,
     get_instance_realm,
     get_instance_region,
+    get_ip_address,
     is_celery_alive,
     is_object_storage_available,
     is_plugin_server_alive,
@@ -124,6 +125,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "request": {
             # Helpful for debugging what remote address we have detected
             "ident": BaseThrottle().get_ident(request),
+            "ip": get_ip_address(request),
         },
     }
 
