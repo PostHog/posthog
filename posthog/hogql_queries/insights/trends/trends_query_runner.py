@@ -719,13 +719,16 @@ class TrendsQueryRunner(QueryRunner):
         field: str,
         field_type: PropertyDefinition.Type,
         group_type_index: Optional[int],
-    ):
-        return PropertyDefinition.objects.get(
-            name=field,
-            team=self.team,
-            type=field_type,
-            group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
-        ).property_type
+    ) -> str:
+        try:
+            return PropertyDefinition.objects.get(
+                name=field,
+                team=self.team,
+                type=field_type,
+                group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
+            ).property_type
+        except PropertyDefinition.DoesNotExist:
+            return "String"
 
     # TODO: Move this to posthog/hogql_queries/legacy_compatibility/query_to_filter.py
     def _query_to_filter(self) -> Dict[str, Any]:
