@@ -8,7 +8,7 @@ import { reverseProxyCheckerLogic } from './reverseProxyCheckerLogic'
 const hasReverseProxyValues = [['https://proxy.example.com'], [null]]
 const doesNotHaveReverseProxyValues = [[null], [null]]
 
-const useMockedValues = (results: { timestamp: string; $lib_custom_api_host?: string }[]): void => {
+const useMockedValues = (results: (string | null)[][]): void => {
     useMocks({
         post: {
             '/api/projects/:team/query': () => [
