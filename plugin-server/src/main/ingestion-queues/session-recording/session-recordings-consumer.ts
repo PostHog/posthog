@@ -230,7 +230,6 @@ export class SessionRecordingIngester {
          */
         this.promises.add(promise)
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         promise.finally(() => this.promises.delete(promise))
 
         return promise
@@ -544,6 +543,8 @@ export class SessionRecordingIngester {
         // Finally we clear up redis once we are sure everything else has been handled
         await this.redisPool.drain()
         await this.redisPool.clear()
+
+        await this.ingestionWarningProducer?.disconnect()
 
         status.info('👍', 'blob_ingester_consumer - stopped!')
 
