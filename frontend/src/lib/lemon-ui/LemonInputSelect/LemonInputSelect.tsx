@@ -61,14 +61,13 @@ export function LemonInputSelect({
         const res: LemonInputSelectOption[] = []
         const customValues = [...values]
 
-        // Finally we show the input value if custom values are allowed and it's not in the list
+        // We show the input value if custom values are allowed and it's not in the list
         if (allowCustomValues && inputValue && !values.includes(inputValue)) {
             customValues.unshift(inputValue)
         }
 
         options.forEach((option) => {
             // Remove from the custom values list if it's in the options
-
             if (customValues.includes(option.key)) {
                 customValues.splice(customValues.indexOf(option.key), 1)
             }
