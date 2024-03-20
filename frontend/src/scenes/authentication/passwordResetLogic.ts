@@ -1,3 +1,4 @@
+import { captureException } from '@sentry/react'
 import { kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -69,7 +70,9 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 try {
                     await api.create('api/reset/', { email })
                 } catch (e: any) {
-                    actions.setRequestPasswordResetManualErrors(e)
+                    actions.setRequestPasswordResetManualErrors({ email: e.detail ?? 'An error occurred' })
+                    captureException('Failed to reset password', { extra: { error: e } })
+                    throw e
                 }
             },
         },
@@ -104,6 +107,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                     window.location.href = '/' // We need the refresh
                 } catch (e: any) {
                     actions.setPasswordResetManualErrors({ password: e.detail })
+                    throw e
                 }
             },
         },

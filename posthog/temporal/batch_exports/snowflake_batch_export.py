@@ -388,7 +388,7 @@ async def copy_loaded_files_to_snowflake_table(
 
 
 @activity.defn
-async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
+async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> int:
     """Activity streams data from ClickHouse to Snowflake.
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
@@ -430,7 +430,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return
+            return 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -552,6 +552,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     activity.heartbeat(str(last_inserted_at), file_no)
 
             await copy_loaded_files_to_snowflake_table(connection, inputs.table_name)
+
+        return local_results_file.records_total
 
 
 @workflow.defn(name="snowflake-export")

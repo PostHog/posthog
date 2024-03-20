@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
+    ExpressionField,
     FieldTraverser,
     StringJSONDatabaseField,
     StringDatabaseField,
@@ -249,6 +250,15 @@ class TestResolver(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_subquery(self):
         node = self._select("select * from (select 1 as a, 2 as b)")
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert pretty_dataclasses(node) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_asterisk_expander_hidden_field(self):
+        self.database.events.fields["hidden_field"] = ExpressionField(
+            name="hidden_field", hidden=True, expr=ast.Field(chain=["event"])
+        )
+        node = self._select("select * from events")
         node = resolve_types(node, self.context, dialect="clickhouse")
         assert pretty_dataclasses(node) == self.snapshot
 

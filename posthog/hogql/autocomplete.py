@@ -1,7 +1,7 @@
 from copy import copy, deepcopy
 from typing import Callable, Dict, List, Optional, cast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -239,6 +239,10 @@ def append_table_field_to_response(table: Table, suggestions: List[AutocompleteC
     details: List[str | None] = []
     table_fields = list(table.fields.items())
     for field_name, field_or_table in table_fields:
+        # Skip over hidden fields
+        if isinstance(field_or_table, ast.DatabaseField) and field_or_table.hidden:
+            continue
+
         keys.append(field_name)
         details.append(convert_field_or_table_to_type_string(field_or_table))
 
@@ -278,11 +282,17 @@ PROPERTY_DEFINITION_LIMIT = 220
 
 
 # TODO: Support ast.SelectUnionQuery nodes
-def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocompleteResponse:
+def get_hogql_autocomplete(
+    query: HogQLAutocomplete, team: Team, database_arg: Optional[Database] = None
+) -> HogQLAutocompleteResponse:
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
 
-    database = create_hogql_database(team_id=team.pk, team_arg=team)
+    if database_arg is not None:
+        database = database_arg
+    else:
+        database = create_hogql_database(team_id=team.pk, team_arg=team)
+
     context = HogQLContext(team_id=team.pk, team=team, database=database)
 
     original_query_select = copy(query.select)
