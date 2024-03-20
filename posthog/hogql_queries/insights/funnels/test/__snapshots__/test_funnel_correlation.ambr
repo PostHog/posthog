@@ -3818,8 +3818,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -3892,8 +3892,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -3978,8 +3978,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4096,8 +4096,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4214,8 +4214,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4332,8 +4332,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4433,8 +4433,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -4507,8 +4507,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -4576,8 +4576,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -4650,8 +4650,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -4736,8 +4736,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4854,8 +4854,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4972,8 +4972,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5090,8 +5090,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5191,8 +5191,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -5265,8 +5265,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -5334,8 +5334,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -5408,8 +5408,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -5494,8 +5494,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5612,8 +5612,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5730,8 +5730,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5848,8 +5848,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5949,8 +5949,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -6023,8 +6023,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -6092,8 +6092,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -6166,8 +6166,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -6252,8 +6252,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -6370,8 +6370,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -6488,8 +6488,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -6606,8 +6606,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -6707,8 +6707,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -6781,8 +6781,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
