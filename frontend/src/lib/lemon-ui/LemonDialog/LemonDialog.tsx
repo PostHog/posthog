@@ -3,20 +3,24 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
-import { ReactNode, useEffect, useRef, useState } from 'react'
-import { createRoot } from 'react-dom/client'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { createRoot, Root } from 'react-dom/client'
 
-import { lemonDialogLogic } from './lemonDialogLogic'
+import { LemonDialogFormPropsType, lemonDialogLogic } from './lemonDialogLogic'
 
-type ButtonProps = Omit<LemonButtonProps, 'onClick'> & { onClick?: (event: any, form: any) => void }
+export type LemonFormDialogProps = LemonDialogFormPropsType &
+    Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton' | 'tertiaryButton'> & {
+        initialValues: Record<string, any>
+        onSubmit: (values: Record<string, any>) => void | Promise<void>
+    }
 
 export type LemonDialogProps = Pick<
     LemonModalProps,
     'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer'
 > & {
-    primaryButton?: ButtonProps | null
-    secondaryButton?: ButtonProps | null
-    tertiaryButton?: ButtonProps | null
+    primaryButton?: LemonButtonProps | null
+    secondaryButton?: LemonButtonProps | null
+    tertiaryButton?: LemonButtonProps | null
     initialFormValues?: Record<string, any>
     content?: ReactNode
     onClose?: () => void
@@ -39,16 +43,6 @@ export function LemonDialog({
     const [isOpen, setIsOpen] = useState(true)
     const { currentLocation } = useValues(router)
     const lastLocation = useRef(currentLocation.pathname)
-    const logic = lemonDialogLogic()
-    const { form } = useValues(logic)
-    const { setFormValues, setFormManualErrors } = useActions(logic)
-
-    useEffect(() => {
-        if (initialFormValues) {
-            setFormValues(initialFormValues)
-            setFormManualErrors({ name: true ? 'Please enter your name' : undefined })
-        }
-    }, [])
 
     primaryButton =
         primaryButton ||
@@ -61,7 +55,7 @@ export function LemonDialog({
         primaryButton.type = primaryButton.type || 'primary'
     }
 
-    const renderButton = (button: ButtonProps | null | undefined): JSX.Element | null => {
+    const renderButton = (button: LemonButtonProps | null | undefined): JSX.Element | null => {
         if (!button) {
             return null
         }
@@ -70,7 +64,7 @@ export function LemonDialog({
                 type="secondary"
                 {...button}
                 onClick={(e) => {
-                    button.onClick?.(e, form)
+                    button.onClick?.(e)
                     setIsOpen(false)
                 }}
             />
@@ -102,14 +96,43 @@ export function LemonDialog({
                 ) : null
             }
         >
-            <Form logic={lemonDialogLogic} formKey="form">
-                {content}
-            </Form>
+            {content}
         </LemonModal>
     )
 }
 
-LemonDialog.open = (props: LemonDialogProps) => {
+const LemonFormDialog = ({ initialValues = {}, onSubmit, errors, ...props }: LemonFormDialogProps): JSX.Element => {
+    const logic = lemonDialogLogic({ errors })
+    const { form, isFormValid, formValidationErrors } = useValues(logic)
+    const { setFormValues } = useActions(logic)
+
+    const firstError = useMemo(() => Object.values(formValidationErrors)[0] as string, [formValidationErrors])
+
+    const primaryButton: LemonDialogProps['primaryButton'] = {
+        type: 'primary',
+        children: 'Submit',
+        htmlType: 'submit',
+        onClick: () => void onSubmit(form),
+        disabledReason: !isFormValid ? firstError : undefined,
+    }
+
+    const secondaryButton: LemonDialogProps['secondaryButton'] = {
+        type: 'secondary',
+        children: 'Cancel',
+    }
+
+    useEffect(() => {
+        setFormValues(initialValues)
+    }, [])
+
+    return (
+        <Form logic={lemonDialogLogic} formKey="form">
+            <LemonDialog {...props} primaryButton={primaryButton} secondaryButton={secondaryButton} />
+        </Form>
+    )
+}
+
+function createAndInsertRoot(): { root: Root; onDestroy: () => void } {
     const div = document.createElement('div')
     const root = createRoot(div)
     function destroy(): void {
@@ -120,6 +143,15 @@ LemonDialog.open = (props: LemonDialogProps) => {
     }
 
     document.body.appendChild(div)
-    root.render(<LemonDialog {...props} onAfterClose={destroy} />)
-    return
+    return { root, onDestroy: destroy }
+}
+
+LemonDialog.open = (props: LemonDialogProps) => {
+    const { root, onDestroy } = createAndInsertRoot()
+    root.render(<LemonDialog {...props} onAfterClose={onDestroy} />)
+}
+
+LemonDialog.openForm = (props: LemonFormDialogProps) => {
+    const { root, onDestroy } = createAndInsertRoot()
+    root.render(<LemonFormDialog {...props} onAfterClose={onDestroy} />)
 }

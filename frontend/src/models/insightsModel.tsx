@@ -26,41 +26,32 @@ export const insightsModel = kea<insightsModelType>([
             insightIds,
         }),
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ actions }) => ({
         renameInsight: async ({ item }) => {
-            LemonDialog.open({
+            LemonDialog.openForm({
                 title: 'Rename insight',
-                initialFormValues: { name: item.name },
+                initialValues: { name: item.name },
                 content: (
                     <LemonField name="name">
                         <LemonInput placeholder="Please enter the new name" autoFocus />
                     </LemonField>
                 ),
-                primaryButton: {
-                    children: 'Save',
-                    onClick: (_, form) => {
-                        console.log(form)
-                        debugger
-                    },
+                errors: {
+                    name: (name) => (!name ? 'You must enter a name' : undefined),
+                },
+                onSubmit: async ({ name }) => {
+                    const updatedItem = await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
+                        { name }
+                    )
+                    lemonToast.success(
+                        <>
+                            Renamed insight from <b>{item.name}</b> to <b>{name}</b>
+                        </>
+                    )
+                    actions.renameInsightSuccess(updatedItem)
                 },
             })
-            // promptLogic({ key: 'rename-insight' }).actions.prompt({
-            //     error: 'You must enter name',
-            //     success: async (name: string) => {
-            //         const updatedItem = await api.update(
-            //             `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
-            //             {
-            //                 name,
-            //             }
-            //         )
-            //         lemonToast.success(
-            //             <>
-            //                 Renamed insight from <b>{item.name}</b> to <b>{name}</b>
-            //             </>
-            //         )
-            //         actions.renameInsightSuccess(updatedItem)
-            //     },
-            // })
         },
         duplicateInsight: async ({ item }) => {
             if (!item) {
