@@ -9,6 +9,7 @@ import {
     LemonModal,
     LemonTable,
     LemonTableColumns,
+    LemonTag,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -20,6 +21,7 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
@@ -28,6 +30,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { urls } from 'scenes/urls'
 
+import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
@@ -318,7 +321,7 @@ export function QueryViz(): JSX.Element {
 
     return (
         <div>
-            <h2 className="font-semibold text-lg">Experiment goal</h2>
+            <h2 className="font-semibold text-lg mb-1">Experiment goal</h2>
             <div>
                 This <b>{experimentInsightType === InsightType.FUNNELS ? 'funnel' : 'trend'}</b>{' '}
                 {experimentInsightType === InsightType.FUNNELS
@@ -428,19 +431,25 @@ export function SecondaryMetricsTable({
         columns.push({
             key: `results_${idx}`,
             title: (
-                <>
-                    <div>
+                <span className="inline-flex py-2">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconAreaChart />}
+                        onClick={() => openModalToEditSecondaryMetric(metric, idx)}
+                    >
                         <b>{capitalizeFirstLetter(metric.name)}</b>
-                    </div>
+                    </LemonButton>
                     <div className="flex" onClick={(event) => event.stopPropagation()}>
                         <LemonButton
-                            className="my-0.5 ml-2 border rounded"
+                            type="secondary"
+                            className="ml-2"
                             icon={<IconPencil />}
-                            size="xsmall"
+                            size="small"
                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                         />
                     </div>
-                </>
+                </span>
             ),
             render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                 return (
@@ -595,7 +604,28 @@ export function SecondaryMetricsTable({
                 </div>
             ) : (
                 <div>
-                    <h2 className="font-semibold text-lg">Secondary metrics</h2>
+                    <div className="flex">
+                        <div className="w-1/2">
+                            <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
+                            <div className="mb-2">Click a metric name to compare variants on a graph.</div>
+                        </div>
+
+                        <div className="w-1/2 flex flex-col justify-end">
+                            <div className="ml-auto">
+                                {metrics && !(metrics.length > 2) && isExperimentRunning && (
+                                    <div className="mb-2 mt-4 justify-end">
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={openModalToCreateSecondaryMetric}
+                                        >
+                                            Add metric
+                                        </LemonButton>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                     {metrics && metrics.length > 0 ? (
                         <LemonTable
                             loading={secondaryMetricResultsLoading}
@@ -606,13 +636,6 @@ export function SecondaryMetricsTable({
                         <>--</>
                     ) : (
                         <></>
-                    )}
-                    {metrics && !(metrics.length > 2) && isExperimentRunning && (
-                        <div className="mb-2 mt-4 justify-end">
-                            <LemonButton type="secondary" size="small" onClick={openModalToCreateSecondaryMetric}>
-                                Add metric
-                            </LemonButton>
-                        </div>
                     )}
                 </div>
             )}
@@ -661,6 +684,7 @@ export function DistributionTable(): JSX.Element {
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto mb-2">
                         <Link
+                            target="_blank"
                             className="font-semibold"
                             to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
                         >
@@ -676,6 +700,7 @@ export function DistributionTable(): JSX.Element {
 
 export function ReleaseConditionsTable(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
+    const { aggregationLabel } = useValues(groupsModel)
 
     const columns: LemonTableColumns<FeatureFlagGroupType> = [
         {
@@ -691,12 +716,30 @@ export function ReleaseConditionsTable(): JSX.Element {
             key: 'rollout_percentage',
             title: 'Rollout',
             render: function Key(_, item): JSX.Element {
-                // const aggregationTargetName =
-                // aggregationLabel && filters.aggregation_group_type_index != null
-                //     ? aggregationLabel(filters.aggregation_group_type_index).plural
-                //     : 'users'
+                const aggregationTargetName =
+                    experiment.filters.aggregation_group_type_index != null
+                        ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
+                        : 'users'
 
-                return <div>{`${item.rollout_percentage}% of`}</div>
+                const releaseText = `${item.rollout_percentage}% of ${aggregationTargetName}`
+
+                return (
+                    <div>
+                        {releaseText.startsWith('100% of') ? (
+                            <LemonTag type="highlight">{releaseText}</LemonTag>
+                        ) : (
+                            releaseText
+                        )}
+                    </div>
+                )
+            },
+        },
+        {
+            className: 'w-1/3',
+            key: 'variant',
+            title: 'Override',
+            render: function Key(_, item): JSX.Element {
+                return <div>{item.variant || '--'}</div>
             },
         },
     ]
@@ -711,6 +754,7 @@ export function ReleaseConditionsTable(): JSX.Element {
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto mb-2">
                         <Link
+                            target="_blank"
                             className="font-semibold"
                             to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
                         >
@@ -994,7 +1038,11 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
                 .map((event: ActionFilterType, idx: number) => (
                     <div key={idx} className="mb-2">
                         <div className="flex mb-1">
-                            <div className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt bg-white border rounded">
+                            <div
+                                className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ backgroundColor: 'var(--bg-table)' }}
+                            >
                                 {experimentInsightType === InsightType.FUNNELS ? (event.order || 0) + 1 : idx + 1}
                             </div>
                             <b>
