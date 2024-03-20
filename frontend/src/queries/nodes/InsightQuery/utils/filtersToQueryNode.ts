@@ -479,12 +479,10 @@ export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilt
             ? ({
                   kind: NodeKind.FunnelsActorsQuery,
                   source: {
-                      //kind: NodeKind.FunnelsQuery,
                       funnelsFilter: funnelsFilterToQuery(filters.funnel_filter),
                       ...filtersToQueryNode(filters.funnel_filter),
                   },
                   funnelStep: filters.funnel_filter.funnel_step,
-                  //series: undefined // TODO
               } as FunnelsActorsQuery)
             : undefined,
         excludeEvents: filters.exclude_events,

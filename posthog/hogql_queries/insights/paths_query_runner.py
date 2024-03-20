@@ -128,30 +128,17 @@ class PathsQueryRunner(QueryRunner):
 
         return event_hogql
 
-    def funnel_window_interval(self) -> Optional[int]:
-        return self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowInterval
-
-    def paths_events_query(self) -> ast.SelectQuery:
-        event_filters = []
-        pathReplacements: list[PathCleaningFilter] = []
-
-        event_hogql = self.construct_event_hogql()
-        event_conditional = parse_expr("ifNull({event_hogql}, '') AS path_item_ungrouped", {"event_hogql": event_hogql})
-
-        funnel_fields = []
-        funnel_include_timestamp = False
-        funnel_include_preceding_timestamp = False
-
+    def handle_funnel(self) -> tuple[list, Optional[ast.Expr]]:
         if self.query.pathsFilter.funnelPaths in (
             FunnelPathType.funnel_path_after_step,
             FunnelPathType.funnel_path_before_step,
         ):
-            funnel_include_timestamp = True
             funnel_fields = [
                 ast.Alias(alias="target_timestamp", expr=ast.Field(chain=["funnel_actors", "timestamp"])),
             ]
-            interval = self.funnel_window_interval()
-            interval_unit = funnel_window_interval_unit_to_sql(interval)
+            interval = self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowInterval
+            unit = self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowIntervalUnit
+            interval_unit = funnel_window_interval_unit_to_sql(unit)
             operator = ">=" if self.query.pathsFilter.funnelPaths == FunnelPathType.funnel_path_after_step else "<="
             default_case = f"events.timestamp {operator} {{target_timestamp}}"
             if (
@@ -160,31 +147,77 @@ class PathsQueryRunner(QueryRunner):
                 and self.query.pathsFilter.funnelActorsQuery.funnelStep < 0
             ):
                 default_case += f" + INTERVAL {interval} {interval_unit}"
-            event_filters.append(
-                parse_expr(default_case, {"target_timestamp": ast.Field(chain=["funnel_actors", "timestamp"])})
+            event_filter = parse_expr(
+                default_case, {"target_timestamp": ast.Field(chain=["funnel_actors", "timestamp"])}
             )
+            return funnel_fields, event_filter
         elif self.query.pathsFilter.funnelPaths == FunnelPathType.funnel_path_between_steps:
-            funnel_include_preceding_timestamp = True
             funnel_fields = [
                 ast.Alias(alias="min_timestamp", expr=ast.Field(chain=["funnel_actors", "min_timestamp"])),
                 ast.Alias(alias="max_timestamp", expr=ast.Field(chain=["funnel_actors", "max_timestamp"])),
             ]
-            event_filters.append(
-                ast.And(
-                    exprs=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.GtEq,
-                            left=ast.Field(chain=["events", "timestamp"]),
-                            right=ast.Field(chain=["funnel_actors", "min_timestamp"]),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.LtEq,
-                            left=ast.Field(chain=["events", "timestamp"]),
-                            right=ast.Field(chain=["funnel_actors", "max_timestamp"]),
-                        ),
-                    ]
-                )
+            event_filter = ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["events", "timestamp"]),
+                        right=ast.Field(chain=["funnel_actors", "min_timestamp"]),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["events", "timestamp"]),
+                        right=ast.Field(chain=["funnel_actors", "max_timestamp"]),
+                    ),
+                ]
             )
+            return funnel_fields, event_filter
+
+        return [], None
+
+    def funnel_join(self) -> ast.JoinExpr:
+        from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
+
+        actors_query_runner = InsightActorsQueryRunner(
+            query=self.query.pathsFilter.funnelActorsQuery,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+        actors_query_runner.source_runner.context.includeTimestamp = self.query.pathsFilter.funnelPaths in (
+            FunnelPathType.funnel_path_after_step,
+            FunnelPathType.funnel_path_before_step,
+        )
+        actors_query_runner.source_runner.context.includePrecedingTimestamp = (
+            self.query.pathsFilter.funnelPaths == FunnelPathType.funnel_path_between_steps
+        )
+        actors_query = actors_query_runner.to_query()
+        return ast.JoinExpr(
+            table=ast.Field(chain=["events"]),
+            next_join=ast.JoinExpr(
+                table=actors_query,
+                join_type="INNER JOIN",
+                alias="funnel_actors",
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["events", "person_id"]),
+                        right=ast.Field(chain=["funnel_actors", "actor_id"]),
+                    ),
+                ),
+            ),
+        )
+
+    def paths_events_query(self) -> ast.SelectQuery:
+        event_filters = []
+        pathReplacements: list[PathCleaningFilter] = []
+
+        event_hogql = self.construct_event_hogql()
+        event_conditional = parse_expr("ifNull({event_hogql}, '') AS path_item_ungrouped", {"event_hogql": event_hogql})
+
+        funnel_fields, funnel_event_filter = self.handle_funnel()
+        if funnel_event_filter:
+            event_filters.append(funnel_event_filter)
 
         fields = [
             ast.Field(chain=["events", "timestamp"]),
@@ -285,35 +318,7 @@ class PathsQueryRunner(QueryRunner):
         )
 
         if funnel_fields:
-            # get funnels query runner and user actors query
-            # assemble a funnel query
-            from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
-
-            actors_query_runner = InsightActorsQueryRunner(
-                query=self.query.pathsFilter.funnelActorsQuery,
-                team=self.team,
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-            )
-            actors_query_runner.source_runner.context.includeTimestamp = funnel_include_timestamp
-            actors_query_runner.source_runner.context.includePrecedingTimestamp = funnel_include_preceding_timestamp
-            actors_query = actors_query_runner.to_query()
-            query.select_from = ast.JoinExpr(
-                table=ast.Field(chain=["events"]),
-                next_join=ast.JoinExpr(
-                    table=actors_query,
-                    join_type="INNER JOIN",
-                    alias="funnel_actors",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["events", "person_id"]),
-                            right=ast.Field(chain=["funnel_actors", "actor_id"]),
-                        ),
-                    ),
-                ),
-            )
+            query.select_from = self.funnel_join()
 
         if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float) and query.select_from:
             query.select_from.sample = ast.SampleExpr(
