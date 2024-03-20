@@ -103,6 +103,13 @@ function FirstStep(): JSX.Element {
                 </LemonButton>
             )
         }
+        if (config.name === 'Zendesk') {
+            return (
+                <LemonButton onClick={onClick} fullWidth center type="secondary">
+                    <img src={stripeLogo} alt="stripe logo" height={50} /> {/* TODO: add image for zendesk */}
+                </LemonButton>
+            )
+        }
 
         return <></>
     }

@@ -3542,7 +3542,7 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres' | 'Zendesk'
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
