@@ -382,7 +382,9 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     with override_settings(
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
     ):  # 5MB, the minimum for Multipart uploads
-        await activity_environment.run(insert_into_s3_activity, insert_inputs)
+        records_total = await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+    assert records_total == 10005
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,

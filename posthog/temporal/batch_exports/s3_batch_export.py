@@ -20,9 +20,12 @@ from posthog.batch_exports.service import BatchExportField, BatchExportSchema, S
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     BatchExportTemporaryFile,
+    BatchExportWriter,
     CreateBatchExportRunInputs,
+    FlushCallable,
     JSONLBatchExportWriter,
     ParquetBatchExportWriter,
+    UnsupportedFileFormatError,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     default_fields,
@@ -512,35 +515,27 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
                 last_uploaded_part_timestamp = str(last_inserted_at)
                 activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
-            if inputs.file_format == "Parquet":
-                first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
-                first_record_batch = cast_record_batch_json_columns(first_record_batch)
-                column_names = first_record_batch.column_names
-                column_names.pop(column_names.index("_inserted_at"))
+            first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
+            first_record_batch = cast_record_batch_json_columns(first_record_batch)
+            column_names = first_record_batch.column_names
+            column_names.pop(column_names.index("_inserted_at"))
 
-                schema = pa.schema(
-                    # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-                    # record batches have them as nullable.
-                    # Until we figure it out, we set all fields to nullable. There are some fields we know
-                    # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-                    # between batches.
-                    [field.with_nullable(True) for field in first_record_batch.select(column_names).schema]
-                )
+            schema = pa.schema(
+                # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
+                # record batches have them as nullable.
+                # Until we figure it out, we set all fields to nullable. There are some fields we know
+                # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
+                # between batches.
+                [field.with_nullable(True) for field in first_record_batch.select(column_names).schema]
+            )
 
-                writer = ParquetBatchExportWriter(
-                    max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-                    flush_callable=flush_to_s3,
-                    compression=inputs.compression,
-                    schema=schema,
-                )
-            else:
-                writer = JSONLBatchExportWriter(
-                    max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-                    flush_callable=flush_to_s3,
-                    compression=inputs.compression,
-                )
-
-            async with writer:
+            writer = get_batch_export_writer(
+                inputs,
+                flush_callable=flush_to_s3,
+                max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+                schema=schema,
+            )
+            async with writer.open_temporary_file():
                 rows_exported = get_rows_exported_metric()
                 bytes_exported = get_bytes_exported_metric()
 
@@ -551,7 +546,29 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
 
             await s3_upload.complete()
 
-        return local_results_file.records_total
+        return writer.records_total
+
+
+def get_batch_export_writer(
+    inputs, flush_callable: FlushCallable, max_bytes: int, schema: pa.Schema | None = None
+) -> BatchExportWriter:
+    if inputs.file_format == "Parquet":
+        writer = ParquetBatchExportWriter(
+            max_bytes=max_bytes,
+            flush_callable=flush_callable,
+            compression=inputs.compression,
+            schema=schema,
+        )
+    elif inputs.file_format == "JSONLines":
+        writer = JSONLBatchExportWriter(
+            max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+            flush_callable=flush_callable,
+            compression=inputs.compression,
+        )
+    else:
+        raise UnsupportedFileFormatError(inputs.file_format, "S3")
+
+    return writer
 
 
 def cast_record_batch_json_columns(
