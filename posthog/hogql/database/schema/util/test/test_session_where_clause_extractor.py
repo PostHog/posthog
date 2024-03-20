@@ -30,7 +30,7 @@ class TestSessionTimestampInliner:
         inliner = SessionWhereClauseExtractor()
         actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp = '2021-01-01'")))
         expected = f(
-            "((sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')"
+            "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')"
         )
         assert expected == actual
 
@@ -38,32 +38,32 @@ class TestSessionTimestampInliner:
         inliner = SessionWhereClauseExtractor()
         actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE '2021-01-01' = min_timestamp")))
         expected = f(
-            "((sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')"
+            "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')"
         )
         assert expected == actual
 
     def test_handles_select_with_simple_gt(self):
         inliner = SessionWhereClauseExtractor()
         actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp > '2021-01-01'")))
-        expected = f("((sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
+        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
         assert expected == actual
 
     def test_handles_select_with_simple_gte(self):
         inliner = SessionWhereClauseExtractor()
         actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp >= '2021-01-01'")))
-        expected = f("((sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
+        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
         assert expected == actual
 
     def test_handles_select_with_simple_lt(self):
         inliner = SessionWhereClauseExtractor()
         actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp < '2021-01-01'")))
-        expected = f("((sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01')")
+        expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01')")
         assert expected == actual
 
     def test_handles_select_with_simple_lte(self):
         inliner = SessionWhereClauseExtractor()
         actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp <= '2021-01-01'")))
-        expected = f("((sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01')")
+        expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01')")
         assert expected == actual
 
     def test_select_with_placeholder(self):
@@ -76,7 +76,7 @@ class TestSessionTimestampInliner:
                 )
             )
         )
-        expected = f("((sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
+        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
         assert expected == actual
 
     def test_unrelated_equals(self):
@@ -96,7 +96,7 @@ class TestSessionTimestampInliner:
             )
         )
         expected = f(
-            "((sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01') AND ((sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-03')"
+            "((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01') AND ((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-03')"
         )
         assert expected == actual
 
@@ -110,7 +110,7 @@ class TestSessionTimestampInliner:
             )
         )
         expected = f(
-            "((sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')"
+            "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')"
         )
         assert expected == actual
 
@@ -153,18 +153,18 @@ class TestSessionTimestampInliner:
                 )
             )
         )
-        assert actual == f("(sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03'")
+        assert actual == f("(raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03'")
 
     def test_join(self):
         inliner = SessionWhereClauseExtractor()
         actual = f(
             inliner.get_inner_where(
                 parse_select(
-                    "SELECT * FROM events JOIN sessions ON events.session_id = sessions.session_id WHERE min_timestamp > '2021-01-03'"
+                    "SELECT * FROM events JOIN sessions ON events.session_id = raw_sessions.session_id WHERE min_timestamp > '2021-01-03'"
                 )
             )
         )
-        expected = f("((sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')")
+        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')")
         assert expected == actual
 
     def test_join_using_events_timestamp_filter(self):
@@ -172,17 +172,17 @@ class TestSessionTimestampInliner:
         actual = f(
             inliner.get_inner_where(
                 parse_select(
-                    "SELECT * FROM events JOIN sessions ON events.session_id = sessions.session_id WHERE timestamp > '2021-01-03'"
+                    "SELECT * FROM events JOIN sessions ON events.session_id = raw_sessions.session_id WHERE timestamp > '2021-01-03'"
                 )
             )
         )
-        expected = f("((sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')")
+        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')")
         assert expected == actual
 
     def test_minus(self):
         inliner = SessionWhereClauseExtractor()
         actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp >= today() - 2")))
-        expected = f("((sessions.min_timestamp + toIntervalDay(3)) >= (today() - 2))")
+        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= (today() - 2))")
         assert expected == actual
 
     def test_minus_function(self):
@@ -190,7 +190,7 @@ class TestSessionTimestampInliner:
         actual = f(
             inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp >= minus(today() , 2)"))
         )
-        expected = f("((sessions.min_timestamp + toIntervalDay(3)) >= minus(today(), 2))")
+        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= minus(today(), 2))")
         assert expected == actual
 
     def test_real_example(self):
@@ -198,12 +198,12 @@ class TestSessionTimestampInliner:
         actual = f(
             inliner.get_inner_where(
                 parse_select(
-                    "SELECT * FROM events JOIN sessions ON events.session_id = sessions.session_id WHERE event = '$pageview' AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2024-03-12 00:00:00', 'US/Pacific') AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2024-03-19 23:59:59', 'US/Pacific')"
+                    "SELECT * FROM events JOIN sessions ON events.session_id = raw_sessions.session_id WHERE event = '$pageview' AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2024-03-12 00:00:00', 'US/Pacific') AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2024-03-19 23:59:59', 'US/Pacific')"
                 )
             )
         )
         expected = f(
-            "(toTimeZone(sessions.min_timestamp, 'US/Pacific') + toIntervalDay(3)) >= toDateTime('2024-03-12 00:00:00', 'US/Pacific') AND (toTimeZone(sessions.min_timestamp, 'US/Pacific') - toIntervalDay(3)) <= toDateTime('2024-03-19 23:59:59', 'US/Pacific') "
+            "(toTimeZone(raw_sessions.min_timestamp, 'US/Pacific') + toIntervalDay(3)) >= toDateTime('2024-03-12 00:00:00', 'US/Pacific') AND (toTimeZone(raw_sessions.min_timestamp, 'US/Pacific') - toIntervalDay(3)) <= toDateTime('2024-03-19 23:59:59', 'US/Pacific') "
         )
         assert expected == actual
 
