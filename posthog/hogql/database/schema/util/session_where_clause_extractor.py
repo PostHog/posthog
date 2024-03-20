@@ -18,7 +18,7 @@ class SessionWhereClauseExtractor(CloningVisitor):
         if isinstance(where, ast.Constant):
             return None
 
-        return clone_expr(where)
+        return clone_expr(where, clear_types=True, clear_locations=True)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         is_left_constant = is_time_or_interval_constant(node.left)
