@@ -130,7 +130,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
         <LemonMenu
             items={items}
             tooltipPlacement={optionTooltipPlacement}
-            sameWidth={dropdownMatchSelectWidth}
+            width={dropdownMatchSelectWidth ? 'same' : undefined}
             placement={dropdownPlacement}
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
