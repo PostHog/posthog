@@ -532,7 +532,7 @@ class BatchExportWriter(abc.ABC):
         self.max_bytes = max_bytes
         self.file_kwargs = file_kwargs
 
-        self._batch_export_file = None
+        self._batch_export_file: BatchExportTemporaryFile | None = None
         self.reset_writer_tracking()
 
     def reset_writer_tracking(self):
@@ -673,21 +673,35 @@ class CSVBatchExportWriter(BatchExportWriter):
             flush_callable=flush_callable,
             file_kwargs={"compression": compression},
         )
+        self.field_names = field_names
+        self.extras_action: typing.Literal["raise", "ignore"] = extras_action
+        self.delimiter = delimiter
+        self.quote_char = quote_char
+        self.escape_char = escape_char
+        self.line_terminator = line_terminator
+        self.quoting = quoting
 
-        self._csv_writer = csv.DictWriter(
-            self.batch_export_file,
-            fieldnames=field_names,
-            extrasaction=extras_action,
-            delimiter=delimiter,
-            quotechar=quote_char,
-            escapechar=escape_char,
-            quoting=quoting,
-            lineterminator=line_terminator,
-        )
+        self._csv_writer: csv.DictWriter | None = None
+
+    @property
+    def csv_writer(self) -> csv.DictWriter:
+        if self._csv_writer is None:
+            self._csv_writer = csv.DictWriter(
+                self.batch_export_file,
+                fieldnames=self.field_names,
+                extrasaction=self.extras_action,
+                delimiter=self.delimiter,
+                quotechar=self.quote_char,
+                escapechar=self.escape_char,
+                quoting=self.quoting,
+                lineterminator=self.line_terminator,
+            )
+
+        return self._csv_writer
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Write records to a temporary file as CSV."""
-        self._csv_writer.writerows(record_batch.to_pylist())
+        self.csv_writer.writerows(record_batch.to_pylist())
 
 
 class ParquetBatchExportWriter(BatchExportWriter):
@@ -712,7 +726,7 @@ class ParquetBatchExportWriter(BatchExportWriter):
         self.compression = compression
         self.compression_level = compression_level
 
-        self._parquet_writer = None
+        self._parquet_writer: pq.ParquetWriter | None = None
 
     @property
     def parquet_writer(self) -> pq.ParquetWriter:
