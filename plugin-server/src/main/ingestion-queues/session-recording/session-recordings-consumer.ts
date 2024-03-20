@@ -164,8 +164,8 @@ export class SessionRecordingIngester {
 
         if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED) {
             this.overflowDetection = new OverflowDetection(
-                globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
+                globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
                 24 * 3600 // One day
             )
         }
@@ -251,9 +251,6 @@ export class SessionRecordingIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        // TODO: update Redis if this triggers
-        this.overflowDetection?.observe(key, event.metadata.rawSize, event.metadata.timestamp)
-
         const { partition, highOffset } = event.metadata
         if (this.debugPartition === partition) {
             status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', { ...event.metadata })
@@ -287,6 +284,9 @@ export class SessionRecordingIngester {
 
             return
         }
+
+        // TODO: update Redis if this triggers
+        this.overflowDetection?.observe(key, event.metadata.rawSize, event.metadata.timestamp)
 
         if (!this.sessions[key]) {
             const { partition, topic } = event.metadata
