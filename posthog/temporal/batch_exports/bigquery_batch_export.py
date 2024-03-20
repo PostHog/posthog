@@ -11,6 +11,7 @@ from google.oauth2 import service_account
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -24,12 +25,12 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
     iter_records,
 )
-from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
@@ -192,7 +193,7 @@ def bigquery_default_fields() -> list[BatchExportField]:
 
 
 @activity.defn
-async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
+async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> int:
     """Activity streams data from ClickHouse to BigQuery."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="BigQuery")
     logger.info(
@@ -210,7 +211,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         data_interval_start = inputs.data_interval_start
         last_inserted_at = None
 
-    async with get_client() as client:
+    async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
@@ -229,7 +230,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return
+            return 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -353,6 +354,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
 
                     jsonl_file.reset()
 
+                return jsonl_file.records_total
+
 
 @workflow.defn(name="bigquery-export")
 class BigQueryBatchExportWorkflow(PostHogWorkflow):
@@ -393,7 +396,9 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed", team_id=inputs.team_id)
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id, status=BatchExportRun.Status.COMPLETED, team_id=inputs.team_id
+        )
 
         insert_inputs = BigQueryInsertInputs(
             team_id=inputs.team_id,

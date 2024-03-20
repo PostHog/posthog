@@ -38,7 +38,7 @@ export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): 
                                         setCollapsed(!collapsed)
                                     }}
                                 >
-                                    Click here to show advanced configuration.
+                                    Show advanced configuration
                                 </Link>
                             </>
                         )}

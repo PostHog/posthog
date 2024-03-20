@@ -285,6 +285,7 @@ class CohortSerializer(serializers.ModelSerializer):
 class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
+    scope_object = "cohort"
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -328,6 +329,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             *api_settings.DEFAULT_RENDERER_CLASSES,
             csvrenderers.PaginatedCSVRenderer,
         ],
+        required_scopes=["cohort:read", "person:read"],
     )
     def persons(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()

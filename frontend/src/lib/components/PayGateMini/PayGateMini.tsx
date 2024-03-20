@@ -1,95 +1,30 @@
-import './PayGateMini.scss'
-
-import { Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
-import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
-import { IconEmojiPeople, IconLightBulb, IconLock, IconPremium } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lowercaseFirstLetter } from 'lib/utils'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { userLogic } from 'scenes/userLogic'
+import { getProductIcon } from 'scenes/products/Products'
 
 import { AvailableFeature } from '~/types'
 
-type PayGateSupportedFeatures =
-    | AvailableFeature.DASHBOARD_PERMISSIONING
-    | AvailableFeature.SSO_ENFORCEMENT
-    | AvailableFeature.DASHBOARD_COLLABORATION
-    | AvailableFeature.ROLE_BASED_ACCESS
-    | AvailableFeature.CORRELATION_ANALYSIS
-    | AvailableFeature.PATHS_ADVANCED
-    | AvailableFeature.SURVEYS_STYLING
-    | AvailableFeature.SURVEYS_TEXT_HTML
-    | AvailableFeature.DATA_PIPELINES
+import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
+import { PayGateMiniButton } from './PayGateMiniButton'
+import { payGateMiniLogic } from './payGateMiniLogic'
 
 export interface PayGateMiniProps {
-    feature: PayGateSupportedFeatures
+    feature: AvailableFeature
+    currentUsage?: number
     children: React.ReactNode
     overrideShouldShowGate?: boolean
     className?: string
-}
-
-const FEATURE_SUMMARIES: Record<
-    PayGateSupportedFeatures,
-    {
-        /** IconPremium is the default one, but choose a more relevant one when possible. */
-        icon?: React.ReactElement
-        description: string
-        umbrella: string
-        docsHref?: string
-    }
-> = {
-    [AvailableFeature.DASHBOARD_PERMISSIONING]: {
-        icon: <IconEmojiPeople />,
-        description: 'Control access to this dashboard with dashboard permissions.',
-        umbrella: 'team-oriented permissioning',
-    },
-    [AvailableFeature.SSO_ENFORCEMENT]: {
-        icon: <IconLock />,
-        description: 'Use SAML single sign-on, enforce login with SSO, enable automatic user provisioning.',
-        umbrella: 'organization-level authentication',
-        docsHref: 'https://posthog.com/manual/sso',
-    },
-    [AvailableFeature.DASHBOARD_COLLABORATION]: {
-        description:
-            'Make sense of insights your team has learned with the help of tags, descriptions, and text cards.',
-        umbrella: 'collaboration features',
-        docsHref: 'https://posthog.com/docs/user-guides/dashboards#tagging-a-dashboard',
-    },
-    [AvailableFeature.ROLE_BASED_ACCESS]: {
-        description: 'Create and manage custom roles for granular access control within your organization.',
-        umbrella: 'team-oriented permissioning',
-        docsHref: 'https://posthog.com/manual/role-based-access',
-    },
-    [AvailableFeature.CORRELATION_ANALYSIS]: {
-        icon: <IconLightBulb />,
-        description:
-            'Correlation Analysis reveals which events and properties go hand in hand with conversion or drop-off.',
-        umbrella: 'advanced analysis capabilities',
-        docsHref: 'https://posthog.com/manual/correlation',
-    },
-    [AvailableFeature.PATHS_ADVANCED]: {
-        description:
-            'Tune path analysis with wildcards, path cleaning rules, or custom end points, and quickly jump from a path to its funnel.',
-        umbrella: 'advanced analysis capabilities',
-        docsHref: 'https://posthog.com/manual/paths',
-    },
-    [AvailableFeature.SURVEYS_STYLING]: {
-        description: 'Customize the look and feel of your surveys with custom colors and positions.',
-        umbrella: 'surveys customization',
-        docsHref: 'https://posthog.com/docs/surveys',
-    },
-    [AvailableFeature.SURVEYS_TEXT_HTML]: {
-        description: 'Use HTML to customize the content of your surveys.',
-        umbrella: 'surveys customization',
-        docsHref: 'https://posthog.com/docs/surveys',
-    },
-    [AvailableFeature.DATA_PIPELINES]: {
-        description: 'Create export workflows to send your data to a destination of your choice.',
-        umbrella: 'data pipelines',
-        docsHref: 'https://posthog.com/docs/cdp',
-    },
+    background?: boolean
+    isGrandfathered?: boolean
 }
 
 /** A sort of paywall for premium features.
@@ -99,67 +34,200 @@ const FEATURE_SUMMARIES: Record<
  */
 export function PayGateMini({
     feature,
+    currentUsage,
     className,
     children,
     overrideShouldShowGate,
+    background = true,
+    isGrandfathered,
 }: PayGateMiniProps): JSX.Element | null {
-    const { preflight, isCloudOrDev } = useValues(preflightLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { productWithFeature, featureInfo, featureAvailableOnOrg, gateVariant } = useValues(
+        payGateMiniLogic({ featureKey: feature, currentUsage })
+    )
+    const { preflight } = useValues(preflightLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { hideUpgradeModal } = useActions(upgradeModalLogic)
 
-    const featureSummary = FEATURE_SUMMARIES[feature]
-    const planRequired = FEATURE_MINIMUM_PLAN[feature]
-
-    let gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null = null
-    if (!overrideShouldShowGate && !hasAvailableFeature(feature)) {
-        if (isCloudOrDev) {
-            if (planRequired === POSTHOG_CLOUD_STANDARD_PLAN) {
-                gateVariant = 'add-card'
-            } else {
-                gateVariant = 'contact-sales'
-            }
-        } else {
-            gateVariant = 'move-to-cloud'
+    useEffect(() => {
+        if (gateVariant) {
+            posthog.capture('pay gate shown', {
+                product_key: productWithFeature?.type,
+                feature: feature,
+                gate_variant: gateVariant,
+            })
         }
+    }, [gateVariant])
+
+    if (billingLoading) {
+        return null
     }
 
-    if ((gateVariant && preflight?.instance_preferences?.disable_paid_fs) || !planRequired) {
-        return null // Don't show anything if paid features are explicitly disabled or if the feature doesn't have a minimum plan
+    if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {
+        return null // Don't show anything if paid features are explicitly disabled
     }
 
-    return gateVariant ? (
-        <div className={clsx('PayGateMini', className)}>
-            <div className="PayGateMini__icon">{featureSummary.icon || <IconPremium />}</div>
-            <div className="PayGateMini__description">{featureSummary.description}</div>
-            <div className="PayGateMini__cta">
-                {gateVariant === 'move-to-cloud' ? (
-                    <>{capitalizeFirstLetter(featureSummary.umbrella)} is available on PostHog Cloud.</>
-                ) : (
-                    <>Subscribe to gain {featureSummary.umbrella}.</>
+    return featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' ? (
+        gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
+            <div
+                className={clsx(
+                    className,
+                    background && 'bg-side border border-border',
+                    'PayGateMini rounded flex flex-col items-center p-4 text-center'
                 )}
-                {featureSummary.docsHref && (
+            >
+                <div className="flex text-4xl text-warning">
+                    {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
+                </div>
+                <h3>{featureInfo.name}</h3>
+                {featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud' ? (
+                    <div>
+                        <p>
+                            You've reached your usage limit for{' '}
+                            <Tooltip title={featureInfo.description}>
+                                <span>
+                                    <b>{featureInfo.name}</b>
+                                    <IconInfo className="ml-0.5 text-muted" />
+                                </span>
+                            </Tooltip>
+                            .
+                        </p>
+                        <p className="border border-border bg-side rounded p-4">
+                            <b>Your current plan limit:</b>{' '}
+                            <span>
+                                {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
+                            </span>
+                        </p>
+                        <p>
+                            Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
+                        </p>
+                    </div>
+                ) : (
                     <>
-                        {' '}
-                        <Link to={featureSummary.docsHref} target="_blank">
+                        <p>{featureInfo.description}</p>
+                        <p>
+                            {gateVariant === 'move-to-cloud' ? (
+                                <>This feature is only available on PostHog Cloud.</>
+                            ) : (
+                                <>
+                                    Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
+                                </>
+                            )}
+                        </p>
+                    </>
+                )}
+                {isGrandfathered && (
+                    <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
+                        <IconInfo className="text-muted text-2xl" />
+                        <p className="text-muted mb-0">
+                            Your plan does not include this feature, but previously set settings may remain. Please
+                            upgrade your plan to regain access.
+                        </p>
+                    </div>
+                )}
+                {featureInfo.docsUrl && (
+                    <div className="mb-4">
+                        <>
+                            <Link to={featureInfo.docsUrl} target="_blank">
+                                Learn more in PostHog Docs.
+                            </Link>
+                        </>
+                    </div>
+                )}
+                <PayGateMiniButton product={productWithFeature} featureInfo={featureInfo} gateVariant={gateVariant} />
+            </div>
+        ) : (
+            <div className={className}>{children}</div>
+        )
+    ) : gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
+        <div
+            className={clsx(
+                className,
+                background && 'bg-side border border-border',
+                'PayGateMini rounded flex flex-col items-center p-4 text-center'
+            )}
+        >
+            <div className="flex text-4xl text-warning">
+                {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
+            </div>
+            <h3>{featureInfo.name}</h3>
+            {featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud' ? (
+                <div>
+                    <p>
+                        You've reached your usage limit for{' '}
+                        <Tooltip title={featureInfo.description}>
+                            <span>
+                                <b>{featureInfo.name}</b>
+                                <IconInfo className="ml-0.5 text-muted" />
+                            </span>
+                        </Tooltip>
+                        .
+                    </p>
+                    <p className="border border-border bg-side rounded p-4">
+                        <b>Your current plan limit:</b>{' '}
+                        <span>
+                            {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
+                        </span>
+                    </p>
+                    <p>
+                        Please upgrade your <b>{productWithFeature.name}</b> plan to create more {featureInfo.name}
+                    </p>
+                </div>
+            ) : (
+                <p>
+                    {gateVariant === 'move-to-cloud' ? (
+                        <>On PostHog Cloud, you can </>
+                    ) : (
+                        <>
+                            Upgrade your <b>{productWithFeature?.name}</b> plan to{' '}
+                        </>
+                    )}
+                    {featureInfo.description ? lowercaseFirstLetter(featureInfo.description) : 'use this feature.'}
+                </p>
+            )}
+            {isGrandfathered && (
+                <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
+                    <IconInfo className="text-muted text-2xl" />
+                    <p className="text-muted mb-0">
+                        Your plan does not include this feature, but previously set settings may remain. Please upgrade
+                        your plan to regain access.
+                    </p>
+                </div>
+            )}
+            {featureInfo.docsUrl && (
+                <div className="mb-4">
+                    <>
+                        <Link to={featureInfo.docsUrl} target="_blank">
                             Learn more in PostHog Docs.
                         </Link>
                     </>
-                )}
-            </div>
+                </div>
+            )}
             <LemonButton
                 to={
                     gateVariant === 'add-card'
-                        ? '/organization/billing'
+                        ? `/organization/billing?products=${productWithFeature.type}`
                         : gateVariant === 'contact-sales'
-                        ? `mailto:sales@posthog.com?subject=Inquiring about ${featureSummary.umbrella}`
+                        ? `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo.name}`
                         : gateVariant === 'move-to-cloud'
                         ? 'https://us.posthog.com/signup?utm_medium=in-product&utm_campaign=move-to-cloud'
                         : undefined
                 }
                 type="primary"
                 center
+                onClick={() => {
+                    hideUpgradeModal()
+                    posthog.capture('pay gate CTA clicked', {
+                        product_key: productWithFeature?.type,
+                        feature: feature,
+                        gate_variant: gateVariant,
+                    })
+                }}
             >
                 {gateVariant === 'add-card'
-                    ? 'Subscribe now'
+                    ? billing?.has_active_subscription
+                        ? `Upgrade ${productWithFeature?.name}`
+                        : 'Subscribe now'
                     : gateVariant === 'contact-sales'
                     ? 'Contact sales'
                     : 'Move to PostHog Cloud'}

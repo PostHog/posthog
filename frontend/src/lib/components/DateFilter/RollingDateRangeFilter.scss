@@ -1,19 +1,15 @@
 .RollingDateRangeFilter {
     display: flex;
     align-items: center;
-    height: 2rem;
+    height: 1.6875rem;
     min-height: 2rem;
-    padding: 1.25rem 0.5rem;
+    padding: 1.25rem 0;
     font-size: 0.875rem;
     font-weight: normal;
     line-height: 1.375em;
     color: var(--default);
     cursor: pointer;
     transition: background 0.3s ease;
-
-    .posthog-3000 & {
-        height: 1.6875rem;
-    }
 
     &:hover {
         background-color: var(--mid);
@@ -40,29 +36,21 @@
     box-sizing: border-box;
     display: flex;
     align-items: center;
-    height: 2rem;
+    height: 1.6875rem;
     margin: 0;
     margin-right: 0.25rem;
     margin-left: 0.25rem;
-    line-height: 1.25rem;
+    line-height: 1.5rem;
     background-color: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
 
-    .posthog-3000 & {
-        height: 1.6875rem;
-        line-height: 1.5rem;
-    }
-
     .LemonInput {
         width: 3rem;
+        height: unset;
         min-height: 0;
         padding: 0;
         border: none;
-
-        .posthog-3000 & {
-            height: unset;
-        }
 
         input {
             text-align: center;
@@ -70,39 +58,25 @@
     }
 
     .RollingDateRangeFilter__counter__step {
-        padding: 0.25rem;
-        margin: 0 0.25rem;
-        border-radius: var(--radius);
+        width: 1.25rem;
+        height: 100%;
+        padding: 0;
+        margin: 0;
+        text-align: center;
+        border-radius: calc(var(--radius) - 1px);
 
         &:first-child {
-            .posthog-3000 & {
-                border-top-right-radius: 0;
-                border-bottom-right-radius: 0;
-            }
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
         }
 
         &:last-child {
-            .posthog-3000 & {
-                border-top-left-radius: 0;
-                border-bottom-left-radius: 0;
-            }
-        }
-
-        .posthog-3000 & {
-            width: 1.25rem;
-            height: 100%;
-            padding: 0;
-            margin: 0;
-            text-align: center;
-            border-radius: calc(var(--radius) - 1px);
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
         }
 
         &:hover {
-            background-color: var(--primary-highlight);
-
-            .posthog-3000 & {
-                background-color: var(--accent-3000);
-            }
+            background-color: var(--accent-3000);
         }
     }
 }

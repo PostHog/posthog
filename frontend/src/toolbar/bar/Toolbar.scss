@@ -33,16 +33,21 @@
         z-index: 2147483020;
     }
 
+    &[theme='dark'] {
+        // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
+        --mark: var(--secondary-3000-hover-dark);
+
+        @include dark-mode-3000-variables;
+    }
+
+    & .ReactModalPortal {
+        color: var(--text-3000);
+    }
+
+    @include common-variables;
+
     // default to light theme
     @include light-mode-3000-variables;
-    @include posthog-3000-variables;
-}
-
-#button-toolbar[theme='dark'] {
-    // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
-    --mark: var(--secondary-3000-hover-dark);
-
-    @include dark-mode-3000-variables;
 }
 
 .ToolbarMenu {
@@ -57,9 +62,6 @@
         display: flex;
         flex-direction: column;
         width: 30rem;
-
-        // transition: height 0.5s ease, border 0.5s ease;
-
         max-height: 0;
         margin-left: -15rem;
         overflow: hidden;
@@ -68,11 +70,18 @@
         background-color: var(--bg-3000);
         filter: drop-shadow(0 5px 10px var(--trace-3000));
         border-radius: var(--radius);
+        transition: opacity 150ms ease, max-height 150ms ease;
     }
 
     &--visible {
         .ToolbarMenu__content {
             border: 1px solid var(--border-bold-3000);
+        }
+    }
+
+    &--blurred {
+        .ToolbarMenu__content {
+            opacity: 0;
         }
     }
 

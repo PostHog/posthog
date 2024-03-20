@@ -23,22 +23,22 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.caching.insight_cache import update_cached_state
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.constants import INSIGHT_TRENDS, AvailableFeature
+from posthog.constants import INSIGHT_TRENDS
 from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
-from posthog.permissions import PremiumFeaturePermission
 from posthog.utils import generate_cache_key, get_safe_cache
 
 EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
 
 
 def _calculate_experiment_results(experiment: Experiment, refresh: bool = False):
-    filter = Filter(experiment.filters, team=experiment.team)
+    # :TRICKY: Don't run any filter simplification on the experiment filter yet
+    filter = Filter({**experiment.filters, "is_simplified": True}, team=experiment.team)
 
     exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
     exposure_filter = None
     if exposure_filter_data:
-        exposure_filter = Filter(data=exposure_filter_data, team=experiment.team)
+        exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
 
     if filter.insight == INSIGHT_TRENDS:
         calculate_func = lambda: ClickhouseTrendExperimentResult(
@@ -71,15 +71,13 @@ def _calculate_experiment_results(experiment: Experiment, refresh: bool = False)
 def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int, refresh: bool = False):
     filter = Filter(experiment.secondary_metrics[parsed_id]["filters"], team=experiment.team)
 
-    # TODO: refactor such that ClickhouseSecondaryExperimentResult's get_results doesn't return a dict
     calculate_func = lambda: ClickhouseSecondaryExperimentResult(
         filter,
         experiment.team,
         experiment.feature_flag,
         experiment.start_date,
         experiment.end_date,
-    ).get_results()["result"]
-
+    ).get_results()
     return _experiment_results_cached(experiment, "secondary", filter, calculate_func, refresh=refresh)
 
 
@@ -282,10 +280,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
 
 class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.all()
-    permission_classes = [PremiumFeaturePermission]
-    premium_feature = AvailableFeature.EXPERIMENTATION
     ordering = "-created_at"
 
     def get_queryset(self):

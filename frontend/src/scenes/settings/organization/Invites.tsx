@@ -1,6 +1,6 @@
+import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -32,7 +32,7 @@ function makeActionsComponent(
             <LemonButton
                 title="Cancel the invite"
                 data-attr="invite-delete"
-                icon={<IconClose />}
+                icon={<IconX />}
                 status="danger"
                 onClick={() => {
                     invite.is_expired

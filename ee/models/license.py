@@ -56,13 +56,11 @@ class License(models.Model):
         AvailableFeature.ZAPIER,
         AvailableFeature.ORGANIZATIONS_PROJECTS,
         AvailableFeature.SOCIAL_SSO,
-        AvailableFeature.DASHBOARD_COLLABORATION,
+        AvailableFeature.TEAM_COLLABORATION,
         AvailableFeature.INGESTION_TAXONOMY,
         AvailableFeature.PATHS_ADVANCED,
         AvailableFeature.CORRELATION_ANALYSIS,
         AvailableFeature.GROUP_ANALYTICS,
-        AvailableFeature.MULTIVARIATE_FLAGS,
-        AvailableFeature.EXPERIMENTATION,
         AvailableFeature.TAGGING,
         AvailableFeature.BEHAVIORAL_COHORT_FILTERING,
         AvailableFeature.WHITE_LABELLING,
@@ -75,7 +73,7 @@ class License(models.Model):
 
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = SCALE_FEATURES + [
-        AvailableFeature.DASHBOARD_PERMISSIONING,
+        AvailableFeature.ADVANCED_PERMISSIONS,
         AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.SAML,
         AvailableFeature.SSO_ENFORCEMENT,

@@ -11,12 +11,10 @@
         overflow: hidden;
 
         &::after {
+            --bg-light: var(--bg-3000); // Make the fade blend in with the 3000 background smoothly
+
             width: 100%;
             height: 150px;
-
-            .posthog-3000 & {
-                --bg-light: var(--bg-3000); // Make the fade blend in with the 3000 background smoothly
-            }
 
             @extend %mixin-gradient-overlay;
         }

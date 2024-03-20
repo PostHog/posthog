@@ -1,5 +1,6 @@
+import { IconDashboard } from '@posthog/icons'
 import { useValues } from 'kea'
-import { IconGauge, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -21,7 +22,7 @@ export function AddToDashboard({ insight, setOpenModal }: SaveToDashboardProps):
                 type="secondary"
                 icon={
                     <IconWithCount count={dashboards.length} showZero={false}>
-                        <IconGauge />
+                        <IconDashboard />
                     </IconWithCount>
                 }
             >

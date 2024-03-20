@@ -10,7 +10,9 @@ import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
+import { KafkaProducerWrapper } from '../../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../../utils/status'
+import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
 import { createSessionReplayEvent } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
@@ -28,7 +30,7 @@ export class ReplayEventsIngester {
 
     constructor(
         private readonly serverConfig: PluginsServerConfig,
-        private readonly persistentHighWaterMarker: OffsetHighWaterMarker
+        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -73,10 +75,21 @@ export class ReplayEventsIngester {
             }
         }
 
-        const topicPartitionOffsets = findOffsetsToCommit(messages.map((message) => message.metadata))
-        await Promise.all(
-            topicPartitionOffsets.map((tpo) => this.persistentHighWaterMarker.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
-        )
+        if (this.persistentHighWaterMarker) {
+            const topicPartitionOffsets = findOffsetsToCommit(
+                messages.map((message) => ({
+                    topic: message.metadata.topic,
+                    partition: message.metadata.partition,
+                    offset: message.metadata.highOffset,
+                }))
+            )
+
+            await Promise.all(
+                topicPartitionOffsets.map((tpo) =>
+                    this.persistentHighWaterMarker!.add(tpo, HIGH_WATERMARK_KEY, tpo.offset)
+                )
+            )
+        }
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
@@ -94,22 +107,24 @@ export class ReplayEventsIngester {
         }
 
         if (
-            await this.persistentHighWaterMarker.isBelowHighWaterMark(
+            await this.persistentHighWaterMarker?.isBelowHighWaterMark(
                 event.metadata,
                 HIGH_WATERMARK_KEY,
-                event.metadata.offset
+                event.metadata.highOffset
             )
         ) {
             return drop('high_water_mark')
         }
 
         try {
+            const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
+
             const replayRecord = createSessionReplayEvent(
                 randomUUID(),
                 event.team_id,
                 event.distinct_id,
                 event.session_id,
-                event.events,
+                rrwebEvents,
                 event.snapshot_source
             )
 
@@ -117,7 +132,20 @@ export class ReplayEventsIngester {
                 // the replay record timestamp has to be valid and be within a reasonable diff from now
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
-                    if (!asDate.isValid || Math.abs(asDate.diffNow('months').months) >= 0.99) {
+                    if (!asDate.isValid || Math.abs(asDate.diffNow('day').days) >= 7) {
+                        await captureIngestionWarning(
+                            new KafkaProducerWrapper(this.producer),
+                            event.team_id,
+                            !asDate.isValid ? 'replay_timestamp_invalid' : 'replay_timestamp_too_far',
+                            {
+                                replayRecord,
+                                timestamp: replayRecord.first_timestamp,
+                                isValid: asDate.isValid,
+                                daysFromNow: Math.round(Math.abs(asDate.diffNow('day').days)),
+                                processingTimestamp: DateTime.now().toISO(),
+                            },
+                            { key: event.session_id }
+                        )
                         return drop('invalid_timestamp')
                     }
                 }

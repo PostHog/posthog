@@ -38,11 +38,6 @@ const Template: StoryFn<typeof LemonRadio> = (props: Omit<LemonRadioProps<any>, 
 export const Default: Story = Template.bind({})
 Default.args = {}
 
-export const FullWidth: Story = Template.bind({})
-FullWidth.args = {
-    fullWidth: true,
-}
-
 export const Disabled: Story = Template.bind({})
 Disabled.args = {
     options: [

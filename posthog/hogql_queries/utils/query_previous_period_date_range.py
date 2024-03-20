@@ -62,7 +62,6 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
             self.date_from_delta_mappings(),
             self.date_to_delta_mappings(),
             self.interval_name,
-            True,
         )
 
         return previous_period_date_from, previous_period_date_to

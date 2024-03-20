@@ -3,6 +3,7 @@ import { EventType, eventWithTime } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
+    afterMount,
     beforeUnmount,
     BreakPointFunction,
     connect,
@@ -20,7 +21,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { toParams } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
@@ -53,10 +53,10 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
-const REALTIME_POLLING_PARAMS = toParams({
+const REALTIME_POLLING_PARAMS = {
     source: SnapshotSourceType.realtime,
     version: '2',
-})
+}
 
 let postHogEEModule: PostHogEE
 
@@ -125,7 +125,28 @@ const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined =>
     return (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
 }
 
-export const prepareRecordingSnapshots = (
+/*
+    cyrb53 (c) 2018 bryc (github.com/bryc)
+    License: Public domain. Attribution appreciated.
+    A fast and simple 53-bit string hash function with decent collision resistance.
+    Largely inspired by MurmurHash2/3, but with a focus on speed/simplicity.
+*/
+const cyrb53 = function (str: string, seed = 0): number {
+    let h1 = 0xdeadbeef ^ seed,
+        h2 = 0x41c6ce57 ^ seed
+    for (let i = 0, ch; i < str.length; i++) {
+        ch = str.charCodeAt(i)
+        h1 = Math.imul(h1 ^ ch, 2654435761)
+        h2 = Math.imul(h2 ^ ch, 1597334677)
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507)
+    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
+    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+    return 4294967296 * (2097151 & h2) + (h1 >>> 0)
+}
+
+export const deduplicateSnapshots = (
     newSnapshots?: RecordingSnapshot[],
     existingSnapshots?: RecordingSnapshot[]
 ): RecordingSnapshot[] => {
@@ -138,7 +159,14 @@ export const prepareRecordingSnapshots = (
             // we have to stringify the snapshot to compare it to other snapshots.
             // so we can filter by storing them all in a set
 
-            const key = JSON.stringify(snapshot)
+            // we can see duplicates that only differ by delay - these still count as duplicates
+            // even though the delay would hide that
+            const { delay: _delay, ...delayFreeSnapshot } = snapshot
+            // we check each item multiple times as new snapshots come in
+            // so store the computer value on the object to save recalculating it so much
+            const key = (snapshot as any).seen || cyrb53(JSON.stringify(delayFreeSnapshot))
+            ;(snapshot as any).seen = key
+
             if (seenHashes.has(key)) {
                 return false
             } else {
@@ -210,7 +238,7 @@ async function processEncodedResponse(
 ): Promise<{ transformed: RecordingSnapshot[]; untransformed: RecordingSnapshot[] | null }> {
     let untransformed: RecordingSnapshot[] | null = null
 
-    const transformed = prepareRecordingSnapshots(
+    const transformed = deduplicateSnapshots(
         await parseEncodedSnapshots(
             encodedResponse,
             props.sessionRecordingId,
@@ -220,7 +248,7 @@ async function processEncodedResponse(
     )
 
     if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_EXPORT_MOBILE_DATA]) {
-        untransformed = prepareRecordingSnapshots(
+        untransformed = deduplicateSnapshots(
             await parseEncodedSnapshots(
                 encodedResponse,
                 props.sessionRecordingId,
@@ -450,11 +478,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionPlayerSnapshotData | null,
             {
                 pollRecordingSnapshots: async (_, breakpoint: BreakPointFunction) => {
+                    const params = { ...REALTIME_POLLING_PARAMS }
+
+                    if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK]) {
+                        params.version = '3'
+                    }
+
                     await breakpoint(1) // debounce
-                    const response = await api.recordings.listSnapshots(
-                        props.sessionRecordingId,
-                        REALTIME_POLLING_PARAMS
-                    )
+                    const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
                     breakpoint() // handle out of order
 
                     if (response.snapshots) {
@@ -482,8 +513,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return values.sessionPlayerSnapshotData
                     }
 
+                    const snapshotLoadingStartTime = performance.now()
+
                     if (!cache.snapshotsStartTime) {
-                        cache.snapshotsStartTime = performance.now()
+                        cache.snapshotsStartTime = snapshotLoadingStartTime
                     }
 
                     const data: SessionPlayerSnapshotData = {
@@ -493,13 +526,20 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     await breakpoint(1)
 
                     if (source?.source === SnapshotSourceType.blob) {
+                        const params = {
+                            source: source.source,
+                            blob_key: source.blob_key,
+                            version: '2',
+                        }
+
+                        if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK]) {
+                            params.version = '3'
+                        }
+
                         if (!source.blob_key) {
                             throw new Error('Missing key')
                         }
-                        const encodedResponse = await api.recordings.getBlobSnapshots(
-                            props.sessionRecordingId,
-                            source.blob_key
-                        )
+                        const encodedResponse = await api.recordings.getBlobSnapshots(props.sessionRecordingId, params)
 
                         const { transformed, untransformed } = await processEncodedResponse(
                             encodedResponse,
@@ -510,11 +550,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         data.snapshots = transformed
                         data.untransformed_snapshots = untransformed ?? undefined
                     } else {
-                        const params = toParams({
+                        const params = {
                             source: source?.source,
-                            key: source?.blob_key,
                             version: '2',
-                        })
+                        }
+
+                        if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK]) {
+                            params.version = '3'
+                        }
+
                         const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
                         if (response.snapshots) {
                             const { transformed, untransformed } = await processEncodedResponse(
@@ -537,6 +581,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                         posthog.capture('recording_snapshot_loaded', {
                             source: source.source,
+                            duration: Math.round(performance.now() - snapshotLoadingStartTime),
                         })
                     }
 
@@ -657,10 +702,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+        similarRecordings: [
+            null as [string, number][] | null,
+            {
+                fetchSimilarRecordings: async () => {
+                    return await api.recordings.similarRecordings(props.sessionRecordingId)
+                },
+            },
+        ],
     })),
     selectors({
         sessionPlayerData: [
-            (s) => [
+            (s, p) => [
                 s.sessionPlayerMetaData,
                 s.snapshotsByWindowId,
                 s.segments,
@@ -669,6 +722,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 s.end,
                 s.durationMs,
                 s.fullyLoaded,
+                p.sessionRecordingId,
             ],
             (
                 meta,
@@ -678,7 +732,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 start,
                 end,
                 durationMs,
-                fullyLoaded
+                fullyLoaded,
+                sessionRecordingId
             ): SessionPlayerData => ({
                 person: meta?.person ?? null,
                 start,
@@ -688,6 +743,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 segments,
                 bufferedToTime,
                 fullyLoaded,
+                sessionRecordingId,
             }),
         ],
 
@@ -829,6 +885,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return Object.keys(snapshotsByWindowId)
             },
         ],
+    }),
+    afterMount(({ cache }) => {
+        resetTimingsCache(cache)
     }),
     beforeUnmount(({ cache }) => {
         resetTimingsCache(cache)

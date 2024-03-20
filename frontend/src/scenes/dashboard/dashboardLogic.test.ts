@@ -20,7 +20,6 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
-    TextModel,
     TileLayout,
 } from '~/types'
 
@@ -432,17 +431,6 @@ describe('dashboardLogic', () => {
         })
     })
 
-    describe('when there is no props id', () => {
-        beforeEach(() => {
-            logic = dashboardLogic({ id: undefined })
-            logic.mount()
-        })
-
-        it('does not fetch dashboard items on mount', async () => {
-            await expectLogic(logic).toNotHaveDispatchedActions(['loadDashboardItems'])
-        })
-    })
-
     describe('when the dashboard API errors', () => {
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)
@@ -526,18 +514,21 @@ describe('dashboardLogic', () => {
                                 }
                                 return acc
                             }, [] as InsightShortId[]),
+                            false,
                             true
                         ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
                             [dashboards['5'].tiles[0].insight!.short_id]: {
-                                loading: true,
-                                timer: expect.anything(),
+                                loading: false,
+                                queued: true,
+                                timer: null,
                             },
                             [dashboards['5'].tiles[1].insight!.short_id]: {
-                                loading: true,
-                                timer: expect.anything(),
+                                loading: false,
+                                queued: true,
+                                timer: null,
                             },
                         },
                         refreshMetrics: {
@@ -585,13 +576,18 @@ describe('dashboardLogic', () => {
                     .toFinishAllListeners()
                     .toDispatchActions([
                         'refreshAllDashboardItems',
-                        logic.actionCreators.setRefreshStatuses([dashboards['5'].tiles[0].insight!.short_id], true),
+                        logic.actionCreators.setRefreshStatuses(
+                            [dashboards['5'].tiles[0].insight!.short_id],
+                            false,
+                            true
+                        ),
                     ])
                     .toMatchValues({
                         refreshStatus: {
                             [dashboards['5'].tiles[0].insight!.short_id]: {
-                                loading: true,
-                                timer: expect.anything(),
+                                loading: false,
+                                queued: true,
+                                timer: null,
                             },
                         },
                         refreshMetrics: {
@@ -651,7 +647,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.insightTiles[0].insight!.filters.date_from).toEqual('-1d')
             expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('hour')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
-            expect(logic.values.insightTiles[0]!.last_refresh).toEqual('2012-04-01T00:00:00Z')
+            expect(logic.values.insightTiles[0].last_refresh).toEqual('2012-04-01T00:00:00Z')
         })
 
         it('can respond to external insight rename', async () => {
@@ -682,22 +678,6 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboardItems'])
         })
-
-        it('can respond to external insight update for a text tile', async () => {
-            expect(logic.values.dashboard?.tiles).toHaveLength(2)
-
-            await expectLogic(logic, () => {
-                const updatedTile: DashboardTile = {
-                    ...TEXT_TILE,
-                    text: { ...TEXT_TILE.text, body: 'updated body' } as TextModel,
-                }
-                dashboardsModel.actions.updateDashboardTile(updatedTile, [9])
-            }).toFinishAllListeners()
-
-            expect(logic.values.dashboard?.tiles).toHaveLength(2)
-            expect(logic.values.insightTiles[0].insight!.name).toEqual('donut')
-            expect(logic.values.textTiles[0].text!.body).toEqual('updated body')
-        })
     })
 
     describe('with a half-cached dashboard', () => {
@@ -724,7 +704,7 @@ describe('dashboardLogic', () => {
                         total: 2,
                     },
                 })
-                .toDispatchActions(['setRefreshStatus', 'setRefreshStatus'])
+                .toDispatchActions(['setRefreshStatus', 'setRefreshStatus', 'setRefreshStatus', 'setRefreshStatus'])
                 .toMatchValues({
                     refreshMetrics: {
                         completed: 2,
@@ -820,12 +800,8 @@ describe('dashboardLogic', () => {
             }))
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
 
-        const changedTile: DashboardTile = {
-            ...(nineLogic.values.dashboard?.tiles[0] as DashboardTile), // we know it isn't undefined
-            insight: { ...insight800(), dashboards: [10, 5] },
-        }
-
-        dashboardsModel.actions.updateDashboardTile(changedTile, [9])
+        const changedInsight: InsightModel = { ...insight800(), dashboards: [10, 5] } // Moved from to 9 to 5
+        dashboardsModel.actions.updateDashboardInsight(changedInsight, [9])
 
         expect(
             fiveLogic.values.insightTiles.map((t) => ({
@@ -834,8 +810,7 @@ describe('dashboardLogic', () => {
             }))
         ).toEqual([
             { dashboards: [5, 6], short_id: '172' },
-            { dashboards: [5, 6], short_id: '175' },
-            { dashboards: [10, 5], short_id: '800' },
+            { dashboards: [5, 6], short_id: '175' }, // It's expected that 800 isn't here yet, because we expect to load it from the API for correctness
         ])
         expect(
             nineLogic.values.insightTiles.map((t) => ({
@@ -843,5 +818,7 @@ describe('dashboardLogic', () => {
                 dashboards: t.insight!.dashboards,
             }))
         ).toEqual([])
+        // Ensuring we do go back to the API for 800, which was added to dashboard 5
+        expectLogic(fiveLogic).toDispatchActions(['loadDashboardItems']).toFinishAllListeners()
     })
 })

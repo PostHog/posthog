@@ -1,7 +1,6 @@
-import { LemonBanner, LemonDivider, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { Popconfirm } from 'antd'
+import { IconDownload, IconLock, IconRedo, IconTrash, IconUnlock } from '@posthog/icons'
+import { LemonBanner, LemonDialog, LemonDivider, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconCloudDownload, IconDelete, IconLock, IconLockOpen, IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
@@ -92,7 +91,7 @@ function AppsToUpdate(): JSX.Element {
             {updatablePlugins && (
                 <LemonButton
                     type="secondary"
-                    icon={<IconRefresh />}
+                    icon={<IconRedo />}
                     onClick={checkForUpdates}
                     loading={checkingForUpdates}
                 >
@@ -116,6 +115,21 @@ function AppsToUpdate(): JSX.Element {
 function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
     const { unusedPlugins } = useValues(appsManagementLogic)
     const { uninstallPlugin, patchPlugin, updatePlugin } = useActions(appsManagementLogic)
+
+    const onClickUninstall = (pluginId: number): void => {
+        LemonDialog.open({
+            title: 'Are you sure you wish to uninstall this app completely?',
+            primaryButton: {
+                children: 'Uninstall',
+                type: 'secondary',
+                status: 'danger',
+                onClick: () => uninstallPlugin(pluginId),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
 
     const data = plugins.map((plugin) => ({ ...plugin, key: plugin.id }))
     return (
@@ -178,7 +192,7 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                                         <LemonButton
                                             type="secondary"
                                             size="small"
-                                            icon={<IconCloudDownload />}
+                                            icon={<IconDownload />}
                                             onClick={() => updatePlugin(plugin.id)}
                                         >
                                             Update
@@ -215,36 +229,26 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                                             <LemonButton
                                                 type="secondary"
                                                 size="small"
-                                                icon={<IconLockOpen />}
+                                                icon={<IconUnlock />}
                                                 onClick={() => patchPlugin(plugin.id, { is_global: true })}
                                             >
                                                 Make global
                                             </LemonButton>
                                         </Tooltip>
                                     )}
-                                    <Popconfirm
-                                        placement="topLeft"
-                                        title="Are you sure you wish to uninstall this app completely?"
-                                        onConfirm={() => uninstallPlugin(plugin.id)}
-                                        okText="Uninstall"
-                                        cancelText="Cancel"
-                                        className="Plugins__Popconfirm"
+                                    <LemonButton
+                                        type="secondary"
+                                        status="danger"
+                                        size="small"
+                                        icon={<IconTrash />}
+                                        disabledReason={
+                                            unusedPlugins.includes(plugin.id) ? undefined : 'This app is still in use.'
+                                        }
+                                        data-attr="plugin-uninstall"
+                                        onClick={() => onClickUninstall(plugin.id)}
                                     >
-                                        <LemonButton
-                                            type="secondary"
-                                            status="danger"
-                                            size="small"
-                                            icon={<IconDelete />}
-                                            disabledReason={
-                                                unusedPlugins.includes(plugin.id)
-                                                    ? undefined
-                                                    : 'This app is still in use.'
-                                            }
-                                            data-attr="plugin-uninstall"
-                                        >
-                                            Uninstall
-                                        </LemonButton>
-                                    </Popconfirm>
+                                        Uninstall
+                                    </LemonButton>
                                 </div>
                             )
                         },

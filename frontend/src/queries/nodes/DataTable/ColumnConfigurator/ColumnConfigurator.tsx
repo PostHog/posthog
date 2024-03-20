@@ -4,6 +4,7 @@ import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { IconPencil, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -11,7 +12,7 @@ import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
-import { IconClose, IconEdit, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
+import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -259,12 +260,12 @@ const SelectedColumn = ({
                 <div className="flex-1" />
                 <Tooltip title="Edit">
                     <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">
-                        <IconEdit data-attr="column-display-item-edit-icon" />
+                        <IconPencil data-attr="column-display-item-edit-icon" />
                     </LemonButton>
                 </Tooltip>
                 <Tooltip title="Remove">
                     <LemonButton onClick={() => onRemove(column)} status="danger" size="small">
-                        <IconClose data-attr="column-display-item-remove-icon" />
+                        <IconX data-attr="column-display-item-remove-icon" />
                     </LemonButton>
                 </Tooltip>
             </div>

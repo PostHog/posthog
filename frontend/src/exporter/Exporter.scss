@@ -1,9 +1,7 @@
 @import '../styles/mixins';
 
 body.ExporterBody {
-    &.posthog-3000 {
-        overflow: initial;
-    }
+    overflow: initial;
 }
 
 .Exporter {

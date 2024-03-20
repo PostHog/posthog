@@ -72,7 +72,14 @@ def property_to_expr(
     scope: Literal["event", "person"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
-        property = Property(**property)
+        try:
+            property = Property(**property)
+        # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
+        # TODO: revert this when removing legacy insights?
+        except ValueError:
+            return ast.Constant(value=True)
+        except TypeError:
+            return ast.Constant(value=True)
     elif isinstance(property, list):
         properties = [property_to_expr(p, team, scope) for p in property]
         if len(properties) == 0:
@@ -112,7 +119,12 @@ def property_to_expr(
         else:
             return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
     elif isinstance(property, BaseModel):
-        property = Property(**property.dict())
+        try:
+            property = Property(**property.dict())
+        except ValueError:
+            # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
+            # TODO: revert this when removing legacy insights?
+            return ast.Constant(value=True)
     else:
         raise NotImplementedException(
             f"property_to_expr with property of type {type(property).__name__} not implemented"
@@ -121,7 +133,11 @@ def property_to_expr(
     if property.type == "hogql":
         return parse_expr(property.key)
     elif (
-        property.type == "event" or property.type == "feature" or property.type == "person" or property.type == "group"
+        property.type == "event"
+        or property.type == "feature"
+        or property.type == "person"
+        or property.type == "group"
+        or property.type == "data_warehouse"
     ):
         if scope == "person" and property.type != "person":
             raise NotImplementedException(
@@ -131,9 +147,14 @@ def property_to_expr(
         value = property.value
 
         if property.type == "person" and scope != "person":
-            chain = ["person", "properties"]
+            if property.table:
+                chain = ["person", property.table]
+            else:
+                chain = ["person", "properties"]
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
+        elif property.type == "data_warehouse":
+            chain = []
         else:
             chain = ["properties"]
         field = ast.Field(chain=chain + [property.key])

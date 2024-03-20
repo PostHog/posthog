@@ -12,6 +12,7 @@ from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, S3BatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
@@ -25,11 +26,11 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
     iter_records,
 )
-from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -119,11 +120,13 @@ class S3MultiPartUpload:
         kms_key_id: str | None,
         aws_access_key_id: str | None = None,
         aws_secret_access_key: str | None = None,
+        endpoint_url: str | None = None,
     ):
         self._session = aioboto3.Session()
         self.region_name = region_name
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
+        self.endpoint_url = endpoint_url
         self.bucket_name = bucket_name
         self.key = key
         self.encryption = encryption
@@ -153,11 +156,13 @@ class S3MultiPartUpload:
     @contextlib.asynccontextmanager
     async def s3_client(self):
         """Asynchronously yield an S3 client."""
+
         async with self._session.client(
             "s3",
             region_name=self.region_name,
             aws_access_key_id=self.aws_access_key_id,
             aws_secret_access_key=self.aws_secret_access_key,
+            endpoint_url=self.endpoint_url,
         ) as client:
             yield client
 
@@ -305,6 +310,7 @@ class S3InsertInputs:
     encryption: str | None = None
     kms_key_id: str | None = None
     batch_export_schema: BatchExportSchema | None = None
+    endpoint_url: str | None = None
 
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -320,6 +326,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
         region_name=inputs.region,
         aws_access_key_id=inputs.aws_access_key_id,
         aws_secret_access_key=inputs.aws_secret_access_key,
+        endpoint_url=inputs.endpoint_url,
     )
 
     details = activity.info().heartbeat_details
@@ -381,7 +388,7 @@ def s3_default_fields() -> list[BatchExportField]:
 
 
 @activity.defn
-async def insert_into_s3_activity(inputs: S3InsertInputs):
+async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
     """Activity to batch export data from PostHog's ClickHouse to S3.
 
     It currently only creates a single file per run, and uploads as a multipart upload.
@@ -398,7 +405,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         inputs.data_interval_end,
     )
 
-    async with get_client() as client:
+    async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
@@ -417,7 +424,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return
+            return 0
 
         logger.info("BatchExporting %s rows to S3", count)
 
@@ -502,6 +509,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
             await s3_upload.complete()
 
+        return local_results_file.records_total
+
 
 @workflow.defn(name="s3-export")
 class S3BatchExportWorkflow(PostHogWorkflow):
@@ -543,7 +552,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
 
         update_inputs = UpdateBatchExportRunStatusInputs(
             id=run_id,
-            status="Completed",
+            status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
 
@@ -554,6 +563,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
+            endpoint_url=inputs.endpoint_url,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             compression=inputs.compression,
@@ -572,6 +582,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 "ParamValidationError",
                 # This error usually indicates credentials are incorrect or permissions are missing.
                 "ClientError",
+                # An S3 bucket doesn't exist.
+                "NoSuchBucket",
             ],
             update_inputs=update_inputs,
         )

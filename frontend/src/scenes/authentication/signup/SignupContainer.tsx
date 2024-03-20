@@ -1,8 +1,8 @@
+import { IconCheckCircle } from '@posthog/icons'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
-import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -68,7 +68,7 @@ export function SignupLeftContainer(): JSX.Element {
         ? [
               {
                   benefit: 'Free usage every month - even on paid plans',
-                  description: '1M free events, 15K free session recordings, and more. Every month. Forever.',
+                  description: '1M free events, 5K free session recordings, and more. Every month. Forever.',
               },
               {
                   benefit: 'Start collecting data immediately',
@@ -102,7 +102,7 @@ export function SignupLeftContainer(): JSX.Element {
                 {productBenefits.map((benefit, i) => (
                     <div className="flex flex-row gap-4 mb-4" key={i}>
                         <div>
-                            <IconCheckCircleOutline className="mt-2 w-4 h-4 text-link" />
+                            <IconCheckCircle className="mt-2 w-4 h-4 text-link" />
                         </div>
                         <div>
                             <h3 className="mb-1 font-bold leading-6">{benefit.benefit}</h3>

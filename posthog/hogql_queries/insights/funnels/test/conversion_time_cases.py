@@ -28,7 +28,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, Funn
                     {"id": "$pageview", "type": "events", "order": 1},
                     {"id": "something else", "type": "events", "order": 2},
                 ],
-                "funnel_window_days": 1,
+                "funnel_window_interval": 1,
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-14 00:00:00",
             }

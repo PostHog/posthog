@@ -1,6 +1,7 @@
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconClose, IconComment } from 'lib/lemon-ui/icons'
+import { IconComment } from 'lib/lemon-ui/icons'
 import { useRef } from 'react'
 import { funnelCorrelationFeedbackLogic } from 'scenes/funnels/funnelCorrelationFeedbackLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -56,7 +57,7 @@ export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
                             {content[1]}
                         </LemonButton>
                     ))}
-                    <LemonButton icon={<IconClose />} onClick={hideCorrelationAnalysisFeedback} />
+                    <LemonButton icon={<IconX />} onClick={hideCorrelationAnalysisFeedback} />
                 </div>
             </div>
             {correlationDetailedFeedbackVisible ? (

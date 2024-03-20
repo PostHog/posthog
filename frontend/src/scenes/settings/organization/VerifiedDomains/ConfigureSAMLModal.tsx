@@ -2,9 +2,9 @@ import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { Field } from 'lib/forms/Field'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
@@ -37,28 +37,28 @@ export function ConfigureSAMLModal(): JSX.Element {
                             Read the docs
                         </Link>
                     </p>
-                    <Field label="ACS Consumer URL" name="_ACSConsumerUrl">
+                    <LemonField label="ACS Consumer URL" name="_ACSConsumerUrl">
                         <CopyToClipboardInline>{`${siteUrl}/complete/saml/`}</CopyToClipboardInline>
-                    </Field>
-                    <Field label="RelayState" name="_RelayState">
+                    </LemonField>
+                    <LemonField label="RelayState" name="_RelayState">
                         <CopyToClipboardInline>{configureSAMLModalId || 'unknown'}</CopyToClipboardInline>
-                    </Field>
-                    <Field label="Audience / Entity ID" name="_Audience">
+                    </LemonField>
+                    <LemonField label="Audience / Entity ID" name="_Audience">
                         <CopyToClipboardInline>{siteUrl}</CopyToClipboardInline>
-                    </Field>
-                    <Field name="saml_acs_url" label="SAML ACS URL">
+                    </LemonField>
+                    <LemonField name="saml_acs_url" label="SAML ACS URL">
                         <LemonInput className="ph-ignore-input" placeholder="Your IdP's ACS or single sign-on URL." />
-                    </Field>
-                    <Field name="saml_entity_id" label="SAML Entity ID">
+                    </LemonField>
+                    <LemonField name="saml_entity_id" label="SAML Entity ID">
                         <LemonInput className="ph-ignore-input" placeholder="Entity ID provided by your IdP." />
-                    </Field>
-                    <Field name="saml_x509_cert" label="SAML X.509 Certificate">
+                    </LemonField>
+                    <LemonField name="saml_x509_cert" label="SAML X.509 Certificate">
                         <LemonTextArea
                             className="ph-ignore-input"
                             minRows={10}
                             placeholder={`Enter the public certificate of your IdP. Keep all line breaks.\n-----BEGIN CERTIFICATE-----\nMIICVjCCAb+gAwIBAgIBADANBgkqhkiG9w0BAQ0FADBIMQswCQYDVQQGEwJ1czEL\n-----END CERTIFICATE-----`}
                         />
-                    </Field>
+                    </LemonField>
                     {!samlReady && (
                         <LemonBanner type="info">
                             SAML will not be enabled unless you enter all attributes above. However you can still

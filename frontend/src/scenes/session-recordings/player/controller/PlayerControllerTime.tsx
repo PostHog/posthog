@@ -44,8 +44,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
     return (
         <Tooltip
             placement="top"
-            overlayInnerStyle={{ minHeight: 'auto' }}
-            overlay={
+            title={
                 <div className="text-center">
                     {!altKeyHeld ? (
                         <>

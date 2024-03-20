@@ -34,6 +34,7 @@ from posthog.models import (
     Organization,
     Person,
 )
+
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import (
     get_instance_setting,
@@ -46,6 +47,7 @@ from posthog.schema import (
     BreakdownFilter,
     DateRange,
     EventsNode,
+    DataWarehouseNode,
     PropertyGroupFilter,
     TrendsFilter,
     TrendsQuery,
@@ -169,7 +171,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             )
         )
 
-    series: List[EventsNode | ActionsNode] = [*events, *actions]
+    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = [*events, *actions]
 
     tq = TrendsQuery(
         series=series,
@@ -485,11 +487,69 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][5], 1.0)
 
     # just make sure this doesn't error
-    def test_no_props(self):
+    def test_no_props_string(self):
         PropertyDefinition.objects.create(
             team=self.team,
             name="$some_property",
             property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "$some_property",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                            },
+                            {"id": "no events"},
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+    def test_no_props_numeric(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$some_property",
+            property_type="Numeric",
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "$some_property",
+                        "events": [
+                            {
+                                "id": "sign up",
+                                "name": "sign up",
+                                "type": "events",
+                                "order": 0,
+                            },
+                            {"id": "no events"},
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+    def test_no_props_boolean(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$some_property",
+            property_type="Boolean",
             type=PropertyDefinition.Type.EVENT,
         )
 
@@ -554,9 +614,69 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 4.0)
 
-    @pytest.mark.skip(
-        reason="This gets very complicated. To be revisited with team on definition of what a unique video view is"
-    )
+    @snapshot_clickhouse_queries
+    def test_trends_per_day_dau_cumulative(self):
+        self._create_events()
+        with freeze_time("2020-01-03T13:00:01Z"):
+            self._create_person(
+                team_id=self.team.pk,
+                distinct_ids=["new_user"],
+                properties={"$some_prop": "some_val"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="new_user",
+                properties={"$some_property": "value", "$bool_prop": False},
+            )
+            flush_persons_and_events()
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-7d",
+                        "display": "ActionsLineGraphCumulative",
+                        "events": [{"id": "sign up", "math": "dau"}],
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "sign up")
+        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+        self.assertEqual(response[0]["data"][4], 1.0)
+        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
+        self.assertEqual(response[0]["data"][5], 1.0)
+        self.assertEqual(response[0]["labels"][6], "3-Jan-2020")
+        self.assertEqual(response[0]["data"][6], 2.0)
+
+    @snapshot_clickhouse_queries
+    def test_trends_groups_per_day(self):
+        self._create_event_count_per_actor_events()
+        with freeze_time("2020-01-06T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-7d",
+                        "display": "ActionsLineGraph",
+                        "events": [
+                            {
+                                "id": "viewed video",
+                                "math": "unique_group",
+                                "math_group_type_index": 0,
+                            }
+                        ],
+                    },
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "viewed video")
+        self.assertEqual(response[0]["labels"][-1], "6-Jan-2020")
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 0, 0, 1, 2, 0])
+
     @snapshot_clickhouse_queries
     def test_trends_groups_per_day_cumulative(self):
         self._create_event_count_per_actor_events()
@@ -601,7 +721,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_other_$$")
+        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
         self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
         self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
 
@@ -1449,10 +1569,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # value2 has: 10 seconds, 15 seconds (aggregated by session, so 15 is not double counted)
         # empty has: 1 seconds
         self.assertEqual(
-            [resp["breakdown_value"] for resp in daily_response],
-            ["value2", "value1", "$$_posthog_breakdown_other_$$"],
+            sorted([resp["breakdown_value"] for resp in daily_response]),
+            sorted(["value1", "value2", "$$_posthog_breakdown_null_$$"]),
         )
-        self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
+        self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), sorted([12.5, 10, 1]))
 
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = self._run(
@@ -1597,10 +1717,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # another_val has: 10 seconds
         # some_val has: 1, 5 seconds, 15 seconds
         self.assertEqual(
-            [resp["breakdown_value"] for resp in daily_response],
+            sorted([resp["breakdown_value"] for resp in daily_response]),
             ["another_val", "some_val"],
         )
-        self.assertEqual([resp["aggregated_value"] for resp in daily_response], [10.0, 5.0])
+        self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), [5.0, 10.0])
 
     @snapshot_clickhouse_queries
     def test_trends_any_event_total_count(self):
@@ -1718,21 +1838,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response[1]["days"],
             [
-                "2019-12-20",  # -7d, previous period
-                "2019-12-21",  # -6d, previous period
-                "2019-12-22",  # -5d, previous period
-                "2019-12-23",  # -4d, previous period
-                "2019-12-24",  # -3d, previous period
-                "2019-12-25",  # -2d, previous period
-                "2019-12-26",  # -1d, previous period
-                "2019-12-27",  # -0d, previous period
+                "2019-12-21",  # -7d, previous period
+                "2019-12-22",  # -6d, previous period
+                "2019-12-23",  # -5d, previous period
+                "2019-12-24",  # -4d, previous period
+                "2019-12-25",  # -3d, previous period
+                "2019-12-26",  # -2d, previous period
+                "2019-12-27",  # -1d, previous period
+                "2019-12-28",  # duplicated to make weekdays align between current and previous
             ],
         )
         self.assertEqual(response[1]["label"], "sign up")
+        self.assertEqual(response[1]["labels"][3], "day 3")
+        self.assertEqual(response[1]["data"][3], 1.0)
         self.assertEqual(response[1]["labels"][4], "day 4")
-        self.assertEqual(response[1]["data"][4], 1.0)
-        self.assertEqual(response[1]["labels"][5], "day 5")
-        self.assertEqual(response[1]["data"][5], 0.0)
+        self.assertEqual(response[1]["data"][4], 0.0)
 
         with freeze_time("2020-01-04T13:00:01Z"):
             no_compare_response = self._run(
@@ -2970,17 +3090,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # value1 has 0,5,10 seconds (in second interval)
         # value2 has 5,10,15 seconds (in second interval)
-        self.assertEqual(
-            [resp["breakdown_value"] for resp in daily_response], ["value2", "value1", "$$_posthog_breakdown_other_$$"]
-        )
+        self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["value2", "value1"])
         self.assertCountEqual(daily_response[0]["labels"], ["22-Dec-2019", "29-Dec-2019"])
         self.assertCountEqual(daily_response[0]["data"], [0, 10])
         self.assertCountEqual(daily_response[1]["data"], [0, 5])
-        self.assertCountEqual(daily_response[2]["data"], [0, 0])
 
-        self.assertEqual(
-            [resp["breakdown_value"] for resp in weekly_response], ["value2", "value1", "$$_posthog_breakdown_other_$$"]
-        )
+        self.assertEqual([resp["breakdown_value"] for resp in weekly_response], ["value2", "value1"])
         self.assertCountEqual(
             weekly_response[0]["labels"],
             [
@@ -2996,7 +3111,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertCountEqual(weekly_response[0]["data"], [0, 0, 0, 0, 7.5, 15, 0, 0])
         self.assertCountEqual(weekly_response[1]["data"], [0, 0, 0, 0, 5, 5, 0, 0])
-        self.assertCountEqual(weekly_response[2]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
     def test_trends_with_session_property_total_volume_math_with_sessions_spanning_multiple_intervals(self):
         self._create_person(
@@ -3358,9 +3472,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(len(response), 2)
+        self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "val")
-        self.assertEqual(response[1]["breakdown_value"], "$$_posthog_breakdown_other_$$")
 
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
@@ -3892,7 +4005,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(event_response[0]["label"], "$pageview - all users")
+        self.assertEqual(event_response[0]["label"], "all users")
         self.assertEqual(sum(event_response[0]["data"]), 1)
 
     @also_test_with_person_on_events_v2
@@ -4102,7 +4215,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertListEqual(
             sorted(res["breakdown_value"] for res in event_response),
-            ["$$_posthog_breakdown_other_$$", "person1", "person2", "person3"],
+            ["person1", "person2", "person3"],
         )
 
         for response in event_response:
@@ -4143,7 +4256,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertListEqual(
             sorted(res["breakdown_value"] for res in event_response),
-            ["$$_posthog_breakdown_other_$$", "person1", "person2", "person3"],
+            ["person1", "person2", "person3"],
         )
 
         for response in event_response:
@@ -4608,7 +4721,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(daily_response[0]["data"][0], 2)
             self.assertEqual(daily_response[0]["label"], "some_val")
             self.assertEqual(daily_response[1]["data"][0], 1)
-            self.assertEqual(daily_response[1]["label"], "$$_posthog_breakdown_other_$$")
+            self.assertEqual(daily_response[1]["label"], "$$_posthog_breakdown_null_$$")
 
             # MAU
             with freeze_time("2019-12-31T13:00:03Z"):
@@ -4679,7 +4792,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-            self.assertEqual(len(response), 26)
+            self.assertEqual(len(response), 25)
 
     @also_test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
     def test_breakdown_with_person_property_filter(self):
@@ -4754,10 +4867,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "sign up - $$_posthog_breakdown_other_$$")
+        self.assertEqual(response[0]["label"], "sign up - $$_posthog_breakdown_null_$$")
         self.assertEqual(response[1]["label"], "sign up - value")
         self.assertEqual(response[2]["label"], "sign up - other_value")
-        self.assertEqual(response[3]["label"], "no events - none")
+        self.assertEqual(response[3]["label"], "no events - $$_posthog_breakdown_null_$$")
 
         self.assertEqual(sum(response[0]["data"]), 2)
         self.assertEqual(sum(response[1]["data"]), 2)
@@ -4815,7 +4928,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_other_$$")
+        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
         self.assertEqual(response[1]["label"], "test@gmail.com")
         self.assertEqual(response[2]["label"], "test@posthog.com")
 
@@ -4873,7 +4986,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_other_$$")
+        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
         self.assertEqual(response[1]["label"], "test@gmail.com")
         self.assertEqual(response[2]["label"], "test@posthog.com")
 
@@ -4949,18 +5062,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_other_$$")
-        self.assertEqual(response[1]["label"], "first url")
-        self.assertEqual(response[2]["label"], "second url")
+        self.assertEqual(response[0]["label"], "first url")
+        self.assertEqual(response[1]["label"], "second url")
 
-        self.assertEqual(sum(response[0]["data"]), 0)
-        self.assertEqual(response[0]["breakdown_value"], "$$_posthog_breakdown_other_$$")
+        self.assertEqual(sum(response[0]["data"]), 1)
+        self.assertEqual(response[0]["breakdown_value"], "first url")
 
         self.assertEqual(sum(response[1]["data"]), 1)
-        self.assertEqual(response[1]["breakdown_value"], "first url")
-
-        self.assertEqual(sum(response[2]["data"]), 1)
-        self.assertEqual(response[2]["breakdown_value"], "second url")
+        self.assertEqual(response[1]["breakdown_value"], "second url")
 
     @snapshot_clickhouse_queries
     def test_breakdown_filtering_with_properties_in_new_format(self):
@@ -5036,13 +5145,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_other_$$")
-        self.assertEqual(response[1]["label"], "second url")
+        self.assertEqual(response[0]["label"], "second url")
 
-        self.assertEqual(sum(response[0]["data"]), 0)
-        self.assertEqual(response[0]["breakdown_value"], "$$_posthog_breakdown_other_$$")
-        self.assertEqual(sum(response[1]["data"]), 1)
-        self.assertEqual(response[1]["breakdown_value"], "second url")
+        self.assertEqual(sum(response[0]["data"]), 1)
+        self.assertEqual(response[0]["breakdown_value"], "second url")
 
         # AND filter properties with disjoint set means results should be empty
         with freeze_time("2020-01-05T13:01:01Z"):
@@ -5074,7 +5180,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(response, [])
+        self.assertEqual(len(response), 0)
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -5650,14 +5756,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         response = sorted(response, key=lambda item: item["breakdown_value"])
-        self.assertEqual(len(response), 6)
+        self.assertEqual(len(response), 5)
         # person1 shouldn't be selected because it doesn't match the filter
-        self.assertEqual(response[0]["breakdown_value"], "$$_posthog_breakdown_other_$$")
-        self.assertEqual(response[1]["breakdown_value"], "test2@posthog.com")
-        self.assertEqual(response[2]["breakdown_value"], "test3@posthog.com")
-        self.assertEqual(response[3]["breakdown_value"], "test4@posthog.com")
-        self.assertEqual(response[4]["breakdown_value"], "test5@posthog.com")
-        self.assertEqual(response[5]["breakdown_value"], "test@gmail.com")
+        self.assertEqual(response[0]["breakdown_value"], "test2@posthog.com")
+        self.assertEqual(response[1]["breakdown_value"], "test3@posthog.com")
+        self.assertEqual(response[2]["breakdown_value"], "test4@posthog.com")
+        self.assertEqual(response[3]["breakdown_value"], "test5@posthog.com")
+        self.assertEqual(response[4]["breakdown_value"], "test@gmail.com")
 
         # now have more strict filters with entity props
         response = self._run(
@@ -5714,9 +5819,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(len(response), 2)
+        self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "test2@posthog.com")
-        self.assertEqual(response[1]["breakdown_value"], "$$_posthog_breakdown_other_$$")
 
     def _create_active_users_events(self):
         self._create_person(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
@@ -6399,22 +6503,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["aggregated_value"], 2)  # the events without breakdown value
+        self.assertEqual(response[0]["aggregated_value"], 1)
         self.assertEqual(response[1]["aggregated_value"], 1)
-        self.assertEqual(response[2]["aggregated_value"], 1)
-        self.assertEqual(
-            response[0]["days"],
-            [
-                "2019-12-28",
-                "2019-12-29",
-                "2019-12-30",
-                "2019-12-31",
-                "2020-01-01",
-                "2020-01-02",
-                "2020-01-03",
-                "2020-01-04",
-            ],
-        )
+        self.assertEqual(response[2]["aggregated_value"], 2)  # the events without breakdown value
+        self.assertEqual(response[0]["days"], [])
 
     @also_test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
     def test_breakdown_multiple_cohorts(self):
@@ -7233,7 +7325,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response[0]["data"], [1.0])
 
-    @pytest.mark.skip(reason="PoE V2 doesnt work with HogQL yet")
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
     def test_same_day_with_person_on_events_v2_latest_override(self):
@@ -7503,7 +7594,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert len(daily_response) == 3
         assert daily_response[0]["breakdown_value"] == "red"
         assert daily_response[1]["breakdown_value"] == "blue"
-        assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_other_$$"
+        assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
         assert daily_response[0]["days"] == [
             "2020-01-01",
             "2020-01-02",
@@ -7517,7 +7608,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[2]["days"] == daily_response[0]["days"]
         assert daily_response[0]["data"] == [1.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]  # red
         assert daily_response[1]["data"] == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]  # blue
-        assert daily_response[2]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # $$_posthog_breakdown_other_$$
+        assert daily_response[2]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # $$_posthog_breakdown_null_$$
 
     def test_trends_count_per_user_average_with_person_property_breakdown(self):
         self._create_event_count_per_actor_events()
@@ -7537,10 +7628,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assert len(daily_response) == 3
+        assert len(daily_response) == 2
         assert daily_response[0]["breakdown_value"] == "mango"
         assert daily_response[1]["breakdown_value"] == "tomato"
-        assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_other_$$"
         assert daily_response[0]["days"] == [
             "2020-01-01",
             "2020-01-02",
@@ -7551,10 +7641,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "2020-01-07",
         ]
         assert daily_response[1]["days"] == daily_response[0]["days"]
-        assert daily_response[2]["days"] == daily_response[0]["days"]
         assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]  # red
         assert daily_response[1]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # blue
-        assert daily_response[2]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # $$_posthog_breakdown_other_$$
 
     def test_trends_count_per_user_average_aggregated_with_event_property_breakdown(self):
         self._create_event_count_per_actor_events()
@@ -7574,12 +7662,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(daily_response) == 3
-        assert daily_response[0]["breakdown_value"] == "red"
-        assert daily_response[1]["breakdown_value"] == "$$_posthog_breakdown_other_$$"
-        assert daily_response[2]["breakdown_value"] == "blue"
-        assert daily_response[0]["aggregated_value"] == 2.0  # red
-        assert daily_response[1]["aggregated_value"] == 1.0  # $$_posthog_breakdown_other_$$
-        assert daily_response[2]["aggregated_value"] == 1.0  # blue
+        assert daily_response[0]["breakdown_value"] == "blue"
+        assert daily_response[1]["breakdown_value"] == "red"
+        assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
+        assert daily_response[0]["aggregated_value"] == 1.0  # blue
+        assert daily_response[1]["aggregated_value"] == 2.0  # red
+        assert daily_response[2]["aggregated_value"] == 1.0  # $$_posthog_breakdown_null_$$
 
     @snapshot_clickhouse_queries
     def test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling(self):
@@ -7601,12 +7689,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(daily_response) == 3
-        assert daily_response[0]["breakdown_value"] == "red"
-        assert daily_response[1]["breakdown_value"] == "$$_posthog_breakdown_other_$$"
-        assert daily_response[2]["breakdown_value"] == "blue"
-        assert daily_response[0]["aggregated_value"] == 2.0  # red
-        assert daily_response[1]["aggregated_value"] == 1.0  # $$_posthog_breakdown_other_$$
-        assert daily_response[2]["aggregated_value"] == 1.0  # blue
+        assert daily_response[0]["breakdown_value"] == "blue"
+        assert daily_response[1]["breakdown_value"] == "red"
+        assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
+        assert daily_response[0]["aggregated_value"] == 1.0  # blue
+        assert daily_response[1]["aggregated_value"] == 2.0  # red
+        assert daily_response[2]["aggregated_value"] == 1.0  # $$_posthog_breakdown_null_$$
 
     # TODO: Add support for avg_count by group indexes (see this Slack thread for more context: https://posthog.slack.com/archives/C0368RPHLQH/p1700484174374229)
     @pytest.mark.skip(reason="support for avg_count_per_actor not included yet")
@@ -7805,13 +7893,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(len(response), 3)
+        self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "oh")
         self.assertEqual(response[0]["count"], 1)
         self.assertEqual(response[1]["breakdown_value"], "uh")
         self.assertEqual(response[1]["count"], 1)
-        self.assertEqual(response[2]["breakdown_value"], "$$_posthog_breakdown_other_$$")
-        self.assertEqual(response[2]["count"], 0)
 
     @also_test_with_materialized_columns(
         event_properties=["key"],
@@ -7872,13 +7958,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(len(response), 3)
+        self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "oh")
         self.assertEqual(response[0]["count"], 1)
         self.assertEqual(response[1]["breakdown_value"], "uh")
         self.assertEqual(response[1]["count"], 1)
-        self.assertEqual(response[2]["breakdown_value"], "$$_posthog_breakdown_other_$$")
-        self.assertEqual(response[2]["count"], 0)
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
@@ -7950,13 +8034,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(len(response), 3)
+        self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "oh")
         self.assertEqual(response[0]["count"], 1)
         self.assertEqual(response[1]["breakdown_value"], "uh")
         self.assertEqual(response[1]["count"], 1)
-        self.assertEqual(response[2]["breakdown_value"], "$$_posthog_breakdown_other_$$")
-        self.assertEqual(response[2]["count"], 0)
 
     # TODO: Delete this test when moved to person-on-events
     def test_breakdown_by_group_props(self):
@@ -8001,13 +8083,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         response = self._run(filter, self.team)
 
-        self.assertEqual(len(response), 3)
+        self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "finance")
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[1]["breakdown_value"], "technology")
         self.assertEqual(response[1]["count"], 1)
-        self.assertEqual(response[2]["breakdown_value"], "$$_posthog_breakdown_other_$$")
-        self.assertEqual(response[2]["count"], 0)
 
         filter = filter.shallow_clone(
             {
@@ -8069,13 +8149,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = self._run(filter, self.team)
 
-            self.assertEqual(len(response), 3)
+            self.assertEqual(len(response), 2)
             self.assertEqual(response[0]["breakdown_value"], "finance")
             self.assertEqual(response[0]["count"], 2)
             self.assertEqual(response[1]["breakdown_value"], "technology")
             self.assertEqual(response[1]["count"], 1)
-            self.assertEqual(response[2]["breakdown_value"], "$$_posthog_breakdown_other_$$")
-            self.assertEqual(response[2]["count"], 0)
 
             filter = filter.shallow_clone(
                 {
@@ -8129,11 +8207,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run(filter, self.team)
 
-        self.assertEqual(len(response), 2)
+        self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "finance")
         self.assertEqual(response[0]["count"], 1)
-        self.assertEqual(response[1]["breakdown_value"], "$$_posthog_breakdown_other_$$")
-        self.assertEqual(response[1]["count"], 0)
 
     # TODO: Delete this test when moved to person-on-events
     def test_filtering_with_group_props(self):
@@ -8290,11 +8366,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = self._run(filter, self.team)
 
-            self.assertEqual(len(response), 2)
+            self.assertEqual(len(response), 1)
             self.assertEqual(response[0]["breakdown_value"], "finance")
             self.assertEqual(response[0]["count"], 1)
-            self.assertEqual(response[1]["breakdown_value"], "$$_posthog_breakdown_other_$$")
-            self.assertEqual(response[1]["count"], 0)
 
     @also_test_with_materialized_columns(
         person_properties=["key"],

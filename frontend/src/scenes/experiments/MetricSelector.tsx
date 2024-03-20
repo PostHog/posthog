@@ -112,7 +112,9 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                         ),
                     } as TrendsQuery | FunnelsQuery)
                 }}
-                typeKey={`experiment-${isTrends ? InsightType.TRENDS : InsightType.FUNNELS}-secondary-metric`}
+                typeKey={`experiment-${isTrends ? InsightType.TRENDS : InsightType.FUNNELS}-${
+                    insightProps.dashboardItemId
+                }-metric`}
                 mathAvailability={isTrends ? undefined : MathAvailability.None}
                 hideDeleteBtn={isTrends || filterSteps.length === 1}
                 buttonCopy={isTrends ? 'Add graph series' : 'Add funnel step'}

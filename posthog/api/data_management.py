@@ -10,7 +10,9 @@ from rest_framework import request
 
 
 class DataManagementViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    @action(methods=["GET"], url_path="activity", detail=False)
+    scope_object = "INTERNAL"
+
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))

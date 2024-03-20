@@ -22,9 +22,9 @@ export function ToolbarContainer(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
 
     return (
-        <Fade visible={buttonVisible} className="toolbar-global-fade-container ph-no-capture posthog-3000">
+        <Fade visible={buttonVisible} className="toolbar-global-fade-container ph-no-capture">
             <Elements />
-            <div id="button-toolbar" ref={ref} className="ph-no-capture posthog-3000" {...themeProps}>
+            <div id="button-toolbar" ref={ref} className="ph-no-capture" {...themeProps}>
                 <FloatingContainerContext.Provider value={ref}>
                     <Toolbar />
                 </FloatingContainerContext.Provider>

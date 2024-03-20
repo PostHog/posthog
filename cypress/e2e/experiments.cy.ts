@@ -8,11 +8,11 @@ describe('Experiments', () => {
             fixture: 'api/experiments/user',
         })
 
-        cy.intercept('/api/projects/1/experiments?limit=1000', {
+        cy.intercept('/api/projects/*/experiments?limit=1000', {
             fixture: 'api/experiments/experiments',
         })
 
-        cy.intercept('/api/projects/1/experiments/1234/', {
+        cy.intercept('/api/projects/*/experiments/1234/', {
             fixture: 'api/experiments/new-experiment',
         })
 
@@ -54,8 +54,8 @@ describe('Experiments', () => {
 
         // Select goal type
         cy.get('[data-attr="experiment-goal-type-select"]').click()
-        cy.contains('Trend').should('be.visible')
-        cy.contains('Conversion funnel').should('be.visible')
+        cy.get('.Popover__content').contains('Trend').should('be.visible')
+        cy.get('.Popover__content').contains('Conversion funnel').should('be.visible')
 
         // Add secondary metric
         const secondaryMetricName = `Secondary metric ${Math.floor(Math.random() * 10000000)}`
@@ -65,8 +65,8 @@ describe('Experiments', () => {
             .type(secondaryMetricName)
             .should('have.value', secondaryMetricName)
         cy.get('[data-attr="metrics-selector"]').click()
-        cy.contains('Trends').should('be.visible')
-        cy.contains('Funnels').should('be.visible')
+        cy.get('.Popover__content').contains('Funnels').should('be.visible')
+        cy.get('.Popover__content').contains('Trends').should('be.visible')
         cy.get('[data-attr="create-annotation-submit"]').click()
         cy.contains(secondaryMetricName).should('exist')
 

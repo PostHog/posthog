@@ -42,7 +42,7 @@ class ActorsQueryRunner(QueryRunner):
     def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
         return (
             {"session_id": session_id, "events": recordings_lookup[session_id]}
-            for session_id in (event[2] for event in event_results)
+            for session_id in set(event[2] for event in event_results)
             if session_id in recordings_lookup
         )
 
@@ -66,7 +66,7 @@ class ActorsQueryRunner(QueryRunner):
             yield new_row
 
     def prepare_recordings(self, column_name, input_columns):
-        if column_name != "person" or "matched_recordings" not in input_columns:
+        if (column_name != "person" and column_name != "actor") or "matched_recordings" not in input_columns:
             return None, None
 
         column_index_events = input_columns.index("matched_recordings")
@@ -87,7 +87,7 @@ class ActorsQueryRunner(QueryRunner):
         missing_actors_count = None
         results: Sequence[List] | Iterator[List] = self.paginator.results
 
-        enrich_columns = filter(lambda column: column in ("person", "group"), input_columns)
+        enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
         for column_name in enrich_columns:
             actor_column_index = input_columns.index(column_name)
             actor_ids = (row[actor_column_index] for row in self.paginator.results)
@@ -122,6 +122,10 @@ class ActorsQueryRunner(QueryRunner):
             select = source_query.select
         else:
             select = source_query.select_queries[0].select
+
+        for column in select:
+            if isinstance(column, ast.Alias) and (column.alias in ("group_key", "actor_id", "person_id")):
+                return [column.alias]
 
         for column in select:
             if isinstance(column, ast.Alias) and "id" in column.alias:
@@ -163,7 +167,7 @@ class ActorsQueryRunner(QueryRunner):
 
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
-                elif expr == self.strategy.field:
+                elif expr == self.strategy.field or expr == "actor":
                     column = ast.Field(chain=[self.strategy.origin_id])
                 elif expr == "matched_recordings":
                     column = ast.Field(chain=["matching_events"])  # TODO: Hmm?

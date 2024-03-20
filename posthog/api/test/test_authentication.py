@@ -257,7 +257,7 @@ class TestLoginAPI(APIBaseTest):
                 "/api/login",
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
             self.assertEqual(
                 response.json(),
                 {
@@ -282,7 +282,7 @@ class TestLoginAPI(APIBaseTest):
             )
 
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
 
     def test_2fa_throttling(self):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
@@ -317,6 +317,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
+        self.assertEqual(response.headers["Content-Length"], "0")
 
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(
@@ -434,6 +435,23 @@ class TestPasswordResetAPI(APIBaseTest):
         # Three emails should be sent, fourth should not
         self.assertEqual(len(mail.outbox), 6)
 
+    def test_is_rate_limited_on_email_not_ip(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        for email in ["email@posthog.com", "other-email@posthog.com"]:
+            for i in range(7):
+                with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+                    response = self.client.post("/api/reset/", {"email": email})
+                if i < 6:
+                    self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+                else:
+                    # Fourth request should fail
+                    self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                    self.assertDictContainsSubset(
+                        {"attr": None, "code": "throttled", "type": "throttled_error"},
+                        response.json(),
+                    )
+
     # Token validation
 
     def test_can_validate_token(self):
@@ -441,6 +459,7 @@ class TestPasswordResetAPI(APIBaseTest):
         response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
+        self.assertEqual(response.headers["Content-Length"], "0")
 
     def test_cant_validate_token_without_a_token(self):
         response = self.client.get(f"/api/reset/{self.user.uuid}/")

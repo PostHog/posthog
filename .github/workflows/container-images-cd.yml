@@ -33,16 +33,11 @@ jobs:
               with:
                   fetch-depth: 2
 
-            - name: Override git.py
-              run: >
-                  echo "def get_git_commit(): return '${GITHUB_SHA}'" > posthog/git.py
-                  echo "def get_git_branch(): return '${GITHUB_REF_NAME}'" >> posthog/git.py
-
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
 
             - name: Set up QEMU
-              uses: docker/setup-qemu-action@v2
+              uses: docker/setup-qemu-action@v3
 
             - name: Set up Depot CLI
               uses: depot/setup-action@v1
@@ -50,7 +45,7 @@ jobs:
             - name: Login to DockerHub
               uses: docker/login-action@v3
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: posthog
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Configure AWS credentials
@@ -76,26 +71,10 @@ jobs:
 
             - name: get deployer token
               id: deployer
-              uses: getsentry/action-github-app-token@v2
+              uses: getsentry/action-github-app-token@v3
               with:
                   app_id: ${{ secrets.DEPLOYER_APP_ID }}
                   private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
-
-            - name: Trigger PostHog Cloud deployment
-              # TODO: switch to https://github.com/marketplace/actions/repository-dispatch
-              # as this action is now deprecated.
-              uses: mvasigh/dispatch-action@main
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repo: posthog-cloud-infra
-                  owner: PostHog
-                  event_type: posthog_cloud_build
-                  message: |
-                      {
-                        "image_tag": "${{ steps.build.outputs.digest }}",
-                        "image_tag_unit": "${{ steps.build.outputs.digest }}",
-                        "context": ${{ toJson(github) }}
-                      }
 
             - name: Trigger PostHog Cloud deployment from Charts
               uses: mvasigh/dispatch-action@main
@@ -106,7 +85,8 @@ jobs:
                   event_type: posthog_deploy
                   message: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}"
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "context": ${{ toJson(github) }}
                       }
 
             - name: Check for changes in plugins directory
@@ -124,7 +104,8 @@ jobs:
                   event_type: ingestion_deploy
                   message: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}"
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "context": ${{ toJson(github) }}
                       }
 
             - name: Check for changes that affect batch exports temporal worker
@@ -143,7 +124,8 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}",
-                        "worker_name": "temporal-worker"
+                        "worker_name": "temporal-worker",
+                        "context": ${{ toJson(github) }}
                       }
 
             - name: Check for changes that affect data warehouse temporal worker
@@ -162,5 +144,6 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}",
-                        "worker_name": "temporal-worker-data-warehouse"
+                        "worker_name": "temporal-worker-data-warehouse",
+                        "context": ${{ toJson(github) }}
                       }

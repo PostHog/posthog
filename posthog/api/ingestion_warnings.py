@@ -11,6 +11,8 @@ from posthog.client import sync_execute
 
 
 class IngestionWarningsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "INTERNAL"
+
     def list(self, request: Request, **kw) -> Response:
         start_date = now() - timedelta(days=30)
         warning_events = sync_execute(

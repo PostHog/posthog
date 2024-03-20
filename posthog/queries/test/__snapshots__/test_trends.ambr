@@ -2240,7 +2240,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-05 23:59:59', 'UTC')) - toIntervalDay(number)) AS timestamp
+             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-05 23:59:59', 'UTC')) - toIntervalDay(number), 'UTC') AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')), toDateTime('2020-01-05 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
@@ -2456,7 +2456,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-05 23:59:59', 'America/Phoenix')) - toIntervalDay(number)) AS timestamp
+             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-05 23:59:59', 'America/Phoenix')) - toIntervalDay(number), 'America/Phoenix') AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 23:59:59', 'America/Phoenix')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix') AS timestamp,
@@ -2672,7 +2672,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')) - toIntervalDay(number)) AS timestamp
+             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')) - toIntervalDay(number), 'Asia/Tokyo') AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo') AS timestamp,
@@ -3823,7 +3823,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfDay(toDateTime('2019-12-31 23:59:59', 'UTC')) - toIntervalDay(number)) AS timestamp
+             (SELECT toDateTime(toStartOfDay(toDateTime('2019-12-31 23:59:59', 'UTC')) - toIntervalDay(number), 'UTC') AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-11-24 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
@@ -3865,7 +3865,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfDay(toDateTime('2019-12-31 23:59:59', 'UTC')) - toIntervalDay(number)) AS timestamp
+             (SELECT toDateTime(toStartOfDay(toDateTime('2019-12-31 23:59:59', 'UTC')) - toIntervalDay(number), 'UTC') AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-17 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
@@ -5167,7 +5167,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-19 23:59:59', 'UTC')) - toIntervalDay(number)) AS timestamp
+             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-19 23:59:59', 'UTC')) - toIntervalDay(number), 'UTC') AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-19 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
@@ -5223,7 +5223,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-19 23:59:59', 'America/Phoenix')) - toIntervalDay(number)) AS timestamp
+             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-19 23:59:59', 'America/Phoenix')) - toIntervalDay(number), 'America/Phoenix') AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'America/Phoenix')), toDateTime('2020-01-19 23:59:59', 'America/Phoenix')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix') AS timestamp,
@@ -5279,7 +5279,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')) - toIntervalDay(number)) AS timestamp
+             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')) - toIntervalDay(number), 'Asia/Tokyo') AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo') AS timestamp,
@@ -5335,7 +5335,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number)) AS timestamp
+             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number), 'UTC') AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-25 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
@@ -5403,7 +5403,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number)) AS timestamp
+             (SELECT toDateTime(toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number), 'UTC') AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-25 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
@@ -5471,7 +5471,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfHour(toDateTime('2020-01-09 17:00:00', 'UTC')) - toIntervalHour(number)) AS timestamp
+             (SELECT toDateTime(toStartOfHour(toDateTime('2020-01-09 17:00:00', 'UTC')) - toIntervalHour(number), 'UTC') AS timestamp
               FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 06:00:00', 'UTC')), toDateTime('2020-01-09 17:00:00', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
@@ -5527,7 +5527,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'UTC')) - toIntervalMonth(number)) AS timestamp
+             (SELECT toDateTime(toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'UTC')) - toIntervalMonth(number), 'UTC') AS timestamp
               FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-11-24 00:00:00', 'UTC')), toDateTime('2020-02-29 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
@@ -5583,7 +5583,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'America/Phoenix')) - toIntervalMonth(number)) AS timestamp
+             (SELECT toDateTime(toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'America/Phoenix')) - toIntervalMonth(number), 'America/Phoenix') AS timestamp
               FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-11-24 00:00:00', 'America/Phoenix')), toDateTime('2020-02-29 23:59:59', 'America/Phoenix')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix') AS timestamp,
@@ -5639,7 +5639,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'Asia/Tokyo')) - toIntervalMonth(number)) AS timestamp
+             (SELECT toDateTime(toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'Asia/Tokyo')) - toIntervalMonth(number), 'Asia/Tokyo') AS timestamp
               FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-11-24 00:00:00', 'Asia/Tokyo')), toDateTime('2020-02-29 23:59:59', 'Asia/Tokyo')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo') AS timestamp,
@@ -5695,7 +5695,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'UTC'), 0) - toIntervalWeek(number)) AS timestamp
+             (SELECT toDateTime(toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'UTC'), 0) - toIntervalWeek(number), 'UTC') AS timestamp
               FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-22 00:00:00', 'UTC'), 0), toDateTime('2020-01-18 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
@@ -5751,7 +5751,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'America/Phoenix'), 0) - toIntervalWeek(number)) AS timestamp
+             (SELECT toDateTime(toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'America/Phoenix'), 0) - toIntervalWeek(number), 'America/Phoenix') AS timestamp
               FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-22 00:00:00', 'America/Phoenix'), 0), toDateTime('2020-01-18 23:59:59', 'America/Phoenix')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix') AS timestamp,
@@ -5807,7 +5807,7 @@
           (SELECT d.timestamp,
                   COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT toDateTime(toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo'), 0) - toIntervalWeek(number)) AS timestamp
+             (SELECT toDateTime(toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo'), 0) - toIntervalWeek(number), 'Asia/Tokyo') AS timestamp
               FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo'), 0), toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo') AS timestamp,

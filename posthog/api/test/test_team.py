@@ -1,11 +1,12 @@
 import json
 import uuid
-from typing import List, cast, Dict, Optional
+from typing import List, cast, Dict, Optional, Any
 from unittest import mock
 from unittest.mock import MagicMock, call, patch, ANY
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
+from django.http import HttpResponse
 from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
@@ -86,7 +87,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_cant_retrieve_project_from_another_org(self):
         org = Organization.objects.create(name="New Org")
-        team = Team.objects.create(organization=org, name="Default Project")
+        team = Team.objects.create(organization=org, name="Default project")
 
         response = self.client.get(f"/api/projects/{team.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -130,9 +131,9 @@ class TestTeamAPI(APIBaseTest):
     def test_cant_create_a_second_project_without_license(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": False})
-
         self.assertEqual(Team.objects.count(), 1)
+
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": False})
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
         self.assertDictContainsSubset(
@@ -143,10 +144,10 @@ class TestTeamAPI(APIBaseTest):
             },
             response_data,
         )
+        self.assertEqual(Team.objects.count(), 1)
 
         # another request without the is_demo parameter
         response = self.client.post("/api/projects/", {"name": "Hedgebox"})
-        self.assertEqual(Team.objects.count(), 1)
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
         self.assertDictContainsSubset(
@@ -157,6 +158,7 @@ class TestTeamAPI(APIBaseTest):
             },
             response_data,
         )
+        self.assertEqual(Team.objects.count(), 1)
 
     @freeze_time("2022-02-08")
     def test_update_project_timezone(self):
@@ -187,7 +189,48 @@ class TestTeamAPI(APIBaseTest):
                                 "type": "Team",
                             },
                         ],
-                        "name": "Default Project",
+                        "name": "Default project",
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(self.team.pk),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ]
+        )
+
+    @freeze_time("2022-02-08")
+    def test_activity_log_tracks_extra_settings(self):
+        self._assert_activity_log_is_empty()
+
+        response = self.client.patch("/api/projects/@current/", {"extra_settings": {"poe_v2_enabled": True}})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["name"], self.team.name)
+        self.assertEqual(response_data["extra_settings"], {"poe_v2_enabled": True})
+
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "updated",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "created",
+                                "after": {"poe_v2_enabled": True},
+                                "before": None,
+                                "field": "extra_settings",
+                                "type": "Team",
+                            },
+                        ],
+                        "name": "Default project",
                         "short_id": None,
                         "trigger": None,
                         "type": None,
@@ -230,7 +273,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_cant_update_project_from_another_org(self):
         org = Organization.objects.create(name="New Org")
-        team = Team.objects.create(organization=org, name="Default Project")
+        team = Team.objects.create(organization=org, name="Default project")
 
         response = self.client.patch(f"/api/projects/{team.pk}/", {"timezone": "Africa/Accra"})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -281,7 +324,7 @@ class TestTeamAPI(APIBaseTest):
                 "created_at": ANY,
                 "detail": {
                     "changes": None,
-                    "name": "Default Project",
+                    "name": "Default project",
                     "short_id": None,
                     "trigger": None,
                     "type": None,
@@ -457,7 +500,7 @@ class TestTeamAPI(APIBaseTest):
                                 "type": "Team",
                             },
                         ],
-                        "name": "Default Project",
+                        "name": "Default project",
                         "short_id": None,
                         "trigger": None,
                         "type": None,
@@ -491,7 +534,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["primary_dashboard"], d.id)
 
     def test_cant_set_primary_dashboard_to_another_teams_dashboard(self):
-        team_2 = Team.objects.create(organization=self.organization, name="Default Project")
+        team_2 = Team.objects.create(organization=self.organization, name="Default project")
         d = Dashboard.objects.create(name="Test", team=team_2)
 
         response = self.client.patch("/api/projects/@current/", {"primary_dashboard": d.id})
@@ -564,7 +607,7 @@ class TestTeamAPI(APIBaseTest):
                                 "type": "Team",
                             },
                         ],
-                        "name": "Default Project",
+                        "name": "Default project",
                         "short_id": None,
                         "trigger": None,
                         "type": None,
@@ -804,32 +847,58 @@ class TestTeamAPI(APIBaseTest):
                 "invalid_input",
                 "Must provide a dictionary or None.",
             ],
-            ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
+            ["numeric string", "-1", "invalid_input", "Must provide a dictionary or None."],
+            ["numeric", 1, "invalid_input", "Must provide a dictionary or None."],
+            ["numeric positive string", "1", "invalid_input", "Must provide a dictionary or None."],
             [
                 "unexpected json - no id",
                 {"key": "something"},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
             [
                 "unexpected json - no key",
                 {"id": 1},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - only variant",
+                {"variant": "1"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - variant must be string",
+                {"variant": 1},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing id",
+                {"key": "one", "variant": "1"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing key",
+                {"id": "one", "variant": "1"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
             [
                 "unexpected json - neither",
                 {"wat": "wat"},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
         ]
     )
     def test_invalid_session_recording_linked_flag(
-        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+        self, _name: str, provided_value: Any, expected_code: str, expected_error: str
     ) -> None:
-        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": provided_value})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
+
         assert response.json() == {
             "attr": "session_recording_linked_flag",
             "code": expected_code,
@@ -838,21 +907,18 @@ class TestTeamAPI(APIBaseTest):
         }
 
     def test_can_set_and_unset_session_recording_linked_flag(self) -> None:
-        first_patch_response = self.client.patch(
-            "/api/projects/@current/",
-            {"session_recording_linked_flag": {"id": 1, "key": "provided_value"}},
-        )
-        assert first_patch_response.status_code == status.HTTP_200_OK
-        get_response = self.client.get("/api/projects/@current/")
-        assert get_response.json()["session_recording_linked_flag"] == {
-            "id": 1,
-            "key": "provided_value",
-        }
+        self._patch_linked_flag_config({"id": 1, "key": "provided_value"})
+        self._assert_linked_flag_config({"id": 1, "key": "provided_value"})
 
-        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": None})
-        assert response.status_code == status.HTTP_200_OK
-        second_get_response = self.client.get("/api/projects/@current/")
-        assert second_get_response.json()["session_recording_linked_flag"] is None
+        self._patch_linked_flag_config(None)
+        self._assert_linked_flag_config(None)
+
+    def test_can_set_and_unset_session_recording_linked_flag_variant(self) -> None:
+        self._patch_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
+        self._assert_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
+
+        self._patch_linked_flag_config(None)
+        self._assert_linked_flag_config(None)
 
     @parameterized.expand(
         [
@@ -914,19 +980,134 @@ class TestTeamAPI(APIBaseTest):
 
     def test_can_set_and_unset_session_replay_config(self) -> None:
         # can set
-        first_patch_response = self.client.patch(
-            "/api/projects/@current/",
-            {"session_replay_config": {"record_canvas": True}},
-        )
-        assert first_patch_response.status_code == status.HTTP_200_OK
-        get_response = self.client.get("/api/projects/@current/")
-        assert get_response.json()["session_replay_config"] == {"record_canvas": True}
+        self._patch_session_replay_config({"record_canvas": True})
+        self._assert_replay_config_is({"record_canvas": True})
 
         # can unset
-        response = self.client.patch("/api/projects/@current/", {"session_replay_config": None})
+        self._patch_session_replay_config(None)
+        self._assert_replay_config_is(None)
+
+    @parameterized.expand(
+        [
+            [
+                "string",
+                "Marple bridge",
+                "invalid_input",
+                "Must provide a dictionary or None.",
+            ],
+            ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no record",
+                {"key": "something"},
+                "invalid_input",
+                "Must provide a dictionary with only allowed keys: included_event_properties, opt_in, preferred_events, excluded_events, important_user_properties.",
+            ],
+        ]
+    )
+    def test_invalid_session_replay_config_ai_config(
+        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+    ) -> None:
+        response = self._patch_session_replay_config(
+            {"ai_config": provided_value}, expected_status=status.HTTP_400_BAD_REQUEST
+        )
+        assert response.json() == {
+            "attr": "session_replay_config",
+            "code": expected_code,
+            "detail": expected_error,
+            "type": "validation_error",
+        }
+
+    def test_can_set_and_unset_session_replay_config_ai_config(self) -> None:
+        # can set just the opt-in
+        self._patch_session_replay_config({"ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": True}})
+
+        # can set some preferences
+        self._patch_session_replay_config({"ai_config": {"opt_in": False, "included_event_properties": ["something"]}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": False, "included_event_properties": ["something"]}})
+
+        self._patch_session_replay_config({"ai_config": None})
+        self._assert_replay_config_is({"ai_config": None})
+
+    def test_can_set_replay_configs_without_providing_them_all(self) -> None:
+        # can set just the opt-in
+        self._patch_session_replay_config({"ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": True}})
+
+        self._patch_session_replay_config({"record_canvas": True})
+        self._assert_replay_config_is({"record_canvas": True, "ai_config": {"opt_in": True}})
+
+    def test_can_set_replay_configs_without_providing_them_all_even_when_either_side_is_none(self) -> None:
+        # because we do some dictionary copying we need a regression test to ensure we can always set and unset keys
+        self._patch_session_replay_config({"record_canvas": True, "ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"record_canvas": True, "ai_config": {"opt_in": True}})
+
+        self._patch_session_replay_config({"record_canvas": None})
+        self._assert_replay_config_is({"record_canvas": None, "ai_config": {"opt_in": True}})
+
+        # top-level from having a value to None
+        self._patch_session_replay_config(None)
+        self._assert_replay_config_is(None)
+
+        # top-level from None to having a value
+        self._patch_session_replay_config({"ai_config": None})
+        self._assert_replay_config_is({"ai_config": None})
+
+        # next-level from None to having a value
+        self._patch_session_replay_config({"ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": True}})
+
+        # next-level from having a value to None
+        self._patch_session_replay_config({"ai_config": None})
+        self._assert_replay_config_is({"ai_config": None})
+
+    def test_can_set_replay_configs_patch_session_replay_config_one_level_deep(self) -> None:
+        # can set just the opt-in
+        self._patch_session_replay_config({"ai_config": {"opt_in": True}})
+        self._assert_replay_config_is({"ai_config": {"opt_in": True}})
+
+        self._patch_session_replay_config({"ai_config": {"included_event_properties": ["something"]}})
+        # even though opt_in was not provided in the patch it should be preserved
+        self._assert_replay_config_is({"ai_config": {"opt_in": True, "included_event_properties": ["something"]}})
+
+        self._patch_session_replay_config({"ai_config": {"opt_in": None, "included_event_properties": ["something"]}})
+        # even though opt_in was not provided in the patch it should be preserved
+        self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["something"]}})
+
+        # but we don't go into the next nested level and patch that data
+        # sending a new value without the original
+        self._patch_session_replay_config({"ai_config": {"included_event_properties": ["and another"]}})
+        # and the existing second level nesting is not preserved
+        self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
+
+    def _assert_replay_config_is(self, expected: Dict[str, Any] | None) -> HttpResponse:
+        get_response = self.client.get("/api/projects/@current/")
+        assert get_response.status_code == status.HTTP_200_OK, get_response.json()
+        assert get_response.json()["session_replay_config"] == expected
+
+        return get_response
+
+    def _patch_session_replay_config(
+        self, config: Dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
+    ) -> HttpResponse:
+        patch_response = self.client.patch(
+            "/api/projects/@current/",
+            {"session_replay_config": config},
+        )
+        assert patch_response.status_code == expected_status, patch_response.json()
+
+        return patch_response
+
+    def _assert_linked_flag_config(self, expected_config: Dict | None) -> HttpResponse:
+        response = self.client.get("/api/projects/@current/")
         assert response.status_code == status.HTTP_200_OK
-        second_get_response = self.client.get("/api/projects/@current/")
-        assert second_get_response.json()["session_replay_config"] is None
+        assert response.json()["session_recording_linked_flag"] == expected_config
+        return response
+
+    def _patch_linked_flag_config(self, config: Dict | None, expected_status: int = status.HTTP_200_OK) -> HttpResponse:
+        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": config})
+        assert response.status_code == expected_status, response.json()
+        return response
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

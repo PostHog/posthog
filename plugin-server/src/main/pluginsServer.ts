@@ -39,7 +39,8 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
-import { createHttpServer } from './services/http-server'
+import { SessionRecordingIngesterV3 } from './ingestion-queues/session-recording/session-recordings-consumer-v3'
+import { setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
@@ -113,7 +114,7 @@ export async function startPluginsServer(
 
     let personOverridesPeriodicTask: PeriodicTask | undefined
 
-    let httpServer: Server | undefined // healthcheck server
+    let httpServer: Server | undefined // server
 
     let graphileWorker: GraphileWorker | undefined
 
@@ -451,6 +452,27 @@ export async function startPluginsServer(
             }
         }
 
+        if (capabilities.sessionRecordingV3Ingestion) {
+            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
+            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
+
+            if (!s3) {
+                throw new Error("Can't start session recording ingestion without object storage")
+            }
+            // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
+            const ingester = new SessionRecordingIngesterV3(serverConfig, postgres, s3)
+            await ingester.start()
+
+            const batchConsumer = ingester.batchConsumer
+
+            if (batchConsumer) {
+                stopSessionRecordingBlobConsumer = () => ingester.stop()
+                shutdownOnConsumerExit(batchConsumer)
+                healthChecks['session-recordings-ingestion'] = () => ingester.isHealthy() ?? false
+            }
+        }
+
         if (capabilities.personOverrides) {
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
@@ -468,7 +490,11 @@ export async function startPluginsServer(
         }
 
         if (capabilities.http) {
-            httpServer = createHttpServer(serverConfig.HTTP_SERVER_PORT, healthChecks, analyticsEventsIngestionConsumer)
+            const app = setupCommonRoutes(healthChecks, analyticsEventsIngestionConsumer)
+
+            httpServer = app.listen(serverConfig.HTTP_SERVER_PORT, () => {
+                status.info('🩺', `Status server listening on port ${serverConfig.HTTP_SERVER_PORT}`)
+            })
         }
 
         return serverInstance ?? { stop: closeJobs }

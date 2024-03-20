@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,6 +13,7 @@ import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter
 import { getDisplay, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
+    DataWarehouseNode,
     EventsNode,
     FunnelsFilter,
     FunnelsQuery,
@@ -40,7 +42,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
+import { BaseMathType, FilterType, InsightLogicProps, InsightType } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
@@ -70,9 +72,9 @@ export interface QueryPropertyCache
 }
 
 const cleanSeriesEntityMath = (
-    entity: EventsNode | ActionsNode,
+    entity: EventsNode | ActionsNode | DataWarehouseNode,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode => {
+): EventsNode | ActionsNode | DataWarehouseNode => {
     const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
 
     // TODO: This should be improved to keep a math that differs from the default.
@@ -91,9 +93,9 @@ const cleanSeriesEntityMath = (
 }
 
 const cleanSeriesMath = (
-    series: (EventsNode | ActionsNode)[],
+    series: (EventsNode | ActionsNode | DataWarehouseNode)[],
     mathAvailability: MathAvailability
-): (EventsNode | ActionsNode)[] => {
+): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
     return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 
@@ -275,6 +277,23 @@ export const insightNavLogic = kea<insightNavLogicType>([
             if (isInsightVizNode(query)) {
                 actions.updateQueryPropertyCache(cachePropertiesFromQuery(query.source, values.queryPropertyCache))
             }
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        '/insights/:shortId(/:mode)(/:subscriptionId)': (
+            _, // url params
+            { dashboard, ...searchParams }, // search params
+            { filters: _filters } // hash params
+        ) => {
+            // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
+            const filters: Partial<FilterType> | null =
+                Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
+
+            if (!filters?.insight) {
+                return
+            }
+
+            actions.setActiveView(filters?.insight)
         },
     })),
     afterMount(({ values, actions }) => {

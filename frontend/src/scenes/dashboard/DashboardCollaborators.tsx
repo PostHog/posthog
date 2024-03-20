@@ -1,12 +1,12 @@
+import { IconLock, IconTrash, IconUnlock } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
-import { IconDelete, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -19,7 +19,7 @@ export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrict
     {
         value: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         label: 'Everyone in the project can edit',
-        icon: <IconLockOpen />,
+        icon: <IconUnlock />,
     },
     {
         value: DashboardRestrictionLevel.OnlyCollaboratorsCanEdit,
@@ -40,7 +40,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
     return (
         dashboard && (
             <>
-                <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>
+                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
                     {(!canEditDashboard || !canRestrictDashboard) && (
                         <LemonBanner type="info" className="mb-4">
                             {canEditDashboard
@@ -66,14 +66,13 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                             {canEditDashboard && (
                                 <div className="flex gap-2">
                                     <div className="flex-1">
-                                        <LemonSelectMultiple
+                                        <LemonInputSelect
                                             placeholder="Search for team members to add…"
                                             value={explicitCollaboratorsToBeAdded}
                                             loading={explicitCollaboratorsLoading}
                                             onChange={(newValues: string[]) =>
                                                 setExplicitCollaboratorsToBeAdded(newValues)
                                             }
-                                            filterOption={true}
                                             mode="multiple"
                                             data-attr="subscribed-emails"
                                             options={usersLemonSelectOptions(addableMembers, 'uuid')}
@@ -138,7 +137,7 @@ function CollaboratorRow({
                     <span className="rounded bg-primary-alt-highlight p-1">{privilegeLevelName}</span>
                     {deleteCollaborator && wasInvited && (
                         <LemonButton
-                            icon={<IconDelete />}
+                            icon={<IconTrash />}
                             onClick={() => deleteCollaborator(user.uuid)}
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
                             size="small"

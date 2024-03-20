@@ -1,5 +1,5 @@
+import { IconGear, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
@@ -77,7 +77,7 @@ export function ProjectNotice(): JSX.Element | null {
             action: {
                 to: urls.onboarding(ProductKey.PRODUCT_ANALYTICS),
                 'data-attr': 'demo-warning-cta',
-                icon: <IconSettings />,
+                icon: <IconGear />,
                 children: 'Go to wizard',
             },
         },
@@ -106,6 +106,15 @@ export function ProjectNotice(): JSX.Element | null {
                 'data-attr': 'stop-impersonation-cta',
                 onClick: () => logout(),
                 children: 'Log out',
+            },
+        },
+        internet_connection_issue: {
+            message: 'PostHog is having trouble connecting to the server. Please check your connection.',
+            type: 'warning',
+            action: {
+                'data-attr': 'reload-page',
+                onClick: () => window.location.reload(),
+                children: 'Reload page',
             },
         },
     }

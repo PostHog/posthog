@@ -25,6 +25,8 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
+    PluginConfigTypeNew,
+    PluginType,
     PropertyDefinition,
     PropertyFilterType,
     PropertyOperator,
@@ -151,6 +153,8 @@ export const GEOIP_PLUGIN_URLS = [
     'https://github.com/PostHog/posthog-plugin-geoip',
     'https://www.npmjs.com/package/@posthog/geoip-plugin',
 ]
+
+export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = 'web-analytics'
 
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
 const initialDateFrom = '-7d' as string | null
@@ -402,7 +406,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_from: dateFrom,
                     date_to: dateTo,
                 }
-                const compare = !!(dateRange.date_from && dateRange.date_to)
+                const compare = !!dateRange.date_from && dateRange.date_from !== 'all'
 
                 const sampling = {
                     enabled: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SAMPLING],
@@ -413,6 +417,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return {
                         dashboardItemId: getDashboardItemId(tile, tab, false),
                         loadPriority: loadPriorityMap[tile],
+                        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                     }
                 }
 
@@ -428,6 +433,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             properties: webAnalyticsFilters,
                             dateRange,
                             sampling,
+                            compare,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
@@ -1013,6 +1019,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, tabId, true),
                             loadPriority: 0,
+                            doNotLoad: false,
+                            dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                         },
                         query: extendQuery(tab.query),
                         canOpenInsight: tab.canOpenInsight,
@@ -1029,6 +1037,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, undefined, true),
                             loadPriority: 0,
+                            dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                         },
                         query: extendQuery(tile.query),
                     }
@@ -1162,8 +1171,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         event_names: ['$pageview'],
                         properties: ['$geoip_country_code'],
                     }),
-                    api.loadPaginatedResults('api/organizations/@current/plugins'),
-                    api.loadPaginatedResults('api/plugin_config'),
+                    api.loadPaginatedResults<PluginType>('api/organizations/@current/plugins'),
+                    api.loadPaginatedResults<PluginConfigTypeNew>('api/plugin_config'),
                 ])
 
                 const hasNonStaleCountryCodeDefinition =
@@ -1178,7 +1187,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const geoIpPlugin =
                     pluginsResponse.status === 'fulfilled' &&
-                    pluginsResponse.value.find((plugin) => GEOIP_PLUGIN_URLS.includes(plugin.url))
+                    pluginsResponse.value.find((plugin) => plugin.url && GEOIP_PLUGIN_URLS.includes(plugin.url))
                 const geoIpPluginId = geoIpPlugin ? geoIpPlugin.id : undefined
 
                 const geoIpPluginConfig =

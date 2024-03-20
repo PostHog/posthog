@@ -1,27 +1,19 @@
 .KeyboardShortcut {
-    margin: 0 0.125rem;
-}
-
-.KeyboardShortcut__key {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     min-width: 1.25rem;
     height: 1.25rem;
-    padding: 0 0.1875rem;
+    padding: 0.125rem 0.25rem;
+    font-size: 0.75rem;
     color: var(--default);
     text-transform: capitalize;
     user-select: none;
     background: var(--accent-3000);
+    border-color: var(--secondary-3000-button-border-hover);
     border-width: 1px;
+    border-bottom-width: 2px;
     border-radius: 0.25rem;
-
-    .posthog-3000 & {
-        padding: 0.125rem 0.25rem;
-        font-size: 0.75rem;
-        border-color: var(--secondary-3000-button-border-hover);
-        border-bottom-width: 2px;
-    }
 
     .KeyboardShortcut--muted > & {
         color: var(--muted);

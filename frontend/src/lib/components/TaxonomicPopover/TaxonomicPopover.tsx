@@ -1,11 +1,11 @@
+import { IconX } from '@posthog/icons'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { useEffect, useState } from 'react'
 
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
     extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideIcon' | 'sideAction'> {
@@ -19,6 +19,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     placeholder?: React.ReactNode
     placeholderClass?: string
     dropdownMatchSelectWidth?: boolean
+    schemaColumns?: DatabaseSchemaQueryResponseField[]
     allowClear?: boolean
     style?: React.CSSProperties
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
@@ -49,6 +50,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     allowClear = false,
     excludedProperties,
     metadataSource,
+    schemaColumns,
     ...buttonPropsRest
 }: TaxonomicPopoverProps<ValueType>): JSX.Element {
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
@@ -85,6 +87,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
                     }}
                     taxonomicGroupTypes={groupTypes ?? [groupType]}
                     eventNames={eventNames}
+                    schemaColumns={schemaColumns}
                     metadataSource={metadataSource}
                     excludedProperties={excludedProperties}
                 />
@@ -99,7 +102,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
             {isClearButtonShown ? (
                 <LemonButton
                     sideAction={{
-                        icon: <IconClose />,
+                        icon: <IconX />,
                         tooltip: 'Clear selection',
                         onClick: (e) => {
                             e.stopPropagation()

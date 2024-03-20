@@ -10,10 +10,10 @@ import { AvailableFeature, ProductKey } from '~/types'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
-import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
-import { OnboardingVerificationStep } from './OnboardingVerificationStep'
+import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
+import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
@@ -29,9 +29,9 @@ export const scene: SceneExport = {
  * Wrapper for custom onboarding content. This automatically includes billing, other products, and invite steps.
  */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { currentOnboardingStep, shouldShowBillingStep, shouldShowOtherProductsStep } = useValues(onboardingLogic)
+    const { currentOnboardingStep, shouldShowBillingStep, shouldShowReverseProxyStep, product, includeIntro } =
+        useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
-    const { product } = useValues(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     useEffect(() => {
@@ -56,13 +56,17 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         } else {
             steps = [children as JSX.Element]
         }
-        if (shouldShowBillingStep) {
-            const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.BILLING} />
-            steps = [...steps, BillingStep]
+        if (includeIntro) {
+            const IntroStep = <OnboardingProductIntroduction stepKey={OnboardingStepKey.PRODUCT_INTRO} />
+            steps = [IntroStep, ...steps]
         }
-        if (shouldShowOtherProductsStep) {
-            const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
-            steps = [...steps, OtherProductsStep]
+        if (shouldShowReverseProxyStep) {
+            const ReverseProxyStep = <OnboardingReverseProxy stepKey={OnboardingStepKey.REVERSE_PROXY} />
+            steps = [...steps, ReverseProxyStep]
+        }
+        if (shouldShowBillingStep) {
+            const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.PLANS} />
+            steps = [...steps, BillingStep]
         }
         const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
         steps = [...steps, inviteTeammatesStep]
@@ -80,12 +84,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
             <SDKs
                 usersAction="collecting events"
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
-                stepKey={OnboardingStepKey.SDKS}
-            />
-            <OnboardingVerificationStep
-                listeningForName="event"
-                teamPropertyToVerify="ingested_event"
-                stepKey={OnboardingStepKey.VERIFY}
+                stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration
                 stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
@@ -93,8 +92,8 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                     {
                         title: 'Autocapture frontend interactions',
                         description: `If you use our JavaScript or React Native libraries, we'll automagically 
-                            capture frontend interactions like pageviews, clicks, and more. Fine-tune what you 
-                            capture directly in your code snippet.`,
+                        capture frontend interactions like clicks, submits, and more. Fine-tune what you 
+                        capture directly in your code snippet.`,
                         teamProperty: 'autocapture_opt_out',
                         value: !currentTeam?.autocapture_opt_out,
                         type: 'toggle',
@@ -107,6 +106,8 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 }
 const SessionReplayOnboarding = (): JSX.Element => {
     const { hasAvailableFeature } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+
     const configOptions: ProductConfigOption[] = [
         {
             type: 'toggle',
@@ -114,7 +115,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Capture console logs as a part of user session recordings. 
                             Use the console logs alongside recordings to debug any issues with your app.`,
             teamProperty: 'capture_console_log_opt_in',
-            value: true,
+            value: currentTeam?.capture_console_log_opt_in ?? true,
         },
         {
             type: 'toggle',
@@ -122,7 +123,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Capture performance and network information alongside recordings. Use the
                             network requests and timings in the recording player to help you debug issues with your app.`,
             teamProperty: 'capture_performance_opt_in',
-            value: true,
+            value: currentTeam?.capture_performance_opt_in ?? true,
         },
     ]
 
@@ -133,7 +134,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Only record sessions that are longer than the specified duration. 
                             Start with it low and increase it later if you're getting too many short sessions.`,
             teamProperty: 'session_recording_minimum_duration_milliseconds',
-            value: null,
+            value: currentTeam?.session_recording_minimum_duration_milliseconds || null,
             selectOptions: SESSION_REPLAY_MINIMUM_DURATION_OPTIONS,
         })
     }
@@ -144,7 +145,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
                 usersAction="recording sessions"
                 sdkInstructionMap={SessionReplaySDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
-                stepKey={OnboardingStepKey.SDKS}
+                stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={configOptions} />
         </OnboardingWrapper>
@@ -157,7 +158,7 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
                 usersAction="loading flags & experiments"
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
                 subtitle="Choose the framework where you want to use feature flags and/or run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
-                stepKey={OnboardingStepKey.SDKS}
+                stepKey={OnboardingStepKey.INSTALL}
             />
         </OnboardingWrapper>
     )
@@ -170,7 +171,7 @@ const SurveysOnboarding = (): JSX.Element => {
                 usersAction="taking surveys"
                 sdkInstructionMap={SurveysSDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
-                stepKey={OnboardingStepKey.SDKS}
+                stepKey={OnboardingStepKey.INSTALL}
             />
         </OnboardingWrapper>
     )

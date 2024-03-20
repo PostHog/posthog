@@ -16,7 +16,7 @@
 
     &:hover,
     &:focus {
-        border-color: var(--border);
+        border-color: var(--border-bold);
     }
 
     &:not(.PropertyFilterButton--clickable) {
@@ -51,18 +51,5 @@
         height: 22px !important;
         min-height: auto !important;
         padding: 0 4px !important;
-    }
-}
-
-.posthog-3000 {
-    .PropertyFilterButton {
-        &:hover,
-        &:focus {
-            border-color: var(--border-bold);
-        }
-
-        &:not(.PropertyFilterButton--clickable) {
-            border-color: transparent;
-        }
     }
 }

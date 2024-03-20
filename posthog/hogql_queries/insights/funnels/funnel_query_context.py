@@ -10,9 +10,11 @@ from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     FunnelConversionWindowTimeUnit,
+    FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
+    IntervalType,
 )
 
 
@@ -21,12 +23,21 @@ class FunnelQueryContext(QueryContext):
     funnelsFilter: FunnelsFilter
     breakdownFilter: BreakdownFilter
 
+    interval: IntervalType
+
     breakdown: List[Union[str, int]] | None
     breakdownType: BreakdownType
     breakdownAttributionType: BreakdownAttributionType
 
     funnelWindowInterval: int
     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
+
+    actorsQuery: FunnelsActorsQuery | None
+
+    includeTimestamp: Optional[bool]
+    includePrecedingTimestamp: Optional[bool]
+    includeProperties: List[str]
+    includeFinalMatchingEvents: Optional[bool]
 
     def __init__(
         self,
@@ -35,6 +46,10 @@ class FunnelQueryContext(QueryContext):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        include_timestamp: Optional[bool] = None,
+        include_preceding_timestamp: Optional[bool] = None,
+        include_properties: Optional[List[str]] = None,
+        include_final_matching_events: Optional[bool] = None,
     ):
         super().__init__(query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
@@ -42,6 +57,8 @@ class FunnelQueryContext(QueryContext):
         self.breakdownFilter = self.query.breakdownFilter or BreakdownFilter()
 
         # defaults
+        self.interval = self.query.interval or IntervalType.day
+
         self.breakdownType = self.breakdownFilter.breakdown_type or BreakdownType.event
         self.breakdownAttributionType = (
             self.funnelsFilter.breakdownAttributionType or BreakdownAttributionType.first_touch
@@ -50,6 +67,11 @@ class FunnelQueryContext(QueryContext):
         self.funnelWindowIntervalUnit = (
             self.funnelsFilter.funnelWindowIntervalUnit or FunnelConversionWindowTimeUnit.day
         )
+
+        self.includeTimestamp = include_timestamp
+        self.includePrecedingTimestamp = include_preceding_timestamp
+        self.includeProperties = include_properties or []
+        self.includeFinalMatchingEvents = include_final_matching_events
 
         # the API accepts either:
         #   a string (single breakdown) in parameter "breakdown"
@@ -80,6 +102,8 @@ class FunnelQueryContext(QueryContext):
             self.breakdown = boxed_breakdown
         else:
             self.breakdown = self.breakdownFilter.breakdown  # type: ignore
+
+        self.actorsQuery = None
 
     @cached_property
     def max_steps(self) -> int:

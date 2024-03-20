@@ -13,6 +13,7 @@ const DEFAULT_BILLING_LIMIT = 500
 
 export interface BillingProductLogicProps {
     product: BillingProductV2Type | BillingProductV2AddonType
+    productRef?: React.MutableRefObject<HTMLDivElement | null>
     billingLimitInputRef?: React.MutableRefObject<HTMLInputElement | null>
 }
 
@@ -39,7 +40,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLoaded: true,
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
         toggleIsPricingModalOpen: true,
-        toggleIsPlanComparisonModalOpen: true,
+        toggleIsPlanComparisonModalOpen: (highlightedFeatureKey?: string) => ({ highlightedFeatureKey }),
         setSurveyResponse: (surveyResponse: string, key: string) => ({ surveyResponse, key }),
         reportSurveyShown: (surveyID: string, productType: string) => ({ surveyID, productType }),
         reportSurveySent: (surveyID: string, surveyResponse: Record<string, string>) => ({
@@ -100,6 +101,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 setSurveyID: (_, { surveyID }) => surveyID,
             },
         ],
+        comparisonModalHighlightedFeatureKey: [
+            null as string | null,
+            {
+                toggleIsPlanComparisonModalOpen: (_, { highlightedFeatureKey }) => highlightedFeatureKey || null,
+            },
+        ],
     }),
     selectors(({ values }) => ({
         customLimitUsd: [
@@ -115,7 +122,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (_s, p) => [p.product],
             (product) => {
                 const currentPlanIndex = product.plans.findIndex((plan: BillingV2PlanType) => plan.current_plan)
-                const currentPlan = product.plans?.[currentPlanIndex]
+                const currentPlan = currentPlanIndex >= 0 ? product.plans?.[currentPlanIndex] : null
                 const upgradePlan =
                     // If in debug mode and with no license there will be
                     // no currentPlan. So we want to upgrade to the highest plan.
@@ -234,7 +241,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             if (scrollToProductKey && scrollToProductKey === props.product.type) {
                 const { currentPlan } = values.currentAndUpgradePlans
 
-                if (currentPlan.initial_billing_limit) {
+                if (currentPlan?.initial_billing_limit) {
                     actions.setProductSpecificAlert({
                         status: 'warning',
                         title: 'Billing Limit Automatically Applied',
@@ -257,6 +264,15 @@ export const billingProductLogic = kea<billingProductLogicType>([
                             children: 'Update billing limit',
                         },
                     })
+                } else {
+                    setTimeout(() => {
+                        if (props.productRef?.current) {
+                            props.productRef?.current.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start',
+                            })
+                        }
+                    }, 0)
                 }
             }
         },

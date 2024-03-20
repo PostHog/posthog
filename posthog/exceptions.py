@@ -25,7 +25,7 @@ class EnterpriseFeatureException(APIException):
             detail=(
                 f"{feature.capitalize() if feature else 'This feature'} is part of the premium PostHog offering. "
                 + (
-                    "To use it, subscribe to PostHog Cloud with a generous free tier: https://app.posthog.com/organization/billing"
+                    "To use it, subscribe to PostHog Cloud with a generous free tier."
                     if is_cloud()
                     else "Self-hosted licenses are no longer available for purchase. Please contact sales@posthog.com to discuss options."
                 )
@@ -41,6 +41,10 @@ class Conflict(APIException):
 class EstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
+
+
+class QuerySizeExceeded(APIException):
+    default_detail = "Query size exceeded."
 
 
 class ExceptionContext(TypedDict):

@@ -2,6 +2,7 @@ import { combineUrl } from 'kea-router'
 import { toParams } from 'lib/utils'
 
 import { ExportOptions } from '~/exporter/types'
+import { HogQLFilters } from '~/queries/schema'
 import {
     ActionType,
     AnnotationType,
@@ -13,6 +14,7 @@ import {
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
+    ProductKey,
     ReplayTabs,
 } from '~/types'
 
@@ -53,8 +55,10 @@ export const urls = {
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
+    eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
     propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
+    propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     events: (): string => '/events',
@@ -76,14 +80,14 @@ export const urls = {
             ...(filters ? { filters } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
-    insightNewHogQL: (query: string): string =>
+    insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
         urls.insightNew(
             undefined,
             undefined,
             JSON.stringify({
                 kind: 'DataTableNode',
                 full: true,
-                source: { kind: 'HogQLQuery', query },
+                source: { kind: 'HogQLQuery', query, filters },
             })
         ),
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
@@ -173,9 +177,9 @@ export const urls = {
     products: (): string => '/products',
     onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
         `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
-    onboardingProductIntroduction: (productKey: string): string => '/onboarding/' + productKey + '/intro',
     // Cloud only
-    organizationBilling: (): string => '/organization/billing',
+    organizationBilling: (products?: ProductKey[]): string =>
+        `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
     instanceStaffUsers: (): string => '/instance/staff_users',

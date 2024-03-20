@@ -78,7 +78,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertFalse(user.is_email_verified)
 
         # Assert that the team was properly created
-        self.assertEqual(team.name, "Default Project")
+        self.assertEqual(team.name, "Default project")
 
         # Assert that the org was properly created
         self.assertEqual(organization.name, "Hedgehogs United, LLC")

@@ -1,3 +1,4 @@
+import { IconGear } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -16,11 +17,11 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useState } from 'react'
@@ -125,7 +126,7 @@ export function Surveys(): JSX.Element {
                         type="warning"
                         action={{
                             type: 'secondary',
-                            icon: <IconSettings />,
+                            icon: <IconGear />,
                             onClick: () => openSurveysSettingsDialog(),
                             children: 'Configure',
                         }}
@@ -206,11 +207,10 @@ export function Surveys(): JSX.Element {
                                     title: 'Name',
                                     render: function RenderName(_, survey) {
                                         return (
-                                            <>
-                                                <Link to={urls.survey(survey.id)} className="row-name">
-                                                    {stringWithWBR(survey.name, 17)}
-                                                </Link>
-                                            </>
+                                            <LemonTableLink
+                                                to={urls.survey(survey.id)}
+                                                title={stringWithWBR(survey.name, 17)}
+                                            />
                                         )
                                     },
                                 },

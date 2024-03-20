@@ -78,13 +78,16 @@ describe('postgres parity', () => {
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
         await delayUntilEventIngested(() => hub.db.fetchDistinctIds(person, Database.ClickHouse), 2)
 
-        const clickHousePersons = await hub.db.fetchPersons(Database.ClickHouse)
+        const clickHousePersons = (await hub.db.fetchPersons(Database.ClickHouse)).map((row) => ({
+            ...row,
+            properties: JSON.parse(row.properties), // avoids depending on key sort order
+        }))
         expect(clickHousePersons).toEqual([
             {
                 id: uuid,
                 created_at: expect.any(String), // '2021-02-04 00:18:26.472',
                 team_id: teamId,
-                properties: '{"userPropOnce":"propOnceValue","userProp":"propValue"}',
+                properties: { userPropOnce: 'propOnceValue', userProp: 'propValue' },
                 is_identified: 1,
                 is_deleted: 0,
                 _timestamp: expect.any(String),

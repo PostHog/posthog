@@ -1,6 +1,6 @@
 import { LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ExternalDataSourceType } from '~/types'
 
@@ -21,13 +21,13 @@ export default function SourceForm({ sourceType }: SourceFormProps): JSX.Element
             enableFormOnSubmit
         >
             {SOURCE_DETAILS[sourceType].fields.map((field) => (
-                <Field key={field.name} name={['payload', field.name]} label={field.label}>
+                <LemonField key={field.name} name={['payload', field.name]} label={field.label}>
                     <LemonInput className="ph-ignore-input" data-attr={field.name} />
-                </Field>
+                </LemonField>
             ))}
-            <Field name="prefix" label="Table Prefix (optional)">
+            <LemonField name="prefix" label="Table Prefix (optional)">
                 <LemonInput className="ph-ignore-input" data-attr="prefix" placeholder="internal_" />
-            </Field>
+            </LemonField>
         </Form>
     )
 }

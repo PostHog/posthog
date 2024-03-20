@@ -1,6 +1,6 @@
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { sourceFormLogic } from 'scenes/data-warehouse/external/forms/sourceFormLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -20,9 +20,9 @@ export function DataWarehouseRedirectScene(): JSX.Element {
                 className="space-y-4 max-w-100"
                 enableFormOnSubmit
             >
-                <Field name="prefix" label="Table prefix">
+                <LemonField name="prefix" label="Table prefix">
                     <LemonInput />
-                </Field>
+                </LemonField>
                 <LemonButton type="primary" htmlType="submit">
                     Submit
                 </LemonButton>

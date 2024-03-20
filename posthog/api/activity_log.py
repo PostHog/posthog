@@ -72,6 +72,7 @@ class ServerTimingsGathered:
 
 
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
+    scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination

@@ -1,10 +1,10 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -104,7 +104,7 @@ export function PermissionsGrid(): JSX.Element {
             <>
                 <div className="flex flex-row justify-between items-center mb-4">
                     <div className="text-muted-alt">
-                        Edit organizational default permission levels for posthog resources. Use roles to apply
+                        Edit organizational default permission levels for PostHog resources. Use roles to apply
                         permissions to specific sets of users.
                     </div>
                     {!isRestricted && (

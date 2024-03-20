@@ -163,12 +163,12 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 
 
 class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    scope_object = "session_recording_playlist"
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
-    include_in_docs = True
     lookup_field = "short_id"
 
     def get_queryset(self) -> QuerySet:

@@ -78,7 +78,10 @@ export const insight = {
         const networkInterceptAlias = interceptInsightLoad(tabName)
 
         cy.get(`[data-attr="insight-${(tabName === 'PATHS' ? 'PATH' : tabName).toLowerCase()}-tab"]`).click()
-        cy.wait(`@${networkInterceptAlias}`)
+        if (tabName !== 'FUNNELS') {
+            // funnel insights require two steps before making an api call
+            cy.wait(`@${networkInterceptAlias}`)
+        }
     },
     newInsight: (insightType: string = 'TRENDS'): void => {
         const networkInterceptAlias = interceptInsightLoad(insightType)
@@ -94,18 +97,26 @@ export const insight = {
             cy.get(`[data-attr-insight-type="${insightType}"]`).click()
         }
 
-        cy.wait(`@${networkInterceptAlias}`)
+        if (insightType !== 'FUNNELS') {
+            // funnel insights require two steps before making an api call
+            cy.wait(`@${networkInterceptAlias}`)
+        }
+    },
+    visitInsight: (insightName: string): void => {
+        cy.clickNavMenu('savedinsights')
+        cy.contains('.row-name > .Link', insightName).click()
     },
     create: (insightName: string, insightType: string = 'TRENDS'): void => {
         cy.clickNavMenu('savedinsights')
         cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
         cy.get(`[data-attr-insight-type="${insightType}"]`).click()
 
-        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
-        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
         cy.get('[data-attr="top-bar-name"] button').click()
         cy.get('[data-attr="top-bar-name"] input').clear().type(insightName)
         cy.get('[data-attr="top-bar-name"] [title="Save"]').click()
+
+        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
+        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
     },
     addInsightToDashboard: (dashboardName: string, options: { visitAfterAdding: boolean }): void => {
         cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')

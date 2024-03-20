@@ -1,8 +1,8 @@
+import { IconPencil } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconEdit } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -120,7 +120,7 @@ export function Annotations(): JSX.Element {
             key: 'actions',
             width: 0,
             render: function RenderActions(_, annotation): JSX.Element {
-                return <LemonButton icon={<IconEdit />} size="small" to={urls.annotation(annotation.id)} />
+                return <LemonButton icon={<IconPencil />} size="small" to={urls.annotation(annotation.id)} />
             },
         },
     ]

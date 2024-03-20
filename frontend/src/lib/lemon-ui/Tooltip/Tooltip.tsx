@@ -1,61 +1,144 @@
-// eslint-disable-next-line no-restricted-imports
-import { Tooltip as AntdTooltip } from 'antd'
-import { TooltipProps as AntdTooltipProps } from 'antd/lib/tooltip'
-import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
-import React, { useState } from 'react'
-import { useDebounce } from 'use-debounce'
+import './Tooltip.scss'
 
-const DEFAULT_DELAY_MS = 500
+import {
+    arrow,
+    autoUpdate,
+    flip,
+    FloatingArrow,
+    FloatingPortal,
+    offset as offsetFunc,
+    Placement,
+    shift,
+    useDismiss,
+    useFloating,
+    useFocus,
+    useHover,
+    useInteractions,
+    useMergeRefs,
+    useRole,
+    useTransitionStyles,
+} from '@floating-ui/react'
+import clsx from 'clsx'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import React, { useRef, useState } from 'react'
 
-export type TooltipProps = AntdTooltipProps & {
+export interface TooltipProps {
+    title: string | React.ReactNode | (() => string)
+    children: JSX.Element
     delayMs?: number
+    offset?: number
+    arrowOffset?: number
+    placement?: Placement
+    className?: string
+    visible?: boolean
 }
 
-/** Extension of Ant Design's Tooltip that enables a delay.
- *
- * Caveat: doesn't work with disabled elements due to lack of workaround that Ant Design uses.
- * See https://github.com/ant-design/ant-design/blob/master/components/tooltip/index.tsx#L82-L130.
- */
-// CAUTION: Any changes here will affect tooltips across the entire app.
-export function Tooltip({ children, visible, delayMs = DEFAULT_DELAY_MS, ...props }: TooltipProps): JSX.Element {
-    const [localVisible, setVisible] = useState(false)
-    const [debouncedLocalVisible] = useDebounce(visible ?? localVisible, delayMs)
+export function Tooltip({
+    children,
+    title,
+    className = '',
+    placement = 'top',
+    offset = 8,
+    arrowOffset,
+    delayMs = 500,
+    visible: controlledOpen,
+}: TooltipProps): JSX.Element {
+    const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+    const caretRef = useRef(null)
+    const floatingContainer = useFloatingContainer()
 
-    const floatingContainer = useFloatingContainerContext()?.current
+    const open = controlledOpen ?? uncontrolledOpen
 
-    if (!('mouseEnterDelay' in props)) {
-        // If not preserving default behavior and mouseEnterDelay is not already provided, we use a custom default here
-        props.mouseEnterDelay = delayMs
-    }
+    const { context, refs } = useFloating({
+        placement,
+        open,
+        onOpenChange: setUncontrolledOpen,
+        whileElementsMounted: autoUpdate,
+        middleware: [
+            offsetFunc(offset),
+            flip({ fallbackAxisSideDirection: 'start' }),
+            shift(),
+            arrow({ element: caretRef }),
+        ],
+    })
 
-    // If child is not a valid element (string or string + ReactNode, Fragment), antd wraps children in a span.
-    // See https://github.com/ant-design/ant-design/blob/master/components/tooltip/index.tsx#L226
+    const hover = useHover(context, {
+        move: false,
+        delay: {
+            open: delayMs,
+            close: 0,
+        },
+    })
+    const focus = useFocus(context)
+    const dismiss = useDismiss(context)
+    const role = useRole(context, { role: 'tooltip' })
+
+    const { getFloatingProps, getReferenceProps } = useInteractions([hover, focus, dismiss, role])
+
+    const { styles: transitionStyles } = useTransitionStyles(context, {
+        duration: {
+            open: 150,
+            close: 0,
+        },
+        initial: ({ side }) => ({
+            opacity: 0,
+            transform: {
+                top: 'translateY(3px)',
+                bottom: 'translateY(-3px)',
+                left: 'translateX(3px)',
+                right: 'translateX(-3px)',
+            }[side],
+        }),
+    })
+
+    const childrenRef = (children as any).ref
+    const triggerRef = useMergeRefs([refs.setReference, childrenRef])
+
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
-    const derivedVisible = typeof visible === 'undefined' ? localVisible && debouncedLocalVisible : visible
+    const clonedChild = React.cloneElement(
+        child,
+        getReferenceProps({
+            ref: triggerRef,
+            ...child.props,
+        })
+    )
 
-    return props.title ? (
-        <AntdTooltip
-            {...props}
-            getPopupContainer={floatingContainer ? () => floatingContainer : undefined}
-            visible={derivedVisible}
-        >
-            {React.cloneElement(child, {
-                onMouseEnter: () => {
-                    child.props.onMouseEnter?.()
-                    if (typeof visible === 'undefined') {
-                        setVisible(true)
-                    }
-                },
-                onMouseLeave: () => {
-                    child.props.onMouseLeave?.()
-                    if (typeof visible === 'undefined') {
-                        setVisible(false)
-                    }
-                },
-            })}
-        </AntdTooltip>
+    return title ? (
+        <>
+            {clonedChild}
+            {open && (
+                <FloatingPortal root={floatingContainer}>
+                    <div
+                        ref={refs.setFloating}
+                        className="Tooltip max-w-sm"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ ...context.floatingStyles }}
+                        {...getFloatingProps()}
+                    >
+                        <div
+                            className={clsx(
+                                'bg-tooltip-bg py-1.5 px-2 break-words rounded text-start text-white',
+                                className
+                            )}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ ...transitionStyles }}
+                        >
+                            {typeof title === 'function' ? title() : title}
+                            <FloatingArrow
+                                ref={caretRef}
+                                context={context}
+                                width={8}
+                                height={4}
+                                staticOffset={arrowOffset}
+                                fill="var(--tooltip-bg)"
+                            />
+                        </div>
+                    </div>
+                </FloatingPortal>
+            )}
+        </>
     ) : (
-        child
+        children
     )
 }

@@ -41,13 +41,14 @@ class IntegrationSerializer(serializers.ModelSerializer):
 
 
 class IntegrationViewSet(
+    TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.ListModelMixin,
     mixins.DestroyModelMixin,
-    TeamAndOrgViewSetMixin,
     viewsets.GenericViewSet,
 ):
+    scope_object = "INTERNAL"
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 

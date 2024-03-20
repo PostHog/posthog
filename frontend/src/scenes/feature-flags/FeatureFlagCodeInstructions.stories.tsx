@@ -94,7 +94,7 @@ const meta: Meta<typeof CodeInstructions> = {
 export default meta
 
 export const CodeInstructionsOverview = (props: CodeInstructionsProps): JSX.Element => {
-    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS, AvailableFeature.MULTIVARIATE_FLAGS])
+    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
 
     return <CodeInstructions {...props} />
 }
@@ -108,7 +108,7 @@ export const CodeInstructionsPythonWithLocalEvaluation = (): JSX.Element => {
 }
 
 export const CodeInstructionsRubyWithGroupFlagLocalEvaluation = (): JSX.Element => {
-    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS, AvailableFeature.MULTIVARIATE_FLAGS])
+    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/groups_types/': [
@@ -133,7 +133,7 @@ export const CodeInstructionsiOSWithMultivariateFlag = (): JSX.Element => {
 }
 
 export const CodeInstructionsNodeWithGroupMultivariateFlagLocalEvaluation = (): JSX.Element => {
-    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS, AvailableFeature.MULTIVARIATE_FLAGS])
+    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/groups_types/': [

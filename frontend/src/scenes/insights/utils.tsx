@@ -11,8 +11,8 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
-import { ActionsNode, BreakdownFilter, EventsNode, PathsFilter } from '~/queries/schema'
-import { isEventsNode } from '~/queries/utils'
+import { ActionsNode, BreakdownFilter, DataWarehouseNode, EventsNode, PathsFilter } from '~/queries/schema'
+import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
     AnyPartialFilterType,
@@ -59,7 +59,10 @@ export const getDisplayNameFromEntityFilter = (
     return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
 }
 
-export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isCustom = true): string | null => {
+export const getDisplayNameFromEntityNode = (
+    node: EventsNode | ActionsNode | DataWarehouseNode,
+    isCustom = true
+): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
@@ -70,7 +73,7 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
         name = 'All events'
     }
 
-    const id = isEventsNode(node) ? node.event : node.id
+    const id = isDataWarehouseNode(node) ? node.table_name : isEventsNode(node) ? node.event : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
@@ -220,11 +223,19 @@ export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
 
 export function isOtherBreakdown(breakdown_value: string | number | null | undefined | ReactNode): boolean {
-    return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
+    return (
+        breakdown_value === BREAKDOWN_OTHER_STRING_LABEL ||
+        breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL ||
+        String(breakdown_value) === String(BREAKDOWN_OTHER_NUMERIC_LABEL)
+    )
 }
 
 export function isNullBreakdown(breakdown_value: string | number | null | undefined): boolean {
-    return breakdown_value === BREAKDOWN_NULL_STRING_LABEL || breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL
+    return (
+        breakdown_value === BREAKDOWN_NULL_STRING_LABEL ||
+        breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL ||
+        String(breakdown_value) === String(BREAKDOWN_NULL_NUMERIC_LABEL)
+    )
 }
 
 export function formatBreakdownLabel(
@@ -253,6 +264,9 @@ export function formatBreakdownLabel(
             breakdown,
             breakdown_type
         )
+        if (formattedBucketStart === formattedBucketEnd) {
+            return formattedBucketStart
+        }
         return `${formattedBucketStart} – ${formattedBucketEnd}`
     }
     if (breakdown_type === 'cohort') {
@@ -263,7 +277,7 @@ export function formatBreakdownLabel(
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
         return isOtherBreakdown(breakdown_value)
-            ? 'Other'
+            ? 'Other (Groups all remaining values)'
             : isNullBreakdown(breakdown_value)
             ? 'None'
             : formatPropertyValueForDisplay
@@ -271,7 +285,7 @@ export function formatBreakdownLabel(
             : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
-            ? 'Other'
+            ? 'Other (Groups all remaining values)'
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
             ? 'None'
             : breakdown_value

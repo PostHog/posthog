@@ -8,6 +8,7 @@ import {
     DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
+    DataWarehouseNode,
     DateRange,
     EventsNode,
     EventsQuery,
@@ -86,6 +87,10 @@ export function isEventsQuery(node?: Node | null): node is EventsQuery {
 
 export function isActionsNode(node?: Node | null): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
+}
+
+export function isDataWarehouseNode(node?: Node | null): node is DataWarehouseNode {
+    return node?.kind === NodeKind.DataWarehouseNode
 }
 
 export function isPersonsNode(node?: Node | null): node is PersonsNode {

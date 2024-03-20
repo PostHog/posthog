@@ -1,7 +1,7 @@
 import './KeyboardShortcut.scss'
 
 import clsx from 'clsx'
-import { isMac } from 'lib/utils'
+import { isMac, isMobile } from 'lib/utils'
 
 import { HotKeyOrModifier } from '~/types'
 
@@ -26,19 +26,24 @@ const MODIFIER_PRIORITY: HotKeyOrModifier[] = ['shift', 'command', 'option']
 export interface KeyboardShortcutProps extends Partial<Record<HotKeyOrModifier, true>> {
     /** Whether this shortcut should be shown with muted opacity. */
     muted?: boolean
+    className?: string
 }
 
-export function KeyboardShortcut({ muted, ...keys }: KeyboardShortcutProps): JSX.Element {
+export function KeyboardShortcut({ muted, className, ...keys }: KeyboardShortcutProps): JSX.Element | null {
     const sortedKeys = Object.keys(keys).sort(
         (a, b) =>
             (-MODIFIER_PRIORITY.indexOf(a as HotKeyOrModifier) || 0) -
             (-MODIFIER_PRIORITY.indexOf(b as HotKeyOrModifier) || 0)
     ) as HotKeyOrModifier[]
 
+    if (isMobile()) {
+        // If the user agent says we're on mobile, then it's unlikely - though of course not impossible -
+        // that there's a physical keyboard. Hence in that case we don't show the keyboard shortcut
+        return null
+    }
+
     return (
-        <span
-            className={clsx('KeyboardShortcut KeyboardShortcut__key space-x-0.5', muted && 'KeyboardShortcut--muted')}
-        >
+        <span className={clsx('KeyboardShortcut space-x-0.5', muted && 'KeyboardShortcut--muted', className)}>
             {sortedKeys.map((key) => (
                 <span key={key}>{KEY_TO_SYMBOL[key] || key}</span>
             ))}

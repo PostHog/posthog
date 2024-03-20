@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { HighLevelProducer } from 'node-rdkafka'
 
 import { defaultConfig } from '../../../../../src/config/config'
@@ -5,8 +6,9 @@ import { createKafkaProducer, produce } from '../../../../../src/kafka/producer'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
-import { PluginsServerConfig } from '../../../../../src/types'
+import { PluginsServerConfig, TimestampFormat } from '../../../../../src/types'
 import { status } from '../../../../../src/utils/status'
+import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
 jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/kafka/producer')
@@ -14,9 +16,11 @@ jest.mock('../../../../../src/kafka/producer')
 const makeIncomingMessage = (source: string | null, timestamp: number): IncomingRecordingMessage => {
     return {
         distinct_id: '',
-        events: [{ data: { any: 'thing' }, type: 2, timestamp: timestamp }],
+        eventsRange: { start: timestamp, end: timestamp },
+        eventsByWindowId: { '': [{ data: { any: 'thing' }, type: 2, timestamp: timestamp }] },
         metadata: {
-            offset: 0,
+            lowOffset: 0,
+            highOffset: 0,
             partition: 0,
             topic: 'topic',
             timestamp: timestamp,
@@ -43,6 +47,34 @@ describe('replay events ingester', () => {
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
         ingester = new ReplayEventsIngester({ ...defaultConfig } as PluginsServerConfig, mockedHighWaterMarker)
         await ingester.start()
+    })
+
+    test('does not ingest messages from a month in the future', async () => {
+        const twoMonthsFromNow = DateTime.utc().plus({ months: 2 })
+
+        await ingester.consume(makeIncomingMessage("mickey's fun house", twoMonthsFromNow.toMillis()))
+
+        expect(jest.mocked(status.debug).mock.calls).toEqual([])
+        expect(jest.mocked(produce).mock.calls).toHaveLength(1)
+        expect(jest.mocked(produce).mock.calls[0]).toHaveLength(1)
+        const call = jest.mocked(produce).mock.calls[0][0]
+
+        expect(call.topic).toEqual('clickhouse_ingestion_warnings_test')
+        // call.value is a Buffer convert it to a string
+        const value = call.value ? JSON.parse(call.value.toString()) : null
+        const expectedTimestamp = castTimestampOrNow(twoMonthsFromNow, TimestampFormat.ClickHouse)
+
+        expect(value.source).toEqual('plugin-server')
+        expect(value.team_id).toEqual(0)
+        expect(value.type).toEqual('replay_timestamp_too_far')
+        const details = JSON.parse(value.details)
+        expect(details).toEqual(
+            expect.objectContaining({
+                isValid: true,
+                daysFromNow: 61,
+                timestamp: expectedTimestamp,
+            })
+        )
     })
 
     test('it passes snapshot source along', async () => {
@@ -77,6 +109,7 @@ describe('replay events ingester', () => {
             uuid: expect.any(String),
         })
     })
+
     test('it defaults snapshot source to web when absent', async () => {
         const ts = new Date().getTime()
         await ingester.consume(makeIncomingMessage(null, ts))

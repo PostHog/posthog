@@ -305,7 +305,9 @@ const TimingBar = ({
         <>
             <div className="flex flex-row px-2 py-1">
                 <div className="w-2/5">
-                    <Tooltip title={perfDescriptions[section]}>{label}</Tooltip>
+                    <Tooltip title={perfDescriptions[section]}>
+                        <span>{label}</span>
+                    </Tooltip>
                 </div>
                 <div className="flex-1 grow relative">
                     <div

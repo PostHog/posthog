@@ -1,6 +1,5 @@
 import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
-import { decideResponse } from '../fixtures/api/decide'
 import { insight } from '../productAnalytics'
 
 const hogQLQuery = `select event,
@@ -15,15 +14,6 @@ const hogQLQuery = `select event,
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
     beforeEach(() => {
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    hogql: true,
-                    'data-exploration-insights': true,
-                })
-            )
-        )
-
         cy.visit(urls.insightNew())
     })
 
@@ -34,7 +24,7 @@ describe('Insights', () => {
             insight.editName(insightName)
             insight.save()
             cy.visit(urls.savedInsights())
-            cy.contains('.row-name a', insightName).click()
+            cy.contains('.Link', insightName).click()
 
             cy.get('[data-attr="hogql-query-editor"]').should('not.exist')
             cy.get('tr.DataTable__row').should('have.length.gte', 2)

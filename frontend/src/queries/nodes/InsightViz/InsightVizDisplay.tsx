@@ -19,6 +19,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -177,12 +178,16 @@ export function InsightVizDisplay({
                     {exportContext && (
                         <div className="flex items-center justify-between my-4 mx-0">
                             <h2 className="font-semibold text-lg m-0">Detailed results</h2>
-                            <Tooltip title="Export this table in CSV format" placement="left">
+                            <Tooltip title="Export this table" placement="left">
                                 <ExportButton
                                     type="secondary"
                                     items={[
                                         {
                                             export_format: ExporterFormat.CSV,
+                                            export_context: exportContext,
+                                        },
+                                        {
+                                            export_format: ExporterFormat.XLSX,
                                             export_context: exportContext,
                                         },
                                     ]}
@@ -193,7 +198,7 @@ export function InsightVizDisplay({
 
                     <InsightsTable
                         isLegend
-                        filterKey="trends_TRENDS"
+                        filterKey={keyForInsightLogicProps('new')(insightProps)}
                         canEditSeriesNameInline={!trendsFilter?.formula && insightMode === ItemMode.Edit}
                         canCheckUncheckSeries={canEditInsight}
                     />

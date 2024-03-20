@@ -52,7 +52,7 @@ class Funnel(FunnelBase):
         max_steps = self.context.max_steps
         breakdown_exprs = self._get_breakdown_prop_expr()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
-        person_and_group_properties = self._get_person_and_group_properties()
+        person_and_group_properties = self._get_person_and_group_properties(aggregate=True)
 
         group_by_columns: List[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
@@ -190,8 +190,8 @@ class Funnel(FunnelBase):
             if i < level_index:
                 exprs.append(ast.Field(chain=[f"latest_{i}"]))
 
-                # for field in self.extra_event_fields_and_properties:
-                #     exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(ast.Field(chain=[f"{field}_{i}"]))
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     if exclusion.funnelFromStep + 1 == i:
@@ -205,8 +205,13 @@ class Funnel(FunnelBase):
                     )
                 )
 
-                # for field in self.extra_event_fields_and_properties:
-                #     exprs.append(f'if({comparison}, NULL, "{field}_{i}") as "{field}_{i}"')
+                for field in self.extra_event_fields_and_properties:
+                    exprs.append(
+                        parse_expr(
+                            f'if({{comparison}}, NULL, "{field}_{i}") as "{field}_{i}"',
+                            placeholders={"comparison": comparison},
+                        )
+                    )
 
                 for exclusion_id, exclusion in enumerate(exclusions or []):
                     if exclusion.funnelFromStep + 1 == i:

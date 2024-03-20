@@ -6,8 +6,8 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import { Field, PureField } from 'lib/forms/Field'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -218,10 +218,10 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
         >
             <h2 className="text-center">Create your PostHog account</h2>
             <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
-                <PureField label="Email">
+                <LemonField.Pure label="Email">
                     <LemonInput type="email" disabled value={invite?.target_email} />
-                </PureField>
-                <Field
+                </LemonField.Pure>
+                <LemonField
                     name="password"
                     label={
                         <div className="flex flex-1 items-center justify-between">
@@ -241,9 +241,9 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                         autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
                         disabled={isSignupSubmitting}
                     />
-                </Field>
+                </LemonField>
 
-                <Field
+                <LemonField
                     name="first_name"
                     label="First Name"
                     help={
@@ -251,11 +251,11 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     }
                 >
                     <LemonInput data-attr="first_name" placeholder="Jane" />
-                </Field>
+                </LemonField>
 
                 <SignupRoleSelect />
 
-                <Field name="email_opt_in">
+                <LemonField name="email_opt_in">
                     {({ value, onChange }) => {
                         return (
                             <LemonCheckbox
@@ -266,7 +266,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                             />
                         )
                     }}
-                </Field>
+                </LemonField>
 
                 <LemonButton
                     type="primary"

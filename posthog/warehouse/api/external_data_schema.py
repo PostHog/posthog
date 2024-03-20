@@ -28,6 +28,7 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
 
 
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]

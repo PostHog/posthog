@@ -13,7 +13,7 @@ describe.skip('Funnels', () => {
 
         cy.get('[data-attr=save-funnel-button]').click() // `save-funnel-button` is actually calculate, keeping around to avoid losing data
 
-        cy.get('[data-attr=funnel-bar-graph]', { timeout: TIMEOUT }).should('exist')
+        cy.get('[data-attr=funnel-bar-horizontal]', { timeout: TIMEOUT }).should('exist')
     })
 
     it('Add 1 action to funnel and navigate to persons', () => {
@@ -26,7 +26,7 @@ describe.skip('Funnels', () => {
 
         cy.get('[data-attr=save-funnel-button]').click()
 
-        cy.get('[data-attr=funnel-bar-graph]', { timeout: TIMEOUT }).should('exist')
+        cy.get('[data-attr=funnel-bar-horizontal]', { timeout: TIMEOUT }).should('exist')
 
         cy.get('[data-attr="funnel-person"] a')
             .filter(':contains("@")')
@@ -54,7 +54,7 @@ describe.skip('Funnels', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.contains('Last 30 days').click()
 
-        cy.get('[data-attr=funnel-bar-graph]', { timeout: TIMEOUT }).should('exist')
+        cy.get('[data-attr=funnel-bar-horizontal]', { timeout: TIMEOUT }).should('exist')
     })
 
     it('Add 2 actions to funnel', () => {
@@ -70,6 +70,6 @@ describe.skip('Funnels', () => {
 
         cy.get('[data-attr=save-funnel-button]').click()
 
-        cy.get('[data-attr=funnel-bar-graph]', { timeout: TIMEOUT }).should('exist')
+        cy.get('[data-attr=funnel-bar-horizontal]', { timeout: TIMEOUT }).should('exist')
     })
 })

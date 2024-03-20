@@ -30,7 +30,7 @@ export function AppsScene(): JSX.Element | null {
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
 
-    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES) || user?.is_impersonated == true
 
     useEffect(() => {
         if (!canViewPlugins(user?.organization)) {

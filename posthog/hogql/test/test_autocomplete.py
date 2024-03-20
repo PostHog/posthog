@@ -1,4 +1,7 @@
+from typing import Optional
 from posthog.hogql.autocomplete import get_hogql_autocomplete
+from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 from posthog.models.property_definition import PropertyDefinition
@@ -21,9 +24,11 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             type=PropertyDefinition.Type.PERSON,
         )
 
-    def _query_response(self, query: str, start: int, end: int) -> HogQLAutocompleteResponse:
+    def _query_response(
+        self, query: str, start: int, end: int, database: Optional[Database] = None
+    ) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(kind="HogQLAutocomplete", select=query, startPosition=start, endPosition=end)
-        return get_hogql_autocomplete(query=autocomplete, team=self.team)
+        return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
     def test_autocomplete(self):
         query = "select * from events"
@@ -148,3 +153,91 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert results.suggestions[0].label == "potato"
         assert "event" not in [suggestion.label for suggestion in results.suggestions]
         assert "properties" not in [suggestion.label for suggestion in results.suggestions]
+
+    def test_autocomplete_field_traversers(self):
+        query = "select person. from events"
+        results = self._query_response(query=query, start=14, end=14)
+        assert len(results.suggestions) != 0
+
+    def test_autocomplete_table_alias(self):
+        query = "select  from events e"
+        results = self._query_response(query=query, start=7, end=7)
+        assert len(results.suggestions) != 0
+        assert results.suggestions[0].label == "e"
+
+    def test_autocomplete_complete_list(self):
+        query = "select event from events"
+        results = self._query_response(query=query, start=7, end=12)
+        assert results.incomplete_list is False
+
+    def test_autocomplete_properties_list_with_under_220_properties(self):
+        for index in range(20):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=f"some_event_value_{index}",
+                property_type="String",
+                type=PropertyDefinition.Type.EVENT,
+            )
+
+        query = "select properties. from events"
+        results = self._query_response(query=query, start=18, end=18)
+        assert results.incomplete_list is False
+
+    def test_autocomplete_properties_list_with_over_220_properties(self):
+        for index in range(221):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=f"some_event_value_{index}",
+                property_type="String",
+                type=PropertyDefinition.Type.EVENT,
+            )
+
+        query = "select properties. from events"
+        results = self._query_response(query=query, start=18, end=18)
+        assert results.incomplete_list is True
+
+    def test_autocomplete_joined_tables(self):
+        query = "select p. from events e left join persons p on e.person_id = p.id"
+        results = self._query_response(query=query, start=9, end=9)
+
+        assert len(results.suggestions) != 0
+
+        keys = list(PERSONS_FIELDS.keys())
+
+        for index, key in enumerate(keys):
+            assert results.suggestions[index].label == key
+
+    def test_autocomplete_joined_table_contraints(self):
+        query = "select p.id from events e left join persons p on e.person_id = p."
+        results = self._query_response(query=query, start=65, end=65)
+
+        assert len(results.suggestions) != 0
+
+        keys = list(PERSONS_FIELDS.keys())
+
+        for index, key in enumerate(keys):
+            assert results.suggestions[index].label == key
+
+    def test_autocomplete_joined_tables_aliases(self):
+        query = "select  from events e left join persons p on e.person_id = p.id"
+        results = self._query_response(query=query, start=7, end=7)
+
+        assert len(results.suggestions) == 2
+        assert results.suggestions[0].label == "e"
+        assert results.suggestions[1].label == "p"
+
+    def test_autocomplete_non_existing_alias(self):
+        query = "select o. from events e"
+        results = self._query_response(query=query, start=9, end=9)
+
+        assert len(results.suggestions) == 0
+
+    def test_autocomplete_events_hidden_field(self):
+        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+        database.events.fields["event"] = StringDatabaseField(name="event", hidden=True)
+
+        query = "select  from events"
+        results = self._query_response(query=query, start=7, end=7, database=database)
+
+        for suggestion in results.suggestions:
+            assert suggestion.label != "event"

@@ -1,5 +1,6 @@
 import './TaxonomicPropertyFilter.scss'
 
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -8,7 +9,9 @@ import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilt
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
     isGroupPropertyFilter,
+    isPersonPropertyFilter,
     isPropertyFilterWithOperator,
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     propertyFilterTypeToTaxonomicFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -19,7 +22,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { useMemo } from 'react'
 
@@ -38,6 +40,7 @@ export function TaxonomicPropertyFilter({
     disablePopover, // inside a dropdown if this is false
     taxonomicGroupTypes,
     eventNames,
+    schemaColumns,
     propertyGroupType,
     orFiltering,
     addText = 'Add filter',
@@ -61,7 +64,7 @@ export function TaxonomicPropertyFilter({
         value,
         item
     ) => {
-        selectItem(taxonomicGroup, value, item?.propertyFilterType)
+        selectItem(taxonomicGroup, value, item)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts ||
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression
@@ -110,6 +113,7 @@ export function TaxonomicPropertyFilter({
             taxonomicGroupTypes={groupTypes}
             metadataSource={metadataSource}
             eventNames={eventNames}
+            schemaColumns={schemaColumns}
             propertyAllowList={propertyAllowList}
             optionsFromProp={taxonomicFilterOptionsFromProp}
         />
@@ -171,7 +175,7 @@ export function TaxonomicPropertyFilter({
                         >
                             <LemonButton
                                 type="secondary"
-                                icon={!valuePresent ? <IconPlusMini /> : undefined}
+                                icon={!valuePresent ? <IconPlusSmall /> : undefined}
                                 data-attr={'property-select-toggle-' + index}
                                 sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
@@ -183,7 +187,7 @@ export function TaxonomicPropertyFilter({
                                         value={filter.key}
                                         disablePopover
                                         ellipsis
-                                        type={activeTaxonomicGroup?.type}
+                                        type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
                                     />
                                 ) : (
                                     addText || 'Add filter'
@@ -211,6 +215,7 @@ export function TaxonomicPropertyFilter({
                                             value: newValue || null,
                                             operator: newOperator,
                                             type: filter?.type,
+                                            ...(isPersonPropertyFilter(filter) ? { table: filter?.table } : {}),
                                             ...(isGroupPropertyFilter(filter)
                                                 ? { group_type_index: filter.group_type_index }
                                                 : {}),

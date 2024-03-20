@@ -1,9 +1,9 @@
 import { connect, kea, path, selectors } from 'kea'
-import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
@@ -16,6 +16,7 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.FeaturePreviews,
     SidePanelTab.Activity,
     SidePanelTab.Status,
+    SidePanelTab.Exports,
 ]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -56,6 +57,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
+                }
+                if (featureflags[FEATURE_FLAGS.EXPORTS_SIDEPANEL]) {
+                    tabs.push(SidePanelTab.Exports)
                 }
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Settings)

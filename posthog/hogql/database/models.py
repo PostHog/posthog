@@ -24,6 +24,7 @@ class DatabaseField(FieldOrTable):
     name: str
     array: Optional[bool] = None
     nullable: Optional[bool] = None
+    hidden: bool = False
 
 
 class IntegerDatabaseField(DatabaseField):
@@ -95,15 +96,11 @@ class Table(FieldOrTable):
         for key, field in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            if (
-                isinstance(field, Table)
-                or isinstance(field, LazyJoin)
-                or isinstance(field, FieldTraverser)
-                or isinstance(field, ExpressionField)
-            ):
+            if isinstance(field, Table) or isinstance(field, LazyJoin) or isinstance(field, FieldTraverser):
                 pass  # ignore virtual tables and columns for now
             elif isinstance(field, DatabaseField):
-                asterisk[key] = field
+                if not field.hidden:  # Skip over hidden fields
+                    asterisk[key] = field
             else:
                 raise HogQLException(f"Unknown field type {type(field).__name__} for asterisk")
         return asterisk
@@ -113,8 +110,18 @@ class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
     join_function: Callable[[str, str, Dict[str, Any], "HogQLContext", "SelectQuery"], Any]
-    join_table: Table
-    from_field: str
+    join_table: Table | str
+    from_field: List[str | int]
+    to_field: Optional[List[str | int]] = None
+
+    def resolve_table(self, context: "HogQLContext") -> Table:
+        if isinstance(self.join_table, Table):
+            return self.join_table
+
+        if context.database is None:
+            raise HogQLException("Database is not set")
+
+        return context.database.get_table(self.join_table)
 
 
 class LazyTable(Table):
@@ -124,7 +131,7 @@ class LazyTable(Table):
 
     model_config = ConfigDict(extra="forbid")
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers) -> Any:
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers) -> Any:
         raise NotImplementedException("LazyTable.lazy_select not overridden")
 
 

@@ -43,7 +43,7 @@ function toColumn(hogql: string, position: number): number {
 }
 
 export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.Element {
-    const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey }
+    const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey, dataNodeCollectionId: queryKey }
     const {
         dataLoading,
         response: _response,

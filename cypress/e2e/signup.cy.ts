@@ -74,8 +74,8 @@ describe('Signup', () => {
         cy.get('.Toastify [data-attr="error-toast"]').contains('Inactive social login session.')
     })
 
-    it('Shows redirect notice if redirecting for maintenance', () => {
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
+    it.only('Shows redirect notice if redirecting for maintenance', () => {
+        cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({
                     'redirect-signups-to-instance': 'us',
@@ -88,7 +88,7 @@ describe('Signup', () => {
 
         cy.visit('/signup?maintenanceRedirect=true', {
             onLoad(win: Cypress.AUTWindow) {
-                win.POSTHOG_APP_CONTEXT.preflight.cloud = true
+                ;(win as any).POSTHOG_APP_CONTEXT.preflight.cloud = true
             },
         })
 

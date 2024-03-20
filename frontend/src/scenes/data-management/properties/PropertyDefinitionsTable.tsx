@@ -3,10 +3,11 @@ import './PropertyDefinitionsTable.scss'
 import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
+import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -22,17 +23,22 @@ export function PropertyDefinitionsTable(): JSX.Element {
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
             key: 'icon',
-            className: 'definition-column-icon',
+            width: 0,
             render: function Render(_, definition: PropertyDefinition) {
-                return <PropertyDefinitionHeader definition={definition} hideText />
+                return <span className="text-xl text-muted">{getPropertyDefinitionIcon(definition)}</span>
             },
         },
         {
             title: 'Name',
             key: 'name',
-            className: 'definition-column-name',
             render: function Render(_, definition: PropertyDefinition) {
-                return <PropertyDefinitionHeader definition={definition} hideIcon asLink />
+                return (
+                    <DefinitionHeader
+                        definition={definition}
+                        to={urls.propertyDefinition(definition.id)}
+                        taxonomicGroupType={TaxonomicFilterGroupType.EventProperties}
+                    />
+                )
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
         },
@@ -70,12 +76,13 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     to={urls.insightNewHogQL(
                         'SELECT arrayJoin(JSONExtractKeys(properties)) AS property_key, count()\n' +
                             (filters.type === 'person' ? 'FROM persons\n' : 'FROM events\n') +
-                            (filters.type === 'person' ? '' : 'WHERE timestamp > now() - interval 1 month\n') +
+                            (filters.type === 'person' ? '' : 'WHERE {filters}\n') +
                             'GROUP BY property_key\n' +
-                            'ORDER BY count() DESC'
+                            'ORDER BY count() DESC',
+                        { dateRange: { date_from: '-24h' } }
                     )}
                 >
-                    Click here!
+                    Query with SQL
                 </Link>
             </LemonBanner>
             <div className="flex justify-between mb-4 gap-2 flex-wrap">

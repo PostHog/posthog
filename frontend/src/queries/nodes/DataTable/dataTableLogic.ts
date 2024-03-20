@@ -7,6 +7,7 @@ import { objectsEqual, sortedKeys } from 'lib/utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
 import {
     AnyDataNode,
     DataTableNode,
@@ -60,7 +61,15 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            dataNodeLogic({ key: props.dataNodeLogicKey ?? props.dataKey, query: props.query.source }),
+            dataNodeLogic({
+                key: props.dataNodeLogicKey ?? props.dataKey,
+                query: props.query.source,
+                dataNodeCollectionId: insightVizDataCollectionId(
+                    props.context?.insightProps,
+                    props.dataNodeLogicKey ?? props.dataKey
+                ),
+                loadPriority: props.context?.insightProps?.loadPriority,
+            }),
             ['response', 'responseLoading', 'responseError'],
         ],
     })),
@@ -178,6 +187,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showSearch: query.showSearch ?? showIfFull,
                         showActions: query.showActions ?? true,
                         showDateRange: query.showDateRange ?? showIfFull,
+                        showTestAccountFilters: query.showTestAccountFilters ?? showIfFull,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
                         showTimings: query.showTimings ?? flagQueryTimingsEnabled,

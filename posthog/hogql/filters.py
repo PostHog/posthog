@@ -82,6 +82,10 @@ class ReplaceFilters(CloningVisitor):
                     )
                 )
 
+            if self.filters.filterTestAccounts:
+                for prop in self.team.test_account_filters or []:
+                    exprs.append(property_to_expr(prop, self.team))
+
             if len(exprs) == 0:
                 return ast.Constant(value=True)
             if len(exprs) == 1:

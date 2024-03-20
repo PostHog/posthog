@@ -13,6 +13,7 @@ export const lemonBannerLogic = kea<lemonBannerLogicType>([
     props({} as LemonBannerLogicProps),
     actions({
         dismiss: true,
+        resetDismissKey: true,
     }),
     reducers({
         isDismissed: [
@@ -20,6 +21,7 @@ export const lemonBannerLogic = kea<lemonBannerLogicType>([
             { persist: true },
             {
                 dismiss: () => true,
+                resetDismissKey: () => false,
             },
         ],
     }),

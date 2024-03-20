@@ -5,51 +5,55 @@ export interface LemonRadioOption<T extends React.Key> {
     label: string | JSX.Element
     value: T
     disabledReason?: string
+    'data-attr'?: string
+    'aria-label'?: string
 }
 
 export interface LemonRadioProps<T extends React.Key> {
     value?: T
     onChange: (newValue: T) => void
     options: LemonRadioOption<T>[]
-    fullWidth?: boolean
+    className?: string
 }
 
 /** Single choice radio. */
 export function LemonRadio<T extends React.Key>({
-    value,
+    value: selectedValue,
     onChange,
     options,
-    fullWidth,
+    className,
 }: LemonRadioProps<T>): JSX.Element {
     return (
-        <div className={clsx('flex flex-col gap-2', fullWidth && 'w-full')}>
-            {options.map((option) => {
+        <div className={clsx('flex flex-col gap-2 font-medium', className)}>
+            {options.map(({ value, label, disabledReason, ...optionProps }) => {
                 const content = (
                     <label
-                        key={option.value}
+                        key={value}
                         className={clsx(
                             'flex items-center space-x-2',
-                            option.disabledReason ? 'text-muted cursor-not-allowed' : 'cursor-pointer'
+                            disabledReason ? 'text-muted cursor-not-allowed' : 'cursor-pointer'
                         )}
                     >
                         <input
                             type="radio"
-                            checked={option.value === value}
-                            value={option.value}
+                            className="cursor-pointer"
+                            checked={value === selectedValue}
+                            value={value}
                             onChange={() => {
-                                if (!option.disabledReason) {
-                                    onChange(option.value)
+                                if (!disabledReason) {
+                                    onChange(value)
                                 }
                             }}
-                            disabled={!!option.disabledReason}
+                            disabled={!!disabledReason}
+                            {...optionProps}
                         />
-                        <span>{option.label}</span>
+                        <span>{label}</span>
                     </label>
                 )
 
-                if (option.disabledReason) {
+                if (disabledReason) {
                     return (
-                        <Tooltip trigger="hover" key={option.value} title={option.disabledReason}>
+                        <Tooltip key={value} title={disabledReason}>
                             {content}
                         </Tooltip>
                     )

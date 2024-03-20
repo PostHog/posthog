@@ -1,29 +1,30 @@
 import './PersonsModal.scss'
 
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonBadge,
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
     LemonModal,
+    LemonModalProps,
     LemonSelect,
     LemonSkeleton,
     Link,
 } from '@posthog/lemon-ui'
-import { LemonModalProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
-import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import { useCallback, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
@@ -98,6 +99,8 @@ export function PersonsModal({
         useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { startExport } = useActions(exportsLogic)
+
     const totalActorsCount = missingActorsCount + actors.length
 
     const getTitle = useCallback(() => {
@@ -245,7 +248,7 @@ export function PersonsModal({
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
-                                    void triggerExport({
+                                    startExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: query
                                             ? { source: actorsQuery as Record<string, any> }
@@ -329,7 +332,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                     noPadding
                     active={expanded}
                     onClick={() => setExpanded(!expanded)}
-                    icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    icon={expanded ? <IconCollapse /> : <IconExpand />}
                     title={expanded ? 'Show less' : 'Show more'}
                     data-attr={`persons-modal-expand-${actor.id}`}
                 />
@@ -403,11 +406,10 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                                         <ul className="space-y-px">
                                             {matchedRecordings?.length
                                                 ? matchedRecordings.map((recording, i) => (
-                                                      <>
+                                                      <React.Fragment key={i}>
                                                           <LemonDivider className="my-0" />
-                                                          <li key={i}>
+                                                          <li>
                                                               <LemonButton
-                                                                  key={i}
                                                                   fullWidth
                                                                   onClick={() => {
                                                                       recording.session_id &&
@@ -428,7 +430,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                                                                   </div>
                                                               </LemonButton>
                                                           </li>
-                                                      </>
+                                                      </React.Fragment>
                                                   ))
                                                 : null}
                                         </ul>

@@ -41,9 +41,14 @@ def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) 
     return get_schema_if_exists(schema_name=schema_name, team_id=team_id, source_id=source_id)
 
 
+@database_sync_to_async
+def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None:
+    return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+
+
 def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
     schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).values().all()
-    return [val["name"] for val in schemas]
+    return [(val["id"], val["name"]) for val in schemas]
 
 
 def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):

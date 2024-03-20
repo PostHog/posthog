@@ -11,6 +11,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils'
 import posthog from 'posthog-js'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -32,6 +33,8 @@ import {
 } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
+    DatabaseSchemaQueryResponseField,
+    DataWarehouseNode,
     DateRange,
     FunnelExclusionSteps,
     FunnelsQuery,
@@ -45,6 +48,9 @@ import {
 import {
     filterForQuery,
     filterKeyForQuery,
+    isActionsNode,
+    isDataWarehouseNode,
+    isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -76,6 +82,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
+            dataWarehouseSceneLogic,
+            ['externalTablesMap'],
         ],
         actions: [
             insightLogic,
@@ -211,6 +219,41 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdownFilter?.breakdown
             },
         ],
+        isBreakdownSeries: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter): boolean => {
+                return !!breakdownFilter?.breakdown
+            },
+        ],
+
+        isDataWarehouseSeries: [
+            (s) => [s.isTrends, s.series],
+            (isTrends, series): boolean => {
+                return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
+            },
+        ],
+
+        currentDataWarehouseSchemaColumns: [
+            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.externalTablesMap],
+            (
+                series,
+                isSingleSeries,
+                isDataWarehouseSeries,
+                isBreakdownSeries,
+                externalTablesMap
+            ): DatabaseSchemaQueryResponseField[] => {
+                if (
+                    !series ||
+                    series.length === 0 ||
+                    (!isSingleSeries && !isBreakdownSeries) ||
+                    !isDataWarehouseSeries
+                ) {
+                    return []
+                }
+
+                return externalTablesMap[(series[0] as DataWarehouseNode).table_name].columns
+            },
+        ],
 
         valueOnSeries: [
             (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.insightFilter],
@@ -278,7 +321,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (insightDataError): string | null => {
                 // We use 512 for query timeouts
                 return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? insightDataError.detail.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+                    ? insightDataError.detail?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
                     : null
             },
         ],
@@ -317,15 +360,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        updateDateRange: ({ dateRange }) => {
+        updateDateRange: async ({ dateRange }, breakpoint) => {
+            await breakpoint(300)
             actions.updateQuerySource({ dateRange: { ...values.dateRange, ...dateRange } })
         },
-        updateBreakdownFilter: ({ breakdownFilter }) => {
+        updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
+            await breakpoint(500) // extra debounce time because of number input
             actions.updateQuerySource({
                 breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter },
             } as Partial<TrendsQuery>)
         },
-        updateInsightFilter: ({ insightFilter }) => {
+        updateInsightFilter: async ({ insightFilter }, breakpoint) => {
+            await breakpoint(300)
             const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
                 [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
@@ -486,6 +532,17 @@ const handleQuerySourceUpdateSideEffects = (
             breakdown: '$geoip_country_code',
             breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
         }
+    }
+
+    // if mixed, clear breakdown and trends filter
+    if (
+        kind === NodeKind.TrendsQuery &&
+        (mergedUpdate as TrendsQuery).series?.length >= 0 &&
+        (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
+        (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
+    ) {
+        mergedUpdate['breakdownFilter'] = null
+        mergedUpdate['properties'] = []
     }
 
     return mergedUpdate

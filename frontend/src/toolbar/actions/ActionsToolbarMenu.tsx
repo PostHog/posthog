@@ -1,5 +1,6 @@
+import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'

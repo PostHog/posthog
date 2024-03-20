@@ -17,11 +17,7 @@
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
 
     &:not(:disabled):hover {
-        border: 1px solid var(--primary-3000-hover);
-
-        .posthog-3000 & {
-            border-color: var(--border-bold);
-        }
+        border: 1px solid var(--border-bold);
     }
 
     &:disabled {
@@ -30,11 +26,7 @@
     }
 
     &:focus:not(:disabled) {
-        border: 1px solid var(--primary-3000);
-
-        .posthog-3000 & {
-            border-color: var(--border-active);
-        }
+        border: 1px solid var(--border-active);
     }
 
     .Field--error & {

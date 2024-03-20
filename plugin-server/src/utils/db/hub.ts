@@ -60,7 +60,9 @@ export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<
     const eventsToDropByToken: Map<string, string[]> = new Map()
     if (eventsToDropByTokenStr) {
         eventsToDropByTokenStr.split(',').forEach((pair) => {
-            const [token, distinctID] = pair.split(':')
+            const separatorIndex = pair.indexOf(':')
+            const token = pair.substring(0, separatorIndex)
+            const distinctID = pair.substring(separatorIndex + 1)
             eventsToDropByToken.set(token, [...(eventsToDropByToken.get(token) || []), distinctID])
         })
     }

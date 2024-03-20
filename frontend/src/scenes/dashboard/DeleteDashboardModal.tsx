@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 
@@ -47,7 +47,7 @@ export function DeleteDashboardModal(): JSX.Element {
                 enableFormOnSubmit
                 className="space-y-2"
             >
-                <Field
+                <LemonField
                     name="deleteInsights"
                     help="This will only delete insights if they're not on any other dashboards."
                 >
@@ -59,7 +59,7 @@ export function DeleteDashboardModal(): JSX.Element {
                             onChange={onChange}
                         />
                     )}
-                </Field>
+                </LemonField>
             </Form>
         </LemonModal>
     )

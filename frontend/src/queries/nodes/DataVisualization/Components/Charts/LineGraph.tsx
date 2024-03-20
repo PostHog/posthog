@@ -203,7 +203,6 @@ export const LineGraph = (): JSX.Element => {
                                                 },
                                             },
                                         ]}
-                                        size="small"
                                         uppercaseHeader={false}
                                         rowRibbonColor={(_datum, index) => getSeriesColor(index)}
                                         showHeader

@@ -51,29 +51,6 @@ def funnel_breakdown_test_factory(
 
             return [val["id"] for val in serialized_result]
 
-        def _create_groups(self):
-            GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-            GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
-
-            create_group(
-                team_id=self.team.pk,
-                group_type_index=0,
-                group_key="org:5",
-                properties={"industry": "finance"},
-            )
-            create_group(
-                team_id=self.team.pk,
-                group_type_index=0,
-                group_key="org:6",
-                properties={"industry": "technology"},
-            )
-            create_group(
-                team_id=self.team.pk,
-                group_type_index=1,
-                group_key="org:5",
-                properties={"industry": "random"},
-            )
-
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
             def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:
                 return {
@@ -2681,6 +2658,73 @@ def funnel_breakdown_test_factory(
 
             self.assertCountEqual([res[0]["breakdown"] for res in results], [["Mac"], ["Safari"]])
 
+    return TestFunnelBreakdown
+
+
+def funnel_breakdown_group_test_factory(FunnelPerson):
+    funnel_order_type = FunnelOrderType.ORDERED
+
+    class TestFunnelBreakdownGroup(APIBaseTest):
+        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
+            filter = Filter(data=filter, team=self.team)
+            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
+            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
+
+            return [val["id"] for val in serialized_result]
+
+        def _create_groups(self):
+            GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+            GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:5",
+                properties={"industry": "finance"},
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:6",
+                properties={"industry": "technology"},
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="org:5",
+                properties={"industry": "random"},
+            )
+
+        def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
+            def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:
+                return {
+                    "action_id": step.name if step.type == "events" else step.action_id,
+                    "name": step.name,
+                    "custom_name": None,
+                    "order": order,
+                    "people": [],
+                    "count": step.count,
+                    "type": step.type,
+                    "average_conversion_time": step.average_conversion_time,
+                    "median_conversion_time": step.median_conversion_time,
+                    "breakdown": step.breakdown,
+                    "breakdown_value": step.breakdown,
+                    **(
+                        {
+                            "action_id": None,
+                            "name": f"Completed {order+1} step{'s' if order > 0 else ''}",
+                        }
+                        if funnel_order_type == FunnelOrderType.UNORDERED
+                        else {}
+                    ),
+                }
+
+            step_results = []
+            for index, step_result in enumerate(steps):
+                step_results.append(funnel_result(step_result, index))
+
+            assert_funnel_results_equal(result, step_results)
+
         @snapshot_clickhouse_queries
         def test_funnel_breakdown_group(self):
             self._create_groups()
@@ -3020,7 +3064,7 @@ def funnel_breakdown_test_factory(
                 ],
             )
 
-    return TestFunnelBreakdown
+    return TestFunnelBreakdownGroup
 
 
 def sort_breakdown_funnel_results(results: List[Dict[int, Any]]):

@@ -1,6 +1,8 @@
 import './Experiment.scss'
 
+import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import {
+    LemonDialog,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -10,7 +12,6 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { Popconfirm } from 'antd'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -19,15 +20,16 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { Field } from 'lib/forms/Field'
-import { IconDelete, IconPlusMini, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -36,27 +38,36 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
+import { Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
+import { ExperimentNext } from './ExperimentNext'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentResult } from './ExperimentResult'
 import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
-import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { ExperimentInsightCreator } from './MetricSelector'
-import { SecondaryMetrics } from './SecondaryMetrics'
+import { SecondaryMetricsResult } from './SecondaryMetricsResult'
+import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 export const scene: SceneExport = {
-    component: Experiment,
+    component: ExperimentTemporaryWrapper,
     logic: experimentLogic,
     paramsToProps: ({ params: { id } }): ExperimentLogicProps => ({
         experimentId: id === 'new' ? 'new' : parseInt(id),
     }),
+}
+
+function ExperimentTemporaryWrapper(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.NEW_EXPERIMENTS_UI]) {
+        return <ExperimentNext />
+    }
+    return <Experiment />
 }
 
 export function Experiment(): JSX.Element {
@@ -93,11 +104,11 @@ export function Experiment(): JSX.Element {
         resetRunningExperiment,
         loadExperiment,
         loadExperimentResults,
+        loadSecondaryMetricResults,
         setExposureAndSampleSize,
         updateExperimentSecondaryMetrics,
         setExperiment,
     } = useActions(experimentLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
 
     const [showWarning, setShowWarning] = useState(true)
 
@@ -147,15 +158,6 @@ export function Experiment(): JSX.Element {
         { background: '#FFE6AE', color: '#35416B' },
         { background: '#8DA9E74D', color: '#35416B' },
     ]
-
-    if (!hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
-        return (
-            <>
-                <PageHeader />
-                <ExperimentsPayGate />
-            </>
-        )
-    }
 
     if (experimentLoading) {
         return <LoadingState />
@@ -212,16 +214,16 @@ export function Experiment(): JSX.Element {
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <>
                                 <div className="flex flex-col gap-2 max-w-1/2">
-                                    <Field name="name" label="Name">
+                                    <LemonField name="name" label="Name">
                                         <LemonInput data-attr="experiment-name" />
-                                    </Field>
-                                    <Field name="feature_flag_key" label="Feature flag key">
+                                    </LemonField>
+                                    <LemonField name="feature_flag_key" label="Feature flag key">
                                         <LemonInput
                                             data-attr="experiment-feature-flag-key"
                                             disabled={editingExistingExperiment}
                                         />
-                                    </Field>
-                                    <Field
+                                    </LemonField>
+                                    <LemonField
                                         name="description"
                                         label={
                                             <div>
@@ -234,7 +236,7 @@ export function Experiment(): JSX.Element {
                                             className="ph-ignore-input"
                                             placeholder="Adding a helpful description can ensure others know what this experiment is about."
                                         />
-                                    </Field>
+                                    </LemonField>
                                     {experiment.parameters.feature_flag_variants && (
                                         <div>
                                             <label>
@@ -276,7 +278,7 @@ export function Experiment(): JSX.Element {
                                                             >
                                                                 {index === 0 ? 'Control' : 'Test'}
                                                             </div>
-                                                            <Field name="key" className="extend-variant-fully">
+                                                            <LemonField name="key" className="extend-variant-fully">
                                                                 <LemonInput
                                                                     disabled={index === 0 || experimentId !== 'new'}
                                                                     data-attr="experiment-variant-key"
@@ -289,18 +291,18 @@ export function Experiment(): JSX.Element {
                                                                     autoCorrect="off"
                                                                     spellCheck={false}
                                                                 />
-                                                            </Field>
+                                                            </LemonField>
 
                                                             <div className="float-right">
                                                                 {experimentId === 'new' &&
                                                                     !(index === 0 || index === 1) && (
                                                                         <Tooltip
                                                                             title="Delete this variant"
-                                                                            placement="bottomLeft"
+                                                                            placement="bottom-start"
                                                                         >
                                                                             <LemonButton
                                                                                 size="small"
-                                                                                icon={<IconDelete />}
+                                                                                icon={<IconTrash />}
                                                                                 onClick={() =>
                                                                                     removeExperimentGroup(index)
                                                                                 }
@@ -318,7 +320,7 @@ export function Experiment(): JSX.Element {
                                                         <div className="feature-flag-variant border-b">
                                                             <LemonButton
                                                                 onClick={() => addExperimentGroup()}
-                                                                icon={<IconPlusMini />}
+                                                                icon={<IconPlusSmall />}
                                                                 data-attr="add-test-variant"
                                                             >
                                                                 Add test variant
@@ -440,7 +442,7 @@ export function Experiment(): JSX.Element {
                                                 sure you manually send feature flag information for server-side
                                                 libraries if necessary.{' '}
                                                 <Link
-                                                    to="https://posthog.com/docs/integrate/server/python#capture"
+                                                    to="https://posthog.com/docs/libraries/python#capture"
                                                     target="_blank"
                                                 >
                                                     {' '}
@@ -460,7 +462,7 @@ export function Experiment(): JSX.Element {
                                         </BindLogic>
                                     </div>
                                 </div>
-                                <Field name="secondary_metrics">
+                                <LemonField name="secondary_metrics">
                                     {({ value, onChange }) => (
                                         <div className="secondary-metrics">
                                             <div className="flex flex-col">
@@ -472,7 +474,7 @@ export function Experiment(): JSX.Element {
                                                     Use secondary metrics to monitor metrics related to your experiment
                                                     goal. You can add up to three secondary metrics.{' '}
                                                 </div>
-                                                <SecondaryMetrics
+                                                <SecondaryMetricsTable
                                                     onMetricsChange={onChange}
                                                     initialMetrics={value}
                                                     experimentId={experiment.id}
@@ -483,7 +485,7 @@ export function Experiment(): JSX.Element {
                                             </div>
                                         </div>
                                     )}
-                                </Field>
+                                </LemonField>
                                 <div className="bg-bg-light border rounded experiment-preview p-4">
                                     <ExperimentPreview
                                         experimentId={experiment.id}
@@ -557,30 +559,19 @@ export function Experiment(): JSX.Element {
                                                             >
                                                                 Refresh experiment results
                                                             </LemonButton>
+                                                            <LemonButton
+                                                                onClick={() => loadSecondaryMetricResults(true)}
+                                                                fullWidth
+                                                                data-attr="refresh-secondary-metrics"
+                                                            >
+                                                                Refresh secondary metrics
+                                                            </LemonButton>
                                                         </>
                                                     }
                                                 />
                                                 <LemonDivider vertical />
                                             </>
-                                            <Popconfirm
-                                                placement="bottomLeft"
-                                                title={
-                                                    <div>
-                                                        Reset this experiment and go back to draft mode?
-                                                        <div className="text-sm text-muted">
-                                                            All collected data so far will be discarded.
-                                                        </div>
-                                                        {experiment.archived && (
-                                                            <div className="text-sm text-muted">
-                                                                Resetting will also unarchive the experiment.
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                }
-                                                onConfirm={() => resetRunningExperiment()}
-                                            >
-                                                <LemonButton type="secondary">Reset</LemonButton>
-                                            </Popconfirm>
+                                            <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
                                             {!experiment.end_date && (
                                                 <LemonButton
                                                     type="secondary"
@@ -721,6 +712,7 @@ export function Experiment(): JSX.Element {
                                 {
                                     key: 'experiment-details',
                                     header: 'Experiment details',
+                                    className: 'bg-bg-light',
                                     content: (
                                         <div>
                                             <div className={isExperimentRunning ? 'w-1/2' : 'w-full'}>
@@ -815,7 +807,7 @@ export function Experiment(): JSX.Element {
                                                 </div>
                                             )}
                                             <div>
-                                                <SecondaryMetrics
+                                                <SecondaryMetricsTable
                                                     experimentId={experiment.id}
                                                     onMetricsChange={(metrics) =>
                                                         updateExperimentSecondaryMetrics(metrics)
@@ -837,12 +829,49 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
                     </div>
+                    <h2 className="font-semibold text-lg m-0 mt-4">Experiment result</h2>
                     <ExperimentResult />
+                    <SecondaryMetricsResult />
                 </div>
             ) : (
                 <LoadingState />
             )}
         </>
+    )
+}
+
+const ResetButton = ({ experiment, onConfirm }: { experiment: ExperimentType; onConfirm: () => void }): JSX.Element => {
+    const onClickReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset this experiment?',
+            content: (
+                <>
+                    <div className="text-sm text-muted">
+                        All collected data so far will be discarded and the experiment will go back to draft mode.
+                    </div>
+                    {experiment.archived && (
+                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                    )}
+                </>
+            ),
+            primaryButton: {
+                children: 'Confirm',
+                type: 'primary',
+                onClick: onConfirm,
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    return (
+        <LemonButton type="secondary" onClick={onClickReset}>
+            Reset
+        </LemonButton>
     )
 }
 

@@ -26,6 +26,7 @@ import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { query } from '~/queries/query'
 import {
@@ -38,10 +39,16 @@ import {
     InsightVizNode,
     NodeKind,
     PersonsNode,
-    QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
-import { isActorsQuery, isEventsQuery, isInsightActorsQuery, isInsightQueryNode, isPersonsNode } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isEventsQuery,
+    isFunnelsQuery,
+    isInsightActorsQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+} from '~/queries/utils'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
@@ -56,6 +63,8 @@ export interface DataNodeLogicProps {
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** Load priority. Higher priority (smaller number) queries will be loaded first. */
     loadPriority?: number
+
+    dataNodeCollectionId?: string
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -63,6 +72,7 @@ const LOAD_MORE_ROWS_LIMIT = 10000
 
 const concurrencyController = new ConcurrencyController(Infinity)
 
+/** Compares two queries for semantic equality to prevent double-fetching of data. */
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
         return compareInsightQuery(a, b, true)
@@ -71,13 +81,33 @@ const queryEqual = (a: DataNode, b: DataNode): boolean => {
     }
 }
 
+/** Tests wether a query is valid to prevent unnecessary requests.  */
+const queryValid = (q: DataNode): boolean => {
+    if (isFunnelsQuery(q)) {
+        // funnels require at least two steps
+        return q.series.length >= 2
+    } else {
+        return true
+    }
+}
+
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
-    connect({
-        values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
-    }),
-    props({ query: {} } as DataNodeLogicProps),
     key((props) => props.key),
+    connect((props: DataNodeLogicProps) => ({
+        values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        actions: [
+            dataNodeCollectionLogic({ key: props.dataNodeCollectionId || props.key } as DataNodeCollectionProps),
+            [
+                'mountDataNode',
+                'unmountDataNode',
+                'collectionNodeLoadData',
+                'collectionNodeLoadDataSuccess',
+                'collectionNodeLoadDataFailure',
+            ],
+        ],
+    })),
+    props({ query: {} } as DataNodeLogicProps),
     propsChanged(({ actions, props }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
@@ -137,6 +167,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     if (props.query === undefined || Object.keys(props.query).length === 0) {
                         // no need to try and load a query before properly initialized
+                        return null
+                    }
+
+                    if (!queryValid(props.query)) {
                         return null
                     }
 
@@ -218,7 +252,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
                         const newResponse = (await query(values.nextQuery)) ?? null
                         actions.setElapsedTime(performance.now() - now)
-                        const queryResponse = values.response as QueryResponse
+                        const queryResponse = values.response as EventsQueryResponse | ActorsQueryResponse
                         return {
                             ...queryResponse,
                             results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
@@ -330,7 +364,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     return error ?? 'Error loading data'
                 },
-                loadDataSuccess: () => null,
+                loadDataSuccess: (_, { response }) => response?.error ?? null,
             },
         ],
         elapsedTime: [
@@ -394,7 +428,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 if ((isEventsQuery(query) || isActorsQuery(query)) && !responseError && !dataLoading) {
                     if ((response as EventsQueryResponse | ActorsQueryResponse)?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
-                        const typedResults = (response as QueryResponse)?.results
+                        const typedResults = (response as EventsQueryResponse | ActorsQueryResponse)?.results
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const sortColumnIndex = query.select
                                 .map((hql) => removeExpressionComment(hql))
@@ -553,8 +587,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
         },
+        loadData: () => {
+            actions.collectionNodeLoadData(props.key)
+        },
         loadDataSuccess: ({ response }) => {
             props.onData?.(response)
+            actions.collectionNodeLoadDataSuccess(props.key)
+        },
+        loadDataFailure: () => {
+            actions.collectionNodeLoadDataFailure(props.key)
         },
         loadNewDataSuccess: ({ response }) => {
             props.onData?.(response)
@@ -588,13 +629,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (Object.keys(props.query || {}).length > 0) {
             actions.loadData()
         }
+
+        actions.mountDataNode(props.key, {
+            id: props.key,
+            loadData: actions.loadData,
+            cancelQuery: actions.cancelQuery,
+        })
     }),
-    beforeUnmount(({ actions, values }) => {
+    beforeUnmount(({ actions, props, values }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
         if (values.dataLoading) {
             actions.abortAnyRunningQuery()
         }
+
+        actions.unmountDataNode(props.key)
     }),
 ])

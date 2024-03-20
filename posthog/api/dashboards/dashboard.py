@@ -1,6 +1,5 @@
 import json
 from typing import Any, Dict, List, Optional, Type, cast
-from rest_framework.serializers import BaseSerializer
 
 import structlog
 from django.db.models import Prefetch, QuerySet
@@ -12,6 +11,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.api.dashboards.dashboard_template_json_schema_parser import (
@@ -160,7 +160,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
     def validate_description(self, value: str) -> str:
         if value and not check_is_feature_available_for_team(
-            self.context["team_id"], AvailableFeature.DASHBOARD_COLLABORATION
+            self.context["team_id"], AvailableFeature.TEAM_COLLABORATION
         ):
             raise PermissionDenied("You must have paid for dashboard collaboration to set the dashboard description")
         return value
@@ -402,11 +402,12 @@ class DashboardSerializer(DashboardBasicSerializer):
 
 
 class DashboardsViewSet(
-    TaggedItemViewSetMixin,
     TeamAndOrgViewSetMixin,
+    TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
+    scope_object = "dashboard"
     queryset = Dashboard.objects.order_by("name")
     permission_classes = [CanEditDashboard]
 

@@ -7,7 +7,7 @@ from rest_framework.exceptions import NotAuthenticated
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import SerializedField, serialize_fields
+from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
@@ -34,7 +34,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> List[SerializedField]:
-        return serialize_fields(view.hogql_definition().fields)
+        team_id = self.context["team_id"]
+        context = HogQLContext(team_id=team_id, database=create_hogql_database(team_id=team_id))
+
+        return serialize_fields(view.hogql_definition().fields, context)
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
@@ -96,6 +99,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     Create, Read, Update and Delete Warehouse Tables.
     """
 
+    scope_object = "INTERNAL"
     queryset = DataWarehouseSavedQuery.objects.all()
     serializer_class = DataWarehouseSavedQuerySerializer
     filter_backends = [filters.SearchFilter]

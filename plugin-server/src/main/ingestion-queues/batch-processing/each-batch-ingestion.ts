@@ -2,12 +2,12 @@ import * as Sentry from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
-import { Hub, PipelineEvent, ValueMatcher } from '../../../types'
+import { PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
-import { ConfiguredLimiter, LoggingLimiter, OverflowWarningLimiter } from '../../../utils/token-bucket'
-import { EventPipelineResult, runEventPipeline } from '../../../worker/ingestion/event-pipeline/runner'
+import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
+import { EventPipelineRunner } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
@@ -143,11 +143,17 @@ export async function eachBatchParallelIngestion(
                 ) {
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
-                    if (team && OverflowWarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
+                    if (team) {
                         processingPromises.push(
-                            captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
-                                overflowDistinctId: distinct_id,
-                            })
+                            captureIngestionWarning(
+                                queue.pluginsServer.db.kafkaProducer,
+                                team.id,
+                                'ingestion_capacity_overflow',
+                                {
+                                    overflowDistinctId: distinct_id,
+                                },
+                                { key: distinct_id }
+                            )
                         )
                     }
                 }
@@ -156,7 +162,8 @@ export async function eachBatchParallelIngestion(
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
                         const result = (await retryIfRetriable(async () => {
-                            return await ingestEvent(queue.pluginsServer, pluginEvent)
+                            const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
+                            return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
                         result.promises?.forEach((promise) =>
@@ -241,16 +248,6 @@ export async function eachBatchParallelIngestion(
     } finally {
         transaction.finish()
     }
-}
-
-async function ingestEvent(
-    server: Hub,
-    event: PipelineEvent,
-    checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
-): Promise<EventPipelineResult> {
-    checkAndPause?.()
-    const result = await runEventPipeline(server, event)
-    return result
 }
 
 function computeKey(pluginEvent: PipelineEvent): string {

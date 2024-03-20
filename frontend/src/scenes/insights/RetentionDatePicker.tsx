@@ -17,8 +17,7 @@ export function RetentionDatePicker(): JSX.Element {
 
     return (
         <Tooltip title="Cohorts up to this end date">
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <span style={{ maxWidth: 100 }} className="flex inline-flex items-center pl-2">
+            <span className="flex inline-flex items-center pl-2 max-w-[100px]">
                 <DatePicker
                     showTime={period === 'Hour'}
                     use12Hours

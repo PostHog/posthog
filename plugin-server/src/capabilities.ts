@@ -55,6 +55,12 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
             }
+
+        case PluginServerMode.recordings_ingestion_v3:
+            return {
+                sessionRecordingV3Ingestion: true,
+                ...sharedCapabilities,
+            }
         case PluginServerMode.async_onevent:
             return {
                 processAsyncOnEventHandlers: true,

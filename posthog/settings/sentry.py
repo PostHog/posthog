@@ -9,6 +9,7 @@ from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
+from posthog.git import get_git_commit_full
 
 from posthog.settings import get_from_env
 from posthog.settings.base_variables import TEST
@@ -72,9 +73,13 @@ def traces_sampler(sampling_context: dict) -> float:
 
     if op == "http.server":
         path = sampling_context.get("wsgi_environ", {}).get("PATH_INFO")
+        force_sample = bool(sampling_context.get("wsgi_environ", {}).get("HTTP_FORCE_SAMPLE"))
 
+        # HTTP header to force sampling set
+        if force_sample:
+            return 1.0  # 100%
         # Ingestion endpoints (high volume)
-        if path.startswith("/batch"):
+        elif path.startswith("/batch"):
             return 0.00000001  # 0.000001%
         # Ingestion endpoints (high volume)
         elif path.startswith(("/capture", "/track", "/s", "/e")):
@@ -143,15 +148,7 @@ def sentry_init() -> None:
         sentry_logging = LoggingIntegration(level=sentry_logging_level, event_level=None)
         profiles_sample_rate = get_from_env("SENTRY_PROFILES_SAMPLE_RATE", type_cast=float, default=0.0)
 
-        release = None
-        try:
-            # Docker containers should have a commit.txt file in the base directory with the git
-            # commit hash used to generate them.
-            with open("commit.txt") as f:
-                release = f.read()
-        except:
-            # The release isn't required, it's just nice to have.
-            pass
+        release = get_git_commit_full()
 
         sentry_sdk.init(
             send_default_pii=send_pii,

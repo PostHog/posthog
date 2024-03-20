@@ -144,6 +144,7 @@ class TestInsightModel(BaseTest):
                 {},
                 {
                     "dateRange": {"date_from": "-14d", "date_to": "-7d"},
+                    "filterTestAccounts": None,
                     "properties": None,
                 },
             ),
@@ -153,6 +154,7 @@ class TestInsightModel(BaseTest):
                 {"date_from": "-14d", "date_to": "-7d"},
                 {
                     "dateRange": {"date_from": "-14d", "date_to": "-7d"},
+                    "filterTestAccounts": None,
                     "properties": None,
                 },
             ),
@@ -162,6 +164,7 @@ class TestInsightModel(BaseTest):
                 {"date_from": "-4d", "date_to": "-3d"},
                 {
                     "dateRange": {"date_from": "-4d", "date_to": "-3d"},
+                    "filterTestAccounts": None,
                     "properties": None,
                 },
             ),
@@ -171,6 +174,7 @@ class TestInsightModel(BaseTest):
                 {"date_from": "all"},
                 {
                     "dateRange": {"date_from": "all", "date_to": None},
+                    "filterTestAccounts": None,
                     "properties": None,
                 },
             ),
@@ -178,7 +182,7 @@ class TestInsightModel(BaseTest):
                 # test that if no filters are set then none are outputted
                 {},
                 {},
-                {"dateRange": {"date_from": None, "date_to": None}, "properties": None},
+                {"dateRange": {"date_from": None, "date_to": None}, "filterTestAccounts": None, "properties": None},
             ),
             (
                 # test that properties from the query are used when there are no dashboard properties
@@ -186,6 +190,7 @@ class TestInsightModel(BaseTest):
                 {},
                 {
                     "dateRange": {"date_from": None, "date_to": None},
+                    "filterTestAccounts": None,
                     "properties": [browser_equals_firefox],
                 },
             ),
@@ -195,6 +200,7 @@ class TestInsightModel(BaseTest):
                 {"properties": [browser_equals_chrome]},
                 {
                     "dateRange": {"date_from": None, "date_to": None},
+                    "filterTestAccounts": None,
                     "properties": [browser_equals_chrome],
                 },
             ),
@@ -204,6 +210,7 @@ class TestInsightModel(BaseTest):
                 {"properties": [browser_equals_chrome]},
                 {
                     "dateRange": {"date_from": None, "date_to": None},
+                    "filterTestAccounts": None,
                     "properties": [browser_equals_firefox, browser_equals_chrome],
                 },
             ),

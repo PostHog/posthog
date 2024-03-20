@@ -2,10 +2,11 @@ import { finder } from '@medv/finder'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
-import wildcardMatch from 'wildcard-match'
 
 import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
 import { ActionStepType, StringMatching } from '~/types'
+
+export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
@@ -43,9 +44,13 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
 
     try {
         return finder(element, {
-            attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
             seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
+            attr: (name) => {
+                // preference to data attributes if they exist
+                // that aren't in the PostHog preferred list - they were returned early above
+                return name.startsWith('data-')
+            },
         })
     } catch (error) {
         console.warn('Error while trying to find a selector for element', element, error)
@@ -67,8 +72,8 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
     }
 }
 
-export function getToolbarElement(): HTMLElement | null {
-    return window.document.getElementById('__POSTHOG_TOOLBAR__') || null
+export function getToolbarRootElement(): HTMLElement | null {
+    return window.document.getElementById(TOOLBAR_ID) || null
 }
 
 export function hasCursorPointer(element: HTMLElement): boolean {
@@ -91,8 +96,8 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
     if (!element) {
         return null
     }
-    const toolbarElement = getToolbarElement()
-    if (toolbarElement && isParentOf(element, toolbarElement)) {
+    const rootElement = getToolbarRootElement()
+    if (rootElement && isParentOf(element, rootElement)) {
         return null
     }
 
@@ -152,7 +157,7 @@ export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoo
     })
 
     const shadowElements = allElements
-        .filter((el) => el.shadowRoot && el.getAttribute('id') !== '__POSTHOG_TOOLBAR__')
+        .filter((el) => el.shadowRoot && el.getAttribute('id') !== TOOLBAR_ID)
         .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot) : []))
         .reduce((a, b) => [...a, ...b], [])
     const selectedElements = [...elements, ...pointerElements, ...shadowElements]

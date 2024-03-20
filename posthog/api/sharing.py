@@ -80,10 +80,10 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
 
 
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    scope_object = "sharing_configuration"
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
     serializer_class = SharingConfigurationSerializer
-    include_in_docs = False
 
     def get_serializer_context(
         self,
@@ -208,7 +208,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
     authentication_classes = []
     permission_classes = []
-    include_in_docs = False
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:
         # JWT based access (ExportedAsset)

@@ -20,7 +20,8 @@ describe('Surveys', () => {
         cy.get('[data-attr="survey-name"]').type(name)
 
         // save
-        cy.get('[data-attr="save-survey"]').click()
+        //get 2nd element matching the selector
+        cy.get('[data-attr="save-survey"]').eq(1).click()
         cy.get('[data-attr=success-toast]').contains('created').should('exist')
 
         // back to surveys
@@ -93,13 +94,14 @@ describe('Surveys', () => {
         // select the first property
         cy.get('[data-attr="property-select-toggle-0"]').click()
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
-        cy.get('[data-attr=prop-val] .ant-select-selector').click({ force: true })
+        cy.get('[data-attr=prop-val] .LemonInput').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
         cy.get('[data-attr="rollout-percentage"]').type('100')
 
         // save
-        cy.get('[data-attr="save-survey"]').click()
+        cy.get('[data-attr="save-survey"]').eq(0).click()
+
         cy.get('[data-attr=success-toast]').contains('created').should('exist')
 
         // check preview release conditions
@@ -113,7 +115,7 @@ describe('Surveys', () => {
         // refresh, see survey show up on page
         cy.reload()
 
-        cy.contains('Unique users viewed').should('exist')
+        cy.contains('Unique users shown').should('exist')
 
         // stop survey
         cy.contains('Stop').click()
@@ -134,7 +136,7 @@ describe('Surveys', () => {
         cy.contains('Remove all user properties').click()
 
         // save
-        cy.get('[data-attr="save-survey"]').click()
+        cy.get('[data-attr="save-survey"]').eq(1).click()
 
         // check preview release conditions
         cy.get('.LemonTabs').contains('Overview').click()

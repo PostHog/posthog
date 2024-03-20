@@ -1,6 +1,6 @@
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { PureField } from 'lib/forms/Field'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
@@ -57,9 +57,9 @@ export function CreateProjectModal({
                             Learn more in PostHog Docs.
                         </Link>
                     </p>
-                    {currentOrganization?.teams?.some((team) => team.name === 'Default Project') && (
+                    {currentOrganization?.teams?.some((team) => team.name.toLowerCase() === 'default project') && (
                         <p>
-                            <strong>Bonus tip:</strong> You can always rename your "Default Project".
+                            <strong>Bonus tip:</strong> You can always rename your "Default project".
                         </p>
                     )}
                 </>
@@ -90,7 +90,7 @@ export function CreateProjectModal({
             inline={inline}
             closable={!currentTeamLoading}
         >
-            <PureField label="Project name">
+            <LemonField.Pure label="Project name">
                 <LemonInput
                     placeholder="Production / Staging / Admin App"
                     maxLength={64}
@@ -104,7 +104,7 @@ export function CreateProjectModal({
                     }}
                     disabled={currentTeamLoading}
                 />
-            </PureField>
+            </LemonField.Pure>
         </LemonModal>
     )
 }

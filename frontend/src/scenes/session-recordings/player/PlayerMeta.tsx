@@ -227,7 +227,9 @@ export function PlayerMeta(): JSX.Element {
                                     </>
                                 }
                             >
-                                <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
+                                <span>
+                                    <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
+                                </span>
                             </Tooltip>
 
                             <URLOrScreen lastUrl={lastUrl} />

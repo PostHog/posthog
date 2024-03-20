@@ -1,5 +1,6 @@
+import { IconCode, IconX } from '@posthog/icons'
 import { useValues } from 'kea'
-import { IconBranch, IconClose, IconCode } from 'lib/lemon-ui/icons'
+import { IconBranch } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useState } from 'react'
 
@@ -64,7 +65,7 @@ export function DebugNotice(): JSX.Element | null {
             <div className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-blue justify-between">
                 <b>DEBUG mode</b>
                 <LemonButton
-                    icon={<IconClose />}
+                    icon={<IconX />}
                     tooltip="Dismiss"
                     size="small"
                     noPadding

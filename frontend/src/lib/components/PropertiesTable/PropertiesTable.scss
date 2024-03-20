@@ -22,21 +22,15 @@
     }
 
     .editable {
-        text-decoration: underline dotted;
-        text-decoration-color: var(--primary-3000);
+        padding: 0.125rem 0.25rem;
+        margin-left: -0.25rem;
         cursor: pointer;
+        border: 1px solid transparent;
+        border-radius: calc(var(--radius) * 0.75);
 
-        .posthog-3000 & {
-            padding: 0.125rem 0.25rem;
-            margin-left: -0.25rem;
-            text-decoration: none;
-            border: 1px solid transparent;
-            border-radius: calc(var(--radius) * 0.75);
-
-            &:hover {
-                background: var(--bg-light);
-                border: 1px solid var(--border-light);
-            }
+        &:hover {
+            background: var(--bg-light);
+            border: 1px solid var(--border-light);
         }
     }
 }

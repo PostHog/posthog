@@ -7,12 +7,8 @@
     height: 0.5rem;
     margin-top: 0.25rem;
     pointer-events: none;
-    background-color: var(--primary);
+    background-color: var(--primary-3000);
     border-radius: var(--radius) 0 0 var(--radius);
     transition: transform 200ms linear;
     will-change: transform;
-
-    .posthog-3000 & {
-        background-color: var(--primary-3000);
-    }
 }

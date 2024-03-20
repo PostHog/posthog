@@ -18,7 +18,7 @@ from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries, FuzzyInt
 from posthog.utils import generate_cache_key
 
 valid_template: Dict = {
@@ -56,7 +56,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.organization.available_features = [
             AvailableFeature.TAGGING,
             AvailableFeature.PROJECT_BASED_PERMISSIONING,
-            AvailableFeature.DASHBOARD_PERMISSIONING,
+            AvailableFeature.ADVANCED_PERMISSIONS,
         ]
         self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
         self.organization.save()
@@ -261,7 +261,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_listing_dashboards_is_not_nplus1(self) -> None:
         self.client.logout()
 
-        self.organization.available_features = [AvailableFeature.DASHBOARD_COLLABORATION]
+        self.organization.available_features = [AvailableFeature.TEAM_COLLABORATION]
         self.organization.save()
         self.team.access_control = True
         self.team.save()
@@ -279,7 +279,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(8):
+            with self.assertNumQueries(FuzzyInt(8, 9)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -863,13 +863,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_duplication_can_duplicate_tiles_without_editing_name_if_there_is_none(self) -> None:
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        insight_one_id, _ = self.dashboard_api.create_insight({"dashboards": [existing_dashboard.pk], "name": None})
-        _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
+        self.dashboard_api.create_insight({"dashboards": [existing_dashboard.pk], "name": None})
+        self.dashboard_api.create_text_tile(existing_dashboard.pk)
 
         _, duplicate_response = self.dashboard_api.create_dashboard(
             {
                 "name": "another",
-                "use_dashboard": existing_dashboard.id,
+                "use_dashboard": existing_dashboard.pk,
                 "duplicate_tiles": True,
             }
         )
@@ -894,17 +894,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_dashboard_duplication(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
         insight1 = Insight.objects.create(filters={"name": "test1"}, team=self.team, last_refresh=now())
-        DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight1)
+        tile1 = DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight1)
         insight2 = Insight.objects.create(filters={"name": "test2"}, team=self.team, last_refresh=now())
-        DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight2)
-        _, response = self.dashboard_api.create_dashboard({"name": "another", "use_dashboard": existing_dashboard.id})
+        tile2 = DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight2)
+        _, response = self.dashboard_api.create_dashboard({"name": "another", "use_dashboard": existing_dashboard.pk})
         self.assertEqual(response["creation_mode"], "duplicate")
 
         self.assertEqual(len(response["tiles"]), len(existing_dashboard.insights.all()))
 
-        existing_dashboard_item_id_set = set(map(lambda x: x.id, existing_dashboard.insights.all()))
+        existing_dashboard_item_id_set = {tile1.pk, tile2.pk}
         response_item_id_set = set(map(lambda x: x.get("id", None), response["tiles"]))
         # check both sets are disjoint to verify that the new items' ids are different than the existing items
+
         self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))
 
         for item in response["tiles"]:

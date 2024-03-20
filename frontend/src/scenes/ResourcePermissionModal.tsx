@@ -1,11 +1,8 @@
+import { IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { IconDelete, IconSettings } from 'lib/lemon-ui/icons'
-import {
-    LemonSelectMultiple,
-    LemonSelectMultipleOptionItem,
-} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessLevel, Resource, RoleType } from '~/types'
@@ -36,7 +33,7 @@ interface ResourcePermissionModalProps extends ResourcePermissionProps {
     onClose: () => void
 }
 
-export function roleLemonSelectOptions(roles: RoleType[]): LemonSelectMultipleOptionItem[] {
+export function roleLemonSelectOptions(roles: RoleType[]): LemonInputSelectOption[] {
     return roles.map((role) => ({
         key: role.id,
         label: `${role.name}`,
@@ -114,7 +111,7 @@ export function ResourcePermission({
                             <TitleWithIcon
                                 icon={
                                     <LemonButton
-                                        icon={<IconSettings />}
+                                        icon={<IconGear />}
                                         to={`${urls.settings('organization')}?tab=role_based_access`}
                                         targetBlank
                                         size="small"
@@ -143,10 +140,10 @@ export function ResourcePermission({
                         {role.feature_flags_access_level === AccessLevel.WRITE ? 'Edit' : 'View'}
                         {role.deletable && (
                             <LemonButton
-                                icon={<IconDelete />}
+                                icon={<IconTrash />}
                                 onClick={() => deleteAssociatedRole(role.id)}
                                 tooltip="Remove custom role from feature flag"
-                                tooltipPlacement="bottomLeft"
+                                tooltipPlacement="bottom-start"
                                 size="small"
                             />
                         )}
@@ -201,12 +198,11 @@ export function ResourcePermission({
                     <h5 className="mt-4">Custom edit roles</h5>
                     <div className="flex gap-2">
                         <div className="flex-1">
-                            <LemonSelectMultiple
+                            <LemonInputSelect
                                 placeholder="Search for roles to add…"
                                 loading={addableRolesLoading}
                                 onChange={onChange}
                                 value={rolesToAdd}
-                                filterOption={true}
                                 mode="multiple"
                                 data-attr="resource-permissioning-select"
                                 options={roleLemonSelectOptions(addableRoles)}
@@ -232,7 +228,7 @@ function OrganizationResourcePermissionLabel({
             <TitleWithIcon
                 icon={
                     <LemonButton
-                        icon={<IconSettings />}
+                        icon={<IconGear />}
                         to={`${urls.settings('organization')}?tab=role_based_access`}
                         targetBlank
                         size="small"
@@ -269,10 +265,10 @@ function RoleRow({ role, deleteRole }: { role: RoleType; deleteRole?: (roleId: R
             <b>{role.name}</b>
             {deleteRole && (
                 <LemonButton
-                    icon={<IconDelete />}
+                    icon={<IconTrash />}
                     onClick={() => deleteRole(role.id)}
                     tooltip="Remove role from permission"
-                    tooltipPlacement="bottomLeft"
+                    tooltipPlacement="bottom-start"
                     size="small"
                 />
             )}

@@ -2,22 +2,22 @@ import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, se
 import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
-import { appContextLogic } from './appContextLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
+import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
+import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
@@ -36,8 +36,8 @@ export const sceneLogic = kea<sceneLogicType>([
     ),
     path(['scenes', 'sceneLogic']),
     connect(() => ({
-        logic: [router, userLogic, preflightLogic, appContextLogic],
-        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar']],
+        logic: [router, userLogic, preflightLogic],
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -51,24 +51,6 @@ export const sceneLogic = kea<sceneLogicType>([
         setLoadedScene: (loadedScene: LoadedScene) => ({
             loadedScene,
         }),
-        showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
-        guardAvailableFeature: (
-            featureKey: AvailableFeature,
-            featureName: string,
-            featureCaption: string,
-            featureAvailableCallback?: () => void,
-            guardOn: {
-                cloud: boolean
-                selfHosted: boolean
-            } = {
-                cloud: true,
-                selfHosted: true,
-            },
-            // how much of the feature has been used (eg. number of recording playlists created),
-            // which will be compared to the limit for their subscriptions
-            currentUsage?: number
-        ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn, currentUsage }),
-        hideUpgradeModal: true,
         reloadBrowserDueToImportError: true,
     }),
     reducers({
@@ -99,13 +81,6 @@ export const sceneLogic = kea<sceneLogicType>([
             {
                 loadScene: (_, { scene }) => scene,
                 setScene: () => null,
-            },
-        ],
-        upgradeModalFeatureNameAndCaption: [
-            null as [string, string] | null,
-            {
-                showUpgradeModal: (_, { featureName, featureCaption }) => [featureName, featureCaption],
-                hideUpgradeModal: () => null,
             },
         ],
         lastReloadAt: [
@@ -152,34 +127,6 @@ export const sceneLogic = kea<sceneLogicType>([
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
     }),
     listeners(({ values, actions, props, selectors }) => ({
-        showUpgradeModal: ({ featureName }) => {
-            eventUsageLogic.actions.reportUpgradeModalShown(featureName)
-        },
-        guardAvailableFeature: ({
-            featureKey,
-            featureName,
-            featureCaption,
-            featureAvailableCallback,
-            guardOn,
-            currentUsage,
-        }) => {
-            const { preflight } = preflightLogic.values
-            let featureAvailable: boolean
-            if (!preflight) {
-                featureAvailable = false
-            } else if (!guardOn.cloud && preflight.cloud) {
-                featureAvailable = true
-            } else if (!guardOn.selfHosted && !preflight.cloud) {
-                featureAvailable = true
-            } else {
-                featureAvailable = userLogic.values.hasAvailableFeature(featureKey, currentUsage)
-            }
-            if (featureAvailable) {
-                featureAvailableCallback?.()
-            } else {
-                actions.showUpgradeModal(featureName, featureCaption)
-            }
-        },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')
 
@@ -237,10 +184,18 @@ export const sceneLogic = kea<sceneLogicType>([
                             return
                         }
                     } else if (teamLogic.values.isCurrentTeamUnavailable) {
-                        if (location.pathname !== urls.projectCreateFirst()) {
-                            console.warn('Organization not available, redirecting to project creation')
-                            router.actions.replace(urls.projectCreateFirst())
-                            return
+                        if (
+                            user.organization?.teams.length === 0 &&
+                            user.organization.membership_level &&
+                            user.organization.membership_level >= TeamMembershipLevel.Admin
+                        ) {
+                            if (location.pathname !== urls.projectCreateFirst()) {
+                                console.warn(
+                                    'Project not available and no other projects, redirecting to project creation'
+                                )
+                                router.actions.replace(urls.projectCreateFirst())
+                                return
+                            }
                         }
                     } else if (
                         teamLogic.values.currentTeam &&
@@ -249,9 +204,10 @@ export const sceneLogic = kea<sceneLogicType>([
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
                     ) {
+                        const allProductUrls = Object.values(productUrlMapping).flat()
                         if (
-                            !teamLogic.values.currentTeam.completed_snippet_onboarding &&
-                            !Object.keys(teamLogic.values.currentTeam.has_completed_onboarding_for || {}).length
+                            !teamLogic.values.hasOnboardedAnyProduct &&
+                            !allProductUrls.some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
                         ) {
                             console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
@@ -278,12 +234,21 @@ export const sceneLogic = kea<sceneLogicType>([
                             posthog.capture('should view onboarding product intro', {
                                 did_view_intro: values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test',
                                 product_key: productKeyFromUrl,
+                                is_onboarding_first_product: !teamLogic.values.hasOnboardedAnyProduct,
                             })
-                            if (values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test') {
+                            if (
+                                values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test' ||
+                                !teamLogic.values.hasOnboardedAnyProduct
+                            ) {
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
-                                router.actions.replace(urls.onboardingProductIntroduction(productKeyFromUrl))
+                                onboardingLogic.mount()
+                                onboardingLogic.actions.setIncludeIntro(true)
+                                onboardingLogic.unmount()
+                                router.actions.replace(
+                                    urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
+                                )
                                 return
                             }
                         }

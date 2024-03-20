@@ -51,7 +51,7 @@ export function AndOrFilterSelect({
                         ),
                     },
                 ]}
-                optionTooltipPlacement={topLevelFilter ? 'bottomRight' : 'bottomLeft'}
+                optionTooltipPlacement={topLevelFilter ? 'bottom-end' : 'bottom-start'}
                 dropdownMatchSelectWidth={false}
             />
             {value === FilterLogicalOperator.Or ? suffix[0] : suffix[1]}

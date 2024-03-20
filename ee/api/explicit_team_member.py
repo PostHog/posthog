@@ -102,6 +102,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
 
 
 class ExplicitTeamMemberViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "project"
     pagination_class = None
     queryset = ExplicitTeamMembership.objects.filter(parent_membership__user__is_active=True).select_related(
         "team", "parent_membership", "parent_membership__user"
@@ -109,7 +110,6 @@ class ExplicitTeamMemberViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "parent_membership__user__uuid"
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
-    include_in_docs = True
 
     permission_classes = [IsAuthenticated, TeamMemberStrictManagementPermission]
 

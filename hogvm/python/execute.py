@@ -130,6 +130,11 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
                             stack.append(int(args[0]) if name == "toInt" else float(args[0]))
                         except ValueError:
                             stack.append(None)
+                    elif name == "ifNull":
+                        if args[0] is not None:
+                            stack.append(args[0])
+                        else:
+                            stack.append(args[1])
                     else:
                         raise HogVMException(f"Unsupported function call: {name}")
                 case _:

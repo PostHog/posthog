@@ -5,7 +5,8 @@ from rest_framework.exceptions import NotAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.hogql.database.database import SerializedField, serialize_fields
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.models import User
 from posthog.warehouse.models import (
     DataWarehouseCredential,
@@ -54,7 +55,10 @@ class TableSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
     def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
-        return serialize_fields(table.hogql_definition().fields)
+        team_id = self.context["team_id"]
+        context = HogQLContext(team_id=team_id, database=create_hogql_database(team_id=team_id))
+
+        return serialize_fields(table.hogql_definition().fields, context)
 
     def get_external_schema(self, instance: DataWarehouseTable):
         from posthog.warehouse.api.external_data_schema import SimpleExternalDataSchemaSerializer
@@ -88,7 +92,10 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "name", "columns"]
 
     def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
-        return serialize_fields(table.hogql_definition().fields)
+        team_id = table.team.pk
+        context = HogQLContext(team_id=team_id, database=create_hogql_database(team_id=team_id))
+
+        return serialize_fields(table.hogql_definition().fields, context)
 
 
 class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -96,6 +103,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Create, Read, Update and Delete Warehouse Tables.
     """
 
+    scope_object = "INTERNAL"
     queryset = DataWarehouseTable.objects.all()
     serializer_class = TableSerializer
     filter_backends = [filters.SearchFilter]

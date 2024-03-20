@@ -4,11 +4,13 @@ import json
 import uuid
 
 from asgiref.sync import sync_to_async
+from dlt.common.schema.typing import TSchemaTables
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
@@ -37,7 +39,7 @@ class CreateExternalDataJobInputs:
 
 
 @activity.defn
-async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) -> Tuple[str, list[str]]:
+async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) -> Tuple[str, list[Tuple[str, str]]]:
     run = await sync_to_async(create_external_data_job)(
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
@@ -105,7 +107,8 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 class ValidateSchemaInputs:
     run_id: str
     team_id: int
-    schemas: list[str]
+    schemas: list[Tuple[str, str]]
+    table_schema: TSchemaTables
 
 
 @activity.defn
@@ -114,12 +117,24 @@ async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
         run_id=inputs.run_id,
         team_id=inputs.team_id,
         schemas=inputs.schemas,
+        table_schema=inputs.table_schema,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     logger.info(
         f"Validated schema for external data job {inputs.run_id}",
     )
+
+
+@dataclasses.dataclass
+class CreateSourceTemplateInputs:
+    team_id: int
+    run_id: str
+
+
+@activity.defn
+async def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
+    await create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
 
 @dataclasses.dataclass
@@ -133,11 +148,11 @@ class ExternalDataJobInputs:
     team_id: int
     source_id: uuid.UUID
     run_id: str
-    schemas: list[str]
+    schemas: list[Tuple[str, str]]
 
 
 @activity.defn
-async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
+async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
     model: ExternalDataJob = await get_external_data_job(
         job_id=inputs.run_id,
     )
@@ -153,6 +168,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         dataset_name=model.folder_path,
     )
 
+    endpoints = [schema[1] for schema in inputs.schemas]
+
     source = None
     if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
         from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
@@ -162,7 +179,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
         source = stripe_source(
             api_key=stripe_secret_key,
-            endpoints=tuple(inputs.schemas),
+            endpoints=tuple(endpoints),
             team_id=inputs.team_id,
             job_id=inputs.run_id,
         )
@@ -181,7 +198,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         source = hubspot(
             api_key=hubspot_access_code,
             refresh_token=refresh_token,
-            endpoints=tuple(inputs.schemas),
+            endpoints=tuple(endpoints),
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
         from posthog.temporal.data_imports.pipelines.postgres import postgres_source
@@ -201,7 +218,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
             database=database,
             sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
             schema=schema,
-            table_names=inputs.schemas,
+            table_names=endpoints,
         )
 
     else:
@@ -220,6 +237,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
     finally:
         heartbeat_task.cancel()
         await asyncio.wait([heartbeat_task])
+
+    return source.schema.tables
 
 
 # TODO: update retry policies
@@ -264,7 +283,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schemas=schemas,
             )
 
-            await workflow.execute_activity(
+            table_schemas = await workflow.execute_activity(
                 run_external_data_job,
                 job_inputs,
                 start_to_close_timeout=dt.timedelta(hours=4),
@@ -273,12 +292,22 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             # check schema first
-            validate_inputs = ValidateSchemaInputs(run_id=run_id, team_id=inputs.team_id, schemas=schemas)
+            validate_inputs = ValidateSchemaInputs(
+                run_id=run_id, team_id=inputs.team_id, schemas=schemas, table_schema=table_schemas
+            )
 
             await workflow.execute_activity(
                 validate_schema_activity,
                 validate_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=2),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+            # Create source templates
+            await workflow.execute_activity(
+                create_source_templates,
+                CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=run_id),
+                start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 

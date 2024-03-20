@@ -37,7 +37,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
             query_type = "trends_breakdown"
             sql, params, parse_function = TrendsBreakdown(
-                entity, filter, team, person_on_events_mode=team.person_on_events_mode
+                entity,
+                filter,
+                team,
+                person_on_events_mode=team.person_on_events_mode,
+                add_person_urls=not self.is_csv_export,
             ).get_query()
         elif filter.insight == INSIGHT_LIFECYCLE or filter.shown_as == TRENDS_LIFECYCLE:
             query_type = "trends_lifecycle"
@@ -244,7 +248,8 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return flat_results
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Team, is_csv_export: bool = False, *args, **kwargs) -> List[Dict[str, Any]]:
+        self.is_csv_export = is_csv_export
         actions = Action.objects.filter(team_id=team.pk).order_by("-id")
         if len(filter.actions) > 0:
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)

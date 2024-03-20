@@ -1,4 +1,4 @@
-# from datetime import datetime
+from datetime import datetime
 from typing import cast
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
@@ -7,10 +7,11 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
 )
 
-# from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-#     assert_funnel_results_equal,
-#     funnel_breakdown_test_factory,
-# )
+from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
+    funnel_breakdown_test_factory,
+    funnel_breakdown_group_test_factory,
+    assert_funnel_results_equal,
+)
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -25,7 +26,7 @@ from posthog.test.base import (
     _create_person,
 )
 
-# from posthog.test.test_journeys import journeys_for
+from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
@@ -39,144 +40,153 @@ def _create_action(**kwargs):
     return action
 
 
-# class TestFunnelStrictStepsBreakdown(
-#     ClickhouseTestMixin,
-#     funnel_breakdown_test_factory(  # type: ignore
-#         FunnelStrict,
-#         ClickhouseFunnelStrictActors,
-#         _create_event,
-#         _create_action,
-#         _create_person,
-#     ),
-# ):
-#     maxDiff = None
+class TestFunnelStrictStepsBreakdown(
+    ClickhouseTestMixin,
+    funnel_breakdown_test_factory(  # type: ignore
+        FunnelOrderType.STRICT,
+        ClickhouseFunnelStrictActors,
+        _create_action,
+        _create_person,
+    ),
+):
+    maxDiff = None
 
-#     def test_basic_funnel_default_funnel_days_breakdown_event(self):
-#         # TODO: This test and the one below it fail, only for strict funnels. Figure out why and how to fix
-#         pass
+    def test_basic_funnel_default_funnel_days_breakdown_event(self):
+        # TODO: This test and the one below it fail, only for strict funnels. Figure out why and how to fix
+        pass
 
-#     def test_basic_funnel_default_funnel_days_breakdown_action(self):
-#         pass
+    def test_basic_funnel_default_funnel_days_breakdown_action(self):
+        pass
 
-#     def test_basic_funnel_default_funnel_days_breakdown_action_materialized(self):
-#         pass
+    def test_basic_funnel_default_funnel_days_breakdown_action_materialized(self):
+        pass
 
-#     def test_strict_breakdown_events_with_multiple_properties(self):
-#         filters = {
-#             "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}],
-#             "insight": INSIGHT_FUNNELS,
-#             "date_from": "2020-01-01",
-#             "date_to": "2020-01-08",
-#             "funnel_window_days": 7,
-#             "breakdown_type": "event",
-#             "breakdown": "$browser",
-#         }
+    def test_strict_breakdown_events_with_multiple_properties(self):
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "strict",
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}],
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
 
-#         people = journeys_for(
-#             {
-#                 "person1": [
-#                     {
-#                         "event": "sign up",
-#                         "timestamp": datetime(2020, 1, 1, 12),
-#                         "properties": {"$browser": "Chrome"},
-#                     },
-#                     {
-#                         "event": "blah",
-#                         "timestamp": datetime(2020, 1, 1, 13),
-#                         "properties": {"$browser": "Chrome"},
-#                     },
-#                     {
-#                         "event": "play movie",
-#                         "timestamp": datetime(2020, 1, 1, 14),
-#                         "properties": {"$browser": "Chrome"},
-#                     },
-#                 ],
-#                 "person2": [
-#                     {
-#                         "event": "sign up",
-#                         "timestamp": datetime(2020, 1, 2, 13),
-#                         "properties": {"$browser": "Safari"},
-#                     },
-#                     {
-#                         "event": "play movie",
-#                         "timestamp": datetime(2020, 1, 2, 14),
-#                         "properties": {"$browser": "Safari"},
-#                     },
-#                 ],
-#             },
-#             self.team,
-#         )
+        people = journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "blah",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 14),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 13),
+                        "properties": {"$browser": "Safari"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$browser": "Safari"},
+                    },
+                ],
+            },
+            self.team,
+        )
 
-#         query = cast(FunnelsQuery, filter_to_query(filters))
-#         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-#         assert_funnel_results_equal(
-#             results[0],
-#             [
-#                 {
-#                     "action_id": "sign up",
-#                     "name": "sign up",
-#                     "custom_name": None,
-#                     "order": 0,
-#                     "people": [],
-#                     "count": 1,
-#                     "type": "events",
-#                     "average_conversion_time": None,
-#                     "median_conversion_time": None,
-#                     "breakdown": ["Chrome"],
-#                     "breakdown_value": ["Chrome"],
-#                 },
-#                 {
-#                     "action_id": "play movie",
-#                     "name": "play movie",
-#                     "custom_name": None,
-#                     "order": 1,
-#                     "people": [],
-#                     "count": 0,
-#                     "type": "events",
-#                     "average_conversion_time": None,
-#                     "median_conversion_time": None,
-#                     "breakdown": ["Chrome"],
-#                     "breakdown_value": ["Chrome"],
-#                 },
-#             ],
-#         )
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Chrome"]), [people["person1"].uuid])
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
+        assert_funnel_results_equal(
+            results[0],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "custom_name": None,
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "custom_name": None,
+                    "order": 1,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Chrome"]), [people["person1"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Chrome"]), [])
 
-#         assert_funnel_results_equal(
-#             results[1],
-#             [
-#                 {
-#                     "action_id": "sign up",
-#                     "name": "sign up",
-#                     "custom_name": None,
-#                     "order": 0,
-#                     "people": [],
-#                     "count": 1,
-#                     "type": "events",
-#                     "average_conversion_time": None,
-#                     "median_conversion_time": None,
-#                     "breakdown": ["Safari"],
-#                     "breakdown_value": ["Safari"],
-#                 },
-#                 {
-#                     "action_id": "play movie",
-#                     "name": "play movie",
-#                     "custom_name": None,
-#                     "order": 1,
-#                     "people": [],
-#                     "count": 1,
-#                     "type": "events",
-#                     "average_conversion_time": 3600,
-#                     "median_conversion_time": 3600,
-#                     "breakdown": ["Safari"],
-#                     "breakdown_value": ["Safari"],
-#                 },
-#             ],
-#         )
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Safari"]), [people["person2"].uuid])
-#         self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [people["person2"].uuid])
+        assert_funnel_results_equal(
+            results[1],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "custom_name": None,
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Safari"],
+                    "breakdown_value": ["Safari"],
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "custom_name": None,
+                    "order": 1,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 3600,
+                    "median_conversion_time": 3600,
+                    "breakdown": ["Safari"],
+                    "breakdown_value": ["Safari"],
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ["Safari"]), [people["person2"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari"]), [people["person2"].uuid])
+
+
+class TestStrictFunnelGroupBreakdown(
+    ClickhouseTestMixin,
+    funnel_breakdown_group_test_factory(  # type: ignore
+        ClickhouseFunnelStrictActors,
+    ),
+):
+    pass
 
 
 class TestFunnelStrictStepsConversionTime(

@@ -79,7 +79,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results: PluginType[] = await api.loadPaginatedResults('api/organizations/@current/plugins')
+                    const results = await api.loadPaginatedResults<PluginType>('api/organizations/@current/plugins')
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results) {
                         plugins[plugin.id] = plugin
@@ -137,7 +137,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<string, PluginConfigType> = {}
-                    const results: PluginConfigType[] = await api.loadPaginatedResults('api/plugin_config')
+                    const results = await api.loadPaginatedResults<PluginConfigType>('api/plugin_config')
 
                     for (const pluginConfig of results) {
                         pluginConfigs[pluginConfig.plugin] = { ...pluginConfig }
@@ -572,6 +572,15 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 return filteredEnabledPlugins.filter(
                     (enabledPlugin) => !sortableEnabledPlugins.map((plugin) => plugin.name).includes(enabledPlugin.name)
                 )
+            },
+        ],
+        defaultEnabledPlugins: [
+            (s) => [s.filteredEnabledPlugins, s.filteredDisabledPlugins],
+            (filteredEnabledPlugins, filteredDisabledPlugins) => {
+                const defaultEnabledPluginIds = ['GeoIP']
+                return filteredEnabledPlugins
+                    .concat(filteredDisabledPlugins)
+                    .filter((plugin) => defaultEnabledPluginIds.includes(plugin.name))
             },
         ],
         pluginUrlToMaintainer: [

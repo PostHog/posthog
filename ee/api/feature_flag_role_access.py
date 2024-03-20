@@ -73,6 +73,7 @@ class FeatureFlagRoleAccessViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
+    scope_object = "feature_flag"
     permission_classes = [FeatureFlagRoleAccessPermissions]
     serializer_class = FeatureFlagRoleAccessSerializer
     queryset = FeatureFlagRoleAccess.objects.select_related("feature_flag")

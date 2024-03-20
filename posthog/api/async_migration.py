@@ -100,7 +100,6 @@ class AsyncMigrationsViewset(viewsets.ModelViewSet):
     queryset = AsyncMigration.objects.all().order_by("name")
     permission_classes = [IsAuthenticated, IsStaffUser]
     serializer_class = AsyncMigrationSerializer
-    include_in_docs = False
 
     @action(methods=["POST"], detail=True)
     def trigger(self, request, **kwargs):

@@ -1,8 +1,9 @@
+import { IconDatabase } from '@posthog/icons'
 import { actions, afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { IconDatabase } from 'lib/lemon-ui/icons'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { BatchExportConfiguration, PluginConfigTypeNew } from '~/types'
@@ -14,6 +15,7 @@ import type { exportsUnsubscribeTableLogicType } from './exportsUnsubscribeTable
 export interface ItemToDisable {
     plugin_config_id: number | undefined // exactly one of plugin_config_id or batch_export_id is set
     batch_export_id: string | undefined
+    url: string
     team_id: number
     name: string
     description: string | undefined
@@ -54,7 +56,9 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
             {} as Record<BatchExportConfiguration['id'], BatchExportConfiguration>,
             {
                 loadBatchExportConfigs: async () => {
-                    const res = await api.loadPaginatedResults(`api/organizations/@current/batch_exports`)
+                    const res = await api.loadPaginatedResults<BatchExportConfiguration>(
+                        `api/organizations/@current/batch_exports`
+                    )
                     return Object.fromEntries(
                         res
                             .filter((batchExportConfig) => !batchExportConfig.paused)
@@ -97,6 +101,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                         description: pluginConfig.description,
                         icon: <RenderApp plugin={plugins[pluginConfig.plugin]} imageSize="small" />,
                         disabled: !pluginConfig.enabled,
+                        url: urls.projectApp(pluginConfig.plugin),
                     } as ItemToDisable
                 })
                 const batchExports = Object.values(batchExportConfigs).map((batchExportConfig) => {
@@ -113,6 +118,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                             />
                         ),
                         disabled: batchExportConfig.paused,
+                        url: urls.batchExport(batchExportConfig.id),
                     } as ItemToDisable
                 })
                 return [...pluginConfigs, ...batchExports]

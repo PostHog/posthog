@@ -1,7 +1,9 @@
+from functools import cached_property
 from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
+from django.views import View
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
@@ -9,7 +11,7 @@ from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -18,6 +20,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
     CREATE_METHODS,
+    APIScopePermission,
     OrganizationAdminWritePermissions,
     extract_organization,
 )
@@ -46,11 +49,11 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 
 class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
-        organization = extract_organization(object)
+        organization = extract_organization(object, view)
         min_level = (
             OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
         )
@@ -64,6 +67,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
+    member_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
@@ -82,6 +86,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "metadata",
             "customer_id",
             "enforce_2fa",
+            "member_count",
         ]
         read_only_fields = [
             "id",
@@ -95,6 +100,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "available_product_features",
             "metadata",
             "customer_id",
+            "member_count",
         ]
         extra_kwargs = {
             "slug": {
@@ -122,8 +128,19 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "instance_tag": settings.INSTANCE_TAG,
         }
 
+    def get_member_count(self, organization: Organization):
+        return (
+            OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+            .filter(
+                user__is_active=True,
+            )
+            .filter(organization=organization)
+            .count()
+        )
+
 
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "organization"
     serializer_class = OrganizationSerializer
     permission_classes = [OrganizationPermissionsWithDelete]
     queryset = Organization.objects.none()
@@ -131,7 +148,11 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ordering = "-created_by"
 
     def get_permissions(self):
-        if self.request.method == "POST":
+        # When listing there is no individual object to check for
+        if self.action == "list":
+            return [permission() for permission in [permissions.IsAuthenticated, APIScopePermission]]
+
+        if self.action == "create":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
             # because they require an existing org, unneeded anyways because permissions are organization-based
             return [
@@ -139,6 +160,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for permission in [
                     permissions.IsAuthenticated,
                     PremiumMultiorganizationPermissions,
+                    APIScopePermission,
                 ]
             ]
         return super().get_permissions()
@@ -147,17 +169,25 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return cast(User, self.request.user).organizations.all()
 
     def get_object(self):
+        organization = self.organization
+        self.check_object_permissions(self.request, organization)
+        return organization
+
+    # Override base view as the "parent_query_dict" for an organization is the same as the organization itself
+    @cached_property
+    def organization(self) -> Organization:
+        if not self.detail:
+            raise AttributeError("Not valid for non-detail routes.")
         queryset = self.filter_queryset(self.get_queryset())
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
             organization = cast(User, self.request.user).organization
             if organization is None:
                 raise exceptions.NotFound("Current organization not found.")
-        else:
-            filter_kwargs = {self.lookup_field: lookup_value}
-            organization = get_object_or_404(queryset, **filter_kwargs)
-        self.check_object_permissions(self.request, organization)
-        return organization
+            return organization
+
+        filter_kwargs = {self.lookup_field: lookup_value}
+        return get_object_or_404(queryset, **filter_kwargs)
 
     def perform_destroy(self, organization: Organization):
         user = cast(User, self.request.user)

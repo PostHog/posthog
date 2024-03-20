@@ -145,7 +145,6 @@ runs:
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
         # Tests
-
         - name: Run FOSS tests
           if: ${{ inputs.segment == 'FOSS' }}
           env:

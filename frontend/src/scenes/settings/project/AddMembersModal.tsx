@@ -1,21 +1,27 @@
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { TeamMembershipLevel } from 'lib/constants'
-import { Field } from 'lib/forms/Field'
-import { IconPlus } from 'lib/lemon-ui/icons'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { membershipLevelToName, teamMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { teamMembersLogic } from './teamMembersLogic'
 
 export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { addableMembers, allMembersLoading } = useValues(teamMembersLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const [isVisible, setIsVisible] = useState(false)
 
@@ -28,9 +34,13 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
             <LemonButton
                 type="primary"
                 data-attr="add-project-members-button"
-                onClick={() => {
-                    setIsVisible(true)
-                }}
+                onClick={() =>
+                    guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => setIsVisible(true), {
+                        isGrandfathered:
+                            !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) &&
+                            currentTeam?.access_control,
+                    })
+                }
                 icon={<IconPlus />}
                 disabled={isRestricted}
             >
@@ -42,8 +52,8 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
                         <h3>{`Adding members${currentTeam?.name ? ` to project ${currentTeam.name}` : ''}`}</h3>
                     </LemonModal.Header>
                     <LemonModal.Content className="space-y-2">
-                        <Field name="userUuids">
-                            <LemonSelectMultiple
+                        <LemonField name="userUuids">
+                            <LemonInputSelect
                                 mode="multiple"
                                 placeholder="Organization members"
                                 loading={allMembersLoading}
@@ -52,8 +62,8 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
                                     'uuid'
                                 )}
                             />
-                        </Field>
-                        <Field name="level" label="With project-specific access level">
+                        </LemonField>
+                        <LemonField name="level" label="With project-specific access level">
                             <LemonSelect
                                 fullWidth
                                 options={teamMembershipLevelIntegers.map(
@@ -64,7 +74,7 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
                                         } as LemonSelectOption<TeamMembershipLevel>)
                                 )}
                             />
-                        </Field>
+                        </LemonField>
                     </LemonModal.Content>
                     <LemonModal.Footer>
                         <LemonButton type="secondary" onClick={closeModal}>

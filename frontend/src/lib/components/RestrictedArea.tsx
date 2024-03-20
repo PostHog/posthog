@@ -70,7 +70,7 @@ export function RestrictedArea({
     const restrictionReason = useRestrictedArea({ minimumAccessLevel, scope })
 
     return restrictionReason ? (
-        <Tooltip title={restrictionReason} placement="topLeft" delayMs={0}>
+        <Tooltip title={restrictionReason} placement="top-start" delayMs={0}>
             <span>
                 <Component isRestricted={true} restrictionReason={restrictionReason} />
             </span>

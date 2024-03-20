@@ -16,7 +16,9 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.BatchExportEdit]: () => import('./batch_exports/BatchExportEditScene'),
     [Scene.BatchExport]: () => import('./batch_exports/BatchExportScene'),
     [Scene.EventDefinition]: () => import('./data-management/definition/DefinitionView'),
+    [Scene.EventDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),
     [Scene.PropertyDefinition]: () => import('./data-management/definition/DefinitionView'),
+    [Scene.PropertyDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),
     [Scene.Replay]: () => import('./session-recordings/SessionRecordings'),
     [Scene.ReplaySingle]: () => import('./session-recordings/detail/SessionRecordingDetail'),
     [Scene.ReplayPlaylist]: () => import('./session-recordings/playlist/SessionRecordingsPlaylistScene'),
@@ -70,7 +72,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
     [Scene.Products]: () => import('./products/Products'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
-    [Scene.OnboardingProductIntroduction]: () => import('./onboarding/OnboardingProductIntroduction'),
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
 }

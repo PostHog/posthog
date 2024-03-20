@@ -1,5 +1,5 @@
+import { IconEllipsis } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useState } from 'react'
@@ -22,7 +22,7 @@ export const EventCorrelationActionsCell = ({ record }: { record: FunnelCorrelat
     const { excludeEventFromProject, excludeEventPropertyFromProject } = useActions(
         funnelCorrelationLogic(insightProps)
     )
-    const { setFunnelCorrelationDetails } = useActions(funnelCorrelationDetailsLogic(insightProps))
+    const { openCorrelationDetailsModal } = useActions(funnelCorrelationDetailsLogic(insightProps))
     const components = record.event.event.split('::')
 
     const buttons: CorrelationActionsCellComponentButtonProps[] = [
@@ -30,7 +30,7 @@ export const EventCorrelationActionsCell = ({ record }: { record: FunnelCorrelat
             ? [
                   {
                       children: 'View correlation details',
-                      onClick: () => setFunnelCorrelationDetails(record),
+                      onClick: () => openCorrelationDetailsModal(record),
                   },
               ]
             : []),
@@ -56,13 +56,13 @@ export const PropertyCorrelationActionsCell = ({ record }: { record: FunnelCorre
     const { insightProps } = useValues(insightLogic)
     const { isPropertyExcludedFromProject } = useValues(funnelPropertyCorrelationLogic(insightProps))
     const { excludePropertyFromProject } = useActions(funnelPropertyCorrelationLogic(insightProps))
-    const { setFunnelCorrelationDetails } = useActions(funnelCorrelationDetailsLogic(insightProps))
+    const { openCorrelationDetailsModal } = useActions(funnelCorrelationDetailsLogic(insightProps))
     const propertyName = (record.event.event || '').split('::')[0]
 
     const buttons: CorrelationActionsCellComponentButtonProps[] = [
         {
             children: 'View correlation details',
-            onClick: () => setFunnelCorrelationDetails(record),
+            onClick: () => openCorrelationDetailsModal(record),
         },
         {
             children: 'Exclude property from project',
@@ -82,13 +82,19 @@ const CorrelationActionsCellComponent = ({ buttons }: CorrelationActionsCellComp
             visible={popoverOpen}
             actionable
             onClickOutside={() => setPopoverOpen(false)}
-            overlay={buttons.map((props, index) => (
-                <LemonButton key={index} fullWidth {...props} />
+            overlay={buttons.map(({ onClick, ...props }, index) => (
+                <LemonButton
+                    key={index}
+                    fullWidth
+                    onClick={(e) => {
+                        setPopoverOpen(false)
+                        onClick && onClick(e)
+                    }}
+                    {...props}
+                />
             ))}
         >
-            <LemonButton onClick={() => setPopoverOpen(!popoverOpen)}>
-                <IconEllipsis />
-            </LemonButton>
+            <LemonButton icon={<IconEllipsis />} onClick={() => setPopoverOpen(!popoverOpen)} />
         </Popover>
     )
 }

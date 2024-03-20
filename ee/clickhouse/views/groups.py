@@ -12,14 +12,10 @@ from rest_framework.pagination import CursorPagination
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import SharingAccessTokenAuthentication
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.permissions import (
-    SharingTokenPermission,
-)
 
 
 class GroupTypeSerializer(serializers.ModelSerializer):
@@ -30,18 +26,11 @@ class GroupTypeSerializer(serializers.ModelSerializer):
 
 
 class ClickhouseGroupsTypesView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    scope_object = "group"
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
     sharing_enabled_actions = ["list"]
-
-    def get_permissions(self):
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            return [SharingTokenPermission()]
-        return super().get_permissions()
-
-    def get_authenticators(self):
-        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
@@ -66,6 +55,7 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class ClickhouseGroupsView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    scope_object = "group"
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
@@ -187,7 +177,7 @@ class ClickhouseGroupsView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewse
 
         group_type_index_to_properties = defaultdict(list)
         for group_type_index, key, count in rows:
-            group_type_index_to_properties[group_type_index].append({"name": key, "count": count})
+            group_type_index_to_properties[str(group_type_index)].append({"name": key, "count": count})
 
         return response.Response(group_type_index_to_properties)
 

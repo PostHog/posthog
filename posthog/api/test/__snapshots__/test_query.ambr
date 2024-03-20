@@ -155,6 +155,31 @@
                     allow_experimental_object_type=1
   '''
 # ---
+# name: TestQuery.test_full_hogql_query_async
+  '''
+  /* user_id:467 celery:posthog.tasks.tasks.process_query_task */
+  SELECT events.uuid AS uuid,
+         events.event AS event,
+         events.properties AS properties,
+         toTimeZone(events.timestamp, 'UTC') AS timestamp,
+         events.distinct_id AS distinct_id,
+         events.elements_chain AS elements_chain,
+         toTimeZone(events.created_at, 'UTC') AS created_at,
+         events.`$session_id` AS `$session_id`,
+         events.`$window_id` AS `$window_id`,
+         events.`$group_0` AS `$group_0`,
+         events.`$group_1` AS `$group_1`,
+         events.`$group_2` AS `$group_2`,
+         events.`$group_3` AS `$group_3`,
+         events.`$group_4` AS `$group_4`
+  FROM events
+  WHERE equals(events.team_id, 2)
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=600,
+                    allow_experimental_object_type=1
+  '''
+# ---
 # name: TestQuery.test_full_hogql_query_materialized
   '''
   /* user_id:0 request:_snapshot_ */
@@ -350,7 +375,8 @@
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
   INNER JOIN
-    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
@@ -365,7 +391,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
+                                                       HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
   WHERE and(equals(events.team_id, 2), ifNull(equals(events__pdi__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
@@ -384,7 +410,8 @@
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
   INNER JOIN
-    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
@@ -399,7 +426,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
+                                                       HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
   WHERE and(equals(events.team_id, 2), ifNull(equals(events__pdi__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101

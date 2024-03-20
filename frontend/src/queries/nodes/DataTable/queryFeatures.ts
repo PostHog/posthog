@@ -23,6 +23,7 @@ export enum QueryFeature {
     selectAndOrderByColumns,
     displayResponseError,
     hideLoadNextButton,
+    testAccountFilters,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -34,6 +35,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.testAccountFilters)
     }
 
     if (isEventsQuery(query)) {

@@ -70,6 +70,64 @@ async function runSingleTeamPluginComposeWebhook(
     pluginConfig: PluginConfig,
     composeWebhook: any
 ): Promise<void> {
+    // 1. Calls `composeWebhook` for the plugin, send `composeWebhook` appmetric success/fail if applicable.
+    // 2. Send via Rusty-Hook if enabled.
+    // 3. Send via `fetch` if Rusty-Hook is not enabled.
+
+    let maybeWebhook: Webhook | null = null
+    try {
+        maybeWebhook = await composeWebhook!(event)
+        if (!maybeWebhook) {
+            // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm
+            status.debug('Skipping composeWebhook returned null', {
+                teamId: event.team_id,
+                pluginConfigId: pluginConfig.id,
+                eventUuid: event.uuid,
+            })
+
+            // Nothing to send below, exit.
+            return
+        }
+
+        await hub.appMetrics.queueMetric({
+            teamId: event.team_id,
+            pluginConfigId: pluginConfig.id,
+            category: 'composeWebhook',
+            successes: 1,
+        })
+    } catch (error) {
+        await hub.appMetrics.queueError(
+            {
+                teamId: event.team_id,
+                pluginConfigId: pluginConfig.id,
+                category: 'composeWebhook',
+                failures: 1,
+            },
+            {
+                error,
+                event,
+            }
+        )
+
+        // Nothing to send below, exit.
+        return
+    }
+
+    const webhook: Webhook = maybeWebhook!
+
+    const enqueuedInRustyHook = await hub.rustyHook.enqueueIfEnabledForTeam({
+        webhook,
+        teamId: event.team_id,
+        pluginId: pluginConfig.plugin_id,
+        pluginConfigId: pluginConfig.id,
+    })
+
+    if (enqueuedInRustyHook) {
+        // Rusty-Hook handles it from here, so we're done.
+        return
+    }
+
+    // Old-style `fetch` send, used for on-prem.
     const slowWarningTimeout = hub.EXTERNAL_REQUEST_TIMEOUT_MS * 0.7
     const timeout = setTimeout(() => {
         status.warn(
@@ -77,78 +135,36 @@ async function runSingleTeamPluginComposeWebhook(
             `Still running single composeWebhook plugin for team ${event.team_id} for plugin ${pluginConfig.id}`
         )
     }, slowWarningTimeout)
+    const timer = new Date()
+
     try {
-        // Runs composeWebhook for a single plugin without any retries
-        const timer = new Date()
-        try {
-            const webhook: Webhook | null = await composeWebhook!(event)
-            if (!webhook) {
-                // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm
-                status.debug('Skipping composeWebhook returned null', {
-                    teamId: event.team_id,
-                    pluginConfigId: pluginConfig.id,
-                    eventUuid: event.uuid,
-                })
-                return
-            }
-
-            const enqueuedInRustyHook = await hub.rustyHook.enqueueIfEnabledForTeam({
-                webhook,
+        const request = await trackedFetch(webhook.url, {
+            method: webhook.method || 'POST',
+            body: webhook.body,
+            headers: webhook.headers || { 'Content-Type': 'application/json' },
+            timeout: hub.EXTERNAL_REQUEST_TIMEOUT_MS,
+        })
+        if (request.ok) {
+            pluginActionMsSummary
+                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'composeWebhook', 'success')
+                .observe(new Date().getTime() - timer.getTime())
+            await hub.appMetrics.queueMetric({
                 teamId: event.team_id,
-                pluginId: pluginConfig.plugin_id,
                 pluginConfigId: pluginConfig.id,
+                category: 'webhook',
+                successes: 1,
             })
-
-            if (enqueuedInRustyHook) {
-                // Rusty-Hook handles it from here, so we're done.
-                return
-            }
-
-            const request = await trackedFetch(webhook.url, {
-                method: webhook.method || 'POST',
-                body: webhook.body,
-                headers: webhook.headers || { 'Content-Type': 'application/json' },
-                timeout: hub.EXTERNAL_REQUEST_TIMEOUT_MS,
-            })
-            if (request.ok) {
-                pluginActionMsSummary
-                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'composeWebhook', 'success')
-                    .observe(new Date().getTime() - timer.getTime())
-                await hub.appMetrics.queueMetric({
-                    teamId: event.team_id,
-                    pluginConfigId: pluginConfig.id,
-                    category: 'composeWebhook',
-                    successes: 1,
-                })
-            } else {
-                pluginActionMsSummary
-                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'composeWebhook', 'error')
-                    .observe(new Date().getTime() - timer.getTime())
-                const error = `Fetch to ${webhook.url} failed with ${request.statusText}`
-                await processError(hub, pluginConfig, error, event)
-                await hub.appMetrics.queueError(
-                    {
-                        teamId: event.team_id,
-                        pluginConfigId: pluginConfig.id,
-                        category: 'composeWebhook',
-                        failures: 1,
-                    },
-                    {
-                        error,
-                        event,
-                    }
-                )
-            }
-        } catch (error) {
+        } else {
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'composeWebhook', 'error')
                 .observe(new Date().getTime() - timer.getTime())
+            const error = `Fetch to ${webhook.url} failed with ${request.statusText}`
             await processError(hub, pluginConfig, error, event)
             await hub.appMetrics.queueError(
                 {
                     teamId: event.team_id,
                     pluginConfigId: pluginConfig.id,
-                    category: 'composeWebhook',
+                    category: 'webhook',
                     failures: 1,
                 },
                 {
@@ -157,6 +173,23 @@ async function runSingleTeamPluginComposeWebhook(
                 }
             )
         }
+    } catch (error) {
+        pluginActionMsSummary
+            .labels(pluginConfig.plugin?.id.toString() ?? '?', 'composeWebhook', 'error')
+            .observe(new Date().getTime() - timer.getTime())
+        await processError(hub, pluginConfig, error, event)
+        await hub.appMetrics.queueError(
+            {
+                teamId: event.team_id,
+                pluginConfigId: pluginConfig.id,
+                category: 'webhook',
+                failures: 1,
+            },
+            {
+                error,
+                event,
+            }
+        )
     } finally {
         clearTimeout(timeout)
     }

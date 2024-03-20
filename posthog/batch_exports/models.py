@@ -28,6 +28,7 @@ class BatchExportDestination(UUIDModel):
         POSTGRES = "Postgres"
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
+        HTTP = "HTTP"
         NOOP = "NoOp"
 
     secret_fields = {
@@ -36,6 +37,7 @@ class BatchExportDestination(UUIDModel):
         "Postgres": set("password"),
         "Redshift": set("password"),
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
+        "HTTP": set("token"),
         "NoOp": set(),
     }
 
@@ -72,8 +74,9 @@ class BatchExportRun(UUIDModel):
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
-        CONTINUEDASNEW = "ContinuedAsNew"
+        CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
+        FAILED_RETRYABLE = "FailedRetryable"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
@@ -267,8 +270,9 @@ class BatchExportBackfill(UUIDModel):
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
-        CONTINUEDASNEW = "ContinuedAsNew"
+        CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
+        FAILED_RETRYABLE = "FailedRetryable"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
@@ -281,7 +285,7 @@ class BatchExportBackfill(UUIDModel):
         help_text="The BatchExport this backfill belongs to.",
     )
     start_at: models.DateTimeField = models.DateTimeField(help_text="The start of the data interval.")
-    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.")
+    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.", null=True)
     status: models.CharField = models.CharField(
         choices=Status.choices, max_length=64, help_text="The status of this backfill."
     )
@@ -302,5 +306,5 @@ class BatchExportBackfill(UUIDModel):
     def workflow_id(self) -> str:
         """Return the Workflow id that corresponds to this BatchExportBackfill model."""
         start_at = self.start_at.strftime("%Y-%m-%dT%H:%M:%S")
-        end_at = self.end_at.strftime("%Y-%m-%dT%H:%M:%S")
+        end_at = self.end_at and self.end_at.strftime("%Y-%m-%dT%H:%M:%S")
         return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"

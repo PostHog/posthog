@@ -4,7 +4,7 @@ from typing import Dict
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong
+from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded
 
 
 class InternalCHQueryError(ServerException):
@@ -49,6 +49,9 @@ def wrap_query_error(err: Exception) -> Exception:
         return EstimatedQueryExecutionTimeTooLong(
             detail=f"{match.group(0)} Try reducing its scope by changing the time range."
         )
+    # Handle syntax error when "max query size exceeded" in the message
+    if "query size exceeded" in err.message:
+        return QuerySizeExceeded()
 
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):

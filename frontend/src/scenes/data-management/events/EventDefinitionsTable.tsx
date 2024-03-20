@@ -1,16 +1,15 @@
-import './EventDefinitionsTable.scss'
-
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
+import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -40,17 +39,22 @@ export function EventDefinitionsTable(): JSX.Element {
     const columns: LemonTableColumns<EventDefinition> = [
         {
             key: 'icon',
-            className: 'definition-column-icon',
+            width: 0,
             render: function Render(_, definition: EventDefinition) {
-                return <EventDefinitionHeader definition={definition} hideText />
+                return <span className="text-xl text-muted">{getEventDefinitionIcon(definition)}</span>
             },
         },
         {
             title: 'Name',
             key: 'name',
-            className: 'definition-column-name',
             render: function Render(_, definition: EventDefinition) {
-                return <EventDefinitionHeader definition={definition} hideIcon asLink />
+                return (
+                    <DefinitionHeader
+                        definition={definition}
+                        to={urls.eventDefinition(definition.id)}
+                        taxonomicGroupType={TaxonomicFilterGroupType.Events}
+                    />
+                )
             },
             sorter: true,
         },
@@ -126,17 +130,18 @@ export function EventDefinitionsTable(): JSX.Element {
                     to={urls.insightNewHogQL(
                         'SELECT event, count()\n' +
                             'FROM events\n' +
-                            'WHERE timestamp > now() - interval 1 month\n' +
+                            'WHERE {filters}\n' +
                             (filters.event_type === 'event_custom'
                                 ? "AND event NOT LIKE '$%'\n"
                                 : filters.event_type === 'event_posthog'
                                 ? "AND event LIKE '$%'\n"
                                 : '') +
                             'GROUP BY event\n' +
-                            'ORDER BY count() DESC'
+                            'ORDER BY count() DESC',
+                        { dateRange: { date_from: '-24h' } }
                     )}
                 >
-                    Click here!
+                    Query with SQL
                 </Link>
             </LemonBanner>
 
@@ -163,7 +168,6 @@ export function EventDefinitionsTable(): JSX.Element {
             </div>
             <LemonTable
                 columns={columns}
-                className="events-definition-table"
                 data-attr="events-definition-table"
                 loading={eventDefinitionsLoading}
                 rowKey="id"
@@ -192,7 +196,11 @@ export function EventDefinitionsTable(): JSX.Element {
                 }
                 expandable={{
                     expandedRowRender: function RenderPropertiesTable(definition) {
-                        return <EventDefinitionProperties definition={definition} />
+                        return (
+                            <div className="p-4">
+                                <EventDefinitionProperties definition={definition} />
+                            </div>
+                        )
                     },
                     rowExpandable: () => true,
                     noIndent: true,

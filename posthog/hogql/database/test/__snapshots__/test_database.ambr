@@ -36,6 +36,10 @@
               "type": "string"
           },
           {
+              "key": "$window_id",
+              "type": "string"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -265,6 +269,14 @@
                   "distinct_id",
                   "person_id"
               ]
+          },
+          {
+              "key": "$virt_initial_referring_domain_type",
+              "type": "expression"
+          },
+          {
+              "key": "$virt_initial_channel_type",
+              "type": "expression"
           }
       ],
       "person_distinct_ids": [
@@ -286,7 +298,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -420,7 +434,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -443,7 +459,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -522,6 +540,44 @@
           },
           {
               "key": "level",
+              "type": "string"
+          }
+      ],
+      "sessions": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "urls",
+              "type": "array"
+          },
+          {
+              "key": "pageview_count",
+              "type": "integer"
+          },
+          {
+              "key": "autocapture_count",
+              "type": "integer"
+          },
+          {
+              "key": "duration",
+              "type": "integer"
+          },
+          {
+              "key": "channel_type",
               "type": "string"
           }
       ],
@@ -629,7 +685,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           },
           {
@@ -718,7 +776,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           },
           {
@@ -753,6 +813,36 @@
           },
           {
               "key": "version",
+              "type": "integer"
+          }
+      ],
+      "raw_sessions": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "urls",
+              "type": "array"
+          },
+          {
+              "key": "pageview_count",
+              "type": "integer"
+          },
+          {
+              "key": "autocapture_count",
               "type": "integer"
           }
       ],
@@ -799,6 +889,10 @@
           },
           {
               "key": "$session_id",
+              "type": "string"
+          },
+          {
+              "key": "$window_id",
               "type": "string"
           },
           {
@@ -1026,6 +1120,14 @@
                   "distinct_id",
                   "person_id"
               ]
+          },
+          {
+              "key": "$virt_initial_referring_domain_type",
+              "type": "expression"
+          },
+          {
+              "key": "$virt_initial_channel_type",
+              "type": "expression"
           }
       ],
       "person_distinct_ids": [
@@ -1047,7 +1149,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -1181,7 +1285,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -1204,7 +1310,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -1283,6 +1391,44 @@
           },
           {
               "key": "level",
+              "type": "string"
+          }
+      ],
+      "sessions": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "urls",
+              "type": "array"
+          },
+          {
+              "key": "pageview_count",
+              "type": "integer"
+          },
+          {
+              "key": "autocapture_count",
+              "type": "integer"
+          },
+          {
+              "key": "duration",
+              "type": "integer"
+          },
+          {
+              "key": "channel_type",
               "type": "string"
           }
       ],
@@ -1390,7 +1536,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           },
           {
@@ -1479,7 +1627,9 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
               ]
           },
           {
@@ -1514,6 +1664,36 @@
           },
           {
               "key": "version",
+              "type": "integer"
+          }
+      ],
+      "raw_sessions": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "urls",
+              "type": "array"
+          },
+          {
+              "key": "pageview_count",
+              "type": "integer"
+          },
+          {
+              "key": "autocapture_count",
               "type": "integer"
           }
       ],

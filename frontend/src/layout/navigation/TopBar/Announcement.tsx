@@ -1,7 +1,7 @@
 import './Announcement.scss'
 
+import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { announcementLogic } from '~/layout/navigation/TopBar/announcementLogic'
@@ -22,7 +22,7 @@ export function Announcement(): JSX.Element | null {
                     className="Announcement__close w-8 h-8 flex items-center justify-center rounded cursor-pointer absolute right-0 text-lg border"
                     onClick={hideAnnouncement}
                 >
-                    <IconClose />
+                    <IconX />
                 </div>
             </div>
         </div>

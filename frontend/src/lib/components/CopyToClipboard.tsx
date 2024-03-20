@@ -1,5 +1,5 @@
+import { IconCopy } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -39,7 +39,7 @@ export function CopyToClipboardInline({
     style,
     ...props
 }: InlineProps): JSX.Element {
-    const copy = async (): Promise<boolean> => await copyToClipboard((explicitValue ?? children) as string, description)
+    const copy = (): void => void copyToClipboard((explicitValue ?? children) as string, description)
 
     let content = (
         <LemonButton

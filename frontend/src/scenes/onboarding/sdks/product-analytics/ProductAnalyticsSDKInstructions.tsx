@@ -9,6 +9,7 @@ import {
     ProductAnalyticsFlutterInstructions,
     ProductAnalyticsGoInstructions,
     ProductAnalyticsIOSInstructions,
+    ProductAnalyticsNextJSInstructions,
     ProductAnalyticsNodeInstructions,
     ProductAnalyticsPHPInstructions,
     ProductAnalyticsPythonInstructions,
@@ -19,7 +20,8 @@ import {
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
     [SDKKey.HTML_SNIPPET]: HTMLSnippetInstructions,
-    // add next, getsby, and others here
+    [SDKKey.NEXT_JS]: ProductAnalyticsNextJSInstructions,
+    // add getsby and other frameworks here
     [SDKKey.IOS]: ProductAnalyticsIOSInstructions,
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructions,
     [SDKKey.ANDROID]: ProductAnalyticsAndroidInstructions,

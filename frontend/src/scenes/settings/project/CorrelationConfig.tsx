@@ -1,11 +1,12 @@
+import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconPlus, IconSelectEvents, IconSelectProperties } from 'lib/lemon-ui/icons'
+import { IconSelectEvents, IconSelectProperties } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function CorrelationConfig(): JSX.Element {
@@ -77,8 +78,9 @@ export function CorrelationConfig(): JSX.Element {
                             Excluded event properties
                         </h3>
                         <div className="max-w-160">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
                                 onChange={(properties: string[]) => handleChange(undefined, undefined, properties)}
                                 value={funnelCorrelationConfig.excluded_event_property_names || []}
                             />

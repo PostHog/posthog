@@ -320,6 +320,74 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(results["totals"], {"successes": 3, "successes_on_retry": 0, "failures": 0})
 
+    @freeze_time("2021-12-05T13:23:00Z")
+    @snapshot_clickhouse_queries
+    def test_composeWebhook_sums_all_failures_but_only_webhook_successes(self):
+        # Positive examples: testing time bounds
+        create_app_metric(
+            team_id=self.team.pk,
+            category="composeWebhook",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            successes=1,
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="composeWebhook",
+            plugin_config_id=3,
+            timestamp="2021-12-05T13:10:00Z",
+            successes=2,
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="webhook",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            successes=10,
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="webhook",
+            plugin_config_id=3,
+            timestamp="2021-12-05T13:10:00Z",
+            successes=20,
+        )
+        # add failures
+        create_app_metric(
+            team_id=self.team.pk,
+            category="composeWebhook",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            failures=100,
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="composeWebhook",
+            plugin_config_id=3,
+            timestamp="2021-12-05T13:10:00Z",
+            failures=200,
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="webhook",
+            plugin_config_id=3,
+            timestamp="2021-11-28T00:10:00Z",
+            failures=1000,
+        )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="webhook",
+            plugin_config_id=3,
+            timestamp="2021-12-05T13:10:00Z",
+            failures=2000,
+        )
+
+        filter = make_filter(date_from="-7d")
+
+        results = AppMetricsQuery(self.team, 3, filter).run()
+
+        self.assertEqual(results["totals"], {"successes": 30, "successes_on_retry": 0, "failures": 3300})
+
 
 class TestAppMetricsErrorsQuery(ClickhouseTestMixin, BaseTest):
     @freeze_time("2021-12-05T13:23:00Z")

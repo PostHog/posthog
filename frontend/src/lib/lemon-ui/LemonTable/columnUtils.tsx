@@ -3,6 +3,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { UserBasicType } from '~/types'
 
+import { LemonTag } from '../LemonTag'
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonTableColumn } from './types'
 
@@ -47,5 +48,25 @@ export function createdByColumn<T extends { created_by?: UserBasicType | null }>
             (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
                 b.created_by?.first_name || b.created_by?.email || ''
             ),
+    }
+}
+
+export function statusColumn<T extends { enabled: boolean }>(): LemonTableColumn<T, 'enabled'> {
+    return {
+        title: 'Status',
+        dataIndex: 'enabled',
+        render: function Status(enabled) {
+            return enabled ? (
+                <LemonTag type="success" className="uppercase">
+                    Enabled
+                </LemonTag>
+            ) : (
+                <LemonTag type="default" className="uppercase">
+                    Disabled
+                </LemonTag>
+            )
+        },
+        align: 'center',
+        sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
     }
 }

@@ -7,9 +7,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
-import { useAvailableFeatures } from '~/mocks/features'
 import { DatabaseSchemaQueryResponse } from '~/queries/schema'
-import { AvailableFeature } from '~/types'
 
 import { ingestionWarningsResponse } from './ingestion-warnings/__mocks__/ingestion-warnings-response'
 
@@ -86,9 +84,6 @@ const meta: Meta = {
     title: 'Scenes-App/Data Management',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
         viewMode: 'story',
         mockDate: '2023-02-15', // To stabilize relative dates
     },
@@ -111,7 +106,7 @@ const meta: Meta = {
 }
 export default meta
 export function Database(): JSX.Element {
-    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
+    setFeatureFlags([FEATURE_FLAGS.DATA_WAREHOUSE])
     useEffect(() => {
         router.actions.push(urls.database())
     }, [])

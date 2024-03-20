@@ -1,7 +1,7 @@
 import './LemonLabel.scss'
 
+import { IconInfo } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconInfo } from 'lib/lemon-ui/icons'
 
 import { Link, LinkProps } from '../Link'
 import { Tooltip } from '../Tooltip'

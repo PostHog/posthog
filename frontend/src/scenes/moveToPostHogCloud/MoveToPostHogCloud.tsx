@@ -103,7 +103,7 @@ export function MoveToPostHogCloud(): JSX.Element {
                             We handle the infra. You focus on your product.
                         </h3>
                         <p>
-                            Hosting PostHog is no easy feat. It takes a lot of domain nowledge to get it right -
+                            Hosting PostHog is no easy feat. It takes a lot of domain knowledge to get it right -
                             especially at scale. Let us handle the hosting, so you can focus on building your product.
                         </p>
                         <div className="flex">

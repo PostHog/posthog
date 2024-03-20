@@ -44,6 +44,7 @@ export function ActionsLineGraph({
         isLifecycle,
         isStickiness,
         isTrends,
+        isDataWarehouseSeries,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -109,7 +110,7 @@ export function ActionsLineGraph({
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
-                !showPersonsModal || isMultiSeriesFormula(formula)
+                !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined
                     : (payload) => {
                           const { index, points, crossDataset } = payload

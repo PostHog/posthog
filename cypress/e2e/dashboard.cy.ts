@@ -19,9 +19,8 @@ describe('Dashboard', () => {
         cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
     })
 
-    // FIXME: this test works in real, but not in cypress
-    it.skip('Adding new insight to dashboard works', () => {
-        const dashboardName = randomString('to add an insight to')
+    it('Adding new insight to dashboard works', () => {
+        const dashboardName = randomString('Dashboard with insight A')
         const insightName = randomString('insight to add to dashboard')
 
         // create and visit a dashboard to get it into turbomode cache
@@ -173,7 +172,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
         cy.get('.InsightCard [data-attr=insight-card-title]').first().click()
         cy.location('pathname').should('include', '/insights')
-        cy.get('[data-attr=funnel-bar-graph]', { timeout: 30000 }).should('exist')
+        cy.get('[data-attr=funnel-bar-vertical]', { timeout: 30000 }).should('exist')
     })
 
     it('Add insight from empty dashboard', () => {
