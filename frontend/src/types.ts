@@ -905,6 +905,7 @@ export type ErrorCluster = {
     cluster: number
     sample: string
     occurrences: number
+    session_ids: string[]
     unique_sessions: number
     viewed: number
 }

@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 
 import { SessionPlayerModal } from '../player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from '../player/modal/sessionPlayerModalLogic'
-import { SessionRecordingsPlaylist } from '../playlist/SessionRecordingsPlaylist'
 import { sessionRecordingErrorsLogic } from './sessionRecordingErrorsLogic'
 
 const MAX_TITLE_LENGTH = 75
@@ -15,7 +14,7 @@ const MAX_TITLE_LENGTH = 75
 export function SessionRecordingErrors(): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { errors, errorsLoading } = useValues(sessionRecordingErrorsLogic)
-    const { loadErrorClusters } = useActions(sessionRecordingErrorsLogic)
+    const { loadErrorClusters, createPlaylist } = useActions(sessionRecordingErrorsLogic)
 
     if (errorsLoading) {
         return <Spinner />
@@ -69,29 +68,39 @@ export function SessionRecordingErrors(): JSX.Element {
                         title: 'Actions',
                         render: function Render(_, cluster) {
                             return (
-                                <LemonButton
-                                    to={urls.replaySingle(cluster.sample.session_id)}
-                                    onClick={(e) => {
-                                        e.preventDefault()
-                                        openSessionPlayer({ id: cluster.sample.session_id })
-                                    }}
-                                    className="p-2 whitespace-nowrap"
-                                    type="primary"
-                                >
-                                    Watch example
-                                </LemonButton>
+                                <div className="p-2 flex space-x-2">
+                                    <LemonButton
+                                        to={urls.replaySingle(cluster.session_ids[0])}
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            openSessionPlayer({ id: cluster.session_ids[0] })
+                                        }}
+                                        className="whitespace-nowrap"
+                                        type="primary"
+                                    >
+                                        Watch example
+                                    </LemonButton>
+                                    <LemonButton
+                                        onClick={() => {
+                                            createPlaylist(
+                                                `Example of '${parseTitle(cluster.sample)}'`,
+                                                cluster.session_ids
+                                            )
+                                        }}
+                                        className="whitespace-nowrap"
+                                        type="secondary"
+                                        tooltip="Create a playlist of recordings containing this issue"
+                                    >
+                                        Create playlist
+                                    </LemonButton>
+                                </div>
                             )
                         },
                     },
                 ]}
                 dataSource={errors}
                 expandable={{
-                    expandedRowRender: () => (
-                        <div className="max-h-24">
-                            <SessionRecordingsPlaylist pinnedRecordings={['one', 'two', 'three']} autoPlay />
-                        </div>
-                        // <ExpandedError error={cluster.sample.error} />
-                    ),
+                    expandedRowRender: (cluster) => <ExpandedError error={cluster.sample} />,
                 }}
             />
             <SessionPlayerModal />
