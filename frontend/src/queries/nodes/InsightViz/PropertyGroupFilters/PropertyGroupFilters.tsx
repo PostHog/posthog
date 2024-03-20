@@ -47,7 +47,9 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-    const disabledReason = isDataWarehouseSeries ? 'Cannot add filter groups to data warehouse series' : undefined
+    const disabledReason = isDataWarehouseSeries
+        ? 'Cannot add filter groups to data warehouse series. Use individual series filters'
+        : undefined
     return (
         <div className="space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (

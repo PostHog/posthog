@@ -3621,6 +3621,7 @@ export type BatchExportDestinationS3 = {
         compression: string | null
         encryption: string | null
         kms_key_id: string | null
+        endpoint_url: string | null
     }
 }
 

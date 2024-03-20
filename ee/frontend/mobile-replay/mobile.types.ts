@@ -121,6 +121,22 @@ export type MobileStyles = {
      * @description maps to CSS font-family. Accepts any valid CSS font-family value.
      */
     fontFamily?: string
+    /**
+     * @description maps to CSS padding-left. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px
+     */
+    paddingLeft?: string | number
+    /**
+     * @description maps to CSS padding-right. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px
+     */
+    paddingRight?: string | number
+    /**
+     * @description maps to CSS padding-top. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px
+     */
+    paddingTop?: string | number
+    /**
+     * @description maps to CSS padding-bottom. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px
+     */
+    paddingBottom?: string | number
 }
 
 type wireframeBase = {

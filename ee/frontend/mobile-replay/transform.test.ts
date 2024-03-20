@@ -58,6 +58,7 @@ describe('replay/transform', () => {
         beforeEach(async () => {
             posthogEEModule = await posthogEE()
         })
+
         test('can process unknown types without error', () => {
             expect(
                 posthogEEModule.mobileReplay?.transformToWeb([
@@ -535,6 +536,37 @@ describe('replay/transform', () => {
         })
 
         describe('inputs', () => {
+            test('input gets 0 padding by default but can be overridden', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12359,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'text',
+                                },
+                                {
+                                    id: 12361,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'text',
+                                    style: {
+                                        paddingLeft: '16px',
+                                        paddingRight: 16,
+                                    },
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+
             test('buttons with nested elements', () => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({
