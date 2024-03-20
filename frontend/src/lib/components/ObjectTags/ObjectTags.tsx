@@ -5,9 +5,10 @@ import { useActions, useValues } from 'kea'
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
 import { colorForString } from 'lib/utils'
 import { CSSProperties, useMemo } from 'react'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 import { AvailableFeature } from '~/types'
+
+import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 
 interface ObjectTagsPropsBase {
     tags: string[]
@@ -54,7 +55,7 @@ export function ObjectTags({
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
     const logic = objectTagsLogic({ id: objectTagId, onChange })
-    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { editingTags } = useValues(logic)
     const { setEditingTags, setTags } = useActions(logic)
 

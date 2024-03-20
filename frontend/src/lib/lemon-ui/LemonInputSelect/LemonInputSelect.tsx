@@ -165,7 +165,7 @@ export function LemonInputSelect({
             }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
-            setSelectedIndex(Math.min(selectedIndex + 1, options.length - 1))
+            setSelectedIndex(Math.min(selectedIndex + 1, visibleOptions.length - 1))
         } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setSelectedIndex(Math.max(selectedIndex - 1, 0))

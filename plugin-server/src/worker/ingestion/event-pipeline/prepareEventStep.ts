@@ -12,7 +12,7 @@ export async function prepareEventStep(runner: EventPipelineRunner, event: Plugi
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
         invalidTimestampCounter.labels(type).inc()
 
-        tsParsingIngestionWarnings.push(captureIngestionWarning(runner.hub.db, team_id, type, details))
+        tsParsingIngestionWarnings.push(captureIngestionWarning(runner.hub.db.kafkaProducer, team_id, type, details))
     }
 
     const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
