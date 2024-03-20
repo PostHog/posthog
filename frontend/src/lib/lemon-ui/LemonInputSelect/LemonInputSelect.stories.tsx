@@ -116,12 +116,41 @@ PrefilledManyValues.args = {
     value: names.map((_, i) => `user-${i}`),
 }
 
-export const WithCustomDropdownOptions: Story = Template.bind({})
-WithCustomDropdownOptions.args = {
-    mode: 'multiple',
-    loading: true,
-    options: [],
-    dropdownProps: {
-        width: 'min-same',
-    },
+export const WithCustomDropdownOptions: StoryFn<typeof LemonInputSelect> = (props: LemonInputSelectProps) => {
+    const [value, setValue] = useState(props.value || [])
+    return (
+        <div className="min-w-[50rem] w-full">
+            <div className="w-[20rem] space-y-4">
+                <LemonInputSelect
+                    mode="multiple"
+                    value={value}
+                    onChange={setValue}
+                    options={[
+                        {
+                            key: 'http://posthog.com/docs?long_value=abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz',
+                            label: 'http://posthog.com/docs?long_value=abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz',
+                        },
+                    ]}
+                    dropdownProps={{
+                        width: 'min-same',
+                    }}
+                />
+
+                <LemonInputSelect
+                    mode="multiple"
+                    value={value}
+                    onChange={setValue}
+                    options={[
+                        {
+                            key: 'short',
+                            label: 'short',
+                        },
+                    ]}
+                    dropdownProps={{
+                        width: 'min-same',
+                    }}
+                />
+            </div>
+        </div>
+    )
 }
