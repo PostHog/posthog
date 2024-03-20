@@ -354,7 +354,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> int:
 
                     jsonl_file.reset()
 
-        return jsonl_file.records_total
+                return jsonl_file.records_total
 
 
 @workflow.defn(name="bigquery-export")
