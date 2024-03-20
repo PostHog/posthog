@@ -193,7 +193,7 @@ def bigquery_default_fields() -> list[BatchExportField]:
 
 
 @activity.defn
-async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
+async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> int:
     """Activity streams data from ClickHouse to BigQuery."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="BigQuery")
     logger.info(
@@ -230,7 +230,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return
+            return 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -353,6 +353,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     activity.heartbeat(last_inserted_at)
 
                     jsonl_file.reset()
+
+                return jsonl_file.records_total
 
 
 @workflow.defn(name="bigquery-export")
