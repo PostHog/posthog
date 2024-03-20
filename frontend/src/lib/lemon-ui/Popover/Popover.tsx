@@ -89,7 +89,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         className,
         padded = true,
         middleware,
-        width = 'same',
+        width = 'fit-content',
         maxContentWidth = false,
         additionalRefs = [],
         closeParentPopoverOnClickInside = false,
@@ -134,10 +134,13 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     if (width === 'fit-content') {
                         floating.style.width = 'initial'
                     } else if (width === 'min-same') {
+                        floating.style.width = 'initial'
                         floating.style.minWidth = `${rects.reference.width}px`
                     } else if (width === 'same') {
                         floating.style.width = `${rects.reference.width}px`
                     }
+
+                    console.log('floating.style.width', floating.style.width, width)
                 },
             }),
             ...(showArrow ? [arrow({ element: arrowRef, padding: 8 })] : []),
