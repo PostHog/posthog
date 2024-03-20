@@ -903,7 +903,7 @@ export interface SessionRecordingsResponse {
 
 export type ErrorCluster = {
     cluster: number
-    sample: { session_id: string; error: string }
+    sample: string
     occurrences: number
     unique_sessions: number
     viewed: number

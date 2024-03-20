@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { SessionPlayerModal } from '../player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from '../player/modal/sessionPlayerModalLogic'
+import { SessionRecordingsPlaylist } from '../playlist/SessionRecordingsPlaylist'
 import { sessionRecordingErrorsLogic } from './sessionRecordingErrorsLogic'
 
 const MAX_TITLE_LENGTH = 75
@@ -36,7 +37,7 @@ export function SessionRecordingErrors(): JSX.Element {
                         title: 'Error',
                         dataIndex: 'cluster',
                         render: (_, cluster) => {
-                            const displayTitle = parseTitle(cluster.sample.error)
+                            const displayTitle = parseTitle(cluster.sample)
                             return (
                                 <div title={displayTitle} className="font-semibold text-sm text-default line-clamp-1">
                                     {displayTitle}
@@ -84,7 +85,14 @@ export function SessionRecordingErrors(): JSX.Element {
                     },
                 ]}
                 dataSource={errors}
-                expandable={{ expandedRowRender: (cluster) => <ExpandedError error={cluster.sample.error} /> }}
+                expandable={{
+                    expandedRowRender: () => (
+                        <div className="max-h-24">
+                            <SessionRecordingsPlaylist pinnedRecordings={['one', 'two', 'three']} autoPlay />
+                        </div>
+                        // <ExpandedError error={cluster.sample.error} />
+                    ),
+                }}
             />
             <SessionPlayerModal />
         </>
