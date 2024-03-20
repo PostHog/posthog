@@ -4,13 +4,7 @@ describe('Feature Flags', () => {
     let name
 
     beforeEach(() => {
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'new-feature-flag-operators': true,
-                })
-            )
-        )
+        cy.intercept('**/decide/*', (req) => req.reply(decideResponse({})))
 
         cy.intercept('/api/projects/*/property_definitions?type=person*', {
             fixture: 'api/feature-flags/property_definition',
