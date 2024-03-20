@@ -8,10 +8,10 @@ import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
 interface TaxonomicBreakdownButtonProps {
-    isDataWarehouseSeries?: boolean
+    disabledReason?: string
 }
 
-export function TaxonomicBreakdownButton({ isDataWarehouseSeries }: TaxonomicBreakdownButtonProps): JSX.Element {
+export function TaxonomicBreakdownButton({ disabledReason }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
 
     const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
@@ -24,9 +24,7 @@ export function TaxonomicBreakdownButton({ isDataWarehouseSeries }: TaxonomicBre
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 sideIcon={null}
-                disabledReason={
-                    isDataWarehouseSeries ? 'Breakdowns are not available for data warehouse series' : undefined
-                }
+                disabledReason={disabledReason}
             >
                 {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
                     ? 'Add cohort'

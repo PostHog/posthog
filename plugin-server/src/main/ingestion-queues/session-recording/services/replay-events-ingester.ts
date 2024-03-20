@@ -10,7 +10,9 @@ import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
+import { KafkaProducerWrapper } from '../../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../../utils/status'
+import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
 import { createSessionReplayEvent } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
@@ -130,7 +132,20 @@ export class ReplayEventsIngester {
                 // the replay record timestamp has to be valid and be within a reasonable diff from now
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
-                    if (!asDate.isValid || Math.abs(asDate.diffNow('months').months) >= 0.99) {
+                    if (!asDate.isValid || Math.abs(asDate.diffNow('day').days) >= 7) {
+                        await captureIngestionWarning(
+                            new KafkaProducerWrapper(this.producer),
+                            event.team_id,
+                            !asDate.isValid ? 'replay_timestamp_invalid' : 'replay_timestamp_too_far',
+                            {
+                                replayRecord,
+                                timestamp: replayRecord.first_timestamp,
+                                isValid: asDate.isValid,
+                                daysFromNow: Math.round(Math.abs(asDate.diffNow('day').days)),
+                                processingTimestamp: DateTime.now().toISO(),
+                            },
+                            { key: event.session_id }
+                        )
                         return drop('invalid_timestamp')
                     }
                 }

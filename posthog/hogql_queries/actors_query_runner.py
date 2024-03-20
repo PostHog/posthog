@@ -42,7 +42,7 @@ class ActorsQueryRunner(QueryRunner):
     def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
         return (
             {"session_id": session_id, "events": recordings_lookup[session_id]}
-            for session_id in (event[2] for event in event_results)
+            for session_id in set(event[2] for event in event_results)
             if session_id in recordings_lookup
         )
 
@@ -66,7 +66,7 @@ class ActorsQueryRunner(QueryRunner):
             yield new_row
 
     def prepare_recordings(self, column_name, input_columns):
-        if column_name != "person" or "matched_recordings" not in input_columns:
+        if (column_name != "person" and column_name != "actor") or "matched_recordings" not in input_columns:
             return None, None
 
         column_index_events = input_columns.index("matched_recordings")

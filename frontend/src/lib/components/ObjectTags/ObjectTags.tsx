@@ -9,11 +9,11 @@ import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { colorForString } from 'lib/utils'
 import { CSSProperties, useMemo } from 'react'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 import { AvailableFeature } from '~/types'
 
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
+import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 
 interface ObjectTagsPropsBase {
     tags: string[]
@@ -61,7 +61,7 @@ export function ObjectTags({
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
     const logic = objectTagsLogic({ id: objectTagId, onChange, tags })
-    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { addingNewTag, cleanedNewTag, deletedTags } = useValues(logic)
     const { setAddingNewTag, setNewTag, handleDelete, handleAdd } = useActions(logic)
 

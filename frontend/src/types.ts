@@ -43,6 +43,7 @@ import { NodeKind } from './queries/schema'
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
 // Keep this in sync with backend constants/features/{product_name}.yml
+
 export enum AvailableFeature {
     APPS = 'apps',
     SLACK_INTEGRATION = 'slack_integration',
@@ -143,6 +144,10 @@ export enum AvailableFeature {
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
+    HIPAA_BAA = 'hipaa_baa',
+    CUSTOMM_MSA = 'custom_msa',
+    TWOFA = '2fa',
+    PRIORITY_SUPPORT = 'priority_support',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -896,13 +901,12 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
-export type ErrorClusterSample = { session_id: string; input: string }
-
-type ErrorCluster = {
+export type ErrorCluster = {
     cluster: number
-    samples: ErrorClusterSample[]
+    sample: { session_id: string; error: string }
     occurrences: number
     unique_sessions: number
+    viewed: number
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
 
@@ -1401,7 +1405,7 @@ export interface BillingProductV2Type {
     unit: string | null
     unit_amount_usd: string | null
     plans: BillingV2PlanType[]
-    contact_support: boolean
+    contact_support: boolean | null
     inclusion_only: any
     features: BillingV2FeatureType[]
     addons: BillingProductV2AddonType[]
@@ -1422,7 +1426,7 @@ export interface BillingProductV2AddonType {
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
     included_with_main_product?: boolean
-    contact_support?: boolean
+    contact_support: boolean | null
     unit: string | null
     unit_amount_usd: string | null
     current_amount_usd: string | null
@@ -1475,10 +1479,10 @@ export interface BillingV2PlanType {
     product_key: ProductKeyUnion
     current_plan?: boolean | null
     tiers?: BillingV2TierType[] | null
-    unit_amount_usd?: string
+    unit_amount_usd: string | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
-    contact_support?: boolean
+    contact_support: boolean | null
 }
 
 export interface PlanInterface {

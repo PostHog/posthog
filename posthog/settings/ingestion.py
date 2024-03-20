@@ -1,5 +1,4 @@
 import os
-
 import structlog
 
 from posthog.settings.utils import get_from_env, get_list, get_set
@@ -23,6 +22,8 @@ EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
 
 QUOTA_LIMITING_ENABLED = get_from_env("QUOTA_LIMITING_ENABLED", False, type_cast=str_to_bool)
 
+# Capture-side overflow detection for analytics events.
+# Not accurate enough, superseded by detection in plugin-server and should be phased out.
 PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED = get_from_env(
     "PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED", type_cast=bool, default=False
 )
@@ -30,6 +31,10 @@ PARTITION_KEY_BUCKET_CAPACITY = get_from_env("PARTITION_KEY_BUCKET_CAPACITY", ty
 PARTITION_KEY_BUCKET_REPLENTISH_RATE = get_from_env(
     "PARTITION_KEY_BUCKET_REPLENTISH_RATE", type_cast=float, default=1.0
 )
+
+# Overflow configuration for session replay
+REPLAY_OVERFLOW_FORCED_TOKENS = get_set(os.getenv("REPLAY_OVERFLOW_FORCED_TOKENS", ""))
+REPLAY_OVERFLOW_SESSIONS_ENABLED = get_from_env("REPLAY_OVERFLOW_SESSIONS_ENABLED", type_cast=bool, default=False)
 
 REPLAY_RETENTION_DAYS_MIN = get_from_env("REPLAY_RETENTION_DAYS_MIN", type_cast=int, default=30)
 REPLAY_RETENTION_DAYS_MAX = get_from_env("REPLAY_RETENTION_DAYS_MAX", type_cast=int, default=90)

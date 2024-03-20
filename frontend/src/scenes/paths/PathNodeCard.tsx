@@ -66,6 +66,7 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                               node.y0 + (node.y1 - node.y0) / 2,
                         border: `1px solid ${isSelectedPathStartOrEnd(filter, node) ? 'purple' : 'var(--border)'}`,
                     }}
+                    data-attr="path-node-card-button"
                 >
                     <PathNodeCardButton
                         name={node.name}
