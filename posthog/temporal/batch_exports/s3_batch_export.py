@@ -20,8 +20,10 @@ from posthog.batch_exports.service import BatchExportField, BatchExportSchema, S
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
+    FlushCallable,
     JSONLBatchExportWriter,
     ParquetBatchExportWriter,
+    UnsupportedFileFormatError,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     default_fields,
