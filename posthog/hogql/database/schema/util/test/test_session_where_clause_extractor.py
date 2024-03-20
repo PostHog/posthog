@@ -5,7 +5,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionWhereClauseExtractor
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
@@ -218,9 +218,26 @@ class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
             enable_select_queries=True,
             modifiers=modifiers,
         )
-        return prepare_ast_for_printing(node=parse_select(query), context=context, dialect="clickhouse")
+        prepared_ast = prepare_ast_for_printing(node=parse_select(query), context=context, dialect="clickhouse")
+        pretty = print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
+        return pretty
 
     def test_select_with_timestamp(self):
-        actual = self.print_query("SELECT * FROM sessions WHERE min_timestamp > '2021-01-01'")
-        expected = ""
+        actual = self.print_query("SELECT session_id FROM sessions WHERE min_timestamp > '2021-01-01'")
+        expected = f"""SELECT
+    sessions.session_id AS session_id
+FROM
+    (SELECT
+        sessions.session_id AS session_id,
+        min(sessions.min_timestamp) AS min_timestamp
+    FROM
+        sessions
+    WHERE
+        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s), toIntervalDay(3)), %(hogql_val_1)s), 0))
+    GROUP BY
+        sessions.session_id,
+        sessions.session_id) AS sessions
+WHERE
+    ifNull(greater(toTimeZone(sessions.min_timestamp, %(hogql_val_2)s), %(hogql_val_3)s), 0)
+LIMIT 10000"""
         assert expected == actual
