@@ -3560,6 +3560,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(results[1]["name"], "user signed up")
             self.assertEqual(results[1]["count"], 1)
+            self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
+            self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
 
             # there is a PST -> PDT transition on 10th of March
             self.team.timezone = "US/Pacific"
@@ -3571,6 +3573,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # we still should have the user here, as the conversion window should not be affected by DST
             self.assertEqual(results[1]["name"], "user signed up")
             self.assertEqual(results[1]["count"], 1)
+            self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
+            self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
 
     return TestGetFunnel
 
