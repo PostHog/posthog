@@ -1383,6 +1383,7 @@ function makeCSSReset(context: ConversionContext): serializedNodeWithId {
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;

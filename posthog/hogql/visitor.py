@@ -247,6 +247,9 @@ class TraversingVisitor(Visitor):
     def visit_join_constraint(self, node: ast.JoinConstraint):
         self.visit(node.expr)
 
+    def visit_expression_field_type(self, node: ast.ExpressionFieldType):
+        pass
+
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         for attribute in node.attributes:
             self.visit(attribute)
