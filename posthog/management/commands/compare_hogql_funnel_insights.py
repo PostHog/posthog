@@ -31,7 +31,6 @@ class Command(BaseCommand):
     help = "Test if HogQL insights match their legacy counterparts"
 
     def handle(self, *args, **options):
-
         IGNORED_INSIGHTS = []
 
         insights = (
@@ -48,7 +47,8 @@ class Command(BaseCommand):
                 ## breakdowns
                 # & Q(filters__breakdown__isnull=True)  # without breakdown
                 # & Q(short_id="v1trHpS3"),
-                & ~Q(short_id__in=IGNORED_INSIGHTS) & Q(team_id=1),
+                & ~Q(short_id__in=IGNORED_INSIGHTS)
+                & Q(team_id=2),
                 saved=True,
                 deleted=False,
             )
@@ -70,6 +70,10 @@ class Command(BaseCommand):
             funnel_viz_type = filter.funnel_viz_type or FunnelVizType.STEPS
             print(f"\t{funnel_order_type} {funnel_viz_type}")
 
+            all_ok = True
+            hogql_time = 0
+            legacy_time = 0
+
             try:
                 now = datetime.now()
                 funnel_class = get_legacy_class(filter)
@@ -78,7 +82,6 @@ class Command(BaseCommand):
             except ValidationError as e:
                 legacy_error = e
             except Exception as e:
-                url = f"{BASE_URL}/insights/{insight.short_id}/edit"
                 print(f"LEGACY Insight ERROR: {e}")
                 continue
 
@@ -94,11 +97,8 @@ class Command(BaseCommand):
                     continue
                 hogql_error = e
             except Exception as e:
-                url = f"{BASE_URL}/insights/{insight.short_id}/edit"
                 print(f"HogQL Insight ERROR: {e}")
                 continue
-
-            all_ok = True
 
             if legacy_error is not None:
                 if hogql_error is None:
@@ -180,12 +180,13 @@ class Command(BaseCommand):
                                 all_ok = False
 
             if all_ok:
-                diff = hogql_time - legacy_time
-                percentage = hogql_time / legacy_time
-                significant = percentage > 1.1 and diff > 1
                 warn = ""
-                if significant:
-                    warn = "-- /!\\ {:.1%} /!\\".format(percentage)
+                if hogql_time != 0 and legacy_time != 0:
+                    diff = hogql_time - legacy_time
+                    percentage = hogql_time / legacy_time
+                    significant = percentage > 1.1 and diff > 1
+                    if significant:
+                        warn = "-- /!\\ {:.1%} /!\\".format(percentage)
                 print(f"\tLegacy time: {legacy_time} HogQL time: {hogql_time} {warn}")
                 print("ALL OK!")
 
