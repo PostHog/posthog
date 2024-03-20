@@ -214,7 +214,7 @@ class FunnelUnordered(FunnelBase):
             to_time = f"event_times[{exclusion.funnelToStep + 1}]"
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
             condition = parse_expr(
-                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC) + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 
