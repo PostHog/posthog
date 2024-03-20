@@ -208,6 +208,8 @@ def create_hogql_database(
                 start=None,
             ),
         )
+        database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
+        database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
