@@ -36,7 +36,7 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
         }
         if (isNaN(value) || value - Math.floor(value) !== 0) {
             // Nan or decimal are not acceptable values.
-            setBillingLimitError('Please enter an integer.')
+            setBillingLimitError('Please enter a whole number.')
             return
         }
 
