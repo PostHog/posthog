@@ -535,6 +535,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
                 max_bytes=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 schema=schema,
             )
+
             async with writer.open_temporary_file():
                 rows_exported = get_rows_exported_metric()
                 bytes_exported = get_bytes_exported_metric()
@@ -602,7 +603,7 @@ class JsonScalar(pa.ExtensionScalar):
 
     def as_py(self) -> dict | None:
         if self.value:
-            return orjson.loads(self.value.as_py())
+            return orjson.loads(self.value.as_py().encode("utf-8"))
         else:
             return None
 
@@ -611,7 +612,7 @@ class JsonType(pa.ExtensionType):
     """Type for JSON binary strings."""
 
     def __init__(self):
-        super().__init__(pa.binary(), "json")
+        super().__init__(pa.string(), "json")
 
     def __arrow_ext_serialize__(self):
         return b""
