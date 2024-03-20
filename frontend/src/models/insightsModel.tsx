@@ -1,7 +1,8 @@
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path } from 'kea'
 import api from 'lib/api'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { promptLogic } from 'lib/logic/promptLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { InsightModel } from '~/types'
@@ -10,7 +11,7 @@ import type { insightsModelType } from './insightsModelType'
 
 export const insightsModel = kea<insightsModelType>([
     path(['models', 'insightsModel']),
-    connect([promptLogic({ key: 'rename-insight' }), teamLogic]),
+    connect([teamLogic]),
     actions(() => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
@@ -25,28 +26,41 @@ export const insightsModel = kea<insightsModelType>([
             insightIds,
         }),
     })),
-    listeners(({ actions }) => ({
+    listeners(({ values, actions }) => ({
         renameInsight: async ({ item }) => {
-            promptLogic({ key: 'rename-insight' }).actions.prompt({
+            LemonDialog.open({
                 title: 'Rename insight',
-                placeholder: 'Please enter the new name',
-                value: item.name,
-                error: 'You must enter name',
-                success: async (name: string) => {
-                    const updatedItem = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
-                        {
-                            name,
-                        }
-                    )
-                    lemonToast.success(
-                        <>
-                            Renamed insight from <b>{item.name}</b> to <b>{name}</b>
-                        </>
-                    )
-                    actions.renameInsightSuccess(updatedItem)
+                initialFormValues: { name: item.name },
+                content: (
+                    <LemonField name="name">
+                        <LemonInput placeholder="Please enter the new name" autoFocus />
+                    </LemonField>
+                ),
+                primaryButton: {
+                    children: 'Save',
+                    onClick: (_, form) => {
+                        console.log(form)
+                        debugger
+                    },
                 },
             })
+            // promptLogic({ key: 'rename-insight' }).actions.prompt({
+            //     error: 'You must enter name',
+            //     success: async (name: string) => {
+            //         const updatedItem = await api.update(
+            //             `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
+            //             {
+            //                 name,
+            //             }
+            //         )
+            //         lemonToast.success(
+            //             <>
+            //                 Renamed insight from <b>{item.name}</b> to <b>{name}</b>
+            //             </>
+            //         )
+            //         actions.renameInsightSuccess(updatedItem)
+            //     },
+            // })
         },
         duplicateInsight: async ({ item }) => {
             if (!item) {
