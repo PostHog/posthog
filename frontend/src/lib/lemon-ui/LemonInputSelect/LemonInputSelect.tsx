@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { LemonButton } from '../LemonButton'
-import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
 
