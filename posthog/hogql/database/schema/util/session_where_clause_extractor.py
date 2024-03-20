@@ -1,18 +1,15 @@
-from typing import Union
+from typing import Optional
 
 from posthog.hogql import ast
-from posthog.hogql.ast import CompareOperationOp
+from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
 from posthog.hogql.database.schema.util.where_clause_visitor import PassThroughHogQLASTVisitor, HogQLASTVisitor
+from posthog.hogql.visitor import clone_expr
 
 SESSION_BUFFER_DAYS = 3
 
 
-class AbortOptimisationException(Exception):
-    pass
-
-
 class SessionWhereClauseExtractor(PassThroughHogQLASTVisitor):
-    def get_inner_where(self, parsed_query: ast.SelectQuery) -> Union[ast.Expr, None]:
+    def get_inner_where(self, parsed_query: ast.SelectQuery) -> Optional[ast.Expr]:
         if not parsed_query.where:
             return None
 
@@ -22,13 +19,7 @@ class SessionWhereClauseExtractor(PassThroughHogQLASTVisitor):
         if isinstance(where, ast.Constant):
             return None
 
-        return where
-
-    def visit(self, node: ast.Expr) -> ast.Expr:
-        try:
-            return super().visit(node)
-        except AbortOptimisationException:
-            return ast.Constant(value=True)
+        return clone_expr(where)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         is_left_constant = is_time_or_interval_constant(node.left)
@@ -120,9 +111,9 @@ class SessionWhereClauseExtractor(PassThroughHogQLASTVisitor):
         return ast.Constant(value=True)
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
-        if node.name.lower() == "and":
+        if node.name == "and":
             return self.visit_and(ast.And(exprs=node.args))
-        elif node.name.lower() == "or":
+        elif node.name == "or":
             return self.visit_or(ast.Or(exprs=node.args))
         return ast.Constant(value=True)
 
@@ -177,6 +168,9 @@ class SessionWhereClauseExtractor(PassThroughHogQLASTVisitor):
         else:
             return ast.Or(exprs=filtered)
 
+    def visit_alias(self, node: ast.Alias) -> ast.Expr:
+        return self.visit(node.expr)
+
 
 def is_time_or_interval_constant(expr: ast.Expr) -> bool:
     return IsTimeOrIntervalConstantVisitor().visit(expr)
@@ -217,6 +211,9 @@ class IsTimeOrIntervalConstantVisitor(HogQLASTVisitor[bool]):
         ]:
             return self.visit(node.args[0])
 
+        if node.name in ["minus", "add"]:
+            return all(self.visit(arg) for arg in node.args)
+
         # otherwise we don't know, so return False
         return False
 
@@ -234,6 +231,9 @@ class IsTimeOrIntervalConstantVisitor(HogQLASTVisitor[bool]):
 
     def visit_placeholder(self, node: ast.Placeholder) -> bool:
         raise Exception()
+
+    def visit_alias(self, node: ast.Alias) -> bool:
+        return self.visit(node.expr)
 
 
 def is_simple_timestamp_field_expression(expr: ast.Expr) -> bool:
@@ -278,7 +278,16 @@ class IsSimpleTimestampFieldExpressionVisitor(HogQLASTVisitor[bool]):
         ]:
             return self.visit(node.args[0])
 
-            # otherwise we don't know, so return False
+        if node.name in ["minus", "add"]:
+            return self.visit_arithmetric_operation(
+                ast.ArithmeticOperation(
+                    op=ArithmeticOperationOp.Sub if node.name == "minus" else ArithmeticOperationOp.Add,
+                    left=node.args[0],
+                    right=node.args[1],
+                )
+            )
+
+        # otherwise we don't know, so return False
         return False
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
@@ -296,6 +305,9 @@ class IsSimpleTimestampFieldExpressionVisitor(HogQLASTVisitor[bool]):
     def visit_placeholder(self, node: ast.Placeholder) -> bool:
         raise Exception()
 
+    def visit_alias(self, node: ast.Alias) -> bool:
+        return self.visit(node.expr)
+
 
 def rewrite_timestamp_field(expr: ast.Expr) -> ast.Expr:
     return RewriteTimestampFieldVisitor().visit(expr)
@@ -308,10 +320,11 @@ class RewriteTimestampFieldVisitor(PassThroughHogQLASTVisitor):
             node.chain == ["min_timestamp"]
             or node.chain == ["sessions", "min_timestamp"]
             or node.chain == ["s", "min_timestamp"]
-            or node.chain == ["timestamp"]
-            or node.chain == ["events", "timestamp"]
-            or node.chain == ["e", "timestamp"]
         ):
-            return ast.Field(chain=["sessions", "min_timestamp"])
-        else:
-            return node
+            return ast.Field(chain=["raw_sessions", "min_timestamp"])
+        elif node.chain == ["timestamp"] or node.chain == ["events", "timestamp"] or node.chain == ["e", "timestamp"]:
+            return ast.Field(chain=["raw_sessions", "min_timestamp"])
+        return node
+
+    def visit_alias(self, node: ast.Alias) -> ast.Expr:
+        return self.visit(node.expr)

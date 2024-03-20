@@ -1,9 +1,13 @@
 from typing import Union, Optional
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionWhereClauseExtractor
 from posthog.hogql.database.schema.util.where_clause_visitor import PassThroughHogQLASTVisitor
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
 
 def f(s: Union[str, ast.Expr], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -175,6 +179,20 @@ class TestSessionTimestampInliner:
         expected = f("((sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-03')")
         assert expected == actual
 
+    def test_minus(self):
+        inliner = SessionWhereClauseExtractor()
+        actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp >= today() - 2")))
+        expected = f("((sessions.min_timestamp + toIntervalDay(3)) >= (today() - 2))")
+        assert expected == actual
+
+    def test_minus_function(self):
+        inliner = SessionWhereClauseExtractor()
+        actual = f(
+            inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp >= minus(today() , 2)"))
+        )
+        expected = f("((sessions.min_timestamp + toIntervalDay(3)) >= minus(today(), 2))")
+        assert expected == actual
+
     def test_real_example(self):
         inliner = SessionWhereClauseExtractor()
         actual = f(
@@ -187,4 +205,22 @@ class TestSessionTimestampInliner:
         expected = f(
             "(toTimeZone(sessions.min_timestamp, 'US/Pacific') + toIntervalDay(3)) >= toDateTime('2024-03-12 00:00:00', 'US/Pacific') AND (toTimeZone(sessions.min_timestamp, 'US/Pacific') - toIntervalDay(3)) <= toDateTime('2024-03-19 23:59:59', 'US/Pacific') "
         )
+        assert expected == actual
+
+
+class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
+    def print_query(self, query: str) -> ast.Expr:
+        team = self.team
+        modifiers = create_default_modifiers_for_team(team)
+        context = HogQLContext(
+            team_id=team.pk,
+            team=team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+        return prepare_ast_for_printing(node=parse_select(query), context=context, dialect="clickhouse")
+
+    def test_select_with_timestamp(self):
+        actual = self.print_query("SELECT * FROM sessions WHERE min_timestamp > '2021-01-01'")
+        expected = ""
         assert expected == actual

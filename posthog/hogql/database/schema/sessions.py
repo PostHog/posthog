@@ -12,6 +12,7 @@ from posthog.hogql.database.models import (
     LazyTable,
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr
+from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionWhereClauseExtractor
 from posthog.schema import HogQLQueryModifiers
 
 
@@ -135,10 +136,13 @@ def select_from_sessions_table(requested_fields: Dict[str, List[str | int]], nod
             )
             group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
+    where = SessionWhereClauseExtractor().get_inner_where(node)
+
     return ast.SelectQuery(
         select=select_fields,
         select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
         group_by=group_by_fields,
+        where=where,
     )
 
 
@@ -149,8 +153,9 @@ class SessionsTable(LazyTable):
         "channel_type": StringDatabaseField(name="channel_type"),
     }
 
-
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers, node: ast.SelectQuery):
+    def lazy_select(
+        self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers, node: ast.SelectQuery
+    ):
         return select_from_sessions_table(requested_fields, node)
 
     def to_printed_clickhouse(self, context):

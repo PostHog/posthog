@@ -4,8 +4,7 @@ from posthog.hogql import ast
 
 from abc import ABC
 
-T = TypeVar('T')
-
+T = TypeVar("T")
 
 
 class HogQLASTVisitor(Generic[T], ABC):
@@ -28,6 +27,8 @@ class HogQLASTVisitor(Generic[T], ABC):
             return self.visit_arithmetric_operation(node)
         elif isinstance(node, ast.Placeholder):
             return self.visit_placeholder(node)
+        elif isinstance(node, ast.Alias):
+            return self.visit_alias(node)
         else:
             raise Exception(f"Unknown node type {type(node)}")
 
@@ -56,6 +57,9 @@ class HogQLASTVisitor(Generic[T], ABC):
         raise NotImplementedError()
 
     def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
+        raise NotImplementedError()
+
+    def visit_alias(self, node: ast.Alias) -> ast.Expr:
         raise NotImplementedError()
 
 
@@ -95,3 +99,5 @@ class PassThroughHogQLASTVisitor(HogQLASTVisitor[ast.Expr]):
     def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
         return ast.Placeholder(field=node.field)
 
+    def visit_alias(self, node: ast.Alias) -> ast.Expr:
+        return ast.Alias(alias=node.alias, expr=self.visit(node.expr))
