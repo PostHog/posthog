@@ -847,21 +847,24 @@ def process_ok_values(ok_values: Any, operator: OperatorType) -> List[str]:
 def build_selector_regex(selector: Selector) -> str:
     regex = r""
     for tag in selector.parts:
-        if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str):
-            if tag.data["tag_name"] == "*":
-                regex += ".+"
-            else:
-                regex += re.escape(tag.data["tag_name"])
+        if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str) and tag.data["tag_name"] != "*":
+            # The elements in the elements_chain are separated by the semicolon
+            regex += re.escape(tag.data["tag_name"])
         if tag.data.get("attr_class__contains"):
-            regex += r".*?\.{}".format(r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])]))
+            regex += r".*?\." + r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])])
         if tag.ch_attributes:
-            regex += ".*?"
+            regex += r".*?"
             for key, value in sorted(tag.ch_attributes.items()):
-                regex += '{}="{}".*?'.format(re.escape(key), re.escape(str(value)))
+                regex += rf'{re.escape(key)}="{re.escape(str(value))}".*?'
         regex += r'([-_a-zA-Z0-9\.:"= ]*?)?($|;|:([^;^\s]*(;|$|\s)))'
         if tag.direct_descendant:
-            regex += ".*"
-    return regex
+            regex += r".*"
+    if regex:
+        # Always start matching at the beginning of an element in the chain string
+        # This is to avoid issues like matching elements with class "foo" when looking for elements with tag name "foo"
+        return r"(^|;)" + regex
+    else:
+        return r""
 
 
 class HogQLPropertyChecker(TraversingVisitor):

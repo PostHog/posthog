@@ -1,20 +1,24 @@
 import './PlanComparison.scss'
 
 import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
+import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { getProductIcon } from 'scenes/products/Products'
+import { urls } from 'scenes/urls'
 import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 
 import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
-import { UNSUBSCRIBE_SURVEY_ID } from './BillingProduct'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
@@ -117,23 +121,37 @@ export const PlanComparison = ({
     const { billing, redirectPath } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
-    const { surveyID } = useValues(billingProductLogic({ product }))
+    const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
+    const billingDaysRemaining = billing?.billing_period?.current_period_end.diff(dayjs(), 'days')
+    const billingDaysTotal = billing?.billing_period?.current_period_end.diff(
+        billing.billing_period?.current_period_start,
+        'days'
+    )
 
     const upgradeButtons = plans?.map((plan, i) => {
         return (
             <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
-                <LemonButton
+                <BillingUpgradeCTA
                     to={
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
                             : !plan.included_if
                             ? getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
+                            : plan.included_if == 'has_subscription' &&
+                              i >= currentPlanIndex &&
+                              !billing?.has_active_subscription
+                            ? urls.organizationBilling()
                             : undefined
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
-                    status={plan.current_plan ? 'default' : 'alt'}
+                    status={
+                        plan.current_plan || (plan.included_if == 'has_subscription' && i >= currentPlanIndex)
+                            ? 'default'
+                            : 'alt'
+                    }
                     fullWidth
                     center
                     disableClientSideRouting={!plan.contact_support}
@@ -141,7 +159,7 @@ export const PlanComparison = ({
                         plan.included_if == 'has_subscription' && i >= currentPlanIndex
                             ? billing?.has_active_subscription
                                 ? 'Unsubscribe from all products to remove'
-                                : 'Subscribe to any product for access'
+                                : null
                             : plan.current_plan
                             ? 'Current plan'
                             : undefined
@@ -156,6 +174,7 @@ export const PlanComparison = ({
                             reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                         }
                     }}
+                    data-attr={`upgrade-${plan.name}`}
                 >
                     {plan.current_plan
                         ? 'Current plan'
@@ -163,8 +182,22 @@ export const PlanComparison = ({
                         ? 'Downgrade'
                         : plan.contact_support
                         ? 'Get in touch'
-                        : 'Subscribe'}
-                </LemonButton>
+                        : plan.included_if == 'has_subscription' &&
+                          i >= currentPlanIndex &&
+                          !billing?.has_active_subscription
+                        ? 'View products'
+                        : plan.free_allocation && !plan.tiers
+                        ? 'Select' // Free plan
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                        ? 'Subscribe'
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                          !billing?.has_active_subscription
+                        ? 'Add credit card'
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                          billing?.has_active_subscription
+                        ? 'Add paid plan'
+                        : 'Upgrade'}
+                </BillingUpgradeCTA>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
@@ -172,7 +205,17 @@ export const PlanComparison = ({
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
-                            or subscribe without addons
+                            or{' '}
+                            {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                                ? 'subscribe'
+                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                  !billing?.has_active_subscription
+                                ? 'add credit card'
+                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                  !billing?.has_active_subscription
+                                ? 'add paid plan'
+                                : 'upgrade'}{' '}
+                            without addons
                         </Link>
                     </p>
                 )}
@@ -195,19 +238,38 @@ export const PlanComparison = ({
             <tbody>
                 <tr className="PlanTable__tr__border">
                     <td className="font-bold">Monthly {product.tiered && 'base '} price</td>
-                    {plans?.map((plan) => (
-                        <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
-                            {plan.free_allocation && !plan.tiers
-                                ? 'Free forever'
-                                : plan.unit_amount_usd
-                                ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
-                                : plan.contact_support
-                                ? 'Custom'
-                                : plan.included_if == 'has_subscription'
-                                ? 'Free, included with any product subscription'
-                                : '$0 per month'}
-                        </td>
-                    ))}
+                    {plans?.map((plan) => {
+                        const prorationAmount = plan.unit_amount_usd
+                            ? (
+                                  parseInt(plan.unit_amount_usd) *
+                                  ((billingDaysRemaining || 1) / (billingDaysTotal || 1))
+                              ).toFixed(2)
+                            : 0
+                        const isProrated =
+                            billing?.has_active_subscription && plan.unit_amount_usd
+                                ? prorationAmount !== parseInt(plan.unit_amount_usd || '')
+                                : false
+                        return (
+                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
+                                {plan.free_allocation && !plan.tiers
+                                    ? 'Free forever'
+                                    : plan.unit_amount_usd
+                                    ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
+                                    : plan.contact_support
+                                    ? 'Custom'
+                                    : plan.included_if == 'has_subscription'
+                                    ? 'Free, included with any product subscription'
+                                    : '$0 per month'}
+                                {isProrated && (
+                                    <p className="text-xxs text-muted font-normal italic mt-2">
+                                        Pay ${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
+                                        {isProrated && `$${parseInt(plan.unit_amount_usd || '0')} `}every month
+                                        thereafter.
+                                    </p>
+                                )}
+                            </td>
+                        )
+                    })}
                 </tr>
                 {product.tiered && (
                     <tr className="PlanTable__tr__border">
@@ -264,11 +326,11 @@ export const PlanComparison = ({
                 {fullyFeaturedPlan?.features?.map((feature, i) => (
                     <tr
                         key={`tr-${feature.key}`}
-                        className={
+                        className={clsx(
                             i == fullyFeaturedPlan?.features?.length - 1 && !billing?.has_active_subscription
                                 ? 'PlanTable__tr__border'
                                 : ''
-                        }
+                        )}
                     >
                         <th
                             className={clsx(
@@ -278,7 +340,15 @@ export const PlanComparison = ({
                             )}
                         >
                             <Tooltip title={feature.description}>
-                                <span>{feature.name}</span>
+                                <div
+                                    className={
+                                        comparisonModalHighlightedFeatureKey === feature.key
+                                            ? 'border-b-2 border-danger-lighter px-1 pb-1 w-max'
+                                            : undefined
+                                    }
+                                >
+                                    <span>{feature.name}</span>
+                                </div>
                             </Tooltip>
                         </th>
                         {plans?.map((plan) => (

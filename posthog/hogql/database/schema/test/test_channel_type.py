@@ -220,6 +220,19 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_doesnt_fail_on_numbers(self):
+        self.assertEqual(
+            "Other",
+            self._get_initial_channel_type(
+                {
+                    "$initial_referring_domain": "example.com",
+                    "$initial_utm_source": 123,
+                    "$initial_utm_medium": 123,
+                    "$initial_utm_campaign": 123,
+                }
+            ),
+        )
+
     def _get_initial_channel_type_from_wild_clicks(self, url: str, referrer: str):
         parsed_url = urlparse(url)
         query = parse_qs(parsed_url.query)

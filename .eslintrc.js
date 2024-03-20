@@ -130,6 +130,7 @@ module.exports = {
                             'Radio',
                             'Divider',
                             'Popconfirm',
+                            'Table',
                         ],
                         message: 'please use the Lemon equivalent instead',
                     },

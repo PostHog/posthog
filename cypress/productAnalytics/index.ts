@@ -78,7 +78,10 @@ export const insight = {
         const networkInterceptAlias = interceptInsightLoad(tabName)
 
         cy.get(`[data-attr="insight-${(tabName === 'PATHS' ? 'PATH' : tabName).toLowerCase()}-tab"]`).click()
-        cy.wait(`@${networkInterceptAlias}`)
+        if (tabName !== 'FUNNELS') {
+            // funnel insights require two steps before making an api call
+            cy.wait(`@${networkInterceptAlias}`)
+        }
     },
     newInsight: (insightType: string = 'TRENDS'): void => {
         const networkInterceptAlias = interceptInsightLoad(insightType)
@@ -94,7 +97,10 @@ export const insight = {
             cy.get(`[data-attr-insight-type="${insightType}"]`).click()
         }
 
-        cy.wait(`@${networkInterceptAlias}`)
+        if (insightType !== 'FUNNELS') {
+            // funnel insights require two steps before making an api call
+            cy.wait(`@${networkInterceptAlias}`)
+        }
     },
     visitInsight: (insightName: string): void => {
         cy.clickNavMenu('savedinsights')
@@ -208,14 +214,6 @@ export const dashboard = {
         cy.get('[data-attr="prop-val"]').click()
         cy.get('[data-attr="prop-val-0"]').click({ force: true })
         cy.get('.PropertyFilterButton').should('have.length', 1)
-    },
-    addPropertyFilter(type: string = 'Browser', value: string = 'Chrome'): void {
-        cy.get('.PropertyFilterButton').should('have.length', 0)
-        cy.get('[data-attr="property-filter-0"]').click()
-        cy.get('[data-attr="taxonomic-filter-searchfield"]').click().type('Browser').wait(1000)
-        cy.get('[data-attr="prop-filter-event_properties-0"]').click({ force: true })
-        cy.get('.ant-select-selector').type(value)
-        cy.get('.ant-select-item-option-content').click({ force: true })
     },
 }
 

@@ -16,7 +16,7 @@ from dlt.sources import DltResource
 class PipelineInputs:
     source_id: UUID
     run_id: str
-    schemas: list[str]
+    schemas: list[tuple[str, str]]
     dataset_name: str
     job_type: str
     team_id: int

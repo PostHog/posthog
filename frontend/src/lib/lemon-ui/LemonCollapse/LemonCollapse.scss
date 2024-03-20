@@ -35,6 +35,10 @@
     overflow: hidden;
     border-top-width: 1px;
     transition: height 200ms ease;
+
+    .storybook-test-runner & {
+        height: fit-content !important; // Transition disables, but less flakiness
+    }
 }
 
 .LemonCollapsePanel__content {

@@ -72,8 +72,15 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                         attr_class=["one-class"],
                     ),
                     Element(tag_name="button", nth_child=0, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested"),
+                    Element(
+                        # Important that in this hierarchy the div is sandwiched between button and section.
+                        # This way makes sure that any conditions which should match this element also work
+                        # if the element is neither first nor last in the hierarchy.
+                        tag_name="div",
+                        nth_child=0,
+                        nth_of_type=0,
+                    ),
+                    Element(tag_name="section", nth_child=0, nth_of_type=0, attr_id="nested"),
                 ],
             )
 
@@ -416,6 +423,37 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             events = _get_events_for_action(action1)
             self.assertEqual(events[0].uuid, event1_uuid)
             self.assertEqual(len(events), 1)
+
+        def test_with_tag_matching_class_selector(self):
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            action1 = Action.objects.create(team=self.team)
+            ActionStep.objects.create(
+                event="$autocapture",
+                action=action1,
+                selector="input",  # This should ONLY match the tag, but not a class named `input`
+            )
+            event_matching_tag_uuid = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="span", attr_class=None),
+                    Element(tag_name="input", attr_class=["button"]),  # Should match
+                ],
+            )
+            _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="span", attr_class=None),
+                    Element(tag_name="button", attr_class=["input"]),  # Cannot match
+                ],
+            )
+
+            events = _get_events_for_action(action1)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].uuid, event_matching_tag_uuid)
 
         def test_attributes(self):
             _create_person(distinct_ids=["whatever"], team=self.team)

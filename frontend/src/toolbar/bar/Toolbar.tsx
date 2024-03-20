@@ -7,7 +7,7 @@ import {
     IconLogomark,
     IconNight,
     IconQuestion,
-    IconTarget,
+    IconSearch,
     IconToggle,
     IconX,
 } from '@posthog/icons'
@@ -185,7 +185,7 @@ export function Toolbar(): JSX.Element {
                 />
                 {isAuthenticated ? (
                     <>
-                        <ToolbarButton icon={<IconTarget />} menuId="inspect" />
+                        <ToolbarButton icon={<IconSearch />} menuId="inspect" />
                         <ToolbarButton icon={<IconCursorClick />} menuId="heatmap" />
                         <ToolbarButton icon={<IconBolt />} menuId="actions" />
                         <ToolbarButton icon={<IconToggle />} menuId="flags" title="Feature flags" />
