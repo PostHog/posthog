@@ -50,6 +50,8 @@ export function LemonInputSelect({
     const [selectedIndex, setSelectedIndex] = useState(0)
     const values = value ?? []
 
+    const separateOnComma = allowCustomValues && mode === 'multiple'
+
     const visibleOptions = useMemo(() => {
         const res: LemonInputSelectOption[] = []
         const customValues = [...values]
@@ -90,6 +92,21 @@ export function LemonInputSelect({
     }, [visibleOptions.length])
 
     const setInputValue = (newValue: string): void => {
+        // Special case for multiple mode with custom values
+        if (separateOnComma && newValue.includes(',')) {
+            const newValues = [...values]
+
+            newValue.split(',').forEach((value) => {
+                const trimmedValue = value.trim()
+                if (trimmedValue && !values.includes(trimmedValue)) {
+                    newValues.push(trimmedValue)
+                }
+            })
+
+            onChange?.(newValues)
+            newValue = ''
+        }
+
         _setInputValue(newValue)
         onInputChange?.(inputValue)
     }
