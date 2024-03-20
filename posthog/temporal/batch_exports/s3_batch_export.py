@@ -678,7 +678,7 @@ class JsonType(pa.ExtensionType):
     """Type for JSON binary strings."""
 
     def __init__(self):
-        super().__init__(pa.binary(), "json")
+        super().__init__(pa.string(), "json")
 
     def __arrow_ext_serialize__(self):
         return b""
