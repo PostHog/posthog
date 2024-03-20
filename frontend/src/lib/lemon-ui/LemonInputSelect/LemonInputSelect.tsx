@@ -1,4 +1,3 @@
-import { IconPencil } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
