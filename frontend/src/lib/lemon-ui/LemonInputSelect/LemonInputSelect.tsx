@@ -1,4 +1,3 @@
-import { IconPencil } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -62,6 +61,11 @@ export function LemonInputSelect({
         const res: LemonInputSelectOption[] = []
         const customValues = [...values]
 
+        // Finally we show the input value if custom values are allowed and it's not in the list
+        if (allowCustomValues && inputValue && !values.includes(inputValue)) {
+            customValues.unshift(inputValue)
+        }
+
         options.forEach((option) => {
             // Remove from the custom values list if it's in the options
 
@@ -83,14 +87,8 @@ export function LemonInputSelect({
                 res.unshift({ key: value, label: value })
             })
         }
-
-        // Finally we show the input value if custom values are allowed and it's not in the list
-        if (allowCustomValues && inputValue && !values.includes(inputValue)) {
-            res.unshift({ key: inputValue, label: inputValue })
-        }
-
         return res
-    }, [options, inputValue, value])
+    }, [options, inputValue, values])
 
     // Reset the selected index when the visible options change
     useEffect(() => {
@@ -282,7 +280,9 @@ export function LemonInputSelect({
                                         {isHighlighted ? (
                                             <span>
                                                 <KeyboardShortcut enter />{' '}
-                                                {!values.includes(option.key)
+                                                {altKeyHeld && allowCustomValues
+                                                    ? 'edit'
+                                                    : !values.includes(option.key)
                                                     ? mode === 'single'
                                                         ? 'select'
                                                         : 'add'
