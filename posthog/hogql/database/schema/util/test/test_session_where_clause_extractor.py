@@ -1,4 +1,4 @@
-from typing import Union, Optional
+from typing import Union, Optional, Dict
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -10,7 +10,7 @@ from posthog.hogql.visitor import clone_expr
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
 
-def f(s: Union[str, ast.Expr], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
+def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
     if s is None:
         return None
     if isinstance(s, str):
@@ -20,15 +20,24 @@ def f(s: Union[str, ast.Expr], placeholders: Optional[dict[str, ast.Expr]] = Non
     return clone_expr(expr, clear_types=True, clear_locations=True)
 
 
+def parse(
+    s: str,
+    placeholders: Optional[Dict[str, ast.Expr]] = None,
+) -> ast.SelectQuery:
+    parsed = parse_select(s, placeholders=placeholders)
+    assert isinstance(parsed, ast.SelectQuery)
+    return parsed
+
+
 class TestSessionTimestampInliner:
     def test_handles_select_with_no_where_claus(self):
         inliner = SessionWhereClauseExtractor()
-        inner_where = inliner.get_inner_where(parse_select("SELECT * FROM sessions"))
+        inner_where = inliner.get_inner_where(parse("SELECT * FROM sessions"))
         assert inner_where is None
 
     def test_handles_select_with_eq(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp = '2021-01-01'")))
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE min_timestamp = '2021-01-01'")))
         expected = f(
             "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')"
         )
@@ -36,7 +45,7 @@ class TestSessionTimestampInliner:
 
     def test_handles_select_with_eq_flipped(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE '2021-01-01' = min_timestamp")))
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE '2021-01-01' = min_timestamp")))
         expected = f(
             "((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01') AND ((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')"
         )
@@ -44,25 +53,25 @@ class TestSessionTimestampInliner:
 
     def test_handles_select_with_simple_gt(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp > '2021-01-01'")))
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE min_timestamp > '2021-01-01'")))
         expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
         assert expected == actual
 
     def test_handles_select_with_simple_gte(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp >= '2021-01-01'")))
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE min_timestamp >= '2021-01-01'")))
         expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= '2021-01-01')")
         assert expected == actual
 
     def test_handles_select_with_simple_lt(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp < '2021-01-01'")))
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE min_timestamp < '2021-01-01'")))
         expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01')")
         assert expected == actual
 
     def test_handles_select_with_simple_lte(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp <= '2021-01-01'")))
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE min_timestamp <= '2021-01-01'")))
         expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= '2021-01-01')")
         assert expected == actual
 
@@ -70,7 +79,7 @@ class TestSessionTimestampInliner:
         inliner = SessionWhereClauseExtractor()
         actual = f(
             inliner.get_inner_where(
-                parse_select(
+                parse(
                     "SELECT * FROM sessions WHERE min_timestamp > {timestamp}",
                     placeholders={"timestamp": ast.Constant(value="2021-01-01")},
                 )
@@ -82,7 +91,7 @@ class TestSessionTimestampInliner:
     def test_unrelated_equals(self):
         inliner = SessionWhereClauseExtractor()
         actual = inliner.get_inner_where(
-            parse_select("SELECT * FROM sessions WHERE initial_utm_campaign = initial_utm_source")
+            parse("SELECT * FROM sessions WHERE initial_utm_campaign = initial_utm_source")
         )
         assert actual is None
 
@@ -90,9 +99,7 @@ class TestSessionTimestampInliner:
         inliner = SessionWhereClauseExtractor()
         actual = f(
             inliner.get_inner_where(
-                parse_select(
-                    "SELECT * FROM sessions WHERE and(min_timestamp >= '2021-01-01', min_timestamp <= '2021-01-03')"
-                )
+                parse("SELECT * FROM sessions WHERE and(min_timestamp >= '2021-01-01', min_timestamp <= '2021-01-03')")
             )
         )
         expected = f(
@@ -104,9 +111,7 @@ class TestSessionTimestampInliner:
         inliner = SessionWhereClauseExtractor()
         actual = f(
             inliner.get_inner_where(
-                parse_select(
-                    "SELECT * FROM sessions WHERE and(min_timestamp <= '2021-01-01', min_timestamp >= '2021-01-03')"
-                )
+                parse("SELECT * FROM sessions WHERE and(min_timestamp <= '2021-01-01', min_timestamp >= '2021-01-03')")
             )
         )
         expected = f(
@@ -116,28 +121,24 @@ class TestSessionTimestampInliner:
 
     def test_unrelated_function(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE like('a', 'b')")))
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE like('a', 'b')")))
         assert actual is None
 
     def test_timestamp_unrelated_function(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(
-            inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE like(toString(min_timestamp), 'b')"))
-        )
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE like(toString(min_timestamp), 'b')")))
         assert actual is None
 
     def test_timestamp_unrelated_function_timestamp(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(
-            inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE like(toString(min_timestamp), 'b')"))
-        )
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE like(toString(min_timestamp), 'b')")))
         assert actual is None
 
     def test_ambiguous_or(self):
         inliner = SessionWhereClauseExtractor()
         actual = f(
             inliner.get_inner_where(
-                parse_select(
+                parse(
                     "SELECT * FROM sessions WHERE or(min_timestamp > '2021-01-03', like(toString(min_timestamp), 'b'))"
                 )
             )
@@ -148,7 +149,7 @@ class TestSessionTimestampInliner:
         inliner = SessionWhereClauseExtractor()
         actual = f(
             inliner.get_inner_where(
-                parse_select(
+                parse(
                     "SELECT * FROM sessions WHERE and(min_timestamp > '2021-01-03', like(toString(min_timestamp), 'b'))"
                 )
             )
@@ -159,7 +160,7 @@ class TestSessionTimestampInliner:
         inliner = SessionWhereClauseExtractor()
         actual = f(
             inliner.get_inner_where(
-                parse_select(
+                parse(
                     "SELECT * FROM events JOIN sessions ON events.session_id = raw_sessions.session_id WHERE min_timestamp > '2021-01-03'"
                 )
             )
@@ -171,7 +172,7 @@ class TestSessionTimestampInliner:
         inliner = SessionWhereClauseExtractor()
         actual = f(
             inliner.get_inner_where(
-                parse_select(
+                parse(
                     "SELECT * FROM events JOIN sessions ON events.session_id = raw_sessions.session_id WHERE timestamp > '2021-01-03'"
                 )
             )
@@ -181,15 +182,13 @@ class TestSessionTimestampInliner:
 
     def test_minus(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp >= today() - 2")))
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE min_timestamp >= today() - 2")))
         expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= (today() - 2))")
         assert expected == actual
 
     def test_minus_function(self):
         inliner = SessionWhereClauseExtractor()
-        actual = f(
-            inliner.get_inner_where(parse_select("SELECT * FROM sessions WHERE min_timestamp >= minus(today() , 2)"))
-        )
+        actual = f(inliner.get_inner_where(parse("SELECT * FROM sessions WHERE min_timestamp >= minus(today() , 2)")))
         expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= minus(today(), 2))")
         assert expected == actual
 
@@ -197,7 +196,7 @@ class TestSessionTimestampInliner:
         inliner = SessionWhereClauseExtractor()
         actual = f(
             inliner.get_inner_where(
-                parse_select(
+                parse(
                     "SELECT * FROM events JOIN sessions ON events.session_id = raw_sessions.session_id WHERE event = '$pageview' AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2024-03-12 00:00:00', 'US/Pacific') AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2024-03-19 23:59:59', 'US/Pacific')"
                 )
             )
@@ -209,7 +208,7 @@ class TestSessionTimestampInliner:
 
 
 class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
-    def print_query(self, query: str) -> ast.Expr:
+    def print_query(self, query: str) -> str:
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
         context = HogQLContext(
@@ -218,7 +217,7 @@ class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
             enable_select_queries=True,
             modifiers=modifiers,
         )
-        prepared_ast = prepare_ast_for_printing(node=parse_select(query), context=context, dialect="clickhouse")
+        prepared_ast = prepare_ast_for_printing(node=parse(query), context=context, dialect="clickhouse")
         pretty = print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
         return pretty
 

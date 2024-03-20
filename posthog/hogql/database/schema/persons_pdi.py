@@ -63,7 +63,7 @@ class PersonsPDITable(LazyTable):
         "person_id": StringDatabaseField(name="person_id"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers, node):
         return persons_pdi_select(requested_fields)
 
     def to_printed_clickhouse(self, context):

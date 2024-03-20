@@ -67,7 +67,7 @@ class RawCohortPeople(Table):
 class CohortPeople(LazyTable):
     fields: Dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers, node):
         return select_from_cohort_people_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

@@ -115,7 +115,7 @@ class SessionReplayEventsTable(LazyTable):
         "first_url": StringDatabaseField(name="first_url"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers, node):
         return select_from_session_replay_events_table(requested_fields)
 
     def to_printed_clickhouse(self, context):
