@@ -176,7 +176,7 @@ export function InsightVizDisplay({
             return (
                 <>
                     {exportContext && (
-                        <div className="flex items-center justify-between my-4 mx-0">
+                        <div className="flex items-center justify-between my-4 mx-0 detailed-results-header-panel">
                             <h2 className="font-semibold text-lg m-0">Detailed results</h2>
                             <Tooltip title="Export this table" placement="left">
                                 <ExportButton

@@ -10,9 +10,11 @@ import {
     LemonTable,
     LemonTableColumns,
     LemonTag,
+    LemonTagType,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { AnimationType } from 'lib/animations/animations'
@@ -66,7 +68,17 @@ export function ExperimentStatus(): JSX.Element {
         experimentInsightType,
         sortedConversionRates,
         highestProbabilityVariant,
+        areResultsSignificant,
     } = useValues(experimentLogic)
+
+    function SignificanceText(): JSX.Element {
+        return (
+            <>
+                <span>Your results are&nbsp;</span>
+                <span className="font-semibold">{`${areResultsSignificant ? 'significant' : 'not significant'}`}.</span>
+            </>
+        )
+    }
 
     if (experimentInsightType === InsightType.FUNNELS) {
         const winningVariant = sortedConversionRates[0]
@@ -95,7 +107,8 @@ export function ExperimentStatus(): JSX.Element {
                         }}
                     />
                     <span className="font-semibold">{capitalizeFirstLetter(secondBestVariant.key)}</span>
-                    <span>).</span>
+                    <span>).&nbsp;</span>
+                    <SignificanceText />
                 </div>
             </div>
         )
@@ -119,10 +132,11 @@ export function ExperimentStatus(): JSX.Element {
                     />
                     <span className="font-semibold">{capitalizeFirstLetter(highestProbabilityVariant)}</span>
                     <span>&nbsp;is winning with a&nbsp;</span>
-                    <span className="font-semibold text-success items-center">{`${
-                        probability[highestProbabilityVariant] * 100
-                    }% probability`}</span>
-                    <span>&nbsp;of being best.</span>
+                    <span className="font-semibold text-success items-center">
+                        {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
+                    </span>
+                    <span>of being best.&nbsp;</span>
+                    <SignificanceText />
                 </div>
             </div>
         )
@@ -300,7 +314,7 @@ export function SummaryTable(): JSX.Element {
                     {percentage ? (
                         <span className="inline-flex items-center w-30 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
-                            <span className="w-1/4">{percentage.toFixed(1)}%</span>
+                            <span className="w-1/4">{percentage.toFixed(2)}%</span>
                         </span>
                     ) : (
                         '--'
@@ -331,8 +345,8 @@ export function ExperimentGoal(): JSX.Element {
                     ? 'experiment measures conversion through each step of the user journey.'
                     : 'experiment tracks the performance of a single metric.'}
             </div>
-            <div className="flex">
-                <div className="w-1/2 pb-2">
+            <div className="inline-flex space-x-6">
+                <div>
                     <div className="card-secondary mb-2 mt-4">
                         {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                     </div>
@@ -341,15 +355,17 @@ export function ExperimentGoal(): JSX.Element {
                         Change experiment goal
                     </LemonButton>
                 </div>
-
-                <div className="w-1/2 flex flex-col justify-end">
-                    <div className="mt-auto ml-auto">
-                        {experimentInsightType === InsightType.TRENDS &&
-                            !experimentMathAggregationForTrends(experiment.filters) && (
-                                <ExposureMetric experimentId={experimentId} />
-                            )}
-                    </div>
-                </div>
+                {experimentInsightType === InsightType.TRENDS &&
+                    !experimentMathAggregationForTrends(experiment.filters) && (
+                        <>
+                            <LemonDivider className="" vertical />
+                            <div className="">
+                                <div className="mt-auto ml-auto">
+                                    <ExposureMetric experimentId={experimentId} />
+                                </div>
+                            </div>
+                        </>
+                    )}
             </div>
         </div>
     )
@@ -360,7 +376,10 @@ export function Results(): JSX.Element {
 
     return (
         <div>
-            <h2 className="font-semibold text-lg mb-2">Results</h2>
+            <div className="inline-flex items-center space-x-2 mb-2">
+                <h2 className="m-0 font-semibold text-lg">Results</h2>
+                <ResultsTag />
+            </div>
             <SummaryTable />
             <Query
                 query={{
@@ -454,15 +473,6 @@ export function SecondaryMetricsTable({
                     >
                         <b>{capitalizeFirstLetter(metric.name)}</b>
                     </LemonButton>
-                    <div className="flex" onClick={(event) => event.stopPropagation()}>
-                        <LemonButton
-                            type="secondary"
-                            className="ml-2"
-                            icon={<IconPencil />}
-                            size="small"
-                            onClick={() => openModalToEditSecondaryMetric(metric, idx)}
-                        />
-                    </div>
                 </span>
             ),
             render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
@@ -785,22 +795,26 @@ export function ReleaseConditionsTable(): JSX.Element {
 export function NoResultsEmptyState(): JSX.Element {
     const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
 
+    if (experimentResultsLoading) {
+        return <></>
+    }
+
     return (
-        <div className="no-experiment-results border rounded p-10">
-            {!experimentResultsLoading && (
-                <div className="text-center">
-                    <div className="mb-4">
-                        <b>There are no results for this experiment yet.</b>
-                    </div>
+        <div>
+            <h2 className="font-semibold text-lg">Results</h2>
+            <div className="border rounded bg-bg-light pt-6 pb-8 text-muted">
+                <div className="flex flex-col items-center mx-auto">
+                    <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+                    <h2 className="text-xl font-semibold leading-tight">There are no experiment results yet</h2>
                     {!!experimentResultCalculationError && (
-                        <div className="text-sm mb-2">{experimentResultCalculationError}</div>
+                        <div className="text-sm text-center text-balance">{experimentResultCalculationError}</div>
                     )}
-                    <div className="text-sm ">
+                    <div className="text-sm text-center text-balance">
                         Wait a bit longer for your users to be exposed to the experiment. Double check your feature flag
                         implementation if you're still not seeing results.
                     </div>
                 </div>
-            )}
+            </div>
         </div>
     )
 }
@@ -1185,5 +1199,18 @@ export function PageHeaderCustom(): JSX.Element {
                 </>
             }
         />
+    )
+}
+
+export function ResultsTag(): JSX.Element {
+    const { areResultsSignificant } = useValues(experimentLogic)
+    const result: { color: LemonTagType; label: string } = areResultsSignificant
+        ? { color: 'success', label: 'Significant' }
+        : { color: 'primary', label: 'Not significant' }
+
+    return (
+        <LemonTag type={result.color}>
+            <b className="uppercase">{result.label}</b>
+        </LemonTag>
     )
 }
