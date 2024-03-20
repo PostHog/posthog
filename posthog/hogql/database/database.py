@@ -204,7 +204,7 @@ def create_hogql_database(
             name="person_id",
             expr=parse_expr(
                 # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-                "if(not empty(override.distinct_id), override.person_id, event_person_id)",
+                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
                 start=None,
             ),
         )
