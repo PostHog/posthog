@@ -359,7 +359,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> int:
                 if pg_file.tell() > 0:
                     await flush_to_postgres()
 
-        return pg_file.records_total
+            return pg_file.records_total
 
 
 @workflow.defn(name="postgres-export")
