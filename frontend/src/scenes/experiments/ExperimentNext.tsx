@@ -1,31 +1,30 @@
 import './Experiment.scss'
 
 import { useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic } from './experimentLogic'
 import {
     DistributionTable,
-    EllipsisAnimation,
     ExperimentActiveBanner,
     ExperimentDraftBanner,
     ExperimentExposureModal,
+    ExperimentGoal,
     ExperimentGoalModal,
     ExperimentLoader,
+    ExperimentLoadingAnimation,
     ExperimentProgressBar,
     ExperimentStatus,
     ExperimentStoppedBanner,
     NoResultsEmptyState,
-    QueryViz,
+    PageHeaderCustom,
     ReleaseConditionsTable,
+    Results,
     SecondaryMetricsTable,
-    SummaryTable,
 } from './ExperimentResultsViz'
 
-export function ExperimentResults(): JSX.Element {
+export function ExperimentView(): JSX.Element {
     const {
         experiment,
         isExperimentRunning,
@@ -39,38 +38,28 @@ export function ExperimentResults(): JSX.Element {
     const { updateExperimentSecondaryMetrics } = useActions(experimentLogic)
 
     return (
-        <div className="space-y-8 experiment-view">
-            {experimentLoading ? (
-                <ExperimentLoader />
-            ) : (
-                <>
-                    {isExperimentStopped ? (
-                        <ExperimentStoppedBanner />
-                    ) : isExperimentRunning ? (
-                        <ExperimentActiveBanner />
-                    ) : (
-                        <ExperimentDraftBanner />
-                    )}
-                </>
-            )}
-
-            <>
-                {!experimentLoading && (
+        <>
+            <PageHeaderCustom />
+            <div className="space-y-8 experiment-view">
+                {experimentLoading ? (
+                    <ExperimentLoader />
+                ) : (
                     <>
+                        {isExperimentStopped ? (
+                            <ExperimentStoppedBanner />
+                        ) : isExperimentRunning ? (
+                            <ExperimentActiveBanner />
+                        ) : (
+                            <ExperimentDraftBanner />
+                        )}
                         {experimentResultsLoading ? (
-                            <div className="flex flex-col flex-1 justify-center items-center">
-                                <Animation type={AnimationType.LaptopHog} />
-                                <div className="text-xs text-muted w-44">
-                                    <span className="mr-1">Fetching experiment results</span>
-                                    <EllipsisAnimation />
-                                </div>
-                            </div>
+                            <ExperimentLoadingAnimation />
                         ) : experimentResults && experimentResults.insight ? (
                             <>
                                 <ExperimentStatus />
                                 <ExperimentProgressBar />
-                                <SummaryTable />
-                                <QueryViz />
+                                <ExperimentGoal />
+                                <Results />
                                 <SecondaryMetricsTable
                                     experimentId={experiment.id}
                                     onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
@@ -82,26 +71,22 @@ export function ExperimentResults(): JSX.Element {
                             </>
                         ) : (
                             <>
+                                <ExperimentGoal />
                                 <ExperimentImplementationDetails experiment={experiment} />
                                 {experiment.start_date && <NoResultsEmptyState />}
                             </>
                         )}
+                        <DistributionTable />
+                        <ReleaseConditionsTable />
                     </>
                 )}
-            </>
-
-            {!experimentLoading && (
-                <>
-                    <DistributionTable />
-                    <ReleaseConditionsTable />
-                </>
-            )}
-        </div>
+            </div>
+        </>
     )
 }
 
 export function ExperimentNext(): JSX.Element {
     const { experimentId, editingExistingExperiment } = useValues(experimentLogic)
 
-    return experimentId === 'new' || editingExistingExperiment ? <ExperimentForm /> : <ExperimentResults />
+    return experimentId === 'new' || editingExistingExperiment ? <ExperimentForm /> : <ExperimentView />
 }

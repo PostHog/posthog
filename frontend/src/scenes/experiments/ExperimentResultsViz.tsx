@@ -15,13 +15,17 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
+import { AnimationType } from 'lib/animations/animations'
 import { getSeriesColor } from 'lib/colors'
+import { Animation } from 'lib/components/Animation/Animation'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
@@ -212,7 +216,6 @@ export function SummaryTable(): JSX.Element {
 
     const columns: LemonTableColumns<TrendExperimentVariant | FunnelExperimentVariant> = [
         {
-            className: 'w-1/4',
             key: 'variants',
             title: 'Variant',
             render: function Key(_, item, index): JSX.Element {
@@ -232,7 +235,6 @@ export function SummaryTable(): JSX.Element {
 
     if (experimentInsightType === InsightType.TRENDS) {
         columns.push({
-            className: 'w-1/4',
             key: 'counts',
             title: (
                 <div className="flex">
@@ -261,7 +263,6 @@ export function SummaryTable(): JSX.Element {
             },
         })
         columns.push({
-            className: 'w-1/4',
             key: 'exposure',
             title: 'Exposure',
             render: function Key(_, item): JSX.Element {
@@ -272,7 +273,6 @@ export function SummaryTable(): JSX.Element {
 
     if (experimentInsightType === InsightType.FUNNELS) {
         columns.push({
-            className: 'w-1/4',
             key: 'conversionRate',
             title: 'Conversion rate',
             render: function Key(_, item): JSX.Element {
@@ -288,7 +288,6 @@ export function SummaryTable(): JSX.Element {
     }
 
     columns.push({
-        className: 'w-1/4',
         key: 'winProbability',
         title: 'Win probability',
         render: function Key(_, item): JSX.Element {
@@ -311,11 +310,15 @@ export function SummaryTable(): JSX.Element {
         },
     })
 
-    return <LemonTable loading={false} columns={columns} dataSource={experimentResults?.variants || []} />
+    return (
+        <div className="mb-4">
+            <LemonTable loading={false} columns={columns} dataSource={experimentResults?.variants || []} />
+        </div>
+    )
 }
 
-export function QueryViz(): JSX.Element {
-    const { experiment, experimentId, experimentResults, experimentInsightType, experimentMathAggregationForTrends } =
+export function ExperimentGoal(): JSX.Element {
+    const { experiment, experimentId, experimentInsightType, experimentMathAggregationForTrends } =
         useValues(experimentLogic)
     const { openExperimentGoalModal } = useActions(experimentLogic({ experimentId }))
 
@@ -348,6 +351,17 @@ export function QueryViz(): JSX.Element {
                     </div>
                 </div>
             </div>
+        </div>
+    )
+}
+
+export function Results(): JSX.Element {
+    const { experimentResults } = useValues(experimentLogic)
+
+    return (
+        <div>
+            <h2 className="font-semibold text-lg mb-2">Results</h2>
+            <SummaryTable />
             <Query
                 query={{
                     kind: NodeKind.InsightVizNode,
@@ -1085,4 +1099,91 @@ export function EllipsisAnimation(): JSX.Element {
     }, [])
 
     return <span>{ellipsis}</span>
+}
+
+export function ExperimentLoadingAnimation(): JSX.Element {
+    function EllipsisAnimation(): JSX.Element {
+        const [ellipsis, setEllipsis] = useState('.')
+
+        useEffect(() => {
+            let count = 1
+            let direction = 1
+
+            const interval = setInterval(() => {
+                setEllipsis('.'.repeat(count))
+                count += direction
+
+                if (count === 3 || count === 1) {
+                    direction *= -1
+                }
+            }, 300)
+
+            return () => clearInterval(interval)
+        }, [])
+
+        return <span>{ellipsis}</span>
+    }
+
+    return (
+        <div className="flex flex-col flex-1 justify-center items-center">
+            <Animation type={AnimationType.LaptopHog} />
+            <div className="text-xs text-muted w-44">
+                <span className="mr-1">Fetching experiment results</span>
+                <EllipsisAnimation />
+            </div>
+        </div>
+    )
+}
+
+export function PageHeaderCustom(): JSX.Element {
+    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+    const { launchExperiment, setEditExperiment, loadExperimentResults, loadSecondaryMetricResults } =
+        useActions(experimentLogic)
+
+    return (
+        <PageHeader
+            buttons={
+                <>
+                    <div className="flex flex-row gap-2">
+                        <>
+                            <More
+                                overlay={
+                                    <>
+                                        {experiment && !isExperimentRunning && (
+                                            <>
+                                                <LemonButton fullWidth onClick={() => setEditExperiment(true)}>
+                                                    Edit
+                                                </LemonButton>
+                                                <LemonButton fullWidth onClick={() => launchExperiment()}>
+                                                    Launch
+                                                </LemonButton>
+                                            </>
+                                        )}
+                                        {experiment && isExperimentRunning && (
+                                            <>
+                                                <LemonButton
+                                                    onClick={() => loadExperimentResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-experiment"
+                                                >
+                                                    Refresh experiment results
+                                                </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => loadSecondaryMetricResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-secondary-metrics"
+                                                >
+                                                    Refresh secondary metrics
+                                                </LemonButton>
+                                            </>
+                                        )}
+                                    </>
+                                }
+                            />
+                        </>
+                    </div>
+                </>
+            }
+        />
+    )
 }
