@@ -132,9 +132,6 @@ export function PropertyValue({
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
-            dropdownProps={{
-                sameWidth: false,
-            }}
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
                 return {

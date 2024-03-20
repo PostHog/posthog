@@ -30,7 +30,6 @@ export type LemonInputSelectProps = {
     onChange?: (newValue: string[]) => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
-    dropdownProps?: Partial<LemonDropdownProps>
 }
 
 export function LemonInputSelect({
@@ -44,7 +43,6 @@ export function LemonInputSelect({
     disabled,
     disableFiltering = false,
     allowCustomValues = false,
-    dropdownProps = {},
     ...props
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
@@ -249,7 +247,6 @@ export function LemonInputSelect({
             sameWidth
             closeOnClickInside={false}
             actionable
-            {...dropdownProps}
             visible={showPopover}
             onClickOutside={() => {
                 popoverFocusRef.current = false
