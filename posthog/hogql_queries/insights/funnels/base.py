@@ -988,7 +988,11 @@ class FunnelBase(ABC):
             duplicate_event = is_equal(series[i], series[i - 1]) or is_superset(series[i], series[i - 1])
 
             conditions.append(parse_expr(f"latest_{i - 1} {'<' if duplicate_event else '<='} latest_{i}"))
-            conditions.append(parse_expr(f"latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}"))
+            conditions.append(
+                parse_expr(
+                    f"latest_{i} <= toTimeZone(latest_0, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}"
+                )
+            )
 
         return ast.Call(
             name="if",
