@@ -1,6 +1,5 @@
 import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
@@ -16,7 +15,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -97,40 +95,6 @@ export function SupportForm(): JSX.Element | null {
             <LemonField name="target_area" label="Topic">
                 <LemonSelect fullWidth options={TARGET_AREA_TO_NAME} />
             </LemonField>
-            {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
-                sendSupportRequest.target_area === 'session_replay' && (
-                    <LemonBanner type="info">
-                        <>
-                            We're pretty proud of our docs. Check out these helpful links:
-                            <ul>
-                                <li>
-                                    <Link target="_blank" to="https://posthog.com/docs/session-replay/troubleshooting">
-                                        Session replay troubleshooting
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link
-                                        target="_blank"
-                                        to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record"
-                                    >
-                                        How to control which sessions you record
-                                    </Link>
-                                </li>
-                            </ul>
-                        </>
-                    </LemonBanner>
-                )}
-            {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
-                sendSupportRequest.target_area === 'toolbar' && (
-                    <LemonBanner type="info">
-                        <>
-                            We're pretty proud of our docs.{' '}
-                            <Link target="_blank" to="https://posthog.com/docs/toolbar#troubleshooting-and-faq">
-                                Check out this troubleshooting guide
-                            </Link>
-                        </>
-                    </LemonBanner>
-                )}
             <LemonField
                 name="message"
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
