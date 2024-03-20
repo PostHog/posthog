@@ -83,7 +83,7 @@ export function SessionRecordingErrors(): JSX.Element {
                                     <LemonButton
                                         onClick={() => {
                                             createPlaylist(
-                                                `Example of '${parseTitle(cluster.sample)}'`,
+                                                `Examples of '${parseTitle(cluster.sample)}'`,
                                                 cluster.session_ids
                                             )
                                         }}
