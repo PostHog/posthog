@@ -2,13 +2,12 @@ from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
-from posthog.hogql.database.schema.util.where_clause_visitor import PassThroughHogQLASTVisitor, HogQLASTVisitor
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor
 
 SESSION_BUFFER_DAYS = 3
 
 
-class SessionWhereClauseExtractor(PassThroughHogQLASTVisitor):
+class SessionWhereClauseExtractor(CloningVisitor):
     def get_inner_where(self, parsed_query: ast.SelectQuery) -> Optional[ast.Expr]:
         if not parsed_query.where:
             return None
@@ -103,7 +102,7 @@ class SessionWhereClauseExtractor(PassThroughHogQLASTVisitor):
 
         return ast.Constant(value=True)
 
-    def visit_arithmetric_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
         # don't even try to handle complex logic
         return ast.Constant(value=True)
 
@@ -176,14 +175,14 @@ def is_time_or_interval_constant(expr: ast.Expr) -> bool:
     return IsTimeOrIntervalConstantVisitor().visit(expr)
 
 
-class IsTimeOrIntervalConstantVisitor(HogQLASTVisitor[bool]):
+class IsTimeOrIntervalConstantVisitor(Visitor):
     def visit_constant(self, node: ast.Constant) -> bool:
         return True
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
 
-    def visit_arithmetric_operation(self, node: ast.ArithmeticOperation) -> bool:
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
 
     def visit_call(self, node: ast.Call) -> bool:
@@ -240,7 +239,7 @@ def is_simple_timestamp_field_expression(expr: ast.Expr) -> bool:
     return IsSimpleTimestampFieldExpressionVisitor().visit(expr)
 
 
-class IsSimpleTimestampFieldExpressionVisitor(HogQLASTVisitor[bool]):
+class IsSimpleTimestampFieldExpressionVisitor(Visitor):
     def visit_constant(self, node: ast.Constant) -> bool:
         return False
 
@@ -255,7 +254,7 @@ class IsSimpleTimestampFieldExpressionVisitor(HogQLASTVisitor[bool]):
             or node.chain == ["e", "timestamp"]
         )
 
-    def visit_arithmetric_operation(self, node: ast.ArithmeticOperation) -> bool:
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         # only allow the min_timestamp field to be used on one side of the arithmetic operation
         return (
             self.visit(node.left)
@@ -279,7 +278,7 @@ class IsSimpleTimestampFieldExpressionVisitor(HogQLASTVisitor[bool]):
             return self.visit(node.args[0])
 
         if node.name in ["minus", "add"]:
-            return self.visit_arithmetric_operation(
+            return self.visit_arithmetic_operation(
                 ast.ArithmeticOperation(
                     op=ArithmeticOperationOp.Sub if node.name == "minus" else ArithmeticOperationOp.Add,
                     left=node.args[0],
@@ -313,7 +312,7 @@ def rewrite_timestamp_field(expr: ast.Expr) -> ast.Expr:
     return RewriteTimestampFieldVisitor().visit(expr)
 
 
-class RewriteTimestampFieldVisitor(PassThroughHogQLASTVisitor):
+class RewriteTimestampFieldVisitor(CloningVisitor):
     def visit_field(self, node: ast.Field) -> ast.Field:
         # this is quite leaky, as it doesn't handle aliases, but will handle all of posthog's hogql queries
         if (
