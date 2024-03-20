@@ -3603,8 +3603,8 @@ class TestFunnelStepCountsWithoutAggregationQuery(BaseTest):
     latest_0,
     step_1,
     latest_1,
-    if(and(less(latest_0, latest_1), lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14)))), 2, 1) AS steps,
-    if(and(isNotNull(latest_1), lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14)))), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+    if(and(less(latest_0, latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), 2, 1) AS steps,
+    if(and(isNotNull(latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
 FROM
     (SELECT
         aggregation_target,
@@ -3663,8 +3663,8 @@ FROM
             latest_0,
             step_1,
             latest_1,
-            if(and(less(latest_0, latest_1), lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14)))), 2, 1) AS steps,
-            if(and(isNotNull(latest_1), lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14)))), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+            if(and(less(latest_0, latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), 2, 1) AS steps,
+            if(and(isNotNull(latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
         FROM
             (SELECT
                 aggregation_target,
@@ -3734,8 +3734,8 @@ FROM
                 latest_0,
                 step_1,
                 latest_1,
-                if(and(less(latest_0, latest_1), lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14)))), 2, 1) AS steps,
-                if(and(isNotNull(latest_1), lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14)))), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                if(and(less(latest_0, latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), 2, 1) AS steps,
+                if(and(isNotNull(latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
             FROM
                 (SELECT
                     aggregation_target,
