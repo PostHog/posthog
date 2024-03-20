@@ -26,6 +26,14 @@
                 }
             },
             {
+                "match": {
+                    "uri": ["/static/*"]
+                },
+                "action": {
+                    "share": ["/code/staticfiles", "/code/frontend/dist", "/code/posthog/year_in_posthog/images"]
+                }
+            },
+            {
                 "action": {
                     "pass": "applications/posthog"
                 }
