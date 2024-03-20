@@ -34,7 +34,7 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
     return (
         <LemonButtonWithDropdown
             dropdown={{
-                sameWidth: false,
+                width: 'min-same',
                 overlay: Object.entries(eventsQueries).map(([title, eventsQuery]) => (
                     <LemonButton
                         key={title}

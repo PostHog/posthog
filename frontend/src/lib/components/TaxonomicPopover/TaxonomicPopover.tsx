@@ -92,7 +92,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
                     excludedProperties={excludedProperties}
                 />
             }
-            sameWidth={false}
+            width="min-same"
             actionable
             visible={visible}
             onClickOutside={() => {

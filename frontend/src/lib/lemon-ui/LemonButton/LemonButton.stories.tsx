@@ -386,7 +386,6 @@ WithDropdownToTheBottom.args = {
             </>
         ),
         placement: 'bottom',
-        sameWidth: true,
     },
 }
 
@@ -404,7 +403,6 @@ WithVeryLongPopoverToTheBottom.args = {
             </>
         ),
         placement: 'bottom',
-        sameWidth: true,
     },
 }
 

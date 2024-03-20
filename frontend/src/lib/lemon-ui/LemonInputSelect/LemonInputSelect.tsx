@@ -246,7 +246,7 @@ export function LemonInputSelect({
 
     return (
         <LemonDropdown
-            sameWidth
+            width="min-same"
             closeOnClickInside={false}
             actionable
             {...dropdownProps}
@@ -297,7 +297,7 @@ export function LemonInputSelect({
                     ) : loading ? (
                         <>
                             {range(5).map((x) => (
-                                <div key={x} className="flex gap-2 items-center h-10 px-1">
+                                <div key={x} className="flex gap-2 items-center h-10 px-1 max-w-full  w-20">
                                     <LemonSkeleton.Circle className="w-6 h-6" />
                                     <LemonSkeleton />
                                 </div>

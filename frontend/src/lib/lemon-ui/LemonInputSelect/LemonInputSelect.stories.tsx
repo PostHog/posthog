@@ -115,3 +115,13 @@ PrefilledManyValues.args = {
     allowCustomValues: true,
     value: names.map((_, i) => `user-${i}`),
 }
+
+export const WithCustomDropdownOptions: Story = Template.bind({})
+WithCustomDropdownOptions.args = {
+    mode: 'multiple',
+    loading: true,
+    options: [],
+    dropdownProps: {
+        width: 'min-same',
+    },
+}

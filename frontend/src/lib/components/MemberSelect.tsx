@@ -44,7 +44,7 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
         <LemonDropdown
             closeOnClickInside={false}
             visible={showPopover}
-            sameWidth={false}
+            width="min-same"
             actionable
             onVisibilityChange={(visible) => setShowPopover(visible)}
             overlay={

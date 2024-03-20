@@ -41,7 +41,7 @@ export interface PopoverProps {
     /** Whether the popover is actionable rather than just informative - actionable means a colored border. */
     actionable?: boolean
     /** Whether the popover's width should be synced with the children's width. */
-    sameWidth?: boolean
+    width?: 'same' | 'min-same' | 'fit-content'
     maxContentWidth?: boolean
     className?: string
     /** Whether default box padding should be applies. @default true */
@@ -89,7 +89,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         className,
         padded = true,
         middleware,
-        sameWidth = false,
+        width = 'same',
         maxContentWidth = false,
         additionalRefs = [],
         closeParentPopoverOnClickInside = false,
@@ -131,7 +131,13 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
                     floating.style.maxHeight = `${availableHeight}px`
                     floating.style.maxWidth = `${availableWidth}px`
-                    floating.style.width = sameWidth ? `${rects.reference.width}px` : 'initial'
+                    if (width === 'fit-content') {
+                        floating.style.width = 'initial'
+                    } else if (width === 'min-same') {
+                        floating.style.minWidth = `${rects.reference.width}px`
+                    } else if (width === 'same') {
+                        floating.style.width = `${rects.reference.width}px`
+                    }
                 },
             }),
             ...(showArrow ? [arrow({ element: arrowRef, padding: 8 })] : []),

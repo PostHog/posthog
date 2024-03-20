@@ -133,7 +133,7 @@ export function PropertyValue({
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
             dropdownProps={{
-                sameWidth: false,
+                width: 'min-same',
             }}
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)

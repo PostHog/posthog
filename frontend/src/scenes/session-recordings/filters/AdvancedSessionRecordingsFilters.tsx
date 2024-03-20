@@ -159,7 +159,6 @@ function ConsoleFilters({
                 data-attr="console-filters"
                 fullWidth={true}
                 dropdown={{
-                    sameWidth: true,
                     closeOnClickInside: false,
                     overlay: [
                         <>
