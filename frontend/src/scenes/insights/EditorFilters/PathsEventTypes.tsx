@@ -60,6 +60,7 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
             fullWidth
             type="secondary"
             dropdown={{
+                width: 'same',
                 closeOnClickInside: false,
                 overlay: options.map((option) => (
                     <LemonButton
