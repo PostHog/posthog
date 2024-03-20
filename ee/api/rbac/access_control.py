@@ -80,71 +80,53 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
-class AccessControlLimitOffsetPagination(LimitOffsetPagination):
+class AccessControlViewSetMixin:
     """
-    To help the UI do its job we can return information about the access levels for the requested resource
+    Adds an "access_controls" action to the viewset that handles access control for the given resource
     """
 
-    def get_paginated_response(self, data):
+    # TODO: Now that we are on the viewset we can
+    # 1. Know that the project level access is covered by the Permission check
+    # 2. Get the actual object which we can pass to the serializer to check if the user created it
+    # 3. We can also use the serializer to check the access level for the object
+
+    def _get_access_control_serializer(self, *args, **kwargs):
+        kwargs.setdefault("context", self.get_serializer_context())
+        return AccessControlSerializer(*args, **kwargs)
+
+    def _get_access_controls(self, request: Request):
+        resource = getattr(self, "scope_object", None)
+        obj = self.get_object()
+        resource_id = obj.id
+
+        access_controls = AccessControl.objects.filter(team=self.team, resource=resource, resource_id=resource_id).all()
+        serializer = self._get_access_control_serializer(instance=access_controls, many=True)
+
         return Response(
-            OrderedDict(
-                [
-                    ("count", self.count),
-                    ("next", self.get_next_link()),
-                    ("previous", self.get_previous_link()),
-                    ("available_access_levels", ordered_access_levels(self.request.GET.get("resource"))),
-                    ("results", data),
-                ]
-            )
+            {
+                "access_controls": serializer.data,
+                "available_access_levels": ordered_access_levels(resource),
+            }
         )
 
-    def get_paginated_response_schema(self, schema):
-        schema = super().get_paginated_response_schema(schema)
+    def _update_access_controls(self, request: Request):
+        resource = getattr(self, "scope_object", None)
+        obj = self.get_object()
+        resource_id = str(obj.id)
 
-        schema["properties"]["available_access_levels"] = {
-            "type": "array",
-            "items": {"type": "string"},
-        }
-
-        return schema
-
-
-class AccessControlViewSet(
-    TeamAndOrgViewSetMixin,
-    mixins.ListModelMixin,
-    viewsets.GenericViewSet,
-):
-    scope_object = "INTERNAL"
-    serializer_class = AccessControlSerializer
-    queryset = AccessControl.objects.all()
-    permission_classes = [PremiumFeaturePermission]
-    # NOTE: DashboardCollaborators that should be replaced by this use ADVANCED_PERMISSIONS - what do with that?
-    premium_feature = AvailableFeature.PROJECT_BASED_PERMISSIONING
-    pagination_class = AccessControlLimitOffsetPagination
-
-    def filter_queryset(self, queryset):
-        params = self.request.GET
-
-        if params.get("resource"):
-            queryset = queryset.filter(resource=params["resource"])
-
-        if params.get("resource_id"):
-            queryset = queryset.filter(resource_id=params["resource_id"])
-        elif params.get("resource"):
-            queryset = queryset.filter(resource_id=None)
-
-        return queryset
-
-    def put(self, request: Request, *args, **kwargs):
         # Generically validate the incoming data
-        partial_serializer = self.get_serializer(data=request.data)
+        data = request.data
+        data["resource"] = resource
+        data["resource_id"] = resource_id
+
+        partial_serializer = self._get_access_control_serializer(data=request.data)
         partial_serializer.is_valid(raise_exception=True)
         params = partial_serializer.validated_data
 
-        instance = self.queryset.filter(
+        instance = AccessControl.objects.filter(
             team=self.team,
-            resource=params["resource"],
-            resource_id=params.get("resource_id"),
+            resource=resource,
+            resource_id=resource_id,
             organization_member=params.get("organization_member"),
             role=params.get("role"),
         ).first()
@@ -156,9 +138,9 @@ class AccessControlViewSet(
 
         # Perform the upsert
         if instance:
-            serializer = self.get_serializer(instance, data=request.data)
+            serializer = self._get_access_control_serializer(instance, data=request.data)
         else:
-            serializer = self.get_serializer(data=request.data)
+            serializer = self._get_access_control_serializer(data=request.data)
 
         serializer.is_valid(raise_exception=True)
         serializer.validated_data["team"] = self.team
@@ -166,40 +148,9 @@ class AccessControlViewSet(
 
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=False)
-    def check(self, request: Request, *args, **kwargs):
-        resource = request.GET.get("resource")
-        resource_id = request.GET.get("resource_id")
-
-        if not resource:
-            raise exceptions.ValidationError("Resource must be provided.")
-
-        control = self.user_access_control.access_control_for_object(resource, resource_id)
-        return Response(
-            {
-                "access_level": control.access_level if control else None,
-                "available_access_levels": ordered_access_levels(resource),
-            },
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-
-class AccessControlViewSetMixin:
-    """
-    Adds an "access_control" action to the viewset that handles access control for the given resource
-    """
-
-    @action(methods=["GET", "PATCH"], detail=True)
+    @action(methods=["GET", "PUT"], detail=True)
     def access_controls(self, request: Request, *args, **kwargs):
-        resource = getattr(self, "scope_object", None)
-        obj = self.get_object()
-        resource_id = obj.id
-
-        control = self.user_access_control.access_control_for_object(resource, resource_id)
-        return Response(
-            {
-                "access_level": control.access_level if control else None,
-                "available_access_levels": ordered_access_levels(resource),
-            },
-            status=status.HTTP_403_FORBIDDEN,
-        )
+        if request.method == "GET":
+            return self._get_access_controls(request)
+        if request.method == "PUT":
+            return self._update_access_controls(request)

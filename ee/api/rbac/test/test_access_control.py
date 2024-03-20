@@ -2,14 +2,11 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from posthog.constants import AvailableFeature
+from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
 
 
 class BaseAccessControlTest(APILicensedTest):
-    default_resource = "project"
-    default_resource_id = None
-    default_access_level = "admin"
-
     def setUp(self):
         super().setUp()
         self.organization.available_features = [
@@ -21,11 +18,7 @@ class BaseAccessControlTest(APILicensedTest):
         self.default_resource_id = self.team.id
 
     def _put_access_control(self, data={}):
-        payload = {
-            "resource": self.default_resource,
-            "resource_id": self.default_resource_id,
-            "access_level": self.default_access_level,
-        }
+        payload = {"access_level": "admin"}
 
         payload.update(data)
         return self.client.put(
@@ -82,7 +75,7 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
             {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
         )
         assert res.status_code == status.HTTP_403_FORBIDDEN
-        assert res.json()["detail"] == "You must be an admin to modify project permissions."
+        assert res.json()["detail"] == "Must be admin to modify project permissions."
 
     def test_project_change_rejected_if_not_in_organization(self):
         self.organization_membership.delete()
@@ -98,18 +91,45 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
 
 
 class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
-    default_resource = "dashboard"
+    default_resource = "notebook"
     default_resource_id = 1
     default_access_level = "editor"
+
+    def setUp(self):
+        super().setUp()
+
+        self.notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="01234", title="first notebook"
+        )
+
+    def _get_access_controls(self, data={}):
+        return self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}/access_controls")
+
+    def _put_access_control(self, data={}):
+        payload = {
+            "access_level": self.default_access_level,
+        }
+
+        payload.update(data)
+        return self.client.put(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}/access_controls",
+            payload,
+        )
+
+    def test_get_access_controls(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self._get_access_controls()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json() == {"access_controls": [], "available_access_levels": ["viewer", "editor"]}
 
     def test_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         res = self._put_access_control()
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
 
-    def test_change_permitted_if_creator_of_the_resource(self):
-        # TODO: Implement this test
-        assert False
-        # self._org_membership(OrganizationMembership.Level.MEMBER)
-        # res = self._put_access_control()
-        # assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+    # def test_change_permitted_if_creator_of_the_resource(self):
+    #     # TODO: Implement this test
+    #     assert False
+    #     # self._org_membership(OrganizationMembership.Level.MEMBER)
+    #     # res = self._put_access_control()
+    #     # assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()

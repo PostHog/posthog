@@ -19,7 +19,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
-    CREATE_METHODS,
+    CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
     extract_organization,
@@ -32,12 +32,12 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple organizations."
 
-    def has_permission(self, request: Request, view) -> bool:
+    def has_permission(self, request: Request, view: View) -> bool:
         user = cast(User, request.user)
         if (
             # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
             not is_cloud()
-            and request.method in CREATE_METHODS
+            and view.action in CREATE_ACTIONS
             and (
                 user.organization is None
                 or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
