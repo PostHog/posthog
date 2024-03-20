@@ -132,9 +132,12 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         res = self._put_access_control(notebook_id=self.other_user_notebook.short_id)
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
 
-    # def test_change_permitted_if_creator_of_the_resource(self):
-    #     # TODO: Implement this test
-    #     assert False
-    #     # self._org_membership(OrganizationMembership.Level.MEMBER)
-    #     # res = self._put_access_control()
-    #     # assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+    def test_change_accepted_if_org_admin(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self._put_access_control(notebook_id=self.other_user_notebook.short_id)
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    def test_change_accepted_if_creator_of_the_resource(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self._put_access_control()
+        assert res.status_code == status.HTTP_200_OK, res.json()
