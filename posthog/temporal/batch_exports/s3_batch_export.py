@@ -19,13 +19,7 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, S3BatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
-    BatchExportTemporaryFile,
-    BatchExportWriter,
     CreateBatchExportRunInputs,
-    FlushCallable,
-    JSONLBatchExportWriter,
-    ParquetBatchExportWriter,
-    UnsupportedFileFormatError,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     default_fields,
@@ -37,6 +31,14 @@ from posthog.temporal.batch_exports.batch_exports import (
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
+)
+from posthog.temporal.batch_exports.temporary_file import (
+    BatchExportTemporaryFile,
+    BatchExportWriter,
+    FlushCallable,
+    JSONLBatchExportWriter,
+    ParquetBatchExportWriter,
+    UnsupportedFileFormatError,
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind
 from posthog.temporal.common.clickhouse import get_client
@@ -474,7 +476,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
 
         last_uploaded_part_timestamp: str | None = None
 
-        async def worker_shutdown_handler():
+        async def worker_shutdown_handler() -> None:
             """Handle the Worker shutting down by heart-beating our latest status."""
             await activity.wait_for_worker_shutdown()
             logger.warn(
