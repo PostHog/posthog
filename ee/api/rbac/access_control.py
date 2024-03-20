@@ -1,17 +1,13 @@
-from collections import OrderedDict
 from typing import cast
 
-from rest_framework import exceptions, mixins, serializers, status, viewsets
+from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.models.rbac.access_control import AccessControl
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.constants import AvailableFeature
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
-from posthog.permissions import PremiumFeaturePermission
+from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 
 
@@ -48,6 +44,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return access_level
 
     def validate(self, data):
+        context = self.context
         # Ensure that only one of organization_member or role is set
         if data.get("organization_member") and data.get("role"):
             raise serializers.ValidationError("You can not scope an access control to both a member and a role.")
@@ -58,23 +55,18 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
         # We assume the highest level is required for the given resource to edit access controls
         required_level = ordered_access_levels(resource)[-1]
-
-        # NOTE: For specific resources you are permitted if you are:
-        # 1. The creator of the resource
-        # 2. An Organization admin
-        # 3. A Project admin
+        team = context["view"].team
+        the_object = context["view"].get_object()
 
         if resource_id:
             # Check that they have the right access level for this specific resource object
-            if not access_control.check_access_level_for_object(
-                resource, data["resource_id"], required_level=required_level
-            ):
+            if not access_control.check_can_modify_access_levels_for_object(the_object):
                 # TODO: Human readable resource name
                 raise exceptions.PermissionDenied(f"Must be {required_level} to modify {resource} permissions.")
         else:
             # If modifying the base resource rules then we are checking the parent membership (project or organization)
             # NOTE: Currently we only support org level in the UI so its simply an org level check
-            if not access_control.check_access_level_for_object("organization", required_level="admin"):
+            if not access_control.check_can_modify_access_levels_for_object(team):
                 raise exceptions.PermissionDenied("Must be an Organization admin to modify project-wide permissions.")
 
         return data
@@ -83,6 +75,9 @@ class AccessControlSerializer(serializers.ModelSerializer):
 class AccessControlViewSetMixin:
     """
     Adds an "access_controls" action to the viewset that handles access control for the given resource
+
+    Why a mixin? We want to easily add this to any existing resource, including providing easy helpers for adding access control info such
+    as the current users access level to any response.
     """
 
     # TODO: Now that we are on the viewset we can

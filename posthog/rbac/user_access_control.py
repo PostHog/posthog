@@ -1,7 +1,7 @@
 from rest_framework.permissions import BasePermission
 
 from functools import cached_property
-from django.db.models import Q, QuerySet
+from django.db.models import Model, Q, QuerySet
 from typing import TYPE_CHECKING, List, Optional
 
 from posthog.constants import AvailableFeature
@@ -141,7 +141,7 @@ class UserAccessControl:
         )
 
     def check_access_level_for_object(
-        self, resource: APIScopeObject, resource_id: str, required_level: str
+        self, obj: Model, resource: APIScopeObject, resource_id: str, required_level: str
     ) -> Optional[bool]:
         """
         Entry point for all permissions around a specific object.
@@ -150,13 +150,28 @@ class UserAccessControl:
         Returns true or false if access controls are applied, otherwise None
         """
 
-        access_control = self.access_control_for_object(resource, resource_id)
+        access_control = self.access_control_for_object(obj, resource, resource_id)
 
         return (
             None
             if not access_control
             else access_level_satisfied(resource, access_control.access_level, required_level)
         )
+
+    def check_can_modify_access_levels_for_object(self, obj: Model) -> Optional[bool]:
+        """
+        Special case for checking if the user can modify the access levels for an object.
+        Unlike check_access_level_for_object, this requires that one of these conditions is true:
+        1. The user is the creator of the object
+        2. The user is a project admin
+        2. The user is an org admin
+        """
+
+        if getattr(obj, "created_by", None) == self._user:
+            # TODO: Should this always be the case, even for projects?
+            return True
+
+        return self.check_access_level_for_object(obj.team, "project", str(obj.id), "admin")
 
     # Used for filtering a queryset by access level
     def filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
@@ -199,7 +214,9 @@ class AccessControlPermission(BasePermission):
 
         # TODO: How to determine action level to check...
         required_level = "viewer"
-        has_access = uac.check_access_level_for_object(view.scope_object, str(object.id), required_level=required_level)
+        has_access = uac.check_access_level_for_object(
+            object, view.scope_object, str(object.id), required_level=required_level
+        )
 
         if not has_access:
             self.message = f"You do not have {required_level} access to this resource."
@@ -216,7 +233,7 @@ class AccessControlPermission(BasePermission):
 
         try:
             team = view.team
-            is_member = uac.check_access_level_for_object("project", str(team.id), "member")
+            is_member = uac.check_access_level_for_object(view.team, "project", str(team.id), "member")
 
             if not is_member:
                 self.message = f"You are not a member of this project."

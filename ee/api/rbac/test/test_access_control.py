@@ -99,20 +99,25 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         super().setUp()
 
         self.notebook = Notebook.objects.create(
-            team=self.team, created_by=self.user, short_id="01234", title="first notebook"
+            team=self.team, created_by=self.user, short_id="0", title="first notebook"
+        )
+
+        self.other_user = self._create_user("other_user")
+        self.other_user_notebook = Notebook.objects.create(
+            team=self.team, created_by=self.other_user, short_id="1", title="first notebook"
         )
 
     def _get_access_controls(self, data={}):
         return self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}/access_controls")
 
-    def _put_access_control(self, data={}):
+    def _put_access_control(self, data={}, notebook_id=None):
         payload = {
             "access_level": self.default_access_level,
         }
 
         payload.update(data)
         return self.client.put(
-            f"/api/projects/@current/notebooks/{self.notebook.short_id}/access_controls",
+            f"/api/projects/@current/notebooks/{notebook_id or self.notebook.short_id}/access_controls",
             payload,
         )
 
@@ -124,7 +129,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
 
     def test_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        res = self._put_access_control()
+        res = self._put_access_control(notebook_id=self.other_user_notebook.short_id)
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
 
     # def test_change_permitted_if_creator_of_the_resource(self):
