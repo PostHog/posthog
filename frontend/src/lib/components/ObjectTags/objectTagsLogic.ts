@@ -20,8 +20,6 @@ export const objectTagsLogic = kea<objectTagsLogicType>([
     actions({
         setTags: (tags: string[]) => ({ tags }),
         setEditingTags: (editingTags: boolean) => ({ editingTags }),
-        handleDelete: (tag: string) => ({ tag }),
-        handleAdd: (nextTags: string[]) => ({ nextTags }),
     }),
     reducers(() => ({
         editingTags: [
