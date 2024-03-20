@@ -282,6 +282,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.pathsFilter?.maxEdgeWeight
         delete queryCopy.pathsFilter?.funnelPaths
         delete queryCopy.pathsFilter?.funnelFilter
+        delete queryCopy.pathsFilter?.funnelActorsQuery
     } else if (isStickinessQuery(queryCopy)) {
         camelCasedStickinessProps.show_legend = queryCopy.stickinessFilter?.showLegend
         camelCasedStickinessProps.show_values_on_series = queryCopy.stickinessFilter?.showValuesOnSeries

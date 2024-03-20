@@ -46,7 +46,7 @@ class FunnelQueryContext(QueryContext):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
-        include_timestamp: Optional[bool] = None,
+        include_timestamp: Optional[bool] = True,
         include_preceding_timestamp: Optional[bool] = None,
         include_properties: Optional[List[str]] = None,
         include_final_matching_events: Optional[bool] = None,

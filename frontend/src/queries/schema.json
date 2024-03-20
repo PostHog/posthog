@@ -3240,6 +3240,9 @@
                     },
                     "type": "array"
                 },
+                "funnelActorsQuery": {
+                    "$ref": "#/definitions/FunnelsActorsQuery"
+                },
                 "funnelFilter": {
                     "type": "object"
                 },

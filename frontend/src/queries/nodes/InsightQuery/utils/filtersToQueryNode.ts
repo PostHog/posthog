@@ -18,6 +18,7 @@ import {
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelsActorsQuery,
     FunnelsFilter,
     InsightNodeKind,
     InsightQueryNode,
@@ -474,6 +475,18 @@ export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilt
         pathGroupings: filters.path_groupings,
         funnelPaths: filters.funnel_paths,
         funnelFilter: filters.funnel_filter,
+        funnelActorsQuery: filters.funnel_filter
+            ? ({
+                  kind: NodeKind.FunnelsActorsQuery,
+                  source: {
+                      //kind: NodeKind.FunnelsQuery,
+                      funnelsFilter: funnelsFilterToQuery(filters.funnel_filter),
+                      ...filtersToQueryNode(filters.funnel_filter),
+                  },
+                  funnelStep: filters.funnel_filter.funnel_step,
+                  //series: undefined // TODO
+              } as FunnelsActorsQuery)
+            : undefined,
         excludeEvents: filters.exclude_events,
         stepLimit: filters.step_limit,
         pathReplacements: filters.path_replacements,

@@ -787,6 +787,7 @@ export type PathsFilter = {
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
     funnelPaths?: PathsFilterLegacy['funnel_paths']
     funnelFilter?: PathsFilterLegacy['funnel_filter']
+    funnelActorsQuery?: FunnelsActorsQuery
 
     /** Relevant only within actors query */
     pathStartKey?: string

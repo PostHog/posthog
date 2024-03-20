@@ -27,6 +27,7 @@ from posthog.schema import (
     PathCleaningFilter,
     PathsFilter,
     PathType,
+    FunnelPathType,
 )
 from posthog.schema import PathsQuery
 
@@ -133,9 +134,25 @@ class PathsQueryRunner(QueryRunner):
         event_hogql = self.construct_event_hogql()
         event_conditional = parse_expr("ifNull({event_hogql}, '') AS path_item_ungrouped", {"event_hogql": event_hogql})
 
+        funnel_fields = []
+
+        if self.query.pathsFilter.funnelPaths in (
+            FunnelPathType.funnel_path_after_step,
+            FunnelPathType.funnel_path_before_step,
+        ):
+            funnel_fields = [
+                ast.Alias(alias="target_timestamp", expr=ast.Field(chain=["funnel_actors", "timestamp"])),
+            ]
+        elif self.query.pathsFilter.funnelPaths == FunnelPathType.funnel_path_between_steps:
+            funnel_fields = [
+                ast.Alias(alias="min_timestamp", expr=ast.Field(chain=["funnel_actors", "min_timestamp"])),
+                ast.Alias(alias="max_timestamp", expr=ast.Field(chain=["funnel_actors", "max_timestamp"])),
+            ]
+
         fields = [
             ast.Field(chain=["events", "timestamp"]),
             ast.Field(chain=["events", "person_id"]),
+            *funnel_fields,
             event_conditional,
             *[ast.Field(chain=["events", field]) for field in self.extra_event_fields],
             *[
@@ -226,9 +243,39 @@ class PathsQueryRunner(QueryRunner):
             where=ast.And(exprs=event_filters + self._get_event_query()),
             order_by=[
                 ast.OrderExpr(expr=ast.Field(chain=["person_id"])),
-                ast.OrderExpr(expr=ast.Field(chain=["timestamp"])),
+                ast.OrderExpr(expr=ast.Field(chain=["events", "timestamp"])),
             ],
         )
+
+        if funnel_fields:
+            # get funnels query runner and user actors query
+            # assemble a funnel query
+            from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
+
+            actors_query_runner = InsightActorsQueryRunner(
+                query=self.query.pathsFilter.funnelActorsQuery,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+            actors_query_runner.source_runner.funnel_actor_class.context.includeTimestamps = True
+            actors_query = actors_query_runner.to_query()
+            query.select_from = ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    table=actors_query,
+                    join_type="INNER JOIN",
+                    alias="funnel_actors",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["events", "person_id"]),
+                            right=ast.Field(chain=["funnel_actors", "actor_id"]),
+                        ),
+                    ),
+                ),
+            )
 
         if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float) and query.select_from:
             query.select_from.sample = ast.SampleExpr(

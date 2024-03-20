@@ -590,29 +590,6 @@ class PathType(str, Enum):
     hogql = "hogql"
 
 
-class PathsFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    edgeLimit: Optional[int] = None
-    endPoint: Optional[str] = None
-    excludeEvents: Optional[List[str]] = None
-    funnelFilter: Optional[Dict[str, Any]] = None
-    funnelPaths: Optional[FunnelPathType] = None
-    includeEventTypes: Optional[List[PathType]] = None
-    localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
-    maxEdgeWeight: Optional[int] = None
-    minEdgeWeight: Optional[int] = None
-    pathDropoffKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
-    pathEndKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
-    pathGroupings: Optional[List[str]] = None
-    pathReplacements: Optional[bool] = None
-    pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
-    pathsHogQLExpression: Optional[str] = None
-    startPoint: Optional[str] = None
-    stepLimit: Optional[int] = None
-
-
 class PathsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2391,12 +2368,6 @@ class HogQLAutocomplete(BaseModel):
     startPosition: int = Field(..., description="Start position of the editor word")
 
 
-class InsightFilter(
-    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
-):
-    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
-
-
 class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2699,6 +2670,57 @@ class NamedParametersTypeofDateRangeForFilter(BaseModel):
     source: Optional[FilterType] = None
 
 
+class FunnelsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelCustomSteps: Optional[List[int]] = Field(
+        default=None,
+        description="Custom step numbers to get persons for. This overrides `funnelStep`. Primarily for correlation use.",
+    )
+    funnelStep: Optional[int] = Field(
+        default=None,
+        description="Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.",
+    )
+    funnelStepBreakdown: Optional[Union[str, float, List[Union[str, float]]]] = Field(
+        default=None,
+        description="The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts.",
+    )
+    funnelTrendsDropOff: Optional[bool] = None
+    funnelTrendsEntrancePeriodStart: Optional[str] = Field(
+        default=None,
+        description="Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal.",
+    )
+    includeRecordings: Optional[bool] = None
+    kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
+    response: Optional[ActorsQueryResponse] = None
+    source: FunnelsQuery
+
+
+class PathsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    edgeLimit: Optional[int] = None
+    endPoint: Optional[str] = None
+    excludeEvents: Optional[List[str]] = None
+    funnelActorsQuery: Optional[FunnelsActorsQuery] = None
+    funnelFilter: Optional[Dict[str, Any]] = None
+    funnelPaths: Optional[FunnelPathType] = None
+    includeEventTypes: Optional[List[PathType]] = None
+    localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
+    maxEdgeWeight: Optional[int] = None
+    minEdgeWeight: Optional[int] = None
+    pathDropoffKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
+    pathEndKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
+    pathGroupings: Optional[List[str]] = None
+    pathReplacements: Optional[bool] = None
+    pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
+    pathsHogQLExpression: Optional[str] = None
+    startPoint: Optional[str] = None
+    stepLimit: Optional[int] = None
+
+
 class PathsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2734,31 +2756,25 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
-class FunnelsActorsQuery(BaseModel):
+class FunnelCorrelationQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    funnelCustomSteps: Optional[List[int]] = Field(
-        default=None,
-        description="Custom step numbers to get persons for. This overrides `funnelStep`. Primarily for correlation use.",
-    )
-    funnelStep: Optional[int] = Field(
-        default=None,
-        description="Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.",
-    )
-    funnelStepBreakdown: Optional[Union[str, float, List[Union[str, float]]]] = Field(
-        default=None,
-        description="The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts.",
-    )
-    funnelTrendsDropOff: Optional[bool] = None
-    funnelTrendsEntrancePeriodStart: Optional[str] = Field(
-        default=None,
-        description="Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal.",
-    )
-    includeRecordings: Optional[bool] = None
-    kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
-    response: Optional[ActorsQueryResponse] = None
-    source: FunnelsQuery
+    funnelCorrelationEventExcludePropertyNames: Optional[List[str]] = None
+    funnelCorrelationEventNames: Optional[List[str]] = None
+    funnelCorrelationExcludeEventNames: Optional[List[str]] = None
+    funnelCorrelationExcludeNames: Optional[List[str]] = None
+    funnelCorrelationNames: Optional[List[str]] = None
+    funnelCorrelationType: FunnelCorrelationResultsType
+    kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
+    response: Optional[FunnelCorrelationResponse] = None
+    source: FunnelsActorsQuery
+
+
+class InsightFilter(
+    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
+):
+    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
 class InsightVizNode(BaseModel):
@@ -2783,41 +2799,6 @@ class InsightVizNode(BaseModel):
     )
     suppressSessionAnalysisWarning: Optional[bool] = None
     vizSpecificOptions: Optional[VizSpecificOptions] = None
-
-
-class FunnelCorrelationQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    funnelCorrelationEventExcludePropertyNames: Optional[List[str]] = None
-    funnelCorrelationEventNames: Optional[List[str]] = None
-    funnelCorrelationExcludeEventNames: Optional[List[str]] = None
-    funnelCorrelationExcludeNames: Optional[List[str]] = None
-    funnelCorrelationNames: Optional[List[str]] = None
-    funnelCorrelationType: FunnelCorrelationResultsType
-    kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
-    response: Optional[FunnelCorrelationResponse] = None
-    source: FunnelsActorsQuery
-
-
-class InsightActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: Optional[Union[str, int]] = None
-    compare: Optional[Compare] = None
-    day: Optional[Union[str, int]] = None
-    includeRecordings: Optional[bool] = None
-    interval: Optional[int] = Field(
-        default=None, description="An interval selected out of available intervals in source query."
-    )
-    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
-    response: Optional[ActorsQueryResponse] = None
-    series: Optional[int] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
-    status: Optional[str] = None
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
@@ -2847,6 +2828,26 @@ class FunnelCorrelationActorsQuery(BaseModel):
     kind: Literal["FunnelCorrelationActorsQuery"] = "FunnelCorrelationActorsQuery"
     response: Optional[ActorsQueryResponse] = None
     source: FunnelCorrelationQuery
+
+
+class InsightActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[Union[str, int]] = None
+    compare: Optional[Compare] = None
+    day: Optional[Union[str, int]] = None
+    includeRecordings: Optional[bool] = None
+    interval: Optional[int] = Field(
+        default=None, description="An interval selected out of available intervals in source query."
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
+    status: Optional[str] = None
 
 
 class InsightActorsQueryOptions(BaseModel):
