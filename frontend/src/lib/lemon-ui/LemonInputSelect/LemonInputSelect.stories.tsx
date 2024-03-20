@@ -54,9 +54,24 @@ MultipleSelect.args = {
 
 export const MultipleSelectWithCustom: Story = Template.bind({})
 MultipleSelectWithCustom.args = {
-    placeholder: 'Enter any email...',
+    placeholder: 'Pick a url...',
     mode: 'multiple',
     allowCustomValues: true,
+    options: [
+        {
+            key: 'http://posthog.com/docs',
+            label: 'http://posthog.com/docs',
+        },
+        {
+            key: 'http://posthog.com/pricing',
+            label: 'http://posthog.com/pricing',
+        },
+
+        {
+            key: 'http://posthog.com/products',
+            label: 'http://posthog.com/products',
+        },
+    ],
 }
 
 export const Disabled: Story = Template.bind({})

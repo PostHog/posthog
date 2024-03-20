@@ -370,6 +370,7 @@ async def test_http_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 100
 
     await assert_clickhouse_records_in_mock_server(
         mock_server=mock_server,
@@ -425,6 +426,7 @@ async def test_http_export_workflow_handles_insert_activity_errors(ateam, http_b
     run = runs[0]
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
+    assert run.records_completed == 0
 
 
 async def test_http_export_workflow_handles_insert_activity_non_retryable_errors(ateam, http_batch_export, interval):

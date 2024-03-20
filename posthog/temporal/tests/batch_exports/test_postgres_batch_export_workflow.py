@@ -385,6 +385,7 @@ async def test_postgres_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 100
 
     await assert_clickhouse_records_in_postgres(
         postgres_connection=postgres_connection,
@@ -494,6 +495,7 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
     run = runs[0]
     assert run.status == "Failed"
     assert run.latest_error == "InsufficientPrivilege: A useful error message"
+    assert run.records_completed == 0
 
 
 async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_batch_export, interval):
