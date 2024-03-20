@@ -208,6 +208,12 @@ export const parseKafkaMessage = async (
     if (!!ingestionWarningProducer && !!teamIdWithConfig.teamId) {
         const libVersion = readLibVersionFromHeaders(message.headers)
         const minorVersion = minorVersionFrom(libVersion)
+        /**
+         * We introduced SVG mutation throttling in version 1.74.0 fix: Recording throttling for SVG-like things (#758)
+         * and improvements like jitter on retry and better batching in session recording in earlier versions
+         * So, versions older than 1.75.0 can cause ingestion pressure or incidents
+         * because they send much more information and more messages for the same recording
+         */
         if (minorVersion && minorVersion <= 74) {
             counterLibVersionWarning.inc()
 
