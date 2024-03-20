@@ -139,8 +139,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     } else if (width === 'same') {
                         floating.style.width = `${rects.reference.width}px`
                     }
-
-                    console.log('floating.style.width', floating.style.width, width)
                 },
             }),
             ...(showArrow ? [arrow({ element: arrowRef, padding: 8 })] : []),

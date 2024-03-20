@@ -120,7 +120,7 @@ export const WithCustomDropdownOptions: StoryFn<typeof LemonInputSelect> = (prop
     const [value, setValue] = useState(props.value || [])
     return (
         <div className="min-w-[50rem] w-full">
-            <div className="w-[20rem] space-y-4">
+            <div className="w-[20rem] flex flex-col gap-4">
                 <LemonInputSelect
                     mode="multiple"
                     value={value}
