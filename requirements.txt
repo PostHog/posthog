@@ -264,8 +264,6 @@ google-cloud-bigquery==3.11.4
     # via -r requirements.in
 google-cloud-core==2.3.3
     # via google-cloud-bigquery
-google-cloud-sqlcommenter==2.0.0
-    # via -r requirements.in
 google-crc32c==1.5.0
     # via google-resumable-media
 google-resumable-media==2.5.0
