@@ -202,6 +202,7 @@ export const FEATURE_FLAGS = {
     REPLAY_SIMILAR_RECORDINGS: 'session-replay-similar-recordings', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     EXPORTS_SIDEPANEL: 'exports-sidepanel', // owner: #team-product-analytics
+    BILLING_UPGRADE_LANGUAGE: 'billing-upgrade-language', // owner: @biancayang
     NEW_EXPERIMENTS_UI: 'new-experiments-ui', // owner: @jurajmajerik #team-feature-success
     SESSION_REPLAY_V3_INGESTION_PLAYBACK: 'session-replay-v3-ingestion-playback', // owner: @benjackwhite
     SESSION_REPLAY_FILTER_ORDERING: 'session-replay-filter-ordering', // owner: #team-replay
@@ -209,6 +210,7 @@ export const FEATURE_FLAGS = {
     REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
+    REVERSE_PROXY_ONBOARDING: 'reverse-proxy-onboarding', // owner: @zlwaterfield
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

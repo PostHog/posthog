@@ -134,7 +134,7 @@ class TestDatabase(BaseTest):
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
-            == "SELECT number AS number FROM (SELECT numbers.number AS number FROM numbers(2) AS numbers) LIMIT 10000"
+            == "SELECT number AS number, expression AS expression, double AS double FROM (SELECT numbers.number AS number, plus(1, 1) AS expression, multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
         ), query
 
     def test_database_warehouse_joins(self):

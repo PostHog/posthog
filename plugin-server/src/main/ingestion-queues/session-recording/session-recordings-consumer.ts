@@ -160,8 +160,8 @@ export class SessionRecordingIngester {
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 
-        // We create a hash of the cluster to use as a unique identifier for the high water marks
-        // This enables us to swap clusters without having to worry about resetting the high water marks
+        // We create a hash of the cluster to use as a unique identifier for the high-water marks
+        // This enables us to swap clusters without having to worry about resetting the high-water marks
         const kafkaClusterIdentifier = crypto.createHash('md5').update(this.config.KAFKA_HOSTS).digest('hex')
 
         this.sessionHighWaterMarker = new OffsetHighWaterMarker(

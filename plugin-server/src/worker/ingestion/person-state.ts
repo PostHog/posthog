@@ -323,19 +323,31 @@ export class PersonState {
             return undefined
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
-            await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
-                illegalDistinctId: mergeIntoDistinctId,
-                otherDistinctId: otherPersonDistinctId,
-                eventUuid: this.event.uuid,
-            })
+            await captureIngestionWarning(
+                this.db.kafkaProducer,
+                teamId,
+                'cannot_merge_with_illegal_distinct_id',
+                {
+                    illegalDistinctId: mergeIntoDistinctId,
+                    otherDistinctId: otherPersonDistinctId,
+                    eventUuid: this.event.uuid,
+                },
+                { alwaysSend: true }
+            )
             return undefined
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
-            await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
-                illegalDistinctId: otherPersonDistinctId,
-                otherDistinctId: mergeIntoDistinctId,
-                eventUuid: this.event.uuid,
-            })
+            await captureIngestionWarning(
+                this.db.kafkaProducer,
+                teamId,
+                'cannot_merge_with_illegal_distinct_id',
+                {
+                    illegalDistinctId: otherPersonDistinctId,
+                    otherDistinctId: mergeIntoDistinctId,
+                    eventUuid: this.event.uuid,
+                },
+                { alwaysSend: true }
+            )
             return undefined
         }
         return promiseRetry(
@@ -403,12 +415,17 @@ export class PersonState {
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
         if (!mergeAllowed) {
-            // TODO: add event UUID to the ingestion warning
-            await captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
-                sourcePersonDistinctId: otherPersonDistinctId,
-                targetPersonDistinctId: mergeIntoDistinctId,
-                eventUuid: this.event.uuid,
-            })
+            await captureIngestionWarning(
+                this.db.kafkaProducer,
+                this.teamId,
+                'cannot_merge_already_identified',
+                {
+                    sourcePersonDistinctId: otherPersonDistinctId,
+                    targetPersonDistinctId: mergeIntoDistinctId,
+                    eventUuid: this.event.uuid,
+                },
+                { alwaysSend: true }
+            )
             status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
             return mergeInto // We're returning the original person tied to distinct_id used for the event
         }

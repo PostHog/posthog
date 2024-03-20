@@ -672,6 +672,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'What library was used to send the event.',
             examples: ['web', 'posthog-ios'],
         },
+        $lib_custom_api_host: {
+            label: 'Library Custom API Host',
+            description: 'The custom API host used to send the event.',
+            examples: ['https://ph.example.com'],
+        },
         $lib_version: {
             label: 'Library Version',
             description: 'Version of the library used to send the event. Used in combination with Library.',

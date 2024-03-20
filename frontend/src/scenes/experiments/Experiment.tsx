@@ -442,7 +442,7 @@ export function Experiment(): JSX.Element {
                                                 sure you manually send feature flag information for server-side
                                                 libraries if necessary.{' '}
                                                 <Link
-                                                    to="https://posthog.com/docs/integrate/server/python#capture"
+                                                    to="https://posthog.com/docs/libraries/python#capture"
                                                     target="_blank"
                                                 >
                                                     {' '}
