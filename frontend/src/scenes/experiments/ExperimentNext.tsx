@@ -6,34 +6,23 @@ import { ExperimentForm } from './ExperimentForm'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic } from './experimentLogic'
 import {
-    DistributionTable,
-    ExperimentActiveBanner,
-    ExperimentDraftBanner,
-    ExperimentExposureModal,
-    ExperimentGoal,
-    ExperimentGoalModal,
+    ExperimentBanner,
     ExperimentLoader,
     ExperimentLoadingAnimation,
-    ExperimentProgressBar,
-    ExperimentStatus,
-    ExperimentStoppedBanner,
-    NoResultsEmptyState,
     PageHeaderCustom,
-    ReleaseConditionsTable,
-    Results,
-    SecondaryMetricsTable,
-} from './ExperimentResultsViz'
+} from './ExperimentView/components'
+import { DistributionTable } from './ExperimentView/DistributionTable'
+import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './ExperimentView/Goal'
+import { NoResultsEmptyState } from './ExperimentView/NoResultsEmptyState'
+import { ProgressBar } from './ExperimentView/ProgressBar'
+import { ReleaseConditionsTable } from './ExperimentView/ReleaseConditionsTable'
+import { Results } from './ExperimentView/Results'
+import { Status } from './ExperimentView/Status'
+import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 export function ExperimentView(): JSX.Element {
-    const {
-        experiment,
-        isExperimentRunning,
-        isExperimentStopped,
-        experimentLoading,
-        experimentResultsLoading,
-        experimentId,
-        experimentResults,
-    } = useValues(experimentLogic)
+    const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
+        useValues(experimentLogic)
 
     const { updateExperimentSecondaryMetrics } = useActions(experimentLogic)
 
@@ -45,20 +34,14 @@ export function ExperimentView(): JSX.Element {
                     <ExperimentLoader />
                 ) : (
                     <>
-                        {isExperimentStopped ? (
-                            <ExperimentStoppedBanner />
-                        ) : isExperimentRunning ? (
-                            <ExperimentActiveBanner />
-                        ) : (
-                            <ExperimentDraftBanner />
-                        )}
+                        <ExperimentBanner />
                         {experimentResultsLoading ? (
                             <ExperimentLoadingAnimation />
                         ) : experimentResults && experimentResults.insight ? (
                             <>
-                                <ExperimentStatus />
-                                <ExperimentProgressBar />
-                                <ExperimentGoal />
+                                <Status />
+                                <ProgressBar />
+                                <Goal />
                                 <Results />
                                 <SecondaryMetricsTable
                                     experimentId={experiment.id}
@@ -71,7 +54,7 @@ export function ExperimentView(): JSX.Element {
                             </>
                         ) : (
                             <>
-                                <ExperimentGoal />
+                                <Goal />
                                 <ExperimentImplementationDetails experiment={experiment} />
                                 {experiment.start_date && <NoResultsEmptyState />}
                             </>
