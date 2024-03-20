@@ -1,3 +1,6 @@
+import { IconPencil } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
@@ -23,6 +26,7 @@ export type LemonInputSelectProps = {
     loading?: boolean
     placeholder?: string
     disableFiltering?: boolean
+    disableAltToEdit?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
     onChange?: (newValue: string[]) => void
@@ -40,6 +44,7 @@ export function LemonInputSelect({
     mode,
     disabled,
     disableFiltering = false,
+    disableAltToEdit = false,
     allowCustomValues = false,
     ...props
 }: LemonInputSelectProps): JSX.Element {
@@ -49,6 +54,7 @@ export function LemonInputSelect({
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
     const values = value ?? []
+    const altKeyHeld = useKeyHeld('Alt')
 
     const separateOnComma = allowCustomValues && mode === 'multiple'
 
@@ -181,25 +187,47 @@ export function LemonInputSelect({
         }
     }
 
-    // TRICKY: We don't want the popover to affect the snack buttons
-    const prefix = (
-        <PopoverReferenceContext.Provider value={null}>
-            <>
-                {values.map((value) => {
-                    const option = options.find((option) => option.key === value) ?? {
-                        label: value,
-                        labelComponent: null,
-                    }
-                    return (
-                        <>
-                            <LemonSnack title={option?.label} onClose={() => _onActionItem(value)}>
-                                {option?.labelComponent ?? option?.label}
-                            </LemonSnack>
-                        </>
-                    )
-                })}
-            </>
-        </PopoverReferenceContext.Provider>
+    const prefix = useMemo(
+        () => (
+            // TRICKY: We don't want the popover to affect the snack buttons
+            <PopoverReferenceContext.Provider value={null}>
+                <>
+                    {values.map((value) => {
+                        const option = options.find((option) => option.key === value) ?? {
+                            label: value,
+                            labelComponent: null,
+                        }
+                        return (
+                            <>
+                                <Tooltip
+                                    title={
+                                        <>
+                                            <KeyboardShortcut option /> + click to edit
+                                        </>
+                                    }
+                                >
+                                    <LemonSnack
+                                        title={option?.label}
+                                        onClose={() => {
+                                            _onActionItem(value)
+                                        }}
+                                        onClick={() => {
+                                            if (altKeyHeld && !disableAltToEdit) {
+                                                _onActionItem(value)
+                                                setInputValue(value)
+                                            }
+                                        }}
+                                    >
+                                        {option?.labelComponent ?? option?.label}
+                                    </LemonSnack>
+                                </Tooltip>
+                            </>
+                        )
+                    })}
+                </>
+            </PopoverReferenceContext.Provider>
+        ),
+        [values, options, altKeyHeld, disableAltToEdit]
     )
 
     return (
