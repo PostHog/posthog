@@ -89,6 +89,7 @@ class S3BatchExportInputs:
     encryption: str | None = None
     kms_key_id: str | None = None
     batch_export_schema: BatchExportSchema | None = None
+    endpoint_url: str | None = None
 
 
 @dataclass

@@ -267,6 +267,15 @@ export function BatchExportsEditFields({
                             )}
                         </div>
 
+                        <LemonField
+                            name="endpoint_url"
+                            label="Endpoint URL"
+                            showOptional
+                            info={<>Only required if exporting to an S3-compatible blob storage (like MinIO)</>}
+                        >
+                            <LemonInput placeholder={isNew ? 'e.g. https://your-minio-host:9000' : 'Leave unchanged'} />
+                        </LemonField>
+
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
                             <LemonInputSelect
                                 mode="multiple"
