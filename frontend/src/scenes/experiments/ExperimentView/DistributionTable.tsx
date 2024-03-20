@@ -1,4 +1,4 @@
-import './Experiment.scss'
+import '../Experiment.scss'
 
 import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'

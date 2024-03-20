@@ -1,4 +1,4 @@
-import './Experiment.scss'
+import '../Experiment.scss'
 
 import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
@@ -15,7 +15,6 @@ export function ReleaseConditionsTable(): JSX.Element {
 
     const columns: LemonTableColumns<FeatureFlagGroupType> = [
         {
-            className: 'w-1/3',
             key: 'key',
             title: '',
             render: function Key(_, item, index): JSX.Element {
@@ -23,7 +22,6 @@ export function ReleaseConditionsTable(): JSX.Element {
             },
         },
         {
-            className: 'w-1/3',
             key: 'rollout_percentage',
             title: 'Rollout',
             render: function Key(_, item): JSX.Element {
@@ -46,7 +44,6 @@ export function ReleaseConditionsTable(): JSX.Element {
             },
         },
         {
-            className: 'w-1/3',
             key: 'variant',
             title: 'Override',
             render: function Key(_, item): JSX.Element {

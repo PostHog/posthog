@@ -9,6 +9,7 @@ import {
     ExperimentBanner,
     ExperimentLoader,
     ExperimentLoadingAnimation,
+    FeatureFlagInfo,
     PageHeaderCustom,
 } from './ExperimentView/components'
 import { DistributionTable } from './ExperimentView/DistributionTable'
@@ -35,6 +36,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <ExperimentBanner />
+                        <FeatureFlagInfo />
                         {experimentResultsLoading ? (
                             <ExperimentLoadingAnimation />
                         ) : experimentResults && experimentResults.insight ? (

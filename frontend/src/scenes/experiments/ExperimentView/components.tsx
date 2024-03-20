@@ -1,15 +1,21 @@
-import './Experiment.scss'
+import '../Experiment.scss'
 
-import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect, useState } from 'react'
+import { urls } from 'scenes/urls'
+
+import { ProgressStatus } from '~/types'
 
 import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
+import { getExperimentStatus } from '../experimentsLogic'
 
 export function ExperimentBanner(): JSX.Element {
     const { experiment, isExperimentRunning, isExperimentStopped } = useValues(experimentLogic)
@@ -126,6 +132,49 @@ export function ExperimentLoadingAnimation(): JSX.Element {
             <div className="text-xs text-muted w-44">
                 <span className="mr-1">Fetching experiment results</span>
                 <EllipsisAnimation />
+            </div>
+        </div>
+    )
+}
+
+export function FeatureFlagInfo(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+
+    if (!experiment.feature_flag) {
+        return <></>
+    }
+
+    return (
+        <div className="block">
+            <h2 className="font-semibold text-lg mb-1">Feature flag</h2>
+            <div className="inline-flex items-center space-x-2">
+                {getExperimentStatus(experiment) === ProgressStatus.Running && !experiment.feature_flag?.active && (
+                    <Tooltip
+                        placement="bottom"
+                        title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                    >
+                        <IconWarning
+                            style={{ transform: 'translateY(2px)' }}
+                            className="mr-1 text-danger"
+                            fontSize="18px"
+                        />
+                    </Tooltip>
+                )}
+                <CopyToClipboardInline
+                    iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
+                    className="font-normal text-sm"
+                    description="feature flag key"
+                >
+                    {experiment.feature_flag.key}
+                </CopyToClipboardInline>
+                <LemonDivider className="my-0" vertical />
+                <Link
+                    target="_blank"
+                    className="font-semibold"
+                    to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
+                >
+                    Manage
+                </Link>
             </div>
         </div>
     )

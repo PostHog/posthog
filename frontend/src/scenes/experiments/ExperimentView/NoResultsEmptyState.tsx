@@ -1,4 +1,4 @@
-import './Experiment.scss'
+import '../Experiment.scss'
 
 import { Empty } from 'antd'
 import { useValues } from 'kea'

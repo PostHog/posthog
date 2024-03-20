@@ -1,4 +1,4 @@
-import './Experiment.scss'
+import '../Experiment.scss'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'

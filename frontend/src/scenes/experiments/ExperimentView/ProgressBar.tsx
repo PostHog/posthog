@@ -1,4 +1,4 @@
-import './Experiment.scss'
+import '../Experiment.scss'
 
 import { useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
