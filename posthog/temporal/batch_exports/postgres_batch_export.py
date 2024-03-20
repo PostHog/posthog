@@ -234,7 +234,7 @@ class PostgresInsertInputs:
 
 
 @activity.defn
-async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
+async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> int:
     """Activity streams data from ClickHouse to Postgres."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="PostgreSQL")
     logger.info(
@@ -262,7 +262,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return
+            return 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -358,6 +358,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
 
                 if pg_file.tell() > 0:
                     await flush_to_postgres()
+
+            return pg_file.records_total
 
 
 @workflow.defn(name="postgres-export")
