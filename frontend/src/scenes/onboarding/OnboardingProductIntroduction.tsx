@@ -8,6 +8,7 @@ import React from 'react'
 import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
 import { userLogic } from 'scenes/userLogic'
 
@@ -95,7 +96,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                     {(!hasSnippetEvents || multiInstallProducts.includes(product.type as ProductKey)) && (
                         <LemonButton
                             type="tertiary"
-                            data-attr="start-onboarding"
+                            data-attr="start-onboarding-sdk"
                             onClick={() => {
                                 setTeamPropertiesForProduct(product.type as ProductKey)
                                 reportOnboardingProductSelected(
@@ -149,8 +150,8 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             Or, stay on our generous free plan if you'd like - you still get{' '}
             <b>
                 {convertLargeNumberToWords(
-                    currentAndUpgradePlans.currentPlan.free_allocation ||
-                        currentAndUpgradePlans.downgradePlan.free_allocation ||
+                    currentAndUpgradePlans.currentPlan?.free_allocation ||
+                        currentAndUpgradePlans.downgradePlan?.free_allocation ||
                         0,
                     null
                 )}{' '}
@@ -183,6 +184,7 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
 export function OnboardingProductIntroduction({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element | null {
     const { product } = useValues(onboardingLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const websiteSlug: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'session-replay',
         [ProductKey.FEATURE_FLAGS]: 'feature-flags',
@@ -198,7 +200,9 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
                     <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
                         <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
                             <div className="">
-                                <h3 className="text-4xl font-bold">{product.headline}</h3>
+                                <h3 className="text-4xl font-bold" data-attr="product-intro-title">
+                                    {product.headline}
+                                </h3>
                                 <p>{product.description}</p>
                                 <GetStartedButton product={product} />
                             </div>
@@ -221,8 +225,8 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
                         <div className="max-w-screen-xl">
                             <h3 className="mb-6 text-2xl font-bold">Features</h3>
                             <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
-                                {product.features
-                                    .filter((feature) => feature.type == 'primary')
+                                {product?.features
+                                    ?.filter((feature) => feature.type == 'primary')
                                     .map((feature, i) => {
                                         return (
                                             <React.Fragment key={`${product.type}-feature-${i}`}>
@@ -274,11 +278,13 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
                             </div>
                         </div>
                     </div>
-                    <div className="p-8 py-12 border-t border-border">
-                        <div className="max-w-screen-xl m-auto">
-                            <PricingSection product={product} />
+                    {isCloudOrDev && (
+                        <div className="p-8 py-12 border-t border-border">
+                            <div className="max-w-screen-xl m-auto">
+                                <PricingSection product={product} />
+                            </div>
                         </div>
-                    </div>
+                    )}
                     <div className="mb-12 flex justify-center px-8">
                         <div className="w-full max-w-screen-xl rounded bg-primary-alt-highlight border border-border p-6 flex justify-between items-center gap-x-12">
                             <div>

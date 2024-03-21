@@ -241,6 +241,7 @@ class Breakdown:
                 chart_display_type=self._trends_display().display_type,
                 breakdown_filter=self.query.breakdownFilter,
                 query_date_range=self.query_date_range,
+                modifiers=self.modifiers,
             )
             return cast(List[str | int | float | None], breakdown.get_breakdown_values())
 

@@ -16,7 +16,6 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         testOptions: {
-            excludeNavigationFromSnapshot: true,
             waitForLoadersToDisappear: true,
         },
         mockDate: '2023-02-01',
@@ -37,6 +36,7 @@ export default {
                             prefix: 'my-prefix',
                             aws_access_key_id: 'my-access-key-id',
                             aws_secret_access_key: '',
+                            endpoint_url: null,
                             compression: null,
                             exclude_events: [],
                             include_events: [],

@@ -175,8 +175,6 @@ class Team(UUIDClassicModel):
         on_delete=models.CASCADE,
         related_name="teams",
         related_query_name="team",
-        null=True,
-        blank=False,
     )
     api_token: models.CharField = models.CharField(
         max_length=200,

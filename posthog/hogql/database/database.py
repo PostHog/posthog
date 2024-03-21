@@ -199,6 +199,34 @@ def create_hogql_database(
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
 
+    if modifiers.dataWarehouseEventsModifiers:
+        for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
+            # TODO: add all field mappings
+            if "id" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["id"] = ExpressionField(
+                    name="id",
+                    expr=parse_expr(warehouse_modifier.id_field),
+                )
+
+            if "timestamp" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                    name="timestamp",
+                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                )
+
+            # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
+            if "distinct_id" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
+                    name="distinct_id",
+                    expr=parse_expr(warehouse_modifier.distinct_id_field),
+                )
+
+            if "person_id" not in tables[warehouse_modifier.table_name].fields.keys():
+                tables[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+                    name="person_id",
+                    expr=parse_expr(warehouse_modifier.distinct_id_field),
+                )
+
     for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[saved_query.name] = saved_query.hogql_definition()
 
@@ -281,6 +309,7 @@ class _SerializedFieldBase(TypedDict):
         "lazy_table",
         "virtual_table",
         "field_traverser",
+        "expression",
     ]
 
 
@@ -318,6 +347,9 @@ def serialize_fields(field_input, context: HogQLContext) -> List[SerializedField
         if field_key == "team_id":
             pass
         elif isinstance(field, DatabaseField):
+            if field.hidden:
+                continue
+
             if isinstance(field, IntegerDatabaseField):
                 field_output.append({"key": field_key, "type": "integer"})
             elif isinstance(field, FloatDatabaseField):
@@ -334,6 +366,8 @@ def serialize_fields(field_input, context: HogQLContext) -> List[SerializedField
                 field_output.append({"key": field_key, "type": "json"})
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append({"key": field_key, "type": "array"})
+            elif isinstance(field, ExpressionField):
+                field_output.append({"key": field_key, "type": "expression"})
         elif isinstance(field, LazyJoin):
             is_view = isinstance(field.resolve_table(context), SavedQuery)
             field_output.append(

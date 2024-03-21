@@ -24,6 +24,7 @@ class DatabaseField(FieldOrTable):
     name: str
     array: Optional[bool] = None
     nullable: Optional[bool] = None
+    hidden: bool = False
 
 
 class IntegerDatabaseField(DatabaseField):
@@ -95,15 +96,11 @@ class Table(FieldOrTable):
         for key, field in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            if (
-                isinstance(field, Table)
-                or isinstance(field, LazyJoin)
-                or isinstance(field, FieldTraverser)
-                or isinstance(field, ExpressionField)
-            ):
+            if isinstance(field, Table) or isinstance(field, LazyJoin) or isinstance(field, FieldTraverser):
                 pass  # ignore virtual tables and columns for now
             elif isinstance(field, DatabaseField):
-                asterisk[key] = field
+                if not field.hidden:  # Skip over hidden fields
+                    asterisk[key] = field
             else:
                 raise HogQLException(f"Unknown field type {type(field).__name__} for asterisk")
         return asterisk

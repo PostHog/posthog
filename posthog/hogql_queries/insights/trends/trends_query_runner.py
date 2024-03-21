@@ -29,9 +29,7 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.trends_query_builder_abstract import TrendsQueryBuilderAbstract
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.trends.data_warehouse_trends_query_builder import DataWarehouseTrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -61,7 +59,9 @@ from posthog.schema import (
     TrendsQuery,
     TrendsQueryResponse,
     HogQLQueryModifiers,
+    DataWarehouseEventsModifier,
 )
+from posthog.warehouse.models import DataWarehouseTable
 from posthog.utils import format_label_date
 
 
@@ -122,26 +122,14 @@ class TrendsQueryRunner(QueryRunner):
                 else:
                     query_date_range = self.query_previous_date_range
 
-                query_builder: TrendsQueryBuilderAbstract
-
-                if isinstance(series.series, DataWarehouseNode):
-                    query_builder = DataWarehouseTrendsQueryBuilder(
-                        trends_query=series.overriden_query or self.query,
-                        team=self.team,
-                        query_date_range=query_date_range,
-                        series=series.series,
-                        timings=self.timings,
-                        modifiers=self.modifiers,
-                    )
-                else:
-                    query_builder = TrendsQueryBuilder(
-                        trends_query=series.overriden_query or self.query,
-                        team=self.team,
-                        query_date_range=query_date_range,
-                        series=series.series,
-                        timings=self.timings,
-                        modifiers=self.modifiers,
-                    )
+                query_builder = TrendsQueryBuilder(
+                    trends_query=series.overriden_query or self.query,
+                    team=self.team,
+                    query_date_range=query_date_range,
+                    series=series.series,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                )
                 query = query_builder.build_query()
 
                 # Get around the default 100 limit, bump to the max 10000.
@@ -569,6 +557,20 @@ class TrendsQueryRunner(QueryRunner):
         ):
             self.modifiers.inCohortVia = InCohortVia.leftjoin_conjoined
 
+        datawarehouse_modifiers = []
+        for series in self.query.series:
+            if isinstance(series, DataWarehouseNode):
+                datawarehouse_modifiers.append(
+                    DataWarehouseEventsModifier(
+                        table_name=series.table_name,
+                        timestamp_field=series.timestamp_field,
+                        id_field=series.id_field,
+                        distinct_id_field=series.distinct_id_field,
+                    )
+                )
+
+        self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
+
     def setup_series(self) -> List[SeriesWithExtras]:
         series_with_extras = [
             SeriesWithExtras(
@@ -695,18 +697,39 @@ class TrendsQueryRunner(QueryRunner):
         ):
             return False
 
-        if self.query.breakdownFilter.breakdown_type == "person":
-            property_type = PropertyDefinition.Type.PERSON
-        elif self.query.breakdownFilter.breakdown_type == "group":
-            property_type = PropertyDefinition.Type.GROUP
-        else:
-            property_type = PropertyDefinition.Type.EVENT
+        if (
+            isinstance(self.query.series[0], DataWarehouseNode)
+            and self.query.breakdownFilter.breakdown_type == "data_warehouse"
+        ):
+            series = self.query.series[0]  # only one series when data warehouse is active
+            table_model = (
+                DataWarehouseTable.objects.filter(name=series.table_name, team=self.team).exclude(deleted=True).first()
+            )
 
-        field_type = self._event_property(
-            self.query.breakdownFilter.breakdown,
-            property_type,
-            self.query.breakdownFilter.breakdown_group_type_index,
-        )
+            if not table_model:
+                raise ValueError(f"Table {series.table_name} not found")
+
+            field_type = dict(table_model.columns)[self.query.breakdownFilter.breakdown]["clickhouse"]
+
+            if field_type.startswith("Nullable("):
+                field_type = field_type.replace("Nullable(", "")[:-1]
+
+            if field_type == "Bool":
+                return True
+
+        else:
+            if self.query.breakdownFilter.breakdown_type == "person":
+                property_type = PropertyDefinition.Type.PERSON
+            elif self.query.breakdownFilter.breakdown_type == "group":
+                property_type = PropertyDefinition.Type.GROUP
+            else:
+                property_type = PropertyDefinition.Type.EVENT
+
+            field_type = self._event_property(
+                self.query.breakdownFilter.breakdown,
+                property_type,
+                self.query.breakdownFilter.breakdown_group_type_index,
+            )
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: Any):

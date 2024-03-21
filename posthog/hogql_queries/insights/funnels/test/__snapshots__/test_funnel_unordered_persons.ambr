@@ -45,10 +45,10 @@
                      `$session_id_2` AS `$session_id_2`,
                      `$window_id_2` AS `$window_id_2`,
                      arraySort([latest_0, latest_1, latest_2]) AS event_times,
-                     arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
+                     arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
                      arraySort([latest_0, latest_1, latest_2]) AS conversion_times,
-                     if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(conversion_times[1], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
-                     if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(conversion_times[2], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
+                     if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(toTimeZone(conversion_times[1], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(toTimeZone(conversion_times[2], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -122,10 +122,10 @@
                                `$session_id_2` AS `$session_id_2`,
                                `$window_id_2` AS `$window_id_2`,
                                arraySort([latest_0, latest_1, latest_2]) AS event_times,
-                               arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
+                               arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
                                arraySort([latest_0, latest_1, latest_2]) AS conversion_times,
-                               if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(conversion_times[1], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
-                               if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(conversion_times[2], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
+                               if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(toTimeZone(conversion_times[1], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
+                               if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(toTimeZone(conversion_times[2], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -199,10 +199,10 @@
                                `$session_id_2` AS `$session_id_2`,
                                `$window_id_2` AS `$window_id_2`,
                                arraySort([latest_0, latest_1, latest_2]) AS event_times,
-                               arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
+                               arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), if(and(ifNull(less(latest_0, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
                                arraySort([latest_0, latest_1, latest_2]) AS conversion_times,
-                               if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(conversion_times[1], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
-                               if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(conversion_times[2], toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
+                               if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(toTimeZone(conversion_times[1], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time,
+                               if(and(isNotNull(conversion_times[3]), ifNull(lessOrEquals(conversion_times[3], plus(toTimeZone(conversion_times[2], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[2], conversion_times[3]), NULL) AS step_2_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,

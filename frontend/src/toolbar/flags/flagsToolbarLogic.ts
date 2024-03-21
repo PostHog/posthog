@@ -18,6 +18,10 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
     })),
     actions({
         getUserFlags: true,
+        setFeatureFlagValueFromPostHogClient: (flags: string[], variants: Record<string, string | boolean>) => ({
+            flags,
+            variants,
+        }),
         setOverriddenUserFlag: (flagKey: string, overrideValue: string | boolean) => ({ flagKey, overrideValue }),
         deleteOverriddenUserFlag: (flagKey: string) => ({ flagKey }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -63,16 +67,26 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
+        posthogClientFlagValues: [
+            {} as Record<string, string | boolean>,
+            {
+                setFeatureFlagValueFromPostHogClient: (_, { variants }) => {
+                    return variants
+                },
+            },
+        ],
     }),
     selectors({
         userFlagsWithOverrideInfo: [
-            (s) => [s.userFlags, s.localOverrides],
-            (userFlags, localOverrides) => {
+            (s) => [s.userFlags, s.localOverrides, s.posthogClientFlagValues],
+            (userFlags, localOverrides, posthogClientFlagValues) => {
                 return userFlags.map((flag) => {
                     const hasVariants = (flag.feature_flag.filters?.multivariate?.variants?.length || 0) > 0
 
                     const currentValue =
-                        flag.feature_flag.key in localOverrides ? localOverrides[flag.feature_flag.key] : flag.value
+                        flag.feature_flag.key in localOverrides
+                            ? localOverrides[flag.feature_flag.key]
+                            : posthogClientFlagValues[flag.feature_flag.key] ?? flag.value
 
                     return {
                         ...flag,

@@ -1,6 +1,6 @@
 import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 import { OnboardingStepKey } from './onboardingLogic'
@@ -30,10 +30,9 @@ interface PluginContent {
     title: string
     description: string
 }
-type PluginContentMapping = Record<number, PluginContent>
+type PluginContentMapping = Record<string, PluginContent>
 const pluginContentMapping: PluginContentMapping = {
-    // 1 is the id of the GEO IP plugin
-    1: {
+    GeoIP: {
         title: 'Capture location information',
         description:
             'Enrich PostHog events and persons with IP location data. This is useful for understanding where your users are coming from. This setting can be found under the data pipelines apps.',
@@ -52,6 +51,12 @@ export const OnboardingProductConfiguration = ({
     const { setConfigOptions, saveConfiguration } = useActions(onboardingProductConfigurationLogic)
     const { toggleEnabled } = useActions(pluginsLogic)
 
+    const configOptionsRef = useRef(configOptions)
+
+    useEffect(() => {
+        configOptionsRef.current = configOptions
+    }, [configOptions])
+
     useEffect(() => {
         setConfigOptions(options)
     }, [])
@@ -64,13 +69,16 @@ export const OnboardingProductConfiguration = ({
             selectOptions: option.selectOptions,
             value: option.value,
             onChange: (newValue: boolean | string | number) => {
-                setConfigOptions(
-                    configOptions.map((o) => (o.teamProperty === option.teamProperty ? { ...o, value: newValue } : o))
+                // Use the current value from the ref to ensure that onChange always accesses
+                // the latest state of configOptions, preventing the closure from using stale data.
+                const updatedConfigOptions = configOptionsRef.current.map((o) =>
+                    o.teamProperty === option.teamProperty ? { ...o, value: newValue } : o
                 )
+                setConfigOptions(updatedConfigOptions)
             },
         })),
         ...defaultEnabledPlugins.map((plugin) => {
-            const pluginContent = pluginContentMapping[plugin.id]
+            const pluginContent = pluginContentMapping[plugin.name]
             return {
                 title: pluginContent?.title || plugin.name,
                 description: pluginContent?.description || plugin.description,

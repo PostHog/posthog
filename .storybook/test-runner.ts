@@ -6,12 +6,13 @@ import { StoryContext } from '@storybook/csf'
 
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
-type SnapshotTheme = 'legacy' | 'light' | 'dark'
+type SnapshotTheme = 'light' | 'dark'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/types' {
     interface Parameters {
         options?: any
+        /** @default 'padded' */
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
             /**
@@ -19,14 +20,13 @@ declare module '@storybook/types' {
              * @default true
              */
             waitForLoadersToDisappear?: boolean
-            /** If set, we'll wait for the given selector to be satisfied. */
-            waitForSelector?: string
+            /** If set, we'll wait for the given selector (or all selectors, if multiple) to be satisfied. */
+            waitForSelector?: string | string[]
             /**
-             * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
-             * Warning: Fails if enabled for stories in which navigation is not present.
+             * Whether navigation should be included in the snapshot. Only applies to `layout: 'fullscreen'` stories.
              * @default false
              */
-            excludeNavigationFromSnapshot?: boolean
+            includeNavigationInSnapshot?: boolean
             /**
              * The test will always run for all the browers, but snapshots are only taken in Chromium by default.
              * Override this to take snapshots in other browsers too.
@@ -48,13 +48,13 @@ declare module '@storybook/types' {
     }
 }
 
-const RETRY_TIMES = 3
+const RETRY_TIMES = 2
 const LOADER_SELECTORS = [
     '.ant-skeleton',
     '.Spinner',
     '.LemonSkeleton',
     '.LemonTableLoader',
-    '.Toastify__toast-container',
+    '.Toastify__toast',
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
     '.Lettermark--unknown',
@@ -65,6 +65,8 @@ const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 const JEST_TIMEOUT_MS = 15000
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 
+const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
+
 module.exports = {
     setup() {
         expect.extend({ toMatchImageSnapshot })
@@ -72,6 +74,17 @@ module.exports = {
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
     async postVisit(page, context) {
+        ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+        await page.evaluate(
+            ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
+            [ATTEMPT_COUNT_PER_ID[context.id], context.id]
+        )
+        if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
+            // When retrying, resize the viewport and then resize again to default,
+            // just in case the retry is due to a useResizeObserver fail
+            await page.setViewportSize({ width: 1920, height: 1080 })
+            await page.setViewportSize({ width: 1280, height: 720 })
+        }
         const browserContext = page.context()
         const storyContext = await getStoryContext(page, context)
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
@@ -96,7 +109,7 @@ async function expectStoryToMatchSnapshot(
     const {
         waitForLoadersToDisappear = true,
         waitForSelector,
-        excludeNavigationFromSnapshot = false,
+        includeNavigationInSnapshot = false,
     } = storyContext.parameters?.testOptions ?? {}
 
     let check: (
@@ -107,26 +120,29 @@ async function expectStoryToMatchSnapshot(
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
-        if (excludeNavigationFromSnapshot) {
-            check = expectStoryToMatchSceneSnapshot
+        if (includeNavigationInSnapshot) {
+            check = expectStoryToMatchViewportSnapshot
         } else {
-            check = expectStoryToMatchFullPageSnapshot
+            check = expectStoryToMatchSceneSnapshot
         }
     } else {
         check = expectStoryToMatchComponentSnapshot
     }
 
     await waitForPageReady(page)
-    await page.evaluate(() => {
-        // Stop all animations for consistent snapshots
+    await page.evaluate((layout: string) => {
+        // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
-    })
+        document.body.classList.add(`storybook-test-runner--${layout}`)
+    }, storyContext.parameters?.layout || 'padded')
     if (waitForLoadersToDisappear) {
         // The timeout is reduced so that we never allow toasts – they usually signify something wrong
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 1000 })
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 3000 })
     }
-    if (waitForSelector) {
+    if (typeof waitForSelector === 'string') {
         await page.waitForSelector(waitForSelector)
+    } else if (Array.isArray(waitForSelector)) {
+        await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
     }
 
     await page.waitForTimeout(400) // Wait for effects to finish
@@ -151,7 +167,7 @@ async function expectStoryToMatchSnapshot(
     await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
-async function expectStoryToMatchFullPageSnapshot(
+async function expectStoryToMatchViewportSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
@@ -166,12 +182,10 @@ async function expectStoryToMatchSceneSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
-    await page.evaluate(() => {
-        // The screenshot gets clipped by overflow hidden on .Navigation3000
-        document.querySelector('Navigation3000')?.setAttribute('style', 'overflow: visible;')
-    })
-
-    await expectLocatorToMatchStorySnapshot(page.locator('main'), context, browser, theme)
+    // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
+    // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
+    // and not the order of the selectors in the query.
+    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(
@@ -181,13 +195,11 @@ async function expectStoryToMatchComponentSnapshot(
     theme: SnapshotTheme,
     targetSelector: string = '#storybook-root'
 ): Promise<void> {
-    await page.evaluate((theme) => {
+    await page.evaluate(() => {
         const rootEl = document.getElementById('storybook-root')
         if (!rootEl) {
             throw new Error('Could not find root element')
         }
-        // Make the root element (which is the default screenshot reference) hug the component
-        rootEl.style.display = 'inline-block'
         // If needed, expand the root element so that all popovers are visible in the screenshot
         document.querySelectorAll('.Popover').forEach((popover) => {
             const currentRootBoundingClientRect = rootEl.getBoundingClientRect()
@@ -205,9 +217,7 @@ async function expectStoryToMatchComponentSnapshot(
                 rootEl.style.width = `${-popoverBoundingClientRect.left + currentRootBoundingClientRect.right}px`
             }
         })
-        // For legacy style, make the body transparent to take the screenshot without background
-        document.body.style.background = theme === 'legacy' ? 'transparent' : 'var(--bg-3000)'
-    }, theme)
+    })
 
     await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
         omitBackground: true,
@@ -222,10 +232,7 @@ async function expectLocatorToMatchStorySnapshot(
     options?: LocatorScreenshotOptions
 ): Promise<void> {
     const image = await locator.screenshot({ ...options })
-    let customSnapshotIdentifier = context.id
-    if (theme !== 'legacy') {
-        customSnapshotIdentifier += `--${theme}`
-    }
+    let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
     }
