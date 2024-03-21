@@ -1,6 +1,7 @@
 from typing import Dict, List, cast
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
@@ -13,7 +14,6 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr
 from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
-from posthog.schema import HogQLQueryModifiers
 
 
 SESSIONS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
@@ -64,7 +64,9 @@ class RawSessionsTable(Table):
         ]
 
 
-def select_from_sessions_table(requested_fields: Dict[str, List[str | int]], node: ast.SelectQuery):
+def select_from_sessions_table(
+    requested_fields: Dict[str, List[str | int]], node: ast.SelectQuery, context: HogQLContext
+):
     from posthog.hogql import ast
 
     table_name = "raw_sessions"
@@ -136,7 +138,7 @@ def select_from_sessions_table(requested_fields: Dict[str, List[str | int]], nod
             )
             group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
-    where = SessionMinTimestampWhereClauseExtractor().get_inner_where(node)
+    where = SessionMinTimestampWhereClauseExtractor(context).get_inner_where(node)
 
     return ast.SelectQuery(
         select=select_fields,
@@ -153,10 +155,8 @@ class SessionsTable(LazyTable):
         "channel_type": StringDatabaseField(name="channel_type"),
     }
 
-    def lazy_select(
-        self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers, node: ast.SelectQuery
-    ):
-        return select_from_sessions_table(requested_fields, node)
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node: ast.SelectQuery):
+        return select_from_sessions_table(requested_fields, node, context)
 
     def to_printed_clickhouse(self, context):
         return "sessions"

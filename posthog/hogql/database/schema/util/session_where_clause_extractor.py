@@ -1,12 +1,15 @@
+from dataclasses import dataclass
 from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor
 
 SESSION_BUFFER_DAYS = 3
 
 
+@dataclass
 class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
     """This class extracts the Where clause from the lazy sessions table, to the clickhouse sessions table.
 
@@ -39,6 +42,10 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
     relevant rows for each session.
     """
 
+    context: HogQLContext
+    clear_types: bool = False
+    clear_locations: bool = False
+
     def get_inner_where(self, parsed_query: ast.SelectQuery) -> Optional[ast.Expr]:
         if not parsed_query.where:
             return None
@@ -54,8 +61,8 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         is_left_constant = is_time_or_interval_constant(node.left)
         is_right_constant = is_time_or_interval_constant(node.right)
-        is_left_timestamp_field = is_simple_timestamp_field_expression(node.left)
-        is_right_timestamp_field = is_simple_timestamp_field_expression(node.right)
+        is_left_timestamp_field = is_simple_timestamp_field_expression(node.left, self.context)
+        is_right_timestamp_field = is_simple_timestamp_field_expression(node.right, self.context)
 
         if is_left_constant and is_right_constant:
             # just ignore this comparison
@@ -70,7 +77,7 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
                             op=ast.CompareOperationOp.LtEq,
                             left=ast.ArithmeticOperation(
                                 op=ast.ArithmeticOperationOp.Sub,
-                                left=rewrite_timestamp_field(node.left),
+                                left=rewrite_timestamp_field(node.left, self.context),
                                 right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
                             ),
                             right=node.right,
@@ -79,7 +86,7 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
                             op=ast.CompareOperationOp.GtEq,
                             left=ast.ArithmeticOperation(
                                 op=ast.ArithmeticOperationOp.Add,
-                                left=rewrite_timestamp_field(node.left),
+                                left=rewrite_timestamp_field(node.left, self.context),
                                 right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
                             ),
                             right=node.right,
@@ -91,7 +98,7 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.ArithmeticOperation(
                         op=ast.ArithmeticOperationOp.Add,
-                        left=rewrite_timestamp_field(node.left),
+                        left=rewrite_timestamp_field(node.left, self.context),
                         right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
                     ),
                     right=node.right,
@@ -101,7 +108,7 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.ArithmeticOperation(
                         op=ast.ArithmeticOperationOp.Sub,
-                        left=rewrite_timestamp_field(node.left),
+                        left=rewrite_timestamp_field(node.left, self.context),
                         right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)]),
                     ),
                     right=node.right,
@@ -266,24 +273,24 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
         return self.visit(node.expr)
 
 
-def is_simple_timestamp_field_expression(expr: ast.Expr) -> bool:
-    return IsSimpleTimestampFieldExpressionVisitor().visit(expr)
+def is_simple_timestamp_field_expression(expr: ast.Expr, context: HogQLContext) -> bool:
+    return IsSimpleTimestampFieldExpressionVisitor(context).visit(expr)
 
 
+@dataclass
 class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
+    context: HogQLContext
+
     def visit_constant(self, node: ast.Constant) -> bool:
         return False
 
     def visit_field(self, node: ast.Field) -> bool:
-        # this is quite leaky, as it doesn't handle aliases, but will handle all of posthog's hogql queries
-        return (
-            node.chain == ["min_timestamp"]
-            or node.chain == ["sessions", "min_timestamp"]
-            or node.chain == ["s", "min_timestamp"]
-            or node.chain == ["timestamp"]
-            or node.chain == ["events", "timestamp"]
-            or node.chain == ["e", "timestamp"]
-        )
+        if node.type and isinstance(node.type, ast.FieldType):
+            resolved_field = node.type.resolve_database_field(self.context)
+            return resolved_field.name in ["min_timestamp", "timestamp"]
+        else:
+            # no type information, so just use the name of the field
+            return node.chain[-1] in ["min_timestamp", "timestamp"]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         # only allow the min_timestamp field to be used on one side of the arithmetic operation
@@ -336,24 +343,33 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         raise Exception()
 
     def visit_alias(self, node: ast.Alias) -> bool:
+        if node.type and isinstance(node.type, ast.FieldAliasType):
+            resolved_field = node.type.resolve_database_field(self.context)
+            return resolved_field.name in ["min_timestamp", "timestamp"]
+
         return self.visit(node.expr)
 
 
-def rewrite_timestamp_field(expr: ast.Expr) -> ast.Expr:
-    return RewriteTimestampFieldVisitor().visit(expr)
+def rewrite_timestamp_field(expr: ast.Expr, context: HogQLContext) -> ast.Expr:
+    return RewriteTimestampFieldVisitor(context).visit(expr)
 
 
 class RewriteTimestampFieldVisitor(CloningVisitor):
+    context: HogQLContext
+
+    def __init__(self, context: HogQLContext, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.context = context
+
     def visit_field(self, node: ast.Field) -> ast.Field:
-        # this is quite leaky, as it doesn't handle aliases, but will handle all of posthog's hogql queries
-        if (
-            node.chain == ["min_timestamp"]
-            or node.chain == ["sessions", "min_timestamp"]
-            or node.chain == ["s", "min_timestamp"]
-        ):
-            return ast.Field(chain=["raw_sessions", "min_timestamp"])
-        elif node.chain == ["timestamp"] or node.chain == ["events", "timestamp"] or node.chain == ["e", "timestamp"]:
-            return ast.Field(chain=["raw_sessions", "min_timestamp"])
+        if node.type and isinstance(node.type, ast.FieldType):
+            resolved_field = node.type.resolve_database_field(self.context)
+            if resolved_field and resolved_field.name in ["min_timestamp", "timestamp"]:
+                return ast.Field(chain=["raw_sessions", "min_timestamp"])
+        else:
+            # no type information, so just use the name of the field
+            if node.chain[-1] in ["min_timestamp", "timestamp"]:
+                return ast.Field(chain=["raw_sessions", "min_timestamp"])
         return node
 
     def visit_alias(self, node: ast.Alias) -> ast.Expr:
