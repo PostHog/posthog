@@ -1,6 +1,6 @@
 import './ViewLinkModal.scss'
 
-import { IconTrash } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -67,6 +67,7 @@ export function ViewLinkForm(): JSX.Element {
         selectSourceKey,
         selectJoiningKey,
     } = useActions(viewLinkLogic)
+    const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     return (
         <Form logic={viewLinkLogic} formKey="viewLink" enableFormOnSubmit>
@@ -149,8 +150,22 @@ export function ViewLinkForm(): JSX.Element {
                     </div>
                 </div>
                 {sqlCodeSnippet && (
-                    <>
+                    <div className="w-full mt-2">
                         <LemonDivider className="mt-4 mb-4" />
+                        <LemonButton
+                            fullWidth
+                            onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
+                            sideIcon={advancedSettingsExpanded ? <IconCollapse /> : <IconExpand />}
+                        >
+                            <div>
+                                <h3 className="l4 mt-2">Advanced settings</h3>
+                                <div className="text-muted mb-2 font-medium">Customize how the fields are accessed</div>
+                            </div>
+                        </LemonButton>
+                    </div>
+                )}
+                {sqlCodeSnippet && advancedSettingsExpanded && (
+                    <>
                         <div className="mt-3 flex flex-row justify-between items-center w-full">
                             <div className="w-full">
                                 <span className="l4">Field Name</span>
