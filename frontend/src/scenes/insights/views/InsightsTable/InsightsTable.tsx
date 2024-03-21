@@ -3,6 +3,7 @@ import './InsightsTable.scss'
 import { useActions, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
@@ -151,14 +152,7 @@ export function InsightsTable({
                 />
             ),
             key: 'breakdown',
-            sorter: (a, b) => {
-                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
-                    return a.breakdown_value - b.breakdown_value
-                }
-                const labelA = formatItemBreakdownLabel(a)
-                const labelB = formatItemBreakdownLabel(b)
-                return labelA.localeCompare(labelB)
-            },
+            sorter: compareFn(),
         })
         if (isTrends && display === ChartDisplayType.WorldMap) {
             columns.push({
