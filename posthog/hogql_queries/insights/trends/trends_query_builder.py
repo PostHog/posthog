@@ -74,8 +74,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return parse_select(
             """
-                SELECT DISTINCT actor_id
+                SELECT
+                    actor_id,
+                    count() as event_count,
+                    groupUniqArray(100)((timestamp, uuid, $session_id, $window_id)) as matching_events
                 FROM {subquery}
+                GROUP BY actor_id
             """,
             placeholders={
                 "subquery": self._get_events_subquery(
@@ -225,8 +229,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # TODO: Move this logic into the below branches when working on adding breakdown support for the person modal
         if is_actors_query:
-            default_query.select = [ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id())]
-            default_query.distinct = True
+            default_query.select = [
+                ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id()),
+                ast.Field(chain=["e", "timestamp"]),
+                ast.Field(chain=["e", "uuid"]),
+                ast.Field(chain=["e", "$session_id"]),
+                ast.Field(chain=["e", "$window_id"]),
+            ]
             default_query.group_by = []
 
         # No breakdowns and no complex series aggregation
