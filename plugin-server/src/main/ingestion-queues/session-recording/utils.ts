@@ -6,7 +6,6 @@ import path from 'path'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
 import { status } from '../../../utils/status'
-import { cloneObject } from '../../../utils/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
@@ -257,10 +256,7 @@ export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): I
     for (const message of messages) {
         const key = `${message.team_id}-${message.session_id}`
         if (!reducedMessages[key]) {
-            // cloning the object here so that when we mutate it
-            // we're not also mutating its reference in the inbound messages array
-            // this is maybe overly defensive, but better safe than sorry
-            reducedMessages[key] = cloneObject(message)
+            reducedMessages[key] = message
         } else {
             const existingMessage = reducedMessages[key]
             for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
