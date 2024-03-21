@@ -185,7 +185,13 @@ class TrendsQueryRunner(QueryRunner):
         res_compare: List[CompareItem] | None = None
 
         # Days
-        res_days: List[DayItem] = [DayItem(label=day, value=day) for day in self.query_date_range.all_values()]
+        res_days: list[DayItem] = [
+            DayItem(
+                label=format_label_date(value, self.query_date_range.interval_name),
+                value=value.isoformat().replace("+00:00", "Z"),
+            )
+            for value in self.query_date_range.all_values()
+        ]
 
         # Series
         for index, series in enumerate(self.query.series):
@@ -394,7 +400,7 @@ class TrendsQueryRunner(QueryRunner):
                     "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
-                        "days": self.query_date_range.all_values(),
+                        "days": [value.isoformat() for value in self.query_date_range.all_values()],
                         "id": series_label,
                         "type": "events",
                         "order": series.series_order,
@@ -428,7 +434,7 @@ class TrendsQueryRunner(QueryRunner):
                     "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
-                        "days": self.query_date_range.all_values(),
+                        "days": [value.isoformat() for value in self.query_date_range.all_values()],
                         "id": series_label,
                         "type": "events",
                         "order": series.series_order,
