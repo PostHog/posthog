@@ -30,8 +30,9 @@ export const sessionRecordingErrorsLogic = kea<sessionRecordingErrorsLogicType>(
             const playlist = await createPlaylist({ name: name })
 
             if (playlist) {
+                const samples = sessionIds.slice(0, 10)
                 await Promise.all(
-                    sessionIds.map((sessionId) => api.recordings.addRecordingToPlaylist(playlist.short_id, sessionId))
+                    samples.map((sessionId) => api.recordings.addRecordingToPlaylist(playlist.short_id, sessionId))
                 )
                 router.actions.push(urls.replayPlaylist(playlist.short_id))
             }
