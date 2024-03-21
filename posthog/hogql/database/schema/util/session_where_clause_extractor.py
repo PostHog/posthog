@@ -206,7 +206,7 @@ def is_time_or_interval_constant(expr: ast.Expr) -> bool:
     return IsTimeOrIntervalConstantVisitor().visit(expr)
 
 
-class IsTimeOrIntervalConstantVisitor(Visitor):
+class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_constant(self, node: ast.Constant) -> bool:
         return True
 
@@ -270,7 +270,7 @@ def is_simple_timestamp_field_expression(expr: ast.Expr) -> bool:
     return IsSimpleTimestampFieldExpressionVisitor().visit(expr)
 
 
-class IsSimpleTimestampFieldExpressionVisitor(Visitor):
+class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_constant(self, node: ast.Constant) -> bool:
         return False
 
