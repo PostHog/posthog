@@ -4,7 +4,6 @@ import { Counter } from 'prom-client'
 import { buildStringMatcher } from '../../config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
-import { isIngestionOverflowEnabled } from '../../utils/env-utils'
 import { status } from '../../utils/status'
 import { eachBatchParallelIngestion, IngestionOverflowMode } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
@@ -47,7 +46,7 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // deployment, we require an env variable to be set to confirm this before
     // enabling re-production of events to the OVERFLOW topic.
 
-    const overflowMode = isIngestionOverflowEnabled() ? IngestionOverflowMode.Reroute : IngestionOverflowMode.Disabled
+    const overflowMode = hub.INGESTION_OVERFLOW_ENABLED ? IngestionOverflowMode.Reroute : IngestionOverflowMode.Disabled
 
     const tokenBlockList = buildStringMatcher(hub.DROP_EVENTS_BY_TOKEN, false)
     const batchHandler = async (messages: Message[], queue: IngestionConsumer): Promise<void> => {
