@@ -25,7 +25,7 @@ export function SignupPanel2(): JSX.Element | null {
                         disabled={isSignupPanel2Submitting}
                     />
                 </LemonField>
-                <LemonField name="organization_name" label="Organization name" showOptional>
+                <LemonField name="organization_name" label="Organization name">
                     <LemonInput
                         className="ph-ignore-input"
                         data-attr="signup-organization-name"
