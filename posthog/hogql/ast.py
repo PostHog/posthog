@@ -46,11 +46,15 @@ class FieldAliasType(Type):
     def resolve_database_field(self, context: HogQLContext):
         if isinstance(self.type, FieldType):
             return self.type.resolve_database_field(context)
+        if isinstance(self.type, PropertyType):
+            return self.type.field_type.resolve_database_field(context)
         raise NotImplementedException("FieldAliasType.resolve_database_field not implemented")
 
     def resolve_table_type(self, context: HogQLContext):
         if isinstance(self.type, FieldType):
             return self.type.table_type
+        if isinstance(self.type, PropertyType):
+            return self.type.field_type.table_type
         raise NotImplementedException("FieldAliasType.resolve_table_type not implemented")
 
 
