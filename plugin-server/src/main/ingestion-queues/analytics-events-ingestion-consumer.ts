@@ -46,7 +46,11 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // deployment, we require an env variable to be set to confirm this before
     // enabling re-production of events to the OVERFLOW topic.
 
-    const overflowMode = hub.INGESTION_OVERFLOW_ENABLED ? IngestionOverflowMode.Reroute : IngestionOverflowMode.Disabled
+    const overflowMode = hub.INGESTION_OVERFLOW_ENABLED
+        ? hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+            ? IngestionOverflowMode.Reroute
+            : IngestionOverflowMode.RerouteRandomly
+        : IngestionOverflowMode.Disabled
 
     const tokenBlockList = buildStringMatcher(hub.DROP_EVENTS_BY_TOKEN, false)
     const batchHandler = async (messages: Message[], queue: IngestionConsumer): Promise<void> => {

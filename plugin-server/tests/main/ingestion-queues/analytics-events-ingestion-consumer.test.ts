@@ -107,32 +107,35 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         expect(runEventPipeline).not.toHaveBeenCalled()
     })
 
-    it('reroutes excess events to OVERFLOW topic', async () => {
-        const now = Date.now()
-        const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent1], now)
-        const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
+    it.each([IngestionOverflowMode.Reroute, IngestionOverflowMode.RerouteRandomly])(
+        'reroutes excess events to OVERFLOW topic (mode=%p)',
+        async (overflowMode) => {
+            const now = Date.now()
+            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent1], now)
+            const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
 
-        const tokenBlockList = buildStringMatcher('another_token,more_token', false)
-        await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Reroute)
+            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+            await eachBatchParallelIngestion(tokenBlockList, batch, queue, overflowMode)
 
-        expect(consume).toHaveBeenCalledWith(
-            captureEndpointEvent1['token'] + ':' + captureEndpointEvent1['distinct_id'],
-            1,
-            now
-        )
-        expect(captureIngestionWarning).not.toHaveBeenCalled()
-        expect(queue.pluginsServer.kafkaProducer.produce).toHaveBeenCalledWith({
-            topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-            value: JSON.stringify(captureEndpointEvent1),
-            timestamp: captureEndpointEvent1['timestamp'],
-            offset: captureEndpointEvent1['offset'],
-            key: batch[0].key,
-            waitForAck: true,
-        })
+            expect(consume).toHaveBeenCalledWith(
+                captureEndpointEvent1['token'] + ':' + captureEndpointEvent1['distinct_id'],
+                1,
+                now
+            )
+            expect(captureIngestionWarning).not.toHaveBeenCalled()
+            expect(queue.pluginsServer.kafkaProducer.produce).toHaveBeenCalledWith({
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+                value: JSON.stringify(captureEndpointEvent1),
+                timestamp: captureEndpointEvent1['timestamp'],
+                offset: captureEndpointEvent1['offset'],
+                key: overflowMode === IngestionOverflowMode.Reroute ? batch[0].key : undefined,
+                waitForAck: true,
+            })
 
-        // Event is not processed here
-        expect(runEventPipeline).not.toHaveBeenCalled()
-    })
+            // Event is not processed here
+            expect(runEventPipeline).not.toHaveBeenCalled()
+        }
+    )
 
     it('does not reroute if not over capacity limit', async () => {
         const now = Date.now()
