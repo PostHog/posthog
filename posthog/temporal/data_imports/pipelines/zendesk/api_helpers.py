@@ -33,6 +33,9 @@ def process_ticket(
     Returns:
         DictStrAny: A dictionary containing cleaned data about a ticket.
     """
+    # Commented out due to how slow this processing code is, and how often it'd break the pipeline.
+    # to be revisited on whether we want/need this pre-processing and figure out the best way to do it.
+
     # pivot custom field if indicated as such
     # get custom fields
     # pivoted_fields = set()
@@ -67,6 +70,7 @@ def process_ticket(
     #     if not ticket.get("custom_fields"):
     #         del ticket["custom_fields"]
     # del ticket["fields"]
+
     # modify dates to return datetime objects instead
     ticket["updated_at"] = _parse_date_or_none(ticket["updated_at"])
     ticket["created_at"] = _parse_date_or_none(ticket["created_at"])
