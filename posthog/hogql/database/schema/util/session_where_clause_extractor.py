@@ -7,7 +7,25 @@ from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor
 SESSION_BUFFER_DAYS = 3
 
 
-class SessionWhereClauseExtractor(CloningVisitor):
+class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
+    """This class extracts the Where clause from the lazy sessions table, to the clickhouse sessions table.
+
+    The sessions table in Clickhouse is an AggregatingMergeTree, and will have one row per session per day. This means that
+    when we want to query sessions, we need to pre-group these rows, so that we only have one row per session.
+
+    We hide this detail using a lazy table, but to make querying the underlying Clickhouse table faster, we can inline the
+    min_timestamp where conditions from the select on the outer lazy table to the select on the inner real table.
+
+    This class is called on the select query of the lazy table, and will return the where clause that should be applied to
+    the inner table.
+
+    As a query can be unreasonably complex, we only handle simple cases, but this class is designed to fail-safe. If it
+    can't reason about a particular expression, it will just return a constant True, i.e. fetch more rows than necessary.
+
+    This means that we can incrementally add support for more complex queries, without breaking existing queries, by
+    handling more cases.
+    """
+
     def get_inner_where(self, parsed_query: ast.SelectQuery) -> Optional[ast.Expr]:
         if not parsed_query.where:
             return None

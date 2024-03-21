@@ -12,7 +12,7 @@ from posthog.hogql.database.models import (
     LazyTable,
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr
-from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionWhereClauseExtractor
+from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
 from posthog.schema import HogQLQueryModifiers
 
 
@@ -136,7 +136,7 @@ def select_from_sessions_table(requested_fields: Dict[str, List[str | int]], nod
             )
             group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
-    where = SessionWhereClauseExtractor().get_inner_where(node)
+    where = SessionMinTimestampWhereClauseExtractor().get_inner_where(node)
 
     return ast.SelectQuery(
         select=select_fields,
