@@ -709,7 +709,7 @@ class TrendsQueryRunner(QueryRunner):
             if not table_model:
                 raise ValueError(f"Table {series.table_name} not found")
 
-            field_type = dict(table_model.columns)[self.query.breakdownFilter.breakdown]
+            field_type = dict(table_model.columns)[self.query.breakdownFilter.breakdown]["clickhouse"]
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]

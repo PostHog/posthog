@@ -171,7 +171,7 @@ async def insert_records_to_redshift(
     schema: str | None,
     table: str,
     batch_size: int = 100,
-):
+) -> int:
     """Execute an INSERT query with given Redshift connection.
 
     The recommended way to insert multiple values into Redshift is using a COPY statement (see:
@@ -206,15 +206,20 @@ async def insert_records_to_redshift(
     template = sql.SQL("({})").format(sql.SQL(", ").join(map(sql.Placeholder, columns)))
     rows_exported = get_rows_exported_metric()
 
+    total_rows_exported = 0
+
     async with async_client_cursor_from_connection(redshift_connection) as cursor:
         batch = []
         pre_query_str = pre_query.as_string(cursor).encode("utf-8")
 
         async def flush_to_redshift(batch):
+            nonlocal total_rows_exported
+
             values = b",".join(batch).replace(b" E'", b" '")
 
             await cursor.execute(pre_query_str + values)
             rows_exported.add(len(batch))
+            total_rows_exported += len(batch)
             # It would be nice to record BYTES_EXPORTED for Redshift, but it's not worth estimating
             # the byte size of each batch the way things are currently written. We can revisit this
             # in the future if we decide it's useful enough.
@@ -229,6 +234,8 @@ async def insert_records_to_redshift(
 
         if len(batch) > 0:
             await flush_to_redshift(batch)
+
+    return total_rows_exported
 
 
 @contextlib.asynccontextmanager
@@ -264,7 +271,7 @@ class RedshiftInsertInputs(PostgresInsertInputs):
 
 
 @activity.defn
-async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
+async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> int:
     """Activity to insert data from ClickHouse to Redshift.
 
     This activity executes the following steps:
@@ -306,7 +313,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return
+            return 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -383,12 +390,14 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
             return record
 
         async with postgres_connection(inputs) as connection:
-            await insert_records_to_redshift(
+            records_completed = await insert_records_to_redshift(
                 (map_to_record(record) for record_batch in record_iterator for record in record_batch.to_pylist()),
                 connection,
                 inputs.schema,
                 inputs.table_name,
             )
+
+        return records_completed
 
 
 @workflow.defn(name="redshift-export")
