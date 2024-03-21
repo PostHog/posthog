@@ -239,9 +239,9 @@ class Breakdown:
             return breakdown.get_breakdown_values()
 
     @cached_property
-    def _breakdown_values(self) -> List[str]:
+    def _breakdown_values(self) -> List[str | int]:
         values = [BREAKDOWN_NULL_STRING_LABEL if v is None else v for v in self._all_breakdown_values]
-        return cast(List[str], values)
+        return cast(List[str | int], values)
 
     @cached_property
     def has_breakdown_values(self) -> bool:

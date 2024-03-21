@@ -119,6 +119,38 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
             },
         ],
     },
+    Zendesk: {
+        name: 'Zendesk',
+        caption: (
+            <>
+                Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data
+                warehouse.
+            </>
+        ),
+        fields: [
+            {
+                name: 'subdomain',
+                label: 'Zendesk Subdomain',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'api_key',
+                label: 'API Key',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'email_address',
+                label: 'Zendesk Email Address',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
+    },
 }
 
 export const sourceModalLogic = kea<sourceModalLogicType>([
