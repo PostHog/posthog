@@ -220,7 +220,13 @@ export async function query<N extends DataNode = DataNode>(
                 (hogQLInsightsFunnelsFlagEnabled && isFunnelsQuery(queryNode))
             ) {
                 if (hogQLInsightsLiveCompareEnabled) {
-                    const legacyFunction = legacyUrl ? fetchLegacyUrl : fetchLegacyInsights
+                    const legacyFunction = (): any => {
+                        try {
+                            return legacyUrl ? fetchLegacyUrl : fetchLegacyInsights
+                        } catch (e) {
+                            console.error('Error fetching legacy insights', e)
+                        }
+                    }
                     let legacyResponse: any
                     ;[response, legacyResponse] = await Promise.all([
                         executeQuery(queryNode, methodOptions, refresh, queryId),

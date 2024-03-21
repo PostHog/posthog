@@ -14,6 +14,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
+from posthog.queries.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL
 from posthog.schema import (
     ActionsNode,
     DataWarehouseNode,
@@ -68,7 +69,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return full_query
 
     def build_actors_query(
-        self, time_frame: Optional[str] = None, breakdown_filter: Optional[str | int] = None
+        self, time_frame: Optional[str] = None, breakdown_filter: Optional[str] = None
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         breakdown = self._breakdown(is_actors_query=True, breakdown_values_override=breakdown_filter)
 
@@ -292,7 +293,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Just breakdowns
         elif breakdown.enabled:
             if not is_actors_query:
-                default_query.select.append(breakdown.column_expr())
+                breakdown_expr = breakdown.column_expr()
+                default_query.select.append(breakdown_expr)
                 default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
         # Just session duration math property
         elif self._aggregation_operation.aggregating_on_session_duration():
@@ -369,7 +371,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         name="ifNull",
                         args=[
                             ast.Call(name="toString", args=[ast.Field(chain=["breakdown_value"])]),
-                            ast.Constant(value=""),
+                            ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                         ],
                     ),
                 )
@@ -565,7 +567,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         query.group_by = []
         return query
 
-    def _breakdown(self, is_actors_query: bool, breakdown_values_override: Optional[str | int] = None):
+    def _breakdown(self, is_actors_query: bool, breakdown_values_override: Optional[str] = None):
         return Breakdown(
             team=self.team,
             query=self.query,
