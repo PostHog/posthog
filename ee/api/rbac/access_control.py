@@ -65,7 +65,6 @@ class AccessControlSerializer(serializers.ModelSerializer):
         if resource_id:
             # Check that they have the right access level for this specific resource object
             if not access_control.check_can_modify_access_levels_for_object(the_object):
-                # TODO: Human readable resource name
                 raise exceptions.PermissionDenied(f"Must be {required_level} to modify {resource} permissions.")
         else:
             # If modifying the base resource rules then we are checking the parent membership (project or organization)
@@ -84,7 +83,6 @@ class AccessControlViewSetMixin:
     as the current users access level to any response.
     """
 
-    # TODO: Now that we are on the viewset we can
     # 1. Know that the project level access is covered by the Permission check
     # 2. Get the actual object which we can pass to the serializer to check if the user created it
     # 3. We can also use the serializer to check the access level for the object

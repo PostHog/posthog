@@ -1,5 +1,3 @@
-from rest_framework.permissions import BasePermission
-
 from functools import cached_property
 from django.db.models import Model, Q, QuerySet
 from typing import TYPE_CHECKING, List, Optional
@@ -12,7 +10,6 @@ from posthog.models import (
     User,
 )
 from posthog.models.personal_api_key import APIScopeObject, API_SCOPE_OBJECTS
-from posthog.permissions import extract_organization
 
 
 if TYPE_CHECKING:
@@ -208,58 +205,3 @@ class UserAccessControl:
         # )
 
         return queryset
-
-
-class AccessControlPermission(BasePermission):
-    """
-    Unified permissions access - controls access to any object based on the user's access controls
-    """
-
-    def _get_user_access_control(self, request, view) -> UserAccessControl:
-        organization = extract_organization(object, view)
-        try:
-            # TODO: Check this is correct...
-            if request.resolver_match.url_name.startswith("team-"):
-                # /projects/ endpoint handling
-                team = view.get_object()
-            else:
-                team = view.team
-        except Team.DoesNotExist:
-            pass
-
-        return UserAccessControl(user=request.user, organization=organization, team=team)
-
-    def has_object_permission(self, request, view, object) -> bool:
-        # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
-        uac = self._get_user_access_control(request, view)
-
-        # TODO: How to determine action level to check...
-        required_level = "viewer"
-        has_access = uac.check_access_level_for_object(
-            object, view.scope_object, str(object.id), required_level=required_level
-        )
-
-        if not has_access:
-            self.message = f"You do not have {required_level} access to this resource."
-            return False
-
-        return True
-
-    def has_permission(self, request, view) -> bool:
-        # At this level we are checking that the user can generically access the resource kind.
-        # Primarily we are checking the user's access to the parent resource type (i.e. project, organization)
-        # as well as enforcing any global restrictions (e.g. generically only editing of a flag is allowed)
-
-        uac = self._get_user_access_control(request, view)
-
-        try:
-            team = view.team
-            is_member = uac.check_access_level_for_object(view.team, "project", str(team.id), "member")
-
-            if not is_member:
-                self.message = f"You are not a member of this project."
-                return False
-
-        except (ValueError, KeyError):
-            # TODO: Does this means its okay because there is no team level thing?
-            pass

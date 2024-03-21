@@ -20,6 +20,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
     APIScopePermission,
+    AccessControlPermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
@@ -68,7 +69,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
-        permission_classes: list = [IsAuthenticated, APIScopePermission]
+        permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission]
 
         if self.is_team_view:
             permission_classes.append(TeamMemberAccessPermission)

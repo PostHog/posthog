@@ -17,10 +17,11 @@ class BaseAccessControlTest(APILicensedTest):
 
         self.default_resource_id = self.team.id
 
-    def _put_access_control(self, data={}):
+    def _put_project_access_control(self, data={}):
         payload = {"access_level": "admin"}
 
         payload.update(data)
+
         return self.client.put(
             "/api/projects/@current/access_controls",
             payload,
@@ -34,29 +35,29 @@ class BaseAccessControlTest(APILicensedTest):
 class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
     def test_project_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        res = self._put_access_control()
+        res = self._put_project_access_control()
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
 
     def test_project_change_accepted_if_org_admin(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        res = self._put_access_control()
+        res = self._put_project_access_control()
         assert res.status_code == status.HTTP_200_OK, res.json()
 
     def test_project_change_accepted_if_org_owner(self):
         self._org_membership(OrganizationMembership.Level.OWNER)
-        res = self._put_access_control()
+        res = self._put_project_access_control()
         assert res.status_code == status.HTTP_200_OK, res.json()
 
     def test_project_removed_with_null(self):
         self._org_membership(OrganizationMembership.Level.OWNER)
-        res = self._put_access_control()
-        res = self._put_access_control({"access_level": None})
+        res = self._put_project_access_control()
+        res = self._put_project_access_control({"access_level": None})
         assert res.status_code == status.HTTP_204_NO_CONTENT
 
     def test_project_change_if_in_access_control(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         # Add ourselves to access
-        res = self._put_access_control(
+        res = self._put_project_access_control(
             {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
@@ -64,14 +65,14 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
         # Now change ourselves to a member
-        res = self._put_access_control(
+        res = self._put_project_access_control(
             {"organization_member": str(self.organization_membership.id), "access_level": "member"}
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert res.json()["access_level"] == "member"
 
         # Now try and change our own membership and fail!
-        res = self._put_access_control(
+        res = self._put_project_access_control(
             {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
         )
         assert res.status_code == status.HTTP_403_FORBIDDEN
@@ -79,22 +80,18 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
 
     def test_project_change_rejected_if_not_in_organization(self):
         self.organization_membership.delete()
-        res = self._put_access_control(
+        res = self._put_project_access_control(
             {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
         )
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
     def test_project_change_rejected_if_bad_access_level(self):
-        res = self._put_access_control({"access_level": "bad"})
+        res = self._put_project_access_control({"access_level": "bad"})
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
         assert res.json()["detail"] == "Invalid access level. Must be one of: none, member, admin", res.json()
 
 
 class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
-    default_resource = "notebook"
-    default_resource_id = 1
-    default_access_level = "editor"
-
     def setUp(self):
         super().setUp()
 
@@ -112,7 +109,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
 
     def _put_access_control(self, data={}, notebook_id=None):
         payload = {
-            "access_level": self.default_access_level,
+            "access_level": "editor",
         }
 
         payload.update(data)
@@ -125,7 +122,13 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         res = self._get_access_controls()
         assert res.status_code == status.HTTP_200_OK, res.json()
-        assert res.json() == {"access_controls": [], "available_access_levels": ["viewer", "editor"]}
+        assert res.json() == {
+            "access_controls": [],
+            "available_access_levels": ["viewer", "editor"],
+            "user_access_level": "editor",
+            "default_access_level": "editor",
+            "user_can_edit_access_levels": True,
+        }
 
     def test_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
@@ -139,5 +142,84 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
 
     def test_change_accepted_if_creator_of_the_resource(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        res = self._put_access_control()
+        res = self._put_access_control(notebook_id=self.notebook.short_id)
         assert res.status_code == status.HTTP_200_OK, res.json()
+
+
+class TestAccessControlPermissions(BaseAccessControlTest):
+    """
+    Test actual permissions being applied for a resource (notebooks as an example)
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = self._create_user("other_user")
+
+        self.other_user_notebook = Notebook.objects.create(
+            team=self.team, created_by=self.other_user, title="first notebook"
+        )
+
+    def _post_notebook(self):
+        return self.client.post("/api/projects/@current/notebooks/", {"title": "notebook"})
+
+    def _patch_notebook(self, id: str):
+        return self.client.patch(f"/api/projects/@current/notebooks/{id}", {"title": "new-title"})
+
+    def _get_notebook(self, id: str):
+        return self.client.get(f"/api/projects/@current/notebooks/{id}")
+
+    def _put_notebook_access_control(self, notebook_id: str, data={}):
+        payload = {
+            "access_level": "editor",
+        }
+
+        payload.update(data)
+        return self.client.put(
+            f"/api/projects/@current/notebooks/{notebook_id}/access_controls",
+            payload,
+        )
+
+    def test_default_allows_all_access(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        assert self._get_notebook(self.other_user_notebook.short_id).status_code == status.HTTP_200_OK
+        assert self._patch_notebook(id=self.other_user_notebook.short_id).status_code == status.HTTP_200_OK
+        res = self._post_notebook()
+        assert res.status_code == status.HTTP_201_CREATED
+        assert self._patch_notebook(id=res.json()["short_id"]).status_code == status.HTTP_200_OK
+
+    def test_rejects_all_access_without_project_access(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert self._put_project_access_control({"access_level": "none"}).status_code == status.HTTP_200_OK
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        assert self._get_notebook(self.other_user_notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
+        assert self._patch_notebook(id=self.other_user_notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
+        assert self._post_notebook().status_code == status.HTTP_403_FORBIDDEN
+
+    def test_permits_access_with_member_control(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert self._put_project_access_control({"access_level": "none"}).status_code == status.HTTP_200_OK
+        assert (
+            self._put_project_access_control(
+                {"access_level": "member", "organization_member": str(self.organization_membership.id)}
+            ).status_code
+            == status.HTTP_200_OK
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        assert self._get_notebook(self.other_user_notebook.short_id).status_code == status.HTTP_200_OK
+        assert self._patch_notebook(id=self.other_user_notebook.short_id).status_code == status.HTTP_200_OK
+        assert self._post_notebook().status_code == status.HTTP_201_CREATED
+
+    def test_rejects_edit_access_with_resource_control(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Set other notebook to only allow view access by default
+        assert (
+            self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "viewer"}).status_code
+            == status.HTTP_200_OK
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        assert self._get_notebook(self.other_user_notebook.short_id).status_code == status.HTTP_200_OK
+        assert self._patch_notebook(id=self.other_user_notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
+        assert self._post_notebook().status_code == status.HTTP_201_CREATED

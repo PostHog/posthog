@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from django.db.models import Model
 from django.core.exceptions import ImproperlyConfigured
@@ -15,6 +15,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import get_can_create_org
 
 CREATE_ACTIONS = ["create", "update", "partial_update"]
@@ -257,7 +258,51 @@ class SharingTokenPermission(BasePermission):
         return False
 
 
-class APIScopePermission(BasePermission):
+class ScopeBasePermission(BasePermission):
+    """
+    Base class for shared functionality between APIScopePermission and AccessControlPermission
+    """
+
+    write_actions: list[str] = ["create", "update", "partial_update", "patch", "destroy"]
+    read_actions: list[str] = ["list", "retrieve"]
+    scope_object_read_actions: list[str] = []
+    scope_object_write_actions: list[str] = []
+
+    def _get_scope_object(self, request, view) -> APIScopeObjectOrNotSupported:
+        if not getattr(view, "scope_object", None):
+            raise ImproperlyConfigured("APIScopePermission requires the view to define the scope_object attribute.")
+
+        return view.scope_object
+
+    def _get_action(self, request, view) -> str:
+        # TRICKY: DRF doesn't have an action for non-detail level "patch" calls which we use sometimes
+        if not view.action:
+            if request.method == "PATCH" and not view.detail:
+                return "patch"
+        return view.action
+
+    def _get_required_scopes(self, request, view) -> Optional[list[str]]:
+        # If required_scopes is set on the view method then use that
+        # Otherwise use the scope_object and derive the required scope from the action
+        if getattr(view, "required_scopes", None):
+            return view.required_scopes
+
+        scope_object = self._get_scope_object(request, view)
+
+        if scope_object == "INTERNAL":
+            return None
+
+        action = self._get_action(request, view)
+        read_actions = getattr(view, "scope_object_read_actions", self.read_actions)
+        write_actions = getattr(view, "scope_object_write_actions", self.write_actions)
+
+        if action in write_actions:
+            return [f"{scope_object}:write"]
+        elif action in read_actions or request.method == "OPTIONS":
+            return [f"{scope_object}:read"]
+
+
+class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key and the user has the appropriate scopes.
 
@@ -268,23 +313,10 @@ class APIScopePermission(BasePermission):
 
     """
 
-    write_actions: list[str] = ["create", "update", "partial_update", "patch", "destroy"]
-    read_actions: list[str] = ["list", "retrieve"]
-    scope_object_read_actions: list[str] = []
-    scope_object_write_actions: list[str] = []
-
-    def _get_action(self, request, view) -> str:
-        # TRICKY: DRF doesn't have an action for non-detail level "patch" calls which we use sometimes
-
-        if not view.action:
-            if request.method == "PATCH" and not view.detail:
-                return "patch"
-        return view.action
-
     def has_permission(self, request, view) -> bool:
         # NOTE: We do this first to error out quickly if the view is missing the required attribute
         # Helps devs remember to add it.
-        self.get_scope_object(request, view)
+        self._get_scope_object(request, view)
 
         # API Scopes currently only apply to PersonalAPIKeyAuthentication
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
@@ -296,7 +328,12 @@ class APIScopePermission(BasePermission):
         if not key_scopes:
             return True
 
-        required_scopes = self.get_required_scopes(request, view)
+        required_scopes = self._get_required_scopes(request, view)
+
+        if not required_scopes:
+            self.message = f"This action does not support Personal API Key access"
+            return False
+
         self.check_team_and_org_permissions(request, view)
 
         if "*" in key_scopes:
@@ -338,32 +375,76 @@ class APIScopePermission(BasePermission):
                 # Indicates this is not an organization scoped view
                 pass
 
-    def get_required_scopes(self, request, view) -> list[str]:
-        # If required_scopes is set on the view method then use that
-        # Otherwise use the scope_object and derive the required scope from the action
-        if getattr(view, "required_scopes", None):
-            return view.required_scopes
 
-        scope_object = self.get_scope_object(request, view)
+class AccessControlPermission(ScopeBasePermission):
+    """
+    Unified permissions access - controls access to any object based on the user's access controls
+    """
 
-        if scope_object == "INTERNAL":
-            raise PermissionDenied(f"This action does not support Personal API Key access")
+    def _get_user_access_control(self, request, view) -> Optional[UserAccessControl]:
+        try:
+            # TODO: Check this is correct...
+            if request.resolver_match.url_name.startswith("team-"):
+                # /projects/ endpoint handling
+                team = view.get_object()
+            else:
+                team = view.team
+        except (Team.DoesNotExist, KeyError):
+            return None
 
-        action = self._get_action(request, view)
-        read_actions = getattr(view, "scope_object_read_actions", self.read_actions)
-        write_actions = getattr(view, "scope_object_write_actions", self.write_actions)
+        return UserAccessControl(user=request.user, team=team)
 
-        if action in write_actions:
-            return [f"{scope_object}:write"]
-        elif action in read_actions or request.method == "OPTIONS":
-            return [f"{scope_object}:read"]
+    def _get_required_access_level(self, request, view, object) -> str:
+        required_scopes = self._get_required_scopes(request, view)
 
-        # If we get here this typically means an action was called without a required scope
-        # It is essentially "INTERNAL"
-        raise PermissionDenied(f"This action does not support Personal API Key access")
+        if not required_scopes:
+            return "viewer" if request.method in SAFE_METHODS else "editor"
 
-    def get_scope_object(self, request, view) -> APIScopeObjectOrNotSupported:
-        if not getattr(view, "scope_object", None):
-            raise ImproperlyConfigured("APIScopePermission requires the view to define the scope_object attribute.")
+        # TODO: This is definitely not right - we need to more safely map the scopes to access levels relevant to the object
+        for scope in required_scopes:
+            if scope.endswith(":write"):
+                return "editor"
 
-        return view.scope_object
+        return "viewer"
+
+    def has_object_permission(self, request, view, object) -> bool:
+        # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
+        uac = self._get_user_access_control(request, view)
+
+        if not uac:
+            # TODO: IS this corrrect...
+            return True
+
+        # TODO: How to determine action level to check...
+        required_level = self._get_required_access_level(request, view, object)
+        has_access = uac.check_access_level_for_object(object, required_level=required_level)
+
+        if not has_access:
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
+
+        return True
+
+    def has_permission(self, request, view) -> bool:
+        # At this level we are checking that the user can generically access the resource kind.
+        # Primarily we are checking the user's access to the parent resource type (i.e. project, organization)
+        # as well as enforcing any global restrictions (e.g. generically only editing of a flag is allowed)
+
+        uac = self._get_user_access_control(request, view)
+
+        if not uac:
+            # TODO: IS this corrrect...
+            return True
+
+        try:
+            is_member = uac.check_access_level_for_object(view.team, "member")
+
+            if not is_member:
+                self.message = f"You are not a member of this project."
+                return False
+
+            return True
+
+        except (ValueError, KeyError):
+            # TODO: Does this means its okay because there is no team level thing?
+            pass
