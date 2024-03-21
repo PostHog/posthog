@@ -1091,7 +1091,7 @@ export interface InsightActorsQueryBase {
 export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
     source: T
-    day?: string
+    day?: string | Day
     status?: string
     /** An interval selected out of available intervals in source query. */
     interval?: integer
