@@ -6,6 +6,7 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -83,14 +84,20 @@ export const signupLogic = kea<signupLogicType>([
                 role_at_organization: '',
                 referral_source: '',
             } as SignupForm,
-            errors: ({ first_name, organization_name }) => ({
+            errors: ({ first_name }) => ({
                 first_name: !first_name ? 'Please enter your name' : undefined,
-                organization_name: !organization_name ? 'Please enter your organization name' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 breakpoint()
                 try {
-                    const res = await api.create('api/signup/', { ...values.signupPanel1, ...payload })
+                    const res = await api.create('api/signup/', {
+                        ...values.signupPanel1,
+                        ...payload,
+                        organization_name: payload.organization_name || `${payload.first_name}'s Organization`,
+                    })
+                    if (!payload.organization_name) {
+                        posthog.capture('default organization name set')
+                    }
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     actions.setSignupPanel2ManualErrors({
