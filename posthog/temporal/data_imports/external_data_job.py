@@ -234,7 +234,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
         # data_chat = zendesk_chat()
         # data_talk = zendesk_talk()
 
-        source = data_support.add_limit(10)
+        source = data_support
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
