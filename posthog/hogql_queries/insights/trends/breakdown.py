@@ -155,7 +155,7 @@ class Breakdown:
 
         compare_ops = []
         for _value in self._breakdown_values:
-            value: Optional[str] = _value
+            value: Optional[str] = str(_value)  # non-cohorts are always strings
             # If the value is one of the "other" values, then use the `transform()` func
             if value == BREAKDOWN_OTHER_STRING_LABEL:
                 transform_func = self._get_breakdown_transform_func
@@ -221,7 +221,7 @@ class Breakdown:
     def _all_breakdown_values(self) -> List[str | int | None]:
         # Used in the actors query
         if self.breakdown_values_override is not None:
-            return cast(List[str | None], self.breakdown_values_override)
+            return cast(List[str | int | None], self.breakdown_values_override)
 
         if self.query.breakdownFilter is None:
             return []
@@ -236,7 +236,7 @@ class Breakdown:
                 query_date_range=self.query_date_range,
                 modifiers=self.modifiers,
             )
-            return breakdown.get_breakdown_values()
+            return cast(List[str | int | None], breakdown.get_breakdown_values())
 
     @cached_property
     def _breakdown_values(self) -> List[str | int]:
