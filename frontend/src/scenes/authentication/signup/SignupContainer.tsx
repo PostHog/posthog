@@ -22,7 +22,7 @@ export function SignupContainer(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
     const footerHighlights = {
-        cloud: ['Hosted & managed by PostHog', 'Pay per event, cancel anytime', 'Community forum and Email support'],
+        cloud: ['Hosted & managed by PostHog', 'Pay per event, cancel anytime', 'Fast and reliable support'],
         selfHosted: ['Fully featured product, unlimited events', 'Data in your own infrastructure', 'Community forum'],
     }
 
