@@ -20,13 +20,11 @@ class TestUserTeamPermissions(BaseTest):
         self, resource="project", resource_id=None, access_level="admin", organization_member=None, team=None, role=None
     ):
         return AccessControl.objects.create(
-            organization=self.organization,
+            team=self.team,
             resource=resource,
             resource_id=resource_id or self.team.id,
             access_level=access_level,
-            # Targets
             organization_member=organization_member,
-            team=team,
             role=role,
         )
 
@@ -49,109 +47,113 @@ class TestUserTeamPermissions(BaseTest):
         self.other_user_access_control = UserAccessControl(self.other_user, self.team)
 
         self.user_with_no_role = User.objects.create_and_join(self.organization, "norole@posthog.com", "testtest")
-        self.user_with_no_role_access_control = UserAccessControl(self.user_with_no_role, self.organization, self.team)
+        self.user_with_no_role_access_control = UserAccessControl(self.user_with_no_role, self.team)
+
+    def test_ac_object_default_response_without_available_feature(self):
+        self.organization.available_features = []
+        self.organization.save()
+
+        assert self.user_access_control.access_control_for_object(self.team) is None
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is None
+        assert self.other_user_access_control.access_control_for_object(self.team) is None
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is None
 
     def test_ac_object_default_response(self):
-        assert self.user_access_control.access_control_for_object("project", self.team.id) is None
-        assert self.user_access_control.check_access_level_for_object("project", self.team.id, "admin") is None
-        assert self.other_user_access_control.access_control_for_object("project", self.team.id) is None
-        assert self.other_user_access_control.check_access_level_for_object("project", self.team.id, "admin") is None
+        assert self.user_access_control.access_control_for_object(self.team).access_level == "member"
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is False
+        assert self.other_user_access_control.access_control_for_object(self.team).access_level == "member"
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
 
     def test_ac_object_user_access_control(self):
-        ac = AccessControl.objects.create(
-            organization=self.organization,
+        ac = self._create_access_control(
             resource="project",
-            resource_id=self.team.id,
+            resource_id=str(self.team.id),
             access_level="admin",
             # context
             organization_member=self.organization_membership,
         )
 
-        assert self.user_access_control.access_control_for_object("project", self.team.id) == ac
-        assert self.user_access_control.check_access_level_for_object("project", self.team.id, "admin") is True
-        assert self.other_user_access_control.check_access_level_for_object("project", self.team.id, "admin") is False
+        assert self.user_access_control.access_control_for_object(self.team) == ac
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
 
         ac.access_level = "member"
         ac.save()
 
-        assert self.user_access_control.check_access_level_for_object("project", self.team.id, "admin") is False
-        assert self.user_access_control.check_access_level_for_object("project", self.team.id, "member") is True
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is False
+        assert self.user_access_control.check_access_level_for_object(self.team, "member") is True
         assert (
-            self.other_user_access_control.check_access_level_for_object("project", self.team.id, "member") is False
+            self.other_user_access_control.check_access_level_for_object(self.team, "member")
+            is True  # This is the default
         )  # Fix this - need to load all access controls...
 
     def test_ac_object_project_access_control(self):
-        ac = AccessControl.objects.create(
-            organization=self.organization,
-            resource="project",
-            resource_id=self.team.id,
-            access_level="admin",
-            # context
-            team=self.team,
-        )
+        # Setup no access by default
+        ac = self._create_access_control(access_level="none")
 
-        assert self.user_access_control.access_control_for_object("project", self.team.id) == ac
-        assert self.user_access_control.check_access_level_for_object("project", self.team.id, "admin") is True
-        assert self.other_user_access_control.check_access_level_for_object("project", self.team.id, "admin") is True
+        assert self.user_access_control.access_control_for_object(self.team) == ac
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is False
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
 
         ac.access_level = "member"
         ac.save()
 
-        assert self.user_access_control.check_access_level_for_object("project", self.team.id, "admin") is False
-        assert self.user_access_control.check_access_level_for_object("project", self.team.id, "member") is True
-        assert self.other_user_access_control.check_access_level_for_object("project", self.team.id, "admin") is False
-        assert self.other_user_access_control.check_access_level_for_object("project", self.team.id, "member") is True
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is False
+        assert self.user_access_control.check_access_level_for_object(self.team, "member") is True
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "member") is True
+
+        ac.access_level = "admin"
+        ac.save()
+
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is True
 
     def test_ac_object_role_access_control(self):
-        ac = AccessControl.objects.create(
-            organization=self.organization,
-            resource="project",
-            resource_id=self.team.id,
-            access_level="admin",
-            # context
-            role=self.role_a,
-        )
+        ac = self._create_access_control(access_level="admin", role=self.role_a)
 
-        # Fix - nones should be false
-        assert self.user_access_control.access_control_for_object("project", self.team.id) == ac
-        assert self.user_access_control.check_access_level_for_object("project", self.team.id, "admin") is True
-        assert self.other_user_access_control.check_access_level_for_object("project", self.team.id, "admin") is None
-        assert (
-            self.user_with_no_role_access_control.check_access_level_for_object("project", self.team.id, "admin")
-            is None
-        )
+        assert self.user_access_control.access_control_for_object(self.team) == ac
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
+        assert self.user_with_no_role_access_control.check_access_level_for_object(self.team, "admin") is False
 
         ac.access_level = "member"
         ac.save()
 
-        assert self.user_access_control.check_access_level_for_object("project", self.team.id, "admin") is False
-        assert self.user_access_control.check_access_level_for_object("project", self.team.id, "member") is True
-        assert self.other_user_access_control.check_access_level_for_object("project", self.team.id, "admin") is None
-        assert self.other_user_access_control.check_access_level_for_object("project", self.team.id, "member") is None
-        assert (
-            self.user_with_no_role_access_control.check_access_level_for_object("project", self.team.id, "admin")
-            is None
-        )
+        # Make the default access level none
+        self._create_access_control(access_level="none")
+
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is False
+        assert self.user_access_control.check_access_level_for_object(self.team, "member") is True
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "member") is False
+        assert self.user_with_no_role_access_control.check_access_level_for_object(self.team, "admin") is False
 
     def test_ac_object_mixed_access_controls(self):
+        # No access by default
+        ac_project = self._create_access_control(access_level="none")
+        # Enroll self.user as member
         ac_user = self._create_access_control(access_level="member", organization_member=self.organization_membership)
-        ac_project = self._create_access_control(access_level="member", team=self.team)
+        # Enroll role_a as admin
         ac_role = self._create_access_control(access_level="admin", role=self.role_a)  # The highest AC
+        # Enroll role_b as member
         ac_role_2 = self._create_access_control(access_level="member", role=self.role_b)
-        # Enroll in the other role as well
+        # Enroll self.user in both roles
         RoleMembership.objects.create(user=self.user, role=self.role_b)
 
+        # Create an unrelated access control for self.user
         self._create_access_control(
             resource_id="something else", access_level="admin", organization_member=self.organization_membership
         )
 
-        assert list(self.user_access_control._access_controls_for_object("project", self.team.id)) == [
-            ac_user,
-            ac_project,
-            ac_role,
-            ac_role_2,
-        ]
-        assert self.user_access_control.access_control_for_object("project", self.team.id) == ac_role
+        matching_acs = list(self.user_access_control._access_controls_for_object(self.team))
+        assert len(matching_acs) == 4
+        assert ac_project in matching_acs
+        assert ac_user in matching_acs
+        assert ac_role in matching_acs
+        assert ac_role_2 in matching_acs
+        # the matching one should be the highest level
+        assert self.user_access_control.access_control_for_object(self.team) == ac_role
 
 
 #     def test_team_effective_membership_level(self):

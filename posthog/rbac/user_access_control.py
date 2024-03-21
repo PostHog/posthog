@@ -11,7 +11,7 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.personal_api_key import APIScopeObject
+from posthog.models.personal_api_key import APIScopeObject, API_SCOPE_OBJECTS
 from posthog.permissions import extract_organization
 
 
@@ -42,12 +42,28 @@ def ordered_access_levels(resource: APIScopeObject) -> List[str]:
 
 def default_access_level(resource: APIScopeObject) -> bool:
     if resource in ["project", "organization"]:
-        return MEMBER_BASED_ACCESS_LEVELS[0]
-    return RESOURCE_BASED_ACCESS_LEVELS[-1]
+        return "member"
+    return "editor"
 
 
-def access_level_satisfied(resource: APIScopeObject, current_level: str, required_level: str) -> bool:
+def access_level_satisfied(obj: Model, current_level: str, required_level: str) -> bool:
+    resource = model_to_resource(obj)
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
+
+
+def model_to_resource(model: Model) -> APIScopeObject:
+    """
+    Given a model, return the resource type it represents
+    """
+    name = model.__class__.__name__.lower()
+
+    if name == "team":
+        return "project"
+
+    if name not in API_SCOPE_OBJECTS:
+        raise ValueError(f"Model {name} does not have a corresponding API scope object.")
+
+    return name
 
 
 class UserAccessControl:
@@ -75,10 +91,13 @@ class UserAccessControl:
         ) or self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
     # @cached_property
-    def _access_controls_for_object(self, resource: APIScopeObject, resource_id: str) -> List[_AccessControl]:
+    def _access_controls_for_object(self, obj: Model) -> List[_AccessControl]:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
+        resource = model_to_resource(obj)
+        resource_id = str(obj.id)
+
         # TODO: Make this more efficient
         role_memberships = self._user.role_memberships.select_related("role").all()
         role_ids = [membership.role.id for membership in role_memberships] if self._rbac_supported else []
@@ -86,27 +105,31 @@ class UserAccessControl:
         # TODO: Need to determine if there exists any ACs for the resource to determine if we should return None or not
         return AccessControl.objects.filter(
             Q(  # Access controls applying to this team
-                team=self._team, resource=resource, resource_id=resource_id
+                team=self._team, resource=resource, resource_id=resource_id, organization_member=None, role=None
             )
             | Q(  # Access controls applying to this user
                 team=self._team,
                 resource=resource,
                 resource_id=resource_id,
                 organization_member__user=self._user,
+                role=None,
             )
             | Q(  # Access controls applying to this user's roles
-                team=self._team, resource=resource, resource_id=resource_id, role__in=role_ids
+                team=self._team, resource=resource, resource_id=resource_id, organization_member=None, role__in=role_ids
             )
         )
 
-    def access_control_for_object(self, resource: APIScopeObject, resource_id: str) -> Optional[_AccessControl]:
+    def access_control_for_object(self, obj: Model) -> Optional[_AccessControl]:
         """
         Access levels are strings - the order of which is determined at run time.
         We find all relevant access controls and then return the highest value
         """
 
-        # TODO: Figure out - do we need also wan to include Resource level controls (i.e. where resource_id is explicitly None?)
+        # TODO: Figure out - do we need also want to include Resource level controls (i.e. where resource_id is explicitly None?)
         # or are they only applicable when there is no object level controls?
+
+        resource = model_to_resource(obj)
+        resource_id = str(obj.id)
 
         if not self._access_controls_supported:
             return None
@@ -126,7 +149,7 @@ class UserAccessControl:
                 access_level=ordered_access_levels(resource)[-1],
             )
 
-        access_controls = self._access_controls_for_object(resource, resource_id)
+        access_controls = self._access_controls_for_object(obj)
         if not access_controls:
             return AccessControl(
                 team=self._team,
@@ -140,23 +163,16 @@ class UserAccessControl:
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
         )
 
-    def check_access_level_for_object(
-        self, obj: Model, resource: APIScopeObject, resource_id: str, required_level: str
-    ) -> Optional[bool]:
+    def check_access_level_for_object(self, obj: Model, required_level: str) -> Optional[bool]:
         """
         Entry point for all permissions around a specific object.
         If any of the access controls have the same or higher level than the requested level, return True.
 
         Returns true or false if access controls are applied, otherwise None
         """
+        access_control = self.access_control_for_object(obj)
 
-        access_control = self.access_control_for_object(obj, resource, resource_id)
-
-        return (
-            None
-            if not access_control
-            else access_level_satisfied(resource, access_control.access_level, required_level)
-        )
+        return None if not access_control else access_level_satisfied(obj, access_control.access_level, required_level)
 
     def check_can_modify_access_levels_for_object(self, obj: Model) -> Optional[bool]:
         """
@@ -171,7 +187,8 @@ class UserAccessControl:
             # TODO: Should this always be the case, even for projects?
             return True
 
-        return self.check_access_level_for_object(obj.team, "project", str(obj.id), "admin")
+        # If they aren't the creator then they need to be a project admin or org admin
+        return self.check_access_level_for_object(self._team, "admin")
 
     # Used for filtering a queryset by access level
     def filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
