@@ -385,6 +385,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         response = super().retrieve(request, *args, **kwargs)
         response.status_code = self.SUCCESS_STATUS_CODE
+        response.data = None
         return response
 
 

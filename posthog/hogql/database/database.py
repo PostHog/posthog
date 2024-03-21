@@ -334,6 +334,7 @@ class _SerializedFieldBase(TypedDict):
         "lazy_table",
         "virtual_table",
         "field_traverser",
+        "expression",
     ]
 
 
@@ -371,6 +372,9 @@ def serialize_fields(field_input, context: HogQLContext) -> List[SerializedField
         if field_key == "team_id":
             pass
         elif isinstance(field, DatabaseField):
+            if field.hidden:
+                continue
+
             if isinstance(field, IntegerDatabaseField):
                 field_output.append({"key": field_key, "type": "integer"})
             elif isinstance(field, FloatDatabaseField):
@@ -387,6 +391,8 @@ def serialize_fields(field_input, context: HogQLContext) -> List[SerializedField
                 field_output.append({"key": field_key, "type": "json"})
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append({"key": field_key, "type": "array"})
+            elif isinstance(field, ExpressionField):
+                field_output.append({"key": field_key, "type": "expression"})
         elif isinstance(field, LazyJoin):
             is_view = isinstance(field.resolve_table(context), SavedQuery)
             field_output.append(
