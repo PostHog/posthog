@@ -35,7 +35,7 @@ export function ViewLinkModal(): JSX.Element {
             }
             isOpen={isJoinTableModalOpen}
             onClose={toggleJoinTableModal}
-            width={600}
+            width={700}
         >
             <ViewLinkForm />
         </LemonModal>
@@ -73,7 +73,7 @@ export function ViewLinkForm(): JSX.Element {
         <Form logic={viewLinkLogic} formKey="viewLink" enableFormOnSubmit>
             <div className="flex flex-col w-full justify-between items-center">
                 <div className="flex flex-row w-full justify-between">
-                    <div className={isNewJoin ? 'w-50' : 'flex flex-col'}>
+                    <div className={isNewJoin ? 'w-60' : 'flex flex-col'}>
                         <span className="l4">Source Table</span>
                         {isNewJoin ? (
                             <Field name="source_table_name">
@@ -88,7 +88,7 @@ export function ViewLinkForm(): JSX.Element {
                             selectedSourceTableName ?? ''
                         )}
                     </div>
-                    <div className="w-50">
+                    <div className="w-60">
                         <span className="l4">Joining Table</span>
                         <Field name="joining_table_name">
                             <LemonSelect
@@ -100,8 +100,8 @@ export function ViewLinkForm(): JSX.Element {
                         </Field>
                     </div>
                 </div>
-                <div className="mt-3 flex flex-row justify-between items-center w-full">
-                    <div className="w-50">
+                <div className="mt-4 flex flex-row justify-between items-center w-full">
+                    <div className="w-60">
                         <span className="l4">Source Table Key</span>
                         <Field name="source_table_key">
                             <>
@@ -126,7 +126,7 @@ export function ViewLinkForm(): JSX.Element {
                     <div className="mt-5">
                         <IconSwapHoriz />
                     </div>
-                    <div className="w-50">
+                    <div className="w-60">
                         <span className="l4">Joining Table Key</span>
                         <Field name="joining_table_key">
                             <>
