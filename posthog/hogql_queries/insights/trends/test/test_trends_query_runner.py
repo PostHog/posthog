@@ -375,7 +375,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(formula="A+B"),
             BreakdownFilter(breakdown_type=BreakdownType.person, breakdown="$browser"),
         )
-        self.assertEqual([], response.results)
+        self.assertEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], response.results[0].data)
 
     def test_trends_query_formula_aggregate(self):
         self._create_test_events()
