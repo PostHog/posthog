@@ -41,7 +41,7 @@ type IngestionSplitBatch = {
 type IngestResult = {
     // Promises that the batch handler should await on before committing offsets,
     // contains the Kafka producer ACKs, to avoid blocking after every message.
-    promises?: Array<Promise<void>>
+    ackPromises?: Array<Promise<void>>
 }
 
 async function handleProcessingError(
@@ -166,7 +166,7 @@ export async function eachBatchParallelIngestion(
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
-                        result.promises?.forEach((promise) =>
+                        result.ackPromises?.forEach((promise) =>
                             processingPromises.push(
                                 promise.catch(async (error) => {
                                     await handleProcessingError(error, message, pluginEvent, queue)
