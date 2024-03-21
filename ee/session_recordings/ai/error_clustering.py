@@ -76,12 +76,12 @@ def construct_response(df: pd.DataFrame, team: Team):
     clusters = []
     for cluster, rows in df.groupby("cluster"):
         session_ids = rows["session_id"].unique()
-        sample = rows.sample(n=1)[["session_id", "input"]].rename(columns={"input": "error"}).to_dict("records")
+        sample = rows.sample(n=1)[["session_id", "input"]].rename(columns={"input": "error"}).to_dict("records")[0]
         clusters.append(
             {
                 "cluster": cluster,
-                "sample": sample,
-                "session_ids": session_ids,
+                "sample": sample.get("error"),
+                "session_ids": np.random.choice(session_ids, size=DBSCAN_MIN_SAMPLES - 1),
                 "occurrences": rows.size,
                 "unique_sessions": len(session_ids),
                 "viewed": len(np.intersect1d(session_ids, viewed_session_ids, assume_unique=True)),
