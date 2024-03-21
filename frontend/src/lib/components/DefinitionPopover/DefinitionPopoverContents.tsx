@@ -116,7 +116,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
 
     // Use effect here to make definition view stateful. TaxonomicFilterLogic won't mount within definitionPopoverLogic
     useEffect(() => {
-        if (definition.name == selectedItemMeta.id) {
+        if (selectedItemMeta && definition.name == selectedItemMeta.id) {
             setLocalDefinition(selectedItemMeta)
         }
     }, [definition])
