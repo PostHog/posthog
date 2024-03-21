@@ -209,7 +209,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={
-                "zendesk_login_method": "api_key",
+                "zendesk_login_method": "api_key",  # We should support the Zendesk OAuth flow in the future, and so with this we can do backwards compatibility
                 "zendesk_api_key": api_key,
                 "zendesk_subdomain": subdomain,
                 "zendesk_email_address": email_address,

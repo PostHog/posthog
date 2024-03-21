@@ -244,10 +244,10 @@ def zendesk_support(
         end_date_ts = end_date_obj.int_timestamp
         end_date_iso_str = end_date_obj.isoformat()
 
-    @dlt.resource(primary_key="id", write_disposition="append")
+    @dlt.resource(name="ticket_events", primary_key="id", write_disposition="append")
     def ticket_events(
         zendesk_client: ZendeskAPIClient,
-        timestamp: dlt.sources.incremental[int] = dlt.sources.incremental(
+        timestamp: dlt.sources.incremental[int] = dlt.sources.incremental(  # noqa: B008
             "timestamp",
             initial_value=start_date_ts,
             end_value=end_date_ts,
@@ -279,7 +279,7 @@ def zendesk_support(
     def ticket_table(
         zendesk_client: ZendeskAPIClient,
         pivot_fields: bool = True,
-        updated_at: dlt.sources.incremental[pendulum.DateTime] = dlt.sources.incremental(
+        updated_at: dlt.sources.incremental[pendulum.DateTime] = dlt.sources.incremental(  # noqa: B008
             "updated_at",
             initial_value=start_date_obj,
             end_value=end_date_obj,
@@ -321,7 +321,7 @@ def zendesk_support(
     @dlt.resource(name="ticket_metric_events", primary_key="id", write_disposition="append")
     def ticket_metric_table(
         zendesk_client: ZendeskAPIClient,
-        time: dlt.sources.incremental[str] = dlt.sources.incremental(
+        time: dlt.sources.incremental[str] = dlt.sources.incremental(  # noqa: B008
             "time",
             initial_value=start_date_iso_str,
             end_value=end_date_iso_str,
@@ -394,13 +394,13 @@ def zendesk_support(
 
     for endpoint in endpoints:
         # loading base tables
-        if endpoint == "ticket_fields_resource":
+        if endpoint == "ticket_fields":
             resource_list.append(ticket_fields_resource(zendesk_client=zendesk_client))
         elif endpoint == "ticket_events":
             resource_list.append(ticket_events(zendesk_client=zendesk_client))
-        elif endpoint == "ticket_table":
+        elif endpoint == "tickets":
             resource_list.append(ticket_table(zendesk_client=zendesk_client, pivot_fields=pivot_ticket_fields))
-        elif endpoint == "ticket_metric_table":
+        elif endpoint == "ticket_metric_events":
             resource_list.append(ticket_metric_table(zendesk_client=zendesk_client))
         else:
             # other tables to be loaded

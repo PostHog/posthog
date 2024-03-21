@@ -10,7 +10,7 @@ INCREMENTAL_PAGE_SIZE = 1000
 CUSTOM_FIELDS_STATE_KEY = "ticket_custom_fields_v2"
 
 # Resources that will always get pulled
-BASE_ENDPOINTS = ["ticket_fields_resource", "ticket_events", "ticket_table", "ticket_metric_table"]
+BASE_ENDPOINTS = ["ticket_fields", "ticket_events", "tickets", "ticket_metric_events"]
 
 # Tuples of (Resource name, endpoint URL, data_key, supports pagination)
 # data_key is the key which data list is nested under in responses

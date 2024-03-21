@@ -48,6 +48,7 @@ class DataImportPipeline:
             credentials = {
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+                "region_name": settings.AIRBYTE_BUCKET_REGION,
             }
 
         return dlt.destinations.filesystem(

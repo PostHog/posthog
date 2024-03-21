@@ -5,6 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
+import zendeskLogo from 'public/zendesk-logo.png'
 
 import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
 import PostgresSchemaForm from './forms/PostgresSchemaForm'
@@ -106,7 +107,7 @@ function FirstStep(): JSX.Element {
         if (config.name === 'Zendesk') {
             return (
                 <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    <img src={stripeLogo} alt="stripe logo" height={50} /> {/* TODO: add image for zendesk */}
+                    <img src={zendeskLogo} alt="Zendesk logo" height={40} />
                 </LemonButton>
             )
         }
