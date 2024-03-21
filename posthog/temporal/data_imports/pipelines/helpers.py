@@ -27,5 +27,5 @@ def aget_external_data_job(team_id, job_id):
 
 
 @database_sync_to_async
-def aupdate_job_count(job_id, team_id, count):
+def aupdate_job_count(job_id: str, team_id: int, count: int):
     ExternalDataJob.objects.filter(id=job_id, team_id=team_id).update(rows_synced=F("rows_synced") + count)
