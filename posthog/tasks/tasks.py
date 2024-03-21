@@ -750,3 +750,15 @@ def calculate_replay_embeddings() -> None:
         pass
     except Exception as e:
         logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)
+
+
+@shared_task(ignore_result=True)
+def calculate_replay_error_clusters() -> None:
+    try:
+        from ee.tasks.replay import generate_replay_embedding_error_clusters
+
+        generate_replay_embedding_error_clusters()
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
