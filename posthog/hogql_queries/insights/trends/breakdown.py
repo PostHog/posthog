@@ -211,7 +211,10 @@ class Breakdown:
     def _breakdown_values_ast(self) -> ast.Array:
         exprs: list[ast.Expr] = []
         for value in self._breakdown_values:
-            exprs.append(hogql_to_string(ast.Constant(value=value)))
+            if isinstance(value, str):
+                exprs.append(ast.Constant(value=value))
+            else:
+                exprs.append(hogql_to_string(ast.Constant(value=value)))
         return ast.Array(exprs=exprs)
 
     @cached_property
