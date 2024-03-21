@@ -838,10 +838,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.featureFlag],
             (featureFlag): SidePanelSceneContext | null => {
-                return featureFlag
+                return featureFlag?.id
                     ? {
                           activity_scope: ActivityScope.DASHBOARD,
-                          activity_item_id: featureFlag.id,
+                          activity_item_id: `${featureFlag.id}`,
                           access_control_resource: 'feature_flag',
                           access_control_resource_id: `${featureFlag.id}`,
                       }

@@ -31,10 +31,9 @@ import {
 import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
-    const { canEditAccessControls } = useValues(accessControlLogic(props))
-    const { resource } = props
+    const { canEditAccessControls, humanReadableResource } = useValues(accessControlLogic(props))
 
-    const suffix = `this ${resource}`
+    const suffix = `this ${humanReadableResource}`
 
     return (
         <BindLogic logic={accessControlLogic} props={props}>

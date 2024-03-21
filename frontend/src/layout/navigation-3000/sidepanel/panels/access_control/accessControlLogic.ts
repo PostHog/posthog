@@ -120,6 +120,12 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 return `api/projects/@current/${props.resource}s/${props.resource_id}/access_controls`
             },
         ],
+        humanReadableResource: [
+            () => [(_, props) => props],
+            (props): string => {
+                return props.resource.replace(/_/g, ' ')
+            },
+        ],
 
         availableLevelsWithNone: [
             (s) => [s.accessControls],

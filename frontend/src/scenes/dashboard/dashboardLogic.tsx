@@ -717,7 +717,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return dashboard
                     ? {
                           activity_scope: ActivityScope.DASHBOARD,
-                          activity_item_id: dashboard.id,
+                          activity_item_id: `${dashboard.id}`,
                           access_control_resource: 'dashboard',
                           access_control_resource_id: `${dashboard.id}`,
                       }
