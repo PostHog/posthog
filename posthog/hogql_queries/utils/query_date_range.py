@@ -132,7 +132,7 @@ class QueryDateRange:
         elif self.interval_name == "month":
             return start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    def interval_relativedelta(self):
+    def interval_relativedelta(self) -> relativedelta:
         return relativedelta(
             days=1 if self.interval_name == "day" else 0,
             weeks=1 if self.interval_name == "week" else 0,

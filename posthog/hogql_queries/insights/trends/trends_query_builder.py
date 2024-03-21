@@ -68,7 +68,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return full_query
 
     def build_actors_query(
-        self, time_frame: Optional[str | int] = None, breakdown_filter: Optional[str | int] = None
+        self, time_frame: Optional[str] = None, breakdown_filter: Optional[str | int] = None
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         breakdown = self._breakdown(is_actors_query=True, breakdown_values_override=breakdown_filter)
 
@@ -165,7 +165,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         is_actors_query: bool,
         breakdown: Breakdown,
         breakdown_values_override: Optional[str | int] = None,
-        actors_query_time_frame: Optional[str | int] = None,
+        actors_query_time_frame: Optional[str] = None,
     ) -> ast.SelectQuery:
         day_start = ast.Alias(
             alias="day_start",
@@ -188,6 +188,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             where=events_filter,
         )
         if not isinstance(self.series, DataWarehouseNode):
+            assert default_query.select_from is not None
             default_query.select_from.sample = ast.SampleExpr(
                 sample_value=self._sample_value(),
             )
@@ -438,7 +439,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         breakdown: Breakdown | None,
         ignore_breakdowns: bool = False,
         breakdown_values_override: Optional[str | int] = None,
-        actors_query_time_frame: Optional[str | int] = None,
+        actors_query_time_frame: Optional[str] = None,
     ) -> ast.Expr:
         series = self.series
         filters: List[ast.Expr] = []
@@ -451,12 +452,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     ast.CompareOperation(
                         left=ast.Field(chain=["timestamp"]),
                         op=ast.CompareOperationOp.GtEq,
-                        right=ast.Call(name="toDateTime", args=[ast.Constant(value=actors_from)]),
+                        right=ast.Constant(value=actors_from),
                     ),
                     ast.CompareOperation(
                         left=ast.Field(chain=["timestamp"]),
                         op=ast.CompareOperationOp.Lt,
-                        right=ast.Call(name="toDateTime", args=[ast.Constant(value=actors_to)]),
+                        right=ast.Constant(value=actors_to),
                     ),
                 ]
             )

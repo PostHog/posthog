@@ -2806,7 +2806,7 @@ class InsightActorsQuery(BaseModel):
     )
     breakdown: Optional[Union[str, int]] = None
     compare: Optional[Compare] = None
-    day: Optional[Union[str, int]] = None
+    day: Optional[str] = None
     includeRecordings: Optional[bool] = None
     interval: Optional[int] = Field(
         default=None, description="An interval selected out of available intervals in source query."

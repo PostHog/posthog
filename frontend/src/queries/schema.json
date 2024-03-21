@@ -2659,14 +2659,7 @@
                     "type": "string"
                 },
                 "day": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/Day"
-                        }
-                    ]
+                    "type": "string"
                 },
                 "includeRecordings": {
                     "type": "boolean"
