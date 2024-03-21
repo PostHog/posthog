@@ -555,11 +555,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
         assert len(response.results) == 4
-        assert breakdown_labels == ["Chrome", "Firefox", "Safari", "Edge"]
+        assert breakdown_labels == ["Chrome", "Firefox", "Edge", "Safari"]
         assert response.results[0]["label"] == "Chrome"
         assert response.results[1]["label"] == "Firefox"
-        assert response.results[2]["label"] == "Safari"
-        assert response.results[3]["label"] == "Edge"
+        assert response.results[2]["label"] == "Edge"
+        assert response.results[3]["label"] == "Safari"
         assert response.results[0]["count"] == 6
         assert response.results[1]["count"] == 2
         assert response.results[2]["count"] == 1
@@ -607,18 +607,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
         assert len(response.results) == 5
-        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[32.5,40.01]", "[25.0,32.5]", '["",""]']
+        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[25.0,32.5]", "[32.5,40.01]", '["",""]']
 
         assert response.results[0]["label"] == "[10.0,17.5]"
         assert response.results[1]["label"] == "[17.5,25.0]"
-        assert response.results[2]["label"] == "[32.5,40.01]"
-        assert response.results[3]["label"] == "[25.0,32.5]"
+        assert response.results[2]["label"] == "[25.0,32.5]"
+        assert response.results[3]["label"] == "[32.5,40.01]"
         assert response.results[4]["label"] == '["",""]'
 
         assert response.results[0]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
         assert response.results[1]["data"] == [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
-        assert response.results[2]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
-        assert response.results[3]["data"] == [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        assert response.results[2]["data"] == [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        assert response.results[3]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
         assert response.results[4]["data"] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
     def test_trends_breakdowns_cohort(self):
@@ -683,11 +683,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
         assert len(response.results) == 4
-        assert breakdown_labels == ["Chrome", "Firefox", "Safari", "Edge"]
+        assert breakdown_labels == ["Chrome", "Firefox", "Edge", "Safari"]
         assert response.results[0]["label"] == "Chrome"
         assert response.results[1]["label"] == "Firefox"
-        assert response.results[2]["label"] == "Safari"
-        assert response.results[3]["label"] == "Edge"
+        assert response.results[2]["label"] == "Edge"
+        assert response.results[3]["label"] == "Safari"
         assert response.results[0]["count"] == 6
         assert response.results[1]["count"] == 2
         assert response.results[2]["count"] == 1
@@ -708,24 +708,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
         assert len(response.results) == 8
-        assert breakdown_labels == [
-            "Chrome",
-            "Firefox",
-            "Safari",
-            "Edge",
-            "Chrome",
-            "Safari",
-            "Firefox",
-            "Edge",
-        ]
+        assert breakdown_labels == ["Chrome", "Firefox", "Edge", "Safari", "Chrome", "Edge", "Firefox", "Safari"]
         assert response.results[0]["label"] == f"$pageview - Chrome"
         assert response.results[1]["label"] == f"$pageview - Firefox"
-        assert response.results[2]["label"] == f"$pageview - Safari"
-        assert response.results[3]["label"] == f"$pageview - Edge"
+        assert response.results[2]["label"] == f"$pageview - Edge"
+        assert response.results[3]["label"] == f"$pageview - Safari"
         assert response.results[4]["label"] == f"$pageleave - Chrome"
-        assert response.results[5]["label"] == f"$pageleave - Safari"
+        assert response.results[5]["label"] == f"$pageleave - Edge"
         assert response.results[6]["label"] == f"$pageleave - Firefox"
-        assert response.results[7]["label"] == f"$pageleave - Edge"
+        assert response.results[7]["label"] == f"$pageleave - Safari"
         assert response.results[0]["count"] == 6
         assert response.results[1]["count"] == 2
         assert response.results[2]["count"] == 1
@@ -797,10 +788,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
         assert len(response.results) == 4
-        assert breakdown_labels == ["Chrome", "Safari", "Firefox", "Edge"]
+        assert breakdown_labels == ["Chrome", "Firefox", "Safari", "Edge"]
         assert response.results[0]["label"] == "Chrome"
-        assert response.results[1]["label"] == "Safari"
-        assert response.results[2]["label"] == "Firefox"
+        assert response.results[1]["label"] == "Firefox"
+        assert response.results[2]["label"] == "Safari"
         assert response.results[3]["label"] == "Edge"
 
         assert response.results[0]["data"] == [
@@ -817,14 +808,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             10,
             0,
         ]
+
         assert response.results[1]["data"] == [
+            20,
+            0,
+            0,
+            20,
             0,
             0,
             0,
-            0,
-            0,
-            0,
-            40,
             0,
             0,
             0,
@@ -832,13 +824,13 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             0,
         ]
         assert response.results[2]["data"] == [
-            20,
-            0,
-            0,
-            20,
             0,
             0,
             0,
+            0,
+            0,
+            0,
+            40,
             0,
             0,
             0,
