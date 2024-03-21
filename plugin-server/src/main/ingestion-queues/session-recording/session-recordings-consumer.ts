@@ -20,6 +20,7 @@ import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
 import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
+import { OverflowDetection } from './services/overflow-detection'
 import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
@@ -128,6 +129,7 @@ export class SessionRecordingIngester {
     sessionHighWaterMarker: OffsetHighWaterMarker
     persistentHighWaterMarker: OffsetHighWaterMarker
     realtimeManager: RealtimeManager
+    overflowDetection?: OverflowDetection
     replayEventsIngester?: ReplayEventsIngester
     consoleLogsIngester?: ConsoleLogsIngester
     batchConsumer?: BatchConsumer
@@ -159,6 +161,14 @@ export class SessionRecordingIngester {
         this.redisPool = createRedisPool(this.config)
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
+
+        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED) {
+            this.overflowDetection = new OverflowDetection(
+                globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
+                globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
+                24 * 3600 // One day
+            )
+        }
 
         // We create a hash of the cluster to use as a unique identifier for the high-water marks
         // This enables us to swap clusters without having to worry about resetting the high-water marks
@@ -274,6 +284,9 @@ export class SessionRecordingIngester {
 
             return
         }
+
+        // TODO: update Redis if this triggers
+        this.overflowDetection?.observe(key, event.metadata.rawSize, event.metadata.timestamp)
 
         if (!this.sessions[key]) {
             const { partition, topic } = event.metadata
