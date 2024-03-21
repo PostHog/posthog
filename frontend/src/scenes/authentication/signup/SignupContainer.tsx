@@ -36,9 +36,9 @@ export function SignupContainer(): JSX.Element | null {
             footer={
                 <>
                     {footerHighlights[preflight?.cloud ? 'cloud' : 'selfHosted'].map((val, idx) => (
-                        <span key={idx} className="text-center">
+                        <p key={idx} className="text-center mb-2">
                             {val}
-                        </span>
+                        </p>
                     ))}
                 </>
             }
