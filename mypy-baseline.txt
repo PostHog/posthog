@@ -352,7 +352,6 @@ posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "Bre
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown_type"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument 1 to "parse_expr" has incompatible type "str | float | list[str | float] | Any | None"; expected "str"  [arg-type]
-posthog/hogql_queries/insights/trends/breakdown.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/insights/trends/breakdown.py:0: error: Argument "exprs" to "Or" has incompatible type "list[CompareOperation]"; expected "list[Expr]"  [arg-type]
 posthog/hogql_queries/insights/trends/breakdown.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql_queries/insights/trends/breakdown.py:0: note: Consider using "Sequence" instead, which is covariant
