@@ -57,6 +57,7 @@ export function ViewLinkForm(): JSX.Element {
         selectedJoiningKey,
         sourceIsUsingHogQLExpression,
         joiningIsUsingHogQLExpression,
+        isViewLinkSubmitting,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -185,7 +186,7 @@ export function ViewLinkForm(): JSX.Element {
                 <LemonButton className="mr-3" type="secondary" onClick={toggleJoinTableModal}>
                     Close
                 </LemonButton>
-                <LemonButton type="primary" htmlType="submit">
+                <LemonButton type="primary" htmlType="submit" loading={isViewLinkSubmitting}>
                     Save
                 </LemonButton>
             </div>
