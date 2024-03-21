@@ -62,7 +62,8 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 }
 
 function AccessControlObjectDefaults(): JSX.Element | null {
-    const { accessControlDefault, accessControlDefaultOptions, accessControlsLoading } = useValues(accessControlLogic)
+    const { accessControlDefault, accessControlDefaultOptions, accessControlsLoading, canEditAccessControls } =
+        useValues(accessControlLogic)
     const { updateAccessControlDefault } = useActions(accessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
@@ -74,7 +75,9 @@ function AccessControlObjectDefaults(): JSX.Element | null {
                     updateAccessControlDefault(newValue)
                 })
             }}
-            disabledReason={accessControlsLoading ? 'Loading…' : undefined}
+            disabledReason={
+                accessControlsLoading ? 'Loading…' : !canEditAccessControls ? 'You cannot edit this' : undefined
+            }
             dropdownMatchSelectWidth={false}
             options={accessControlDefaultOptions}
         />
@@ -330,12 +333,15 @@ function SimplLevelComponent(props: {
     levels: AccessControlType['access_level'][]
     onChange: (newValue: AccessControlType['access_level']) => void
 }): JSX.Element | null {
+    const { canEditAccessControls } = useValues(accessControlLogic)
+
     return (
         <LemonSelect
             size={props.size}
             placeholder="Select level..."
             value={props.level}
             onChange={(newValue) => props.onChange(newValue)}
+            disabledReason={!canEditAccessControls ? 'You cannot edit this' : undefined}
             options={props.levels.map((level) => ({
                 value: level,
                 label: capitalizeFirstLetter(level ?? ''),
@@ -351,11 +357,14 @@ function RemoveAccessButton({
     onConfirm: () => void
     subject: 'member' | 'role'
 }): JSX.Element {
+    const { canEditAccessControls } = useValues(accessControlLogic)
+
     return (
         <LemonButton
             icon={<IconX />}
             status="danger"
             size="small"
+            disabledReason={!canEditAccessControls ? 'You cannot edit this' : undefined}
             onClick={() =>
                 LemonDialog.open({
                     title: 'Remove access',
@@ -379,7 +388,7 @@ function AddItemsControls(props: {
         label: string
     }[]
 }): JSX.Element | null {
-    const { availableLevels } = useValues(accessControlLogic)
+    const { availableLevels, canEditAccessControls } = useValues(accessControlLogic)
     // TODO: Move this into a form logic
     const [items, setItems] = useState<string[]>([])
     const [level, setLevel] = useState<AccessControlType['access_level']>(availableLevels[0] ?? null)
@@ -406,6 +415,7 @@ function AddItemsControls(props: {
                     onChange={(newValues: string[]) => setItems(newValues)}
                     mode="multiple"
                     options={props.options}
+                    disabled={!canEditAccessControls}
                     dropdownProps={{
                         sameWidth: false,
                     }}
@@ -416,7 +426,13 @@ function AddItemsControls(props: {
             <LemonButton
                 type="primary"
                 onClick={onSubmit}
-                disabledReason={!onSubmit ? 'Please choose what you want to add and at what level' : undefined}
+                disabledReason={
+                    !canEditAccessControls
+                        ? 'You cannot edit this'
+                        : !onSubmit
+                        ? 'Please choose what you want to add and at what level'
+                        : undefined
+                }
             >
                 Add
             </LemonButton>
