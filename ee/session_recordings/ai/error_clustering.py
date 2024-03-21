@@ -85,7 +85,6 @@ def construct_response(df: pd.DataFrame, team: Team, user: User):
             .reindex(pd.date_range(end=date.today(), periods=7), fill_value=0)
         )
         sparkline = dict(zip(date_series.index.astype(str), date_series))
-
         clusters.append(
             {
                 "cluster": cluster,
