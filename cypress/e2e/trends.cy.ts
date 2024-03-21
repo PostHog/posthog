@@ -164,6 +164,6 @@ describe('Trends', () => {
         cy.get('[data-attr=math-monthly_active-0] .LemonIcon').should('exist') // This should be the warning icon
 
         cy.get('[data-attr=math-monthly_active-0]').trigger('mouseenter') // Activate warning tooltip
-        cy.get('.Tooltip').contains('We advise against').should('exist')
+        cy.get('.Tooltip').contains('we recommend using "Unique users" here instead').should('exist')
     })
 })

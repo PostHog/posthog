@@ -576,8 +576,8 @@ function useMathSelectorOptions({
                     <>
                         <p>{definition.description}</p>
                         <i>
-                            The behavior of "{definition.name}" in total value insights is often unclear. In this case,
-                            we recommend using "Unique users" instead
+                            In total value insights, it's usually not clear what date range "{definition.name}" refers
+                            to. For full clarity, we recommend using "Unique users" here instead
                         </i>
                     </>
                 ),
