@@ -78,6 +78,17 @@ class BatchExportTemporaryFile:
             self._brotli_compressor = brotli.Compressor()
         return self._brotli_compressor
 
+    def finish_brotli_compressor(self):
+        """Flush remaining brotli bytes."""
+        # TODO: Move compression out of `BatchExportTemporaryFile` to a standard class for all writers.
+        if self.compression != "brotli":
+            raise ValueError(f"Compression is '{self.compression}', not 'brotli'")
+
+        result = self._file.write(self.brotli_compressor.finish())
+        self.bytes_total += result
+        self.bytes_since_last_reset += result
+        self._brotli_compressor = None
+
     def compress(self, content: bytes | str) -> bytes:
         if isinstance(content, str):
             encoded = content.encode("utf-8")
@@ -188,14 +199,6 @@ class BatchExportTemporaryFile:
 
     def rewind(self):
         """Rewind the file before reading it."""
-        if self.compression == "brotli":
-            result = self._file.write(self.brotli_compressor.finish())
-
-            self.bytes_total += result
-            self.bytes_since_last_reset += result
-
-            self._brotli_compressor = None
-
         self._file.seek(0)
 
     def reset(self):
@@ -231,36 +234,38 @@ class BatchExportWriter(abc.ABC):
     Actual writing calls are passed to the underlying `batch_export_file`.
 
     Attributes:
-        batch_export_file: The temporary file we are writing to.
-        bytes_flush_threshold: Flush the temporary file with the provided `flush_callable`
+        _batch_export_file: The temporary file we are writing to.
+        max_bytes: Flush the temporary file with the provided `flush_callable`
             upon reaching or surpassing this threshold. Keep in mind we write on a RecordBatch
             per RecordBatch basis, which means the threshold will be surpassed by at most the
             size of a RecordBatch before a flush occurs.
-        flush_callable: A callback to flush the temporary file when `bytes_flush_treshold` is reached.
+        flush_callable: A callback to flush the temporary file when `max_bytes` is reached.
             The temporary file will be reset after calling `flush_callable`.
+        file_kwargs: Optional keyword arguments passed when initializing `_batch_export_file`.
+        last_inserted_at: Latest `_inserted_at` written. This attribute leaks some implementation
+            details, as we are assuming assume `_inserted_at` is present, as it's added to all
+            batch export queries.
         records_total: The total number of records (not RecordBatches!) written.
         records_since_last_flush: The number of records written since last flush.
-        last_inserted_at: Latest `_inserted_at` written. This attribute leaks some implementation
-            details, as we are making two assumptions about the RecordBatches being written:
-                * We assume RecordBatches are sorted on `_inserted_at`, which currently happens with
-                    an `ORDER BY` clause.
-                * We assume `_inserted_at` is present, as it's added to all batch export queries.
+        bytes_total: The total number of bytes written.
+        bytes_since_last_flush: The number of bytes written since last flush.
     """
 
     def __init__(
         self,
         flush_callable: FlushCallable,
         max_bytes: int,
-        file_kwargs: collections.abc.Mapping[str, typing.Any],
+        file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
     ):
         self.flush_callable = flush_callable
         self.max_bytes = max_bytes
-        self.file_kwargs = file_kwargs
+        self.file_kwargs: collections.abc.Mapping[str, typing.Any] = file_kwargs or {}
 
         self._batch_export_file: BatchExportTemporaryFile | None = None
         self.reset_writer_tracking()
 
     def reset_writer_tracking(self):
+        """Reset this writer's tracking state."""
         self.last_inserted_at: dt.datetime | None = None
         self.records_total = 0
         self.records_since_last_flush = 0
@@ -274,7 +279,8 @@ class BatchExportWriter(abc.ABC):
         The underlying `BatchExportTemporaryFile` is only accessible within this context manager. This helps
         us separate the lifetime of the underlying temporary file from the writer: The writer may still be
         accessed even after the temporary file is closed, while on the other hand we ensure the file and all
-        its data is flushed and not leaked outside the context. Any relevant tracking information
+        its data is flushed and not leaked outside the context. Any relevant tracking information is copied
+        to the writer.
         """
         self.reset_writer_tracking()
 
@@ -297,6 +303,11 @@ class BatchExportWriter(abc.ABC):
 
     @property
     def batch_export_file(self):
+        """Property for underlying temporary file.
+
+        Raises:
+            ValueError: if attempting to access the temporary file before it has been opened.
+        """
         if self._batch_export_file is None:
             raise ValueError("Batch export file is closed. Did you forget to call 'open_temporary_file'?")
         return self._batch_export_file
@@ -311,16 +322,19 @@ class BatchExportWriter(abc.ABC):
         pass
 
     def track_records_written(self, record_batch: pa.RecordBatch) -> None:
+        """Update this writer's state with the number of records in `record_batch`."""
         self.records_total += record_batch.num_rows
         self.records_since_last_flush += record_batch.num_rows
 
     def track_bytes_written(self, batch_export_file: BatchExportTemporaryFile) -> None:
+        """Update this writer's state with the bytes in `batch_export_file`."""
         self.bytes_total = batch_export_file.bytes_total
         self.bytes_since_last_flush = batch_export_file.bytes_since_last_reset
 
     async def write_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Issue a record batch write tracking progress and flushing if required."""
-        last_inserted_at = record_batch.column("_inserted_at")[0].as_py()
+        record_batch = record_batch.sort_by("_inserted_at")
+        last_inserted_at = record_batch.column("_inserted_at")[-1].as_py()
 
         column_names = record_batch.column_names
         column_names.pop(column_names.index("_inserted_at"))
@@ -336,6 +350,11 @@ class BatchExportWriter(abc.ABC):
 
     async def flush(self, last_inserted_at: dt.datetime, is_last: bool = False) -> None:
         """Call the provided `flush_callable` and reset underlying file."""
+        if is_last is True and self.batch_export_file.compression == "brotli":
+            self.batch_export_file.finish_brotli_compressor()
+
+        self.batch_export_file.seek(0)
+
         await self.flush_callable(
             self.batch_export_file,
             self.records_since_last_flush,
@@ -350,7 +369,12 @@ class BatchExportWriter(abc.ABC):
 
 
 class JSONLBatchExportWriter(BatchExportWriter):
-    """A `BatchExportWriter` for JSONLines format."""
+    """A `BatchExportWriter` for JSONLines format.
+
+    Attributes:
+        default: The default function to use to cast non-serializable Python objects to serializable objects.
+            By default, non-serializable objects will be cast to string via `str()`.
+    """
 
     def __init__(
         self,
@@ -368,6 +392,7 @@ class JSONLBatchExportWriter(BatchExportWriter):
         self.default = default
 
     def write(self, content: bytes) -> int:
+        """Write a single row of JSONL."""
         n = self.batch_export_file.write(orjson.dumps(content, default=str) + b"\n")
         return n
 
@@ -430,16 +455,29 @@ class CSVBatchExportWriter(BatchExportWriter):
 
 
 class ParquetBatchExportWriter(BatchExportWriter):
-    """A `BatchExportWriter` for Apache Parquet format."""
+    """A `BatchExportWriter` for Apache Parquet format.
+
+    We utilize and wrap a `pyarrow.parquet.ParquetWriter` to do the actual writing. We default to their
+    defaults for most parameters; however this class could be extended with more attributes to pass along
+    to `pyarrow.parquet.ParquetWriter`.
+
+    See the pyarrow docs for more details on what parameters can the writer be configured with:
+    https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetWriter.html
+
+    In contrast to other writers, instead of us handling compression we let `pyarrow.parquet.ParquetWriter`
+    handle it, so `BatchExportTemporaryFile` is always initialized with `compression=None`.
+
+    Attributes:
+        schema: The schema used by the Parquet file. Should match the schema of written RecordBatches.
+        compression: Compression codec passed to underlying `pyarrow.parquet.ParquetWriter`.
+    """
 
     def __init__(
         self,
         max_bytes: int,
         flush_callable: FlushCallable,
         schema: pa.Schema,
-        version: str = "2.6",
         compression: str | None = "snappy",
-        compression_level: int | None = None,
     ):
         super().__init__(
             max_bytes=max_bytes,
@@ -447,9 +485,7 @@ class ParquetBatchExportWriter(BatchExportWriter):
             file_kwargs={"compression": None},  # ParquetWriter handles compression
         )
         self.schema = schema
-        self.version = version
         self.compression = compression
-        self.compression_level = compression_level
 
         self._parquet_writer: pq.ParquetWriter | None = None
 
@@ -459,10 +495,8 @@ class ParquetBatchExportWriter(BatchExportWriter):
             self._parquet_writer = pq.ParquetWriter(
                 self.batch_export_file,
                 schema=self.schema,
-                version=self.version,
                 # Compression *can* be `None`.
                 compression=self.compression,
-                compression_level=self.compression_level,
             )
         return self._parquet_writer
 
@@ -485,4 +519,5 @@ class ParquetBatchExportWriter(BatchExportWriter):
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Write records to a temporary file as Parquet."""
+
         self.parquet_writer.write_batch(record_batch.select(self.parquet_writer.schema.names))

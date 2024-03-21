@@ -1,11 +1,17 @@
 import csv
+import datetime as dt
 import io
 import json
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
+    CSVBatchExportWriter,
+    JSONLBatchExportWriter,
+    ParquetBatchExportWriter,
     json_dumps_bytes,
 )
 
@@ -186,3 +192,198 @@ def test_batch_export_temporary_file_write_records_to_tsv(records):
         assert be_file.bytes_since_last_reset == 0
         assert be_file.records_total == len(records)
         assert be_file.records_since_last_reset == 0
+
+
+TEST_RECORD_BATCHES = [
+    pa.RecordBatch.from_pydict(
+        {
+            "event": pa.array(["test-event-0", "test-event-1", "test-event-2"]),
+            "properties": pa.array(['{"prop_0": 1, "prop_1": 2}', "{}", "null"]),
+            "_inserted_at": pa.array([0, 1, 2]),
+        }
+    )
+]
+
+
+@pytest.mark.parametrize(
+    "record_batch",
+    TEST_RECORD_BATCHES,
+)
+@pytest.mark.asyncio
+async def test_jsonl_writer_writes_record_batches(record_batch):
+    """Test record batches are written as valid JSONL."""
+    in_memory_file_obj = io.BytesIO()
+    inserted_ats_seen = []
+
+    async def store_in_memory_on_flush(
+        batch_export_file, records_since_last_flush, bytes_since_last_flush, last_inserted_at, is_last
+    ):
+        in_memory_file_obj.write(batch_export_file.read())
+        inserted_ats_seen.append(last_inserted_at)
+
+    writer = JSONLBatchExportWriter(max_bytes=1, flush_callable=store_in_memory_on_flush)
+
+    record_batch = record_batch.sort_by("_inserted_at")
+    async with writer.open_temporary_file():
+        await writer.write_record_batch(record_batch)
+
+    lines = in_memory_file_obj.readlines()
+    for index, line in enumerate(lines):
+        written_jsonl = json.loads(line)
+
+        single_record_batch = record_batch.slice(offset=index, length=1)
+        expected_jsonl = single_record_batch.to_pylist()[0]
+
+        assert "_inserted_at" not in written_jsonl
+        assert written_jsonl == expected_jsonl
+
+    assert inserted_ats_seen == [record_batch.column("_inserted_at")[-1].as_py()]
+
+
+@pytest.mark.parametrize(
+    "record_batch",
+    TEST_RECORD_BATCHES,
+)
+@pytest.mark.asyncio
+async def test_csv_writer_writes_record_batches(record_batch):
+    """Test record batches are written as valid CSV."""
+    in_memory_file_obj = io.StringIO()
+    inserted_ats_seen = []
+
+    async def store_in_memory_on_flush(
+        batch_export_file, records_since_last_flush, bytes_since_last_flush, last_inserted_at, is_last
+    ):
+        in_memory_file_obj.write(batch_export_file.read().decode("utf-8"))
+        inserted_ats_seen.append(last_inserted_at)
+
+    schema_columns = [column_name for column_name in record_batch.column_names if column_name != "_inserted_at"]
+    writer = CSVBatchExportWriter(max_bytes=1, field_names=schema_columns, flush_callable=store_in_memory_on_flush)
+
+    record_batch = record_batch.sort_by("_inserted_at")
+    async with writer.open_temporary_file():
+        await writer.write_record_batch(record_batch)
+
+    reader = csv.reader(
+        in_memory_file_obj,
+        delimiter=",",
+        quotechar='"',
+        escapechar="\\",
+        quoting=csv.QUOTE_NONE,
+    )
+    for index, written_csv_row in enumerate(reader):
+        single_record_batch = record_batch.slice(offset=index, length=1)
+        expected_csv = single_record_batch.to_pylist()[0]
+
+        assert "_inserted_at" not in written_csv_row
+        assert written_csv_row == expected_csv
+
+    assert inserted_ats_seen == [record_batch.column("_inserted_at")[-1].as_py()]
+
+
+@pytest.mark.parametrize(
+    "record_batch",
+    TEST_RECORD_BATCHES,
+)
+@pytest.mark.asyncio
+async def test_parquet_writer_writes_record_batches(record_batch):
+    """Test record batches are written as valid Parquet."""
+    in_memory_file_obj = io.BytesIO()
+    inserted_ats_seen = []
+
+    async def store_in_memory_on_flush(
+        batch_export_file, records_since_last_flush, bytes_since_last_flush, last_inserted_at, is_last
+    ):
+        in_memory_file_obj.write(batch_export_file.read())
+        inserted_ats_seen.append(last_inserted_at)
+
+    schema_columns = [column_name for column_name in record_batch.column_names if column_name != "_inserted_at"]
+
+    writer = ParquetBatchExportWriter(
+        max_bytes=1,
+        flush_callable=store_in_memory_on_flush,
+        schema=record_batch.select(schema_columns).schema,
+    )
+
+    record_batch = record_batch.sort_by("_inserted_at")
+    async with writer.open_temporary_file():
+        await writer.write_record_batch(record_batch)
+
+    written_parquet = pq.read_table(in_memory_file_obj)
+
+    for index, written_row_as_dict in enumerate(written_parquet.to_pylist()):
+        single_record_batch = record_batch.slice(offset=index, length=1)
+        expected_row_as_dict = single_record_batch.select(schema_columns).to_pylist()[0]
+
+        assert "_inserted_at" not in written_row_as_dict
+        assert written_row_as_dict == expected_row_as_dict
+
+    # NOTE: Parquet gets flushed twice due to the extra flush at the end for footer bytes, so our mock function
+    # will see this value twice.
+    assert inserted_ats_seen == [
+        record_batch.column("_inserted_at")[-1].as_py(),
+        record_batch.column("_inserted_at")[-1].as_py(),
+    ]
+
+
+@pytest.mark.parametrize(
+    "record_batch",
+    TEST_RECORD_BATCHES,
+)
+@pytest.mark.asyncio
+async def test_writing_out_of_scope_of_temporary_file_raises(record_batch):
+    """Test attempting a write out of temporary file scope raises a `ValueError`."""
+
+    async def do_nothing(*args, **kwargs):
+        pass
+
+    schema_columns = [column_name for column_name in record_batch.column_names if column_name != "_inserted_at"]
+    writer = ParquetBatchExportWriter(
+        max_bytes=10,
+        flush_callable=do_nothing,
+        schema=record_batch.select(schema_columns).schema,
+    )
+
+    async with writer.open_temporary_file():
+        pass
+
+    with pytest.raises(ValueError, match="Batch export file is closed"):
+        await writer.write_record_batch(record_batch)
+
+
+@pytest.mark.parametrize(
+    "record_batch",
+    TEST_RECORD_BATCHES,
+)
+@pytest.mark.asyncio
+async def test_flushing_parquet_writer_resets_underlying_file(record_batch):
+    """Test flushing a writer resets underlying file."""
+    flush_counter = 0
+
+    async def track_flushes(*args, **kwargs):
+        nonlocal flush_counter
+        flush_counter += 1
+
+    schema_columns = [column_name for column_name in record_batch.column_names if column_name != "_inserted_at"]
+    writer = ParquetBatchExportWriter(
+        max_bytes=10000000,
+        flush_callable=track_flushes,
+        schema=record_batch.select(schema_columns).schema,
+    )
+
+    async with writer.open_temporary_file():
+        await writer.write_record_batch(record_batch)
+
+        assert writer.batch_export_file.tell() > 0
+        assert writer.bytes_since_last_flush > 0
+        assert writer.bytes_since_last_flush == writer.batch_export_file.bytes_since_last_reset
+        assert writer.records_since_last_flush == record_batch.num_rows
+
+        await writer.flush(dt.datetime.now())
+
+        assert flush_counter == 1
+        assert writer.batch_export_file.tell() == 0
+        assert writer.bytes_since_last_flush == 0
+        assert writer.bytes_since_last_flush == writer.batch_export_file.bytes_since_last_reset
+        assert writer.records_since_last_flush == 0
+
+    assert flush_counter == 2
