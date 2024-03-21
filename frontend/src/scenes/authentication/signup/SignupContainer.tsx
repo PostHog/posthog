@@ -83,12 +83,12 @@ const getProductBenefits = (featureFlags: FeatureFlagsSet): ProductBenefit[] => 
         case 'logos':
             return [
                 {
-                    benefit: 'Free usage every month - even on paid plans',
-                    description: '1M free events, 5K free session recordings, and more. Every month. Forever.',
+                    benefit: 'Free for 1M events every month',
+                    description: 'Product analytics, feature flags, experiments, and more.',
                 },
                 {
-                    benefit: 'Start collecting data immediately',
-                    description: 'Integrate with developer-friendly APIs or low-code web snippet.',
+                    benefit: 'Start collecting events immediately',
+                    description: 'Integrate with developer-friendly APIs or use our easy autocapture script.',
                 },
                 {
                     benefit: 'Join industry leaders that run on PostHog',
