@@ -203,6 +203,17 @@ class TestSessionTimestampInliner(ClickhouseTestMixin, APIBaseTest):
         )
         assert expected == actual
 
+    def test_collapse_and(self):
+        actual = f(
+            self.inliner.get_inner_where(
+                parse(
+                    "SELECT * FROM sesions WHERE event = '$pageview' AND (TRUE AND (TRUE AND TRUE AND (timestamp >= '2024-03-12' AND TRUE)))"
+                )
+            )
+        )
+        expected = f("(raw_sessions.min_timestamp + toIntervalDay(3)) >= '2024-03-12'")
+        assert expected == actual
+
 
 class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
     def print_query(self, query: str) -> str:
