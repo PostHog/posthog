@@ -1,5 +1,6 @@
 import { IconX } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDialog,
     LemonInputSelect,
@@ -30,13 +31,21 @@ import {
 import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
+    const { canEditAccessControls } = useValues(accessControlLogic(props))
     const { resource } = props
 
-    const suffix = props.resource_id ? `this ${resource}` : `all ${resource}s`
+    const suffix = `this ${resource}`
 
     return (
         <BindLogic logic={accessControlLogic} props={props}>
             <div className="space-y-4">
+                {!canEditAccessControls ? (
+                    <LemonBanner type="info">
+                        <b>You don't have permission to edit access controls for {suffix}.</b>
+                        <br />
+                        You must be the creator of it, a Project Admin, or an Organization Admin.
+                    </LemonBanner>
+                ) : null}
                 <h3>Default access to {suffix}</h3>
                 <AccessControlObjectDefaults />
 

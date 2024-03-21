@@ -45,18 +45,17 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
         dashboard && (
             <>
                 <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
-                    {(!canEditDashboard || !canRestrictDashboard) && (
-                        <LemonBanner type="info" className="mb-4">
-                            {canEditDashboard
-                                ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
-                                : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
-                        </LemonBanner>
-                    )}
-
                     {newAccessControl ? (
                         <AccessControlObject resource="dashboard" resource_id={`${dashboard.id}`} />
                     ) : (
                         <>
+                            {(!canEditDashboard || !canRestrictDashboard) && (
+                                <LemonBanner type="info" className="mb-4">
+                                    {canEditDashboard
+                                        ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
+                                        : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
+                                </LemonBanner>
+                            )}
                             <LemonSelect
                                 value={dashboard.effective_restriction_level}
                                 onChange={(newValue) =>
