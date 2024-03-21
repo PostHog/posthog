@@ -29,7 +29,7 @@ def _get_headers(api_key: str) -> Dict[str, str]:
 
     """
     # Construct the dictionary of HTTP headers to use for API requests
-    return dict(authorization=f"Bearer {api_key}")
+    return {"authorization": f"Bearer {api_key}"}
 
 
 def extract_property_history(objects: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:

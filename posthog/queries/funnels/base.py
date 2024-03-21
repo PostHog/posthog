@@ -600,7 +600,7 @@ class ClickhouseFunnelBase(ABC):
             conditions.append("steps IN %(custom_step_num)s")
         elif step_num is not None:
             if step_num >= 0:
-                self.params.update({"step_num": [i for i in range(step_num, max_steps + 1)]})
+                self.params.update({"step_num": list(range(step_num, max_steps + 1))})
                 conditions.append("steps IN %(step_num)s")
             else:
                 self.params.update({"step_num": abs(step_num) - 1})

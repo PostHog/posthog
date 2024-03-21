@@ -163,7 +163,7 @@ class Command(BaseCommand):
                             summary_lines.append("            No events")
                         else:
                             assert person.first_seen_at is not None and person.last_seen_at is not None
-                            session_count = len(set(event.properties.get("$session_id") for event in person.all_events))
+                            session_count = len({event.properties.get("$session_id") for event in person.all_events})
                             summary_lines.append(
                                 f"            {event_count} event{'' if event_count == 1 else 's'} "
                                 f"across {session_count} session{'' if session_count == 1 else 's'} "

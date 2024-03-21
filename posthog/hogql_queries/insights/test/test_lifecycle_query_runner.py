@@ -1305,6 +1305,6 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 def assertLifecycleResults(results, expected):
     sorted_results = [{"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])]
-    sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
+    sorted_expected = sorted(expected, key=lambda r: r["status"])
 
     assert sorted_results == sorted_expected

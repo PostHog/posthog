@@ -187,7 +187,7 @@ class TestCapture(BaseTest):
     def _send_original_version_session_recording_event(
         self,
         number_of_events: int = 1,
-        event_data: Dict | None = {},
+        event_data: Dict | None = None,
         snapshot_source=3,
         snapshot_type=1,
         session_id="abc123",
@@ -195,6 +195,8 @@ class TestCapture(BaseTest):
         distinct_id="ghi789",
         timestamp=1658516991883,
     ) -> dict:
+        if event_data is None:
+            event_data = {}
         if event_data is None:
             event_data = {}
 

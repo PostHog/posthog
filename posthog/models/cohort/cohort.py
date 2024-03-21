@@ -273,7 +273,7 @@ class Cohort(models.Model):
                     .exclude(cohort__id=self.id)
                 )
                 insert_static_cohort(
-                    [p for p in persons_query.values_list("uuid", flat=True)],
+                    list(persons_query.values_list("uuid", flat=True)),
                     self.pk,
                     self.team,
                 )
@@ -315,7 +315,7 @@ class Cohort(models.Model):
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
-                        [p for p in persons_query.values_list("uuid", flat=True)],
+                        list(persons_query.values_list("uuid", flat=True)),
                         self.pk,
                         self.team,
                     )

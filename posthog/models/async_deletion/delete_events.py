@@ -29,7 +29,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             "Starting AsyncDeletion on `events` table in ClickHouse",
             {
                 "count": len(deletions),
-                "team_ids": list(set(row.team_id for row in deletions)),
+                "team_ids": list({row.team_id for row in deletions}),
             },
         )
 
@@ -53,7 +53,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             "Starting AsyncDeletion for teams on other tables",
             {
                 "count": len(team_deletions),
-                "team_ids": list(set(row.team_id for row in deletions)),
+                "team_ids": list({row.team_id for row in deletions}),
             },
         )
         conditions, args = self._conditions(team_deletions)
@@ -73,7 +73,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             return [row for row in async_deletions if (row.team_id,) not in team_ids_with_data]
         elif deletion_type in (DeletionType.Person, DeletionType.Group):
             columns = f"team_id, {self._column_name(async_deletions[0])}"
-            with_data = set((team_id, str(key)) for team_id, key in self._verify_by_column(columns, async_deletions))
+            with_data = {(team_id, str(key)) for team_id, key in self._verify_by_column(columns, async_deletions)}
             return [row for row in async_deletions if (row.team_id, row.key) not in with_data]
         else:
             return []
@@ -88,7 +88,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             """,
             args,
         )
-        return set(tuple(row) for row in clickhouse_result)
+        return {tuple(row) for row in clickhouse_result}
 
     def _column_name(self, async_deletion: AsyncDeletion):
         assert async_deletion.deletion_type in (DeletionType.Person, DeletionType.Group)

@@ -48,7 +48,9 @@ class RetentionFilter(
     SampleMixin,
     BaseFilter,
 ):
-    def __init__(self, data: Dict[str, Any] = {}, request: Optional[Request] = None, **kwargs) -> None:
+    def __init__(self, data: Dict[str, Any] = None, request: Optional[Request] = None, **kwargs) -> None:
+        if data is None:
+            data = {}
         if data:
             data["insight"] = INSIGHT_RETENTION
         else:

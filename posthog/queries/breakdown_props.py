@@ -46,7 +46,7 @@ def get_breakdown_prop_values(
     entity: Entity,
     aggregate_operation: str,
     team: Team,
-    extra_params={},
+    extra_params=None,
     column_optimizer: Optional[ColumnOptimizer] = None,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     use_all_funnel_entities: bool = False,
@@ -58,6 +58,8 @@ def get_breakdown_prop_values(
 
     When dealing with a histogram though, buckets are returned instead of values.
     """
+    if extra_params is None:
+        extra_params = {}
     column_optimizer = column_optimizer or ColumnOptimizer(filter, team.id)
 
     date_params = {}

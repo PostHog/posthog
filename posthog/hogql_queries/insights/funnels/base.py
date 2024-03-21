@@ -648,7 +648,7 @@ class FunnelBase(ABC):
             conditions.append(parse_expr(f"steps IN {funnelCustomSteps}"))
         elif funnelStep is not None:
             if funnelStep >= 0:
-                step_nums = [i for i in range(funnelStep, max_steps + 1)]
+                step_nums = list(range(funnelStep, max_steps + 1))
                 conditions.append(parse_expr(f"steps IN {step_nums}"))
             else:
                 step_num = abs(funnelStep) - 1

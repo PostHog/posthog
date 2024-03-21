@@ -37,7 +37,9 @@ class TestPagingBreakdowns(APIBaseTest):
                 create_people=True,
             )
 
-    def _run(self, extra: Dict = {}, run_at: Optional[str] = None):
+    def _run(self, extra: Dict = None, run_at: Optional[str] = None):
+        if extra is None:
+            extra = {}
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
             action_response = Trends().run(
                 Filter(
@@ -63,14 +65,14 @@ class TestPagingBreakdowns(APIBaseTest):
         assert len(response) == 26
         page_labels = [r["label"] for r in response if r["label"] != "Other"]
         assert len(page_labels) == 25
-        assert sorted(page_labels), sorted(list(set(page_labels)))  # all values are unique
+        assert sorted(page_labels), sorted(set(page_labels))  # all values are unique
 
         second_page_response = self._run({"breakdown": "wildcard_route", "breakdown_type": "event", "offset": 25})
         second_page_labels = [r["label"] for r in second_page_response if r["label"] != "Other"]
 
         assert len(page_labels) == len(second_page_labels)  # should be two pages of different results
 
-        assert sorted(second_page_labels) == sorted(list(set(second_page_labels)))  # all values are unique
+        assert sorted(second_page_labels) == sorted(set(second_page_labels))  # all values are unique
 
         # no values from page one should be in page two
         assert [value for value in second_page_labels if value in page_labels] == []

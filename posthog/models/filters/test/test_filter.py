@@ -993,8 +993,10 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
 
 def filter_persons_with_property_group(
-    filter: Filter, team: Team, property_overrides: Dict[str, Any] = {}
+    filter: Filter, team: Team, property_overrides: Dict[str, Any] = None
 ) -> List[str]:
+    if property_overrides is None:
+        property_overrides = {}
     flush_persons_and_events()
     persons = Person.objects.filter(property_group_to_Q(team.pk, filter.property_groups, property_overrides))
     persons = persons.filter(team_id=team.pk)

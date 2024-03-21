@@ -26,8 +26,10 @@ def _make_event_sequence(
     interval_days,
     period_event_counts,
     event="$pageview",
-    properties={},
+    properties=None,
 ):
+    if properties is None:
+        properties = {}
     for period_index, event_count in enumerate(period_event_counts):
         for i in range(event_count):
             _create_event(

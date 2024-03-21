@@ -127,7 +127,7 @@ class UserPermissions:
         if self._tiles is None:
             return None
 
-        dashboard_ids = set(tile.dashboard_id for tile in self._tiles)
+        dashboard_ids = {tile.dashboard_id for tile in self._tiles}
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
     def reset_insights_dashboard_cached_results(self):

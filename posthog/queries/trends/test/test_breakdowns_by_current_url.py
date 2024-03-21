@@ -99,7 +99,11 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(journey, team=self.team, create_people=True)
 
-    def _run(self, extra: Dict = {}, events_extra: Dict = {}):
+    def _run(self, extra: Dict = None, events_extra: Dict = None):
+        if events_extra is None:
+            events_extra = {}
+        if extra is None:
+            extra = {}
         response = Trends().run(
             Filter(
                 data={

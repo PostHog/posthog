@@ -83,7 +83,7 @@ def verify_persons_data_in_sync(
 def _team_integrity_statistics(person_data: List[Any]) -> Counter:
     person_ids = [id for id, _, _ in person_data]
     person_uuids = [uuid for _, uuid, _ in person_data]
-    team_ids = list(set(team_id for _, _, team_id in person_data))
+    team_ids = list({team_id for _, _, team_id in person_data})
 
     # :TRICKY: To speed up processing, we fetch all models in batch at once and store results in dictionary indexed by person uuid
     pg_persons = _index_by(
@@ -145,8 +145,8 @@ def _team_integrity_statistics(person_data: List[Any]) -> Counter:
         if ch_version != 0 and ch_version == pg_person.version and pg_person.properties != ch_properties:
             result["properties_mismatch_same_version"] += 1
 
-        pg_distinct_ids = list(sorted(map(str, pg_person.distinct_ids)))
-        ch_distinct_id = list(sorted(str(distinct_id) for distinct_id, _ in ch_distinct_ids_mapping.get(uuid, [])))
+        pg_distinct_ids = sorted(map(str, pg_person.distinct_ids))
+        ch_distinct_id = sorted(str(distinct_id) for distinct_id, _ in ch_distinct_ids_mapping.get(uuid, []))
         if pg_distinct_ids != ch_distinct_id:
             result["distinct_ids_mismatch"] += 1
     return result

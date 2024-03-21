@@ -251,8 +251,10 @@ def create_event_definitions_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
-    order_expressions: List[Tuple[str, Literal["ASC", "DESC"]]] = [],
+    order_expressions: List[Tuple[str, Literal["ASC", "DESC"]]] = None,
 ) -> str:
+    if order_expressions is None:
+        order_expressions = []
     if is_enterprise:
         from ee.models import EnterpriseEventDefinition
 

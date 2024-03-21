@@ -136,12 +136,18 @@ class FOSSCohortQuery(EventQuery):
         should_join_distinct_ids=False,
         should_join_persons=False,
         # Extra events/person table columns to fetch since parent query needs them
-        extra_fields: List[ColumnName] = [],
-        extra_event_properties: List[PropertyName] = [],
-        extra_person_fields: List[ColumnName] = [],
+        extra_fields: List[ColumnName] = None,
+        extra_event_properties: List[PropertyName] = None,
+        extra_person_fields: List[ColumnName] = None,
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
         **kwargs,
     ) -> None:
+        if extra_person_fields is None:
+            extra_person_fields = []
+        if extra_event_properties is None:
+            extra_event_properties = []
+        if extra_fields is None:
+            extra_fields = []
         self._fields = []
         self._events = []
         self._earliest_time_for_event_query = None

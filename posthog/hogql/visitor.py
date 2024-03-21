@@ -367,7 +367,7 @@ class CloningVisitor(Visitor):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            args=[arg for arg in node.args],
+            args=list(node.args),
             expr=self.visit(node.expr),
         )
 

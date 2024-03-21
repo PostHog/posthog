@@ -274,10 +274,12 @@ def lookup_q(key: str, value: Any) -> Q:
 def property_to_Q(
     team_id: int,
     property: Property,
-    override_property_values: Dict[str, Any] = {},
+    override_property_values: Dict[str, Any] = None,
     cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
 ) -> Q:
+    if override_property_values is None:
+        override_property_values = {}
     if property.type not in ["person", "group", "cohort", "event"]:
         # We need to support event type for backwards compatibility, even though it's treated as a person property type
         raise ValueError(f"property_to_Q: type is not supported: {repr(property.type)}")
@@ -378,10 +380,12 @@ def property_to_Q(
 def property_group_to_Q(
     team_id: int,
     property_group: PropertyGroup,
-    override_property_values: Dict[str, Any] = {},
+    override_property_values: Dict[str, Any] = None,
     cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
 ) -> Q:
+    if override_property_values is None:
+        override_property_values = {}
     filters = Q()
 
     if not property_group or len(property_group.values) == 0:
@@ -421,7 +425,7 @@ def property_group_to_Q(
 def properties_to_Q(
     team_id: int,
     properties: List[Property],
-    override_property_values: Dict[str, Any] = {},
+    override_property_values: Dict[str, Any] = None,
     cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
 ) -> Q:
@@ -429,6 +433,8 @@ def properties_to_Q(
     Converts a filter to Q, for use in Django ORM .filter()
     If you're filtering a Person/Group QuerySet, use is_direct_query to avoid doing an unnecessary nested loop
     """
+    if override_property_values is None:
+        override_property_values = {}
     filters = Q()
 
     if len(properties) == 0:

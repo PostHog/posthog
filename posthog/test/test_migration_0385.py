@@ -34,9 +34,7 @@ class FixingExceptionAutocaptureMigration(NonAtomicTestMigrations):
 
         Team = apps.get_model("posthog", "Team")
 
-        assert [
-            x for x in Team.objects.all().values_list("name", "autocapture_exceptions_opt_in").order_by("name")
-        ] == [
+        assert list(Team.objects.all().values_list("name", "autocapture_exceptions_opt_in").order_by("name")) == [
             # unchanged
             ("t1", None),
             # set to False

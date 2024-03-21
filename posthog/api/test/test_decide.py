@@ -73,12 +73,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
         origin="http://127.0.0.1:8000",
         api_version=1,
         distinct_id="example_id",
-        groups={},
+        groups=None,
         geoip_disable=False,
         ip="127.0.0.1",
         disable_flags=False,
         user_agent: Optional[str] = None,
     ):
+        if groups is None:
+            groups = {}
         return self.client.post(
             f"/decide/?v={api_version}",
             {
@@ -3322,10 +3324,12 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         origin="http://127.0.0.1:8000",
         api_version=1,
         distinct_id="example_id",
-        groups={},
+        groups=None,
         geoip_disable=False,
         ip="127.0.0.1",
     ):
+        if groups is None:
+            groups = {}
         return self.client.post(
             f"/decide/?v={api_version}",
             {
@@ -3557,11 +3561,15 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         origin="http://127.0.0.1:8000",
         api_version=3,
         distinct_id="example_id",
-        groups={},
-        person_props={},
+        groups=None,
+        person_props=None,
         geoip_disable=False,
         ip="127.0.0.1",
     ):
+        if person_props is None:
+            person_props = {}
+        if groups is None:
+            groups = {}
         return self.client.post(
             f"/decide/?v={api_version}",
             {

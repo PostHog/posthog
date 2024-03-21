@@ -42,13 +42,13 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     )
 
 
-EMAIL_TASK_KWARGS = dict(
-    queue=CeleryQueue.EMAIL.value,
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+EMAIL_TASK_KWARGS = {
+    "queue": CeleryQueue.EMAIL.value,
+    "ignore_result": True,
+    "autoretry_for": (Exception,),
+    "max_retries": 3,
+    "retry_backoff": True,
+}
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -135,10 +135,12 @@ class EmailMessage:
         campaign_key: str,
         subject: str,
         template_name: str,
-        template_context: Dict = {},
+        template_context: Dict = None,
         headers: Optional[Dict] = None,
         reply_to: Optional[str] = None,
     ):
+        if template_context is None:
+            template_context = {}
         if not is_email_available():
             raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.")
 

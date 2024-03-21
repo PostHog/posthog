@@ -120,7 +120,9 @@ LIMIT 1
 query_number = 0
 
 
-def print_and_execute_query(sql: str, name: str, dry_run: bool, timeout=180, query_args={}) -> Any:
+def print_and_execute_query(sql: str, name: str, dry_run: bool, timeout=180, query_args=None) -> Any:
+    if query_args is None:
+        query_args = {}
     global query_number
 
     if not settings.TEST:

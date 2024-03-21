@@ -186,13 +186,11 @@ class Migration(AsyncMigrationDefinition):
 
     @cached_property
     def _partitions(self):
-        return list(
-            sorted(
-                row[0]
-                for row in sync_execute(
-                    f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE database = %(database)s AND table='{EVENTS_TABLE}'",
-                    {"database": CLICKHOUSE_DATABASE},
-                )
+        return sorted(
+            row[0]
+            for row in sync_execute(
+                f"SELECT DISTINCT toUInt32(partition) FROM system.parts WHERE database = %(database)s AND table='{EVENTS_TABLE}'",
+                {"database": CLICKHOUSE_DATABASE},
             )
         )
 

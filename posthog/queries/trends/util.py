@@ -102,9 +102,11 @@ def process_math(
 def parse_response(
     stats: Dict,
     filter: Filter,
-    additional_values: Dict = {},
+    additional_values: Dict = None,
     entity: Optional[Entity] = None,
 ) -> Dict[str, Any]:
+    if additional_values is None:
+        additional_values = {}
     counts = stats[1]
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]

@@ -273,7 +273,7 @@ class TestCSVExporter(APIBaseTest):
 
             wb = load_workbook(filename=BytesIO(exported_asset.content))
             ws = wb.active
-            data = [row for row in ws.iter_rows(values_only=True)]
+            data = list(ws.iter_rows(values_only=True))
             assert data == [
                 ("distinct_id", "properties.$browser", "event", "tomato"),
                 ("2", "Safari", "event_name", None),

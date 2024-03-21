@@ -31,7 +31,7 @@ def create_event(
     team: Team,
     distinct_id: str,
     timestamp: Optional[Union[timezone.datetime, str]] = None,
-    properties: Optional[Dict] = {},
+    properties: Optional[Dict] = None,
     elements: Optional[List[Element]] = None,
     person_id: Optional[uuid.UUID] = None,
     person_properties: Optional[Dict] = None,
@@ -47,6 +47,8 @@ def create_event(
     group3_created_at: Optional[Union[timezone.datetime, str]] = None,
     group4_created_at: Optional[Union[timezone.datetime, str]] = None,
 ) -> str:
+    if properties is None:
+        properties = {}
     if not timestamp:
         timestamp = timezone.now()
     assert timestamp is not None
@@ -277,9 +279,11 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-def parse_properties(properties: str, allow_list: Set[str] = set()) -> Dict:
+def parse_properties(properties: str, allow_list: Set[str] = None) -> Dict:
     # parse_constants gets called for any NaN, Infinity etc values
     # we just want those to be returned as None
+    if allow_list is None:
+        allow_list = set()
     props = json.loads(properties or "{}", parse_constant=lambda x: None)
     return {
         key: value.strip('"') if isinstance(value, str) else value

@@ -64,7 +64,7 @@ def remove_escaped_whitespace_recursive(value):
             return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)  # type: ignore
 
         case set(elements):
-            return set(remove_escaped_whitespace_recursive(element) for element in elements)
+            return {remove_escaped_whitespace_recursive(element) for element in elements}
 
         case {**mapping}:
             return {k: remove_escaped_whitespace_recursive(v) for k, v in mapping.items()}
@@ -374,7 +374,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> int:
                 fields=table_fields,
             )
 
-        schema_columns = set((field[0] for field in table_fields))
+        schema_columns = {field[0] for field in table_fields}
 
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""

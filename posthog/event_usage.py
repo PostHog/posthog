@@ -217,7 +217,9 @@ def report_user_organization_membership_level_changed(
     )
 
 
-def report_user_action(user: User, event: str, properties: Dict = {}, team: Optional[Team] = None):
+def report_user_action(user: User, event: str, properties: Dict = None, team: Optional[Team] = None):
+    if properties is None:
+        properties = {}
     posthoganalytics.capture(
         user.distinct_id,
         event,
@@ -252,12 +254,14 @@ def groups(organization: Optional[Organization] = None, team: Optional[Team] = N
 def report_team_action(
     team: Team,
     event: str,
-    properties: Dict = {},
+    properties: Dict = None,
     group_properties: Optional[Dict] = None,
 ):
     """
     For capturing events where it is unclear which user was the core actor we can use the team instead
     """
+    if properties is None:
+        properties = {}
     posthoganalytics.capture(str(team.uuid), event, properties=properties, groups=groups(team=team))
 
     if group_properties:
@@ -267,12 +271,14 @@ def report_team_action(
 def report_organization_action(
     organization: Organization,
     event: str,
-    properties: Dict = {},
+    properties: Dict = None,
     group_properties: Optional[Dict] = None,
 ):
     """
     For capturing events where it is unclear which user was the core actor we can use the organization instead
     """
+    if properties is None:
+        properties = {}
     posthoganalytics.capture(
         str(organization.id),
         event,

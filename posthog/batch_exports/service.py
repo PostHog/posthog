@@ -463,7 +463,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         paused=batch_export.paused,
     )
 
-    destination_config_fields = set(field.name for field in fields(workflow_inputs))
+    destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
 
     temporal = sync_connect()

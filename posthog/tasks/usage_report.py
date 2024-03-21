@@ -64,12 +64,12 @@ QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
 
-USAGE_REPORT_TASK_KWARGS = dict(
-    queue=CeleryQueue.USAGE_REPORTS.value,
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-)
+USAGE_REPORT_TASK_KWARGS = {
+    "queue": CeleryQueue.USAGE_REPORTS.value,
+    "ignore_result": True,
+    "autoretry_for": (Exception,),
+    "retry_backoff": True,
+}
 
 
 @dataclasses.dataclass
@@ -677,153 +677,155 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> Dict[st
     Gets all usage data for the specified period. Clickhouse is good at counting things so
     we count across all teams rather than doing it one by one
     """
-    return dict(
-        teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
-        teams_with_event_count_in_period=get_teams_with_billable_event_count_in_period(
+    return {
+        "teams_with_event_count_lifetime": get_teams_with_event_count_lifetime(),
+        "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
-        teams_with_event_count_in_month=get_teams_with_billable_event_count_in_period(
+        "teams_with_event_count_in_month": get_teams_with_billable_event_count_in_period(
             period_start.replace(day=1), period_end
         ),
-        teams_with_event_count_with_groups_in_period=get_teams_with_event_count_with_groups_in_period(
+        "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
             period_start, period_end
         ),
         # teams_with_event_count_by_lib=get_teams_with_event_count_by_lib(period_start, period_end),
         # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
-        teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
-        teams_with_recording_count_total=get_teams_with_recording_count_total(),
-        teams_with_decide_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
+        "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(period_start, period_end),
+        "teams_with_recording_count_total": get_teams_with_recording_count_total(),
+        "teams_with_decide_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.DECIDE
         ),
-        teams_with_decide_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
+        "teams_with_decide_requests_count_in_month": get_teams_with_feature_flag_requests_count_in_period(
             period_start.replace(day=1), period_end, FlagRequestType.DECIDE
         ),
-        teams_with_local_evaluation_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
+        "teams_with_local_evaluation_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.LOCAL_EVALUATION
         ),
-        teams_with_local_evaluation_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
+        "teams_with_local_evaluation_requests_count_in_month": get_teams_with_feature_flag_requests_count_in_period(
             period_start.replace(day=1), period_end, FlagRequestType.LOCAL_EVALUATION
         ),
-        teams_with_group_types_total=list(
+        "teams_with_group_types_total": list(
             GroupTypeMapping.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
-        teams_with_dashboard_count=list(
+        "teams_with_dashboard_count": list(
             Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
-        teams_with_dashboard_template_count=list(
+        "teams_with_dashboard_template_count": list(
             Dashboard.objects.filter(creation_mode="template")
             .values("team_id")
             .annotate(total=Count("id"))
             .order_by("team_id")
         ),
-        teams_with_dashboard_shared_count=list(
+        "teams_with_dashboard_shared_count": list(
             Dashboard.objects.filter(sharingconfiguration__enabled=True)
             .values("team_id")
             .annotate(total=Count("id"))
             .order_by("team_id")
         ),
-        teams_with_dashboard_tagged_count=list(
+        "teams_with_dashboard_tagged_count": list(
             Dashboard.objects.filter(tagged_items__isnull=False)
             .values("team_id")
             .annotate(total=Count("id"))
             .order_by("team_id")
         ),
-        teams_with_ff_count=list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
-        teams_with_ff_active_count=list(
+        "teams_with_ff_count": list(
+            FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
+        "teams_with_ff_active_count": list(
             FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
-        teams_with_hogql_app_bytes_read=get_teams_with_hogql_metric(
+        "teams_with_hogql_app_bytes_read": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_bytes",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="",
         ),
-        teams_with_hogql_app_rows_read=get_teams_with_hogql_metric(
+        "teams_with_hogql_app_rows_read": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="",
         ),
-        teams_with_hogql_app_duration_ms=get_teams_with_hogql_metric(
+        "teams_with_hogql_app_duration_ms": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="",
         ),
-        teams_with_hogql_api_bytes_read=get_teams_with_hogql_metric(
+        "teams_with_hogql_api_bytes_read": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_bytes",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_hogql_api_rows_read=get_teams_with_hogql_metric(
+        "teams_with_hogql_api_rows_read": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_hogql_api_duration_ms=get_teams_with_hogql_metric(
+        "teams_with_hogql_api_duration_ms": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
             query_types=["hogql_query", "HogQLQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_event_explorer_app_bytes_read=get_teams_with_hogql_metric(
+        "teams_with_event_explorer_app_bytes_read": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_bytes",
             query_types=["EventsQuery"],
             access_method="",
         ),
-        teams_with_event_explorer_app_rows_read=get_teams_with_hogql_metric(
+        "teams_with_event_explorer_app_rows_read": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["EventsQuery"],
             access_method="",
         ),
-        teams_with_event_explorer_app_duration_ms=get_teams_with_hogql_metric(
+        "teams_with_event_explorer_app_duration_ms": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
             query_types=["EventsQuery"],
             access_method="",
         ),
-        teams_with_event_explorer_api_bytes_read=get_teams_with_hogql_metric(
+        "teams_with_event_explorer_api_bytes_read": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_bytes",
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_event_explorer_api_rows_read=get_teams_with_hogql_metric(
+        "teams_with_event_explorer_api_rows_read": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_event_explorer_api_duration_ms=get_teams_with_hogql_metric(
+        "teams_with_event_explorer_api_duration_ms": get_teams_with_hogql_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
-        teams_with_survey_responses_count_in_period=get_teams_with_survey_responses_count_in_period(
+        "teams_with_survey_responses_count_in_period": get_teams_with_survey_responses_count_in_period(
             period_start, period_end
         ),
-        teams_with_survey_responses_count_in_month=get_teams_with_survey_responses_count_in_period(
+        "teams_with_survey_responses_count_in_month": get_teams_with_survey_responses_count_in_period(
             period_start.replace(day=1), period_end
         ),
-        teams_with_rows_synced_in_period=get_teams_with_rows_synced_in_period(period_start, period_end),
-    )
+        "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+    }
 
 
 def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetime) -> Dict[str, Any]:

@@ -111,8 +111,8 @@ async def assert_clickhouse_records_in_mock_server(
 
             expected_records.append(expected_record)
 
-    inserted_column_names = [column_name for column_name in posted_records[0].keys()].sort()
-    expected_column_names = [column_name for column_name in expected_records[0].keys()].sort()
+    inserted_column_names = list(posted_records[0].keys()).sort()
+    expected_column_names = list(expected_records[0].keys()).sort()
 
     assert inserted_column_names == expected_column_names
     assert posted_records[0] == expected_records[0]

@@ -17,7 +17,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
             "Starting AsyncDeletion on `cohortpeople` table in ClickHouse",
             {
                 "count": len(deletions),
-                "team_ids": list(set(row.team_id for row in deletions)),
+                "team_ids": list({row.team_id for row in deletions}),
             },
         )
 
@@ -50,7 +50,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
             """,
             args,
         )
-        return set(tuple(row) for row in clickhouse_result)
+        return {tuple(row) for row in clickhouse_result}
 
     def _column_name(self, async_deletion: AsyncDeletion):
         assert async_deletion.deletion_type in (

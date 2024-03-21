@@ -218,7 +218,7 @@ class Breakdown:
         # TODO: add this only if needed
         values.append('["",""]')
 
-        return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), values)))
+        return ast.Array(exprs=[ast.Constant(value=v) for v in values])
 
     @cached_property
     def _breakdown_values_ast(self) -> ast.Array:

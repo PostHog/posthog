@@ -38,7 +38,7 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     if isinstance(constant, str):
         return ast.StringType()
     if isinstance(constant, list):
-        unique_types = set(str(resolve_constant_data_type(item)) for item in constant)
+        unique_types = {str(resolve_constant_data_type(item)) for item in constant}
         return ast.ArrayType(
             item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType()
         )

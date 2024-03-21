@@ -606,7 +606,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         original_cohorts_cache = {}
         for _, cohort in cohorts.items():
             original_cohorts_cache[cohort.id] = cohort
-        original_cohort_ids = {cohort_id for cohort_id in original_cohorts_cache.keys()}
+        original_cohort_ids = set(original_cohorts_cache.keys())
         topologically_sorted_original_cohort_ids = sort_cohorts_topologically(
             original_cohort_ids, original_cohorts_cache
         )

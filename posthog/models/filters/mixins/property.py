@@ -134,9 +134,9 @@ class PropertyMixin(BaseParamMixin):
 
     @include_query_tags
     def properties_query_tags(self):
-        filter_by_type = set(prop.type for prop in self.property_groups.flat)
+        filter_by_type = {prop.type for prop in self.property_groups.flat}
         for entity in getattr(self, "entities", []):
-            filter_by_type |= set(prop.type for prop in entity.property_groups.flat)
+            filter_by_type |= {prop.type for prop in entity.property_groups.flat}
 
         return {"filter_by_type": list(filter_by_type)}
 

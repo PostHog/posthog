@@ -421,8 +421,10 @@ def fetch_plugin_log_entries(
     before: Optional[timezone.datetime] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
-    type_filter: List[PluginLogEntryType] = [],
+    type_filter: List[PluginLogEntryType] = None,
 ) -> List[PluginLogEntry]:
+    if type_filter is None:
+        type_filter = []
     clickhouse_where_parts: List[str] = []
     clickhouse_kwargs: Dict[str, Any] = {}
     if team_id is not None:

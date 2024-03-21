@@ -122,8 +122,8 @@ async def assert_clickhouse_records_in_postgres(
 
             expected_records.append(expected_record)
 
-    inserted_column_names = [column_name for column_name in inserted_records[0].keys()].sort()
-    expected_column_names = [column_name for column_name in expected_records[0].keys()].sort()
+    inserted_column_names = list(inserted_records[0].keys()).sort()
+    expected_column_names = list(expected_records[0].keys()).sort()
 
     assert inserted_column_names == expected_column_names
     assert inserted_records[0] == expected_records[0]

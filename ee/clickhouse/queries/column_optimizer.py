@@ -22,7 +22,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
     @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
         used_properties = self.used_properties_with_type("group")
-        return set(cast(GroupTypeIndex, group_type_index) for _, _, group_type_index in used_properties)
+        return {cast(GroupTypeIndex, group_type_index) for _, _, group_type_index in used_properties}
 
     @cached_property
     def group_on_event_columns_to_query(self) -> Set[ColumnName]:

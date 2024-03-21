@@ -160,4 +160,4 @@ class FunnelEventQuery(EventQuery):
         if None in events:
             return "AND 1 = 1", {}
 
-        return f"AND event IN %({entity_name})s", {entity_name: sorted(list(events))}
+        return f"AND event IN %({entity_name})s", {entity_name: sorted(events)}

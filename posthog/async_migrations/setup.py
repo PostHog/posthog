@@ -42,7 +42,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
     4. Populate a dependencies map and in-memory record of migration definitions
     """
 
-    applied_migrations = set(instance.name for instance in get_all_completed_async_migrations())
+    applied_migrations = {instance.name for instance in get_all_completed_async_migrations()}
     unapplied_migrations = set(ALL_ASYNC_MIGRATIONS.keys()) - applied_migrations
 
     for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():

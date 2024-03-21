@@ -7,7 +7,9 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):
-    def _create_comment(self, data={}) -> Any:
+    def _create_comment(self, data=None) -> Any:
+        if data is None:
+            data = {}
         payload = {
             "content": "my content",
             "scope": "Notebook",

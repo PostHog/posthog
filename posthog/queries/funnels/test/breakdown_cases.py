@@ -2647,7 +2647,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
 
 def sort_breakdown_funnel_results(results: List[Dict[int, Any]]):
-    return list(sorted(results, key=lambda r: r[0]["breakdown_value"]))
+    return sorted(results, key=lambda r: r[0]["breakdown_value"])
 
 
 def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str, Any]]):

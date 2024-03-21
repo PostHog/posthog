@@ -181,7 +181,7 @@ def assert_records_match_events(records, events):
 
     assert len(all_expected) == len(all_record)
     assert len([record["uuid"] for record in all_record]) == len(
-        set(record["uuid"] for record in all_record)
+        {record["uuid"] for record in all_record}
     ), "duplicate records found"
 
     for expected, record in zip(all_expected, all_record):
@@ -667,7 +667,7 @@ def test_batch_export_temporary_file_write_records_to_csv(records):
             quoting=csv.QUOTE_NONE,
         )
 
-        rows = [row for row in reader]
+        rows = list(reader)
         assert len(rows) == len(records)
 
         for row_index, csv_record in enumerate(rows):
@@ -720,7 +720,7 @@ def test_batch_export_temporary_file_write_records_to_tsv(records):
             quoting=csv.QUOTE_NONE,
         )
 
-        rows = [row for row in reader]
+        rows = list(reader)
         assert len(rows) == len(records)
 
         for row_index, csv_record in enumerate(rows):

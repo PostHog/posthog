@@ -521,7 +521,7 @@ class EntitiesMixin(BaseParamMixin):
 
     @include_query_tags
     def entities_query_tags(self):
-        return {"entity_math": list(set(entity.math for entity in self.entities if entity.math))}
+        return {"entity_math": list({entity.math for entity in self.entities if entity.math})}
 
 
 # These arguments are used to specify the target entity for insight actor retrieval on trend graphs

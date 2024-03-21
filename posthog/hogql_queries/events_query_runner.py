@@ -219,7 +219,7 @@ class EventsQueryRunner(QueryRunner):
             with self.timings.measure("person_column_extra_query"):
                 # Make a query into postgres to fetch person
                 person_idx = person_indices[0]
-                distinct_ids = list(set(event[person_idx] for event in self.paginator.results))
+                distinct_ids = list({event[person_idx] for event in self.paginator.results})
                 persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
                 persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
                 distinct_to_person: Dict[str, Person] = {}

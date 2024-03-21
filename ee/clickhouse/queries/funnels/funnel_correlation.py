@@ -587,7 +587,7 @@ class FunnelCorrelation:
             elif entity.id is not None:
                 events.add(entity.id)
 
-        return sorted(list(events))
+        return sorted(events)
 
     def _run(self) -> Tuple[List[EventOddsRatio], bool]:
         """

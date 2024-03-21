@@ -69,7 +69,9 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    def select(self, query: str, placeholders: Dict[str, Any] = {}):
+    def select(self, query: str, placeholders: Dict[str, Any] = None):
+        if placeholders is None:
+            placeholders = {}
         return execute_hogql_query(
             query=query,
             team=self.team,

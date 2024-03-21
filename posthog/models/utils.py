@@ -206,7 +206,7 @@ def create_with_slug(create_func: Callable[..., T], default_slug: str = "", *arg
 
 def get_deferred_field_set_for_model(
     model: Type[models.Model],
-    fields_not_deferred: Set[str] = set(),
+    fields_not_deferred: Set[str] = None,
     field_prefix: str = "",
 ) -> Set[str]:
     """Return a set of field names to be deferred for a given model. Used with `.defer()` after `select_related`
@@ -225,6 +225,8 @@ def get_deferred_field_set_for_model(
         fields_not_deferred: the models fields to exclude from the deferred field set
         field_prefix: a prefix to add to the field names e.g. ("team__organization__") to work in the query set
     """
+    if fields_not_deferred is None:
+        fields_not_deferred = set()
     return {f"{field_prefix}{x.name}" for x in model._meta.fields if x.name not in fields_not_deferred}
 
 

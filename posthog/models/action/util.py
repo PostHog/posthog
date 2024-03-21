@@ -25,7 +25,7 @@ def format_action_filter_event_only(
         # If selecting for "All events", disable entity pre-filtering
         return "1 = 1", {}
     entity_name = f"{prepend}_{action.pk}"
-    return f"event IN %({entity_name})s", {entity_name: sorted(list(events))}
+    return f"event IN %({entity_name})s", {entity_name: sorted(events)}
 
 
 def format_action_filter(
