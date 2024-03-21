@@ -120,6 +120,10 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                                           kind: NodeKind.InsightActorsQuery,
                                           source: query.source,
                                       },
+                                      additionalSelect: {
+                                          value_at_data_point: 'event_count',
+                                          matched_recordings: 'matched_recordings',
+                                      },
                                   })
                               } else if (resultSeries.persons?.url) {
                                   openPersonsModal({
@@ -212,6 +216,10 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                                     query: {
                                         kind: NodeKind.InsightActorsQuery,
                                         source: query.source,
+                                    },
+                                    additionalSelect: {
+                                        value_at_data_point: 'event_count',
+                                        matched_recordings: 'matched_recordings',
                                     },
                                 })
                             } else if (previousPeriodSeries.persons?.url) {
