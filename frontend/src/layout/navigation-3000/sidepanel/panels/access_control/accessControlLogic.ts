@@ -13,6 +13,7 @@ import {
     AccessControlTypeProject,
     AccessControlTypeRole,
     AccessControlUpdateType,
+    APIScopeObject,
     OrganizationMemberType,
     RoleType,
 } from '~/types'
@@ -21,7 +22,7 @@ import type { accessControlLogicType } from './accessControlLogicType'
 import { roleBasedAccessControlLogic } from './roleBasedAccessControlLogic'
 
 export type AccessControlLogicProps = {
-    resource: string
+    resource: APIScopeObject
     resource_id: string
 }
 

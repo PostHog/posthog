@@ -2,12 +2,15 @@ import { IconCopy } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { base64Encode } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
+
+import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
 
 import { notebookLogic } from './notebookLogic'
 
@@ -28,7 +31,13 @@ export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
     }
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-4">
+            <FlaggedFeature flag="access-control">
+                <>
+                    <AccessControlObject resource="notebook" resource_id={shortId} />
+                    <LemonDivider />
+                </>
+            </FlaggedFeature>
             <h3>Internal Link</h3>
             {!isLocalOnly ? (
                 <>
