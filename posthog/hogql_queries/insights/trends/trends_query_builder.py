@@ -377,7 +377,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             )
             query.group_by = [ast.Field(chain=["breakdown_value"])]
-            query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="DESC"))
+            query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
         return query
 

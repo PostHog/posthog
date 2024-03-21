@@ -17,7 +17,7 @@ from posthog.models.team.team import Team
 from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
 
 
-def toString(expr: ast.Expr) -> ast.Call:
+def hogql_to_string(expr: ast.Expr) -> ast.Call:
     return ast.Call(name="toString", args=[expr])
 
 
@@ -78,13 +78,13 @@ class Breakdown:
         elif self.query.breakdownFilter.breakdown_type == "hogql":
             return ast.Alias(
                 alias="breakdown_value",
-                expr=toString(parse_expr(self.query.breakdownFilter.breakdown)),
+                expr=hogql_to_string(parse_expr(self.query.breakdownFilter.breakdown)),
             )
         elif self.query.breakdownFilter.breakdown_type == "cohort":
             if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
                 return ast.Alias(
                     alias="breakdown_value",
-                    expr=ast.Field(chain=["__in_cohort", "cohort_id"]),
+                    expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
                 )
 
             cohort_breakdown = (
@@ -92,18 +92,18 @@ class Breakdown:
             )
             return ast.Alias(
                 alias="breakdown_value",
-                expr=ast.Constant(value=cohort_breakdown),
+                expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
 
         if self.query.breakdownFilter.breakdown_type == "hogql":
             return ast.Alias(
                 alias="breakdown_value",
-                expr=toString(parse_expr(self.query.breakdownFilter.breakdown)),
+                expr=hogql_to_string(parse_expr(self.query.breakdownFilter.breakdown)),
             )
 
         # If there's no breakdown values
         if len(self._breakdown_values) == 1 and self._breakdown_values[0] is None:
-            return ast.Alias(alias="breakdown_value", expr=toString(ast.Field(chain=self._properties_chain)))
+            return ast.Alias(alias="breakdown_value", expr=hogql_to_string(ast.Field(chain=self._properties_chain)))
 
         return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_transform_func)
 
@@ -188,7 +188,7 @@ class Breakdown:
                 ast.Call(
                     name="ifNull",
                     args=[
-                        toString(ast.Field(chain=self._properties_chain)),
+                        hogql_to_string(ast.Field(chain=self._properties_chain)),
                         ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                     ],
                 ),
@@ -211,7 +211,7 @@ class Breakdown:
     def _breakdown_values_ast(self) -> ast.Array:
         exprs: list[ast.Expr] = []
         for value in self._breakdown_values:
-            exprs.append(toString(ast.Constant(value=value)))
+            exprs.append(hogql_to_string(ast.Constant(value=value)))
         return ast.Array(exprs=exprs)
 
     @cached_property
