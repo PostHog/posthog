@@ -752,6 +752,8 @@ def calculate_replay_embeddings() -> None:
         logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)
 
 
+# this task triggers other tasks
+# it can run on the default queue
 @shared_task(ignore_result=True)
 def calculate_replay_error_clusters() -> None:
     try:
