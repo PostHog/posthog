@@ -351,10 +351,16 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         if node.type and isinstance(node.type, ast.FieldAliasType):
             resolved_field = node.type.resolve_database_field(self.context)
             table_type = node.type.resolve_table_type(self.context)
-            if not table_type or not isinstance(table_type, ast.TableType):
+            if not table_type:
                 return False
-            return (isinstance(table_type.table, EventsTable) and resolved_field.name == "timestamp") or (
-                isinstance(table_type.table, SessionsTable) and resolved_field.name == "min_timestamp"
+            return (
+                isinstance(table_type, ast.TableType)
+                and isinstance(table_type.table, EventsTable)
+                and resolved_field.name == "timestamp"
+            ) or (
+                isinstance(table_type, ast.LazyTableType)
+                and isinstance(table_type.table, SessionsTable)
+                and resolved_field.name == "min_timestamp"
             )
 
         return self.visit(node.expr)
