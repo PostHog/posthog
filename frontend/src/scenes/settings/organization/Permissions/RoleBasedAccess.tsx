@@ -8,5 +8,5 @@ import { PermissionsGrid } from './PermissionsGrid'
 
 export function RoleBasedAccess(): JSX.Element {
     const newAccessControl = useFeatureFlag('ACCESS_CONTROL')
-    return newAccessControl ? <RolesAndResourceAccessControls /> : <PermissionsGrid />
+    return newAccessControl ? <RolesAndResourceAccessControls noAccessControls /> : <PermissionsGrid />
 }
