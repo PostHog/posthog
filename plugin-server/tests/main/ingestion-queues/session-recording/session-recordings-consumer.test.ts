@@ -532,13 +532,8 @@ describe('ingester', () => {
         it('shuts down without error', async () => {
             await setup()
 
-            // revoke, realtime unsub, replay stop, console ingestion stop
-            await expect(ingester.stop()).resolves.toMatchObject([
-                { status: 'fulfilled' },
-                { status: 'fulfilled' },
-                { status: 'fulfilled' },
-                { status: 'fulfilled' },
-            ])
+            // revoke, realtime unsub
+            await expect(ingester.stop()).resolves.toMatchObject([{ status: 'fulfilled' }, { status: 'fulfilled' }])
         })
     })
 

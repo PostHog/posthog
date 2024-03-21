@@ -320,10 +320,6 @@ describe('ingester', () => {
             await expect(ingester.stop()).resolves.toMatchObject([
                 // destroy sessions,
                 { status: 'fulfilled' },
-                // stop replay ingester
-                { status: 'fulfilled' },
-                // stop console ingester
-                { status: 'fulfilled' },
             ])
         })
     })
