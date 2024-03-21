@@ -36,7 +36,6 @@ export function Status(): JSX.Element {
         return (
             <div>
                 <h2 className="font-semibold text-lg">Status</h2>
-                <LemonDivider />
                 <div className="items-center inline-flex">
                     <div
                         className="w-2 h-2 rounded-full mr-1"
@@ -45,7 +44,7 @@ export function Status(): JSX.Element {
                     />
                     <span className="font-semibold">{capitalizeFirstLetter(winningVariant.key)}</span>
                     <span>&nbsp;is winning with a&nbsp;</span>
-                    <span className="font-semibold text-success items-center">{`${difference}% lift`}</span>
+                    <span className="font-semibold text-success items-center">{`${difference.toFixed(2)}% lift`}</span>
                     <span>&nbsp;in conversion rate (vs&nbsp;</span>
                     <div
                         className="w-2 h-2 rounded-full mr-1"

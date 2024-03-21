@@ -1,12 +1,13 @@
 import '../Experiment.scss'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PageHeader } from 'lib/components/PageHeader'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -16,76 +17,6 @@ import { ProgressStatus } from '~/types'
 import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-
-export function ExperimentBanner(): JSX.Element {
-    const { experiment, isExperimentRunning, isExperimentStopped } = useValues(experimentLogic)
-
-    const { resetRunningExperiment, archiveExperiment, endExperiment, launchExperiment, setEditExperiment } =
-        useActions(experimentLogic)
-
-    if (isExperimentStopped) {
-        return (
-            <LemonBanner type="info">
-                <div className="flex">
-                    <div className="w-1/2 flex items-center">
-                        This experiment has been <b>&nbsp;stopped.</b>
-                    </div>
-
-                    <div className="w-1/2 flex flex-col justify-end">
-                        <div className="ml-auto inline-flex space-x-2">
-                            <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
-                            <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
-                                <b>Archive</b>
-                            </LemonButton>
-                        </div>
-                    </div>
-                </div>
-            </LemonBanner>
-        )
-    }
-
-    if (isExperimentRunning) {
-        return (
-            <LemonBanner type="info">
-                <div className="flex">
-                    <div className="w-1/2 flex items-center">
-                        This experiment is <b>&nbsp;active.</b>
-                    </div>
-
-                    <div className="w-1/2 flex flex-col justify-end">
-                        <div className="ml-auto inline-flex space-x-2">
-                            <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
-                            <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                Stop
-                            </LemonButton>
-                        </div>
-                    </div>
-                </div>
-            </LemonBanner>
-        )
-    }
-
-    return (
-        <LemonBanner type="info">
-            <div className="flex">
-                <div className="w-1/2 flex items-center">
-                    This experiment is <b>&nbsp;draft.</b>
-                </div>
-
-                <div className="w-1/2 flex flex-col justify-end">
-                    <div className="ml-auto inline-flex space-x-2">
-                        <LemonButton type="secondary" onClick={() => setEditExperiment(true)}>
-                            Edit
-                        </LemonButton>
-                        <LemonButton type="primary" onClick={() => launchExperiment()}>
-                            Launch
-                        </LemonButton>
-                    </div>
-                </div>
-            </div>
-        </LemonBanner>
-    )
-}
 
 export function ExperimentLoader(): JSX.Element {
     return (
@@ -182,51 +113,70 @@ export function FeatureFlagInfo(): JSX.Element {
 
 export function PageHeaderCustom(): JSX.Element {
     const { experiment, isExperimentRunning } = useValues(experimentLogic)
-    const { launchExperiment, setEditExperiment, loadExperimentResults, loadSecondaryMetricResults } =
-        useActions(experimentLogic)
+    const {
+        launchExperiment,
+        resetRunningExperiment,
+        endExperiment,
+        archiveExperiment,
+        setEditExperiment,
+        loadExperimentResults,
+        loadSecondaryMetricResults,
+    } = useActions(experimentLogic)
 
     return (
         <PageHeader
             buttons={
                 <>
-                    <div className="flex flex-row gap-2">
-                        <>
-                            <More
-                                overlay={
-                                    <>
-                                        {experiment && !isExperimentRunning && (
-                                            <>
-                                                <LemonButton fullWidth onClick={() => setEditExperiment(true)}>
-                                                    Edit
-                                                </LemonButton>
-                                                <LemonButton fullWidth onClick={() => launchExperiment()}>
-                                                    Launch
-                                                </LemonButton>
-                                            </>
-                                        )}
-                                        {experiment && isExperimentRunning && (
-                                            <>
-                                                <LemonButton
-                                                    onClick={() => loadExperimentResults(true)}
-                                                    fullWidth
-                                                    data-attr="refresh-experiment"
-                                                >
-                                                    Refresh experiment results
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => loadSecondaryMetricResults(true)}
-                                                    fullWidth
-                                                    data-attr="refresh-secondary-metrics"
-                                                >
-                                                    Refresh secondary metrics
-                                                </LemonButton>
-                                            </>
-                                        )}
-                                    </>
-                                }
-                            />
-                        </>
-                    </div>
+                    {experiment && !isExperimentRunning && (
+                        <div className="flex items-center">
+                            <LemonButton type="secondary" className="mr-2" onClick={() => setEditExperiment(true)}>
+                                Edit
+                            </LemonButton>
+                            <LemonButton type="primary" onClick={() => launchExperiment()}>
+                                Launch
+                            </LemonButton>
+                        </div>
+                    )}
+                    {experiment && isExperimentRunning && (
+                        <div className="flex flex-row gap-2">
+                            <>
+                                <More
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                onClick={() => loadExperimentResults(true)}
+                                                fullWidth
+                                                data-attr="refresh-experiment"
+                                            >
+                                                Refresh experiment results
+                                            </LemonButton>
+                                            <LemonButton
+                                                onClick={() => loadSecondaryMetricResults(true)}
+                                                fullWidth
+                                                data-attr="refresh-secondary-metrics"
+                                            >
+                                                Refresh secondary metrics
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
+                                <LemonDivider vertical />
+                            </>
+                            <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
+                            {!experiment.end_date && (
+                                <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                    Stop
+                                </LemonButton>
+                            )}
+                            {experiment?.end_date &&
+                                dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                                !experiment.archived && (
+                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
+                                        <b>Archive</b>
+                                    </LemonButton>
+                                )}
+                        </div>
+                    )}
                 </>
             }
         />

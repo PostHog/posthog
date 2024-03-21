@@ -6,7 +6,6 @@ import { ExperimentForm } from './ExperimentForm'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic } from './experimentLogic'
 import {
-    ExperimentBanner,
     ExperimentLoader,
     ExperimentLoadingAnimation,
     FeatureFlagInfo,
@@ -18,8 +17,8 @@ import { NoResultsEmptyState } from './ExperimentView/NoResultsEmptyState'
 import { ProgressBar } from './ExperimentView/ProgressBar'
 import { ReleaseConditionsTable } from './ExperimentView/ReleaseConditionsTable'
 import { Results } from './ExperimentView/Results'
+import { SecondaryMetricsTable } from './ExperimentView/SecondaryMetricsTable'
 import { Status } from './ExperimentView/Status'
-import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 export function ExperimentView(): JSX.Element {
     const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
@@ -35,7 +34,6 @@ export function ExperimentView(): JSX.Element {
                     <ExperimentLoader />
                 ) : (
                     <>
-                        <ExperimentBanner />
                         <FeatureFlagInfo />
                         {experimentResultsLoading ? (
                             <ExperimentLoadingAnimation />

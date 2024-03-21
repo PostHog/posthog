@@ -4,7 +4,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -46,8 +46,6 @@ import {
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
-
-export const DEFAULT_DURATION = 14 // days
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -358,7 +356,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 newInsightFilters = cleanFilters({
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
                     aggregation_group_type_index: aggregationGroupTypeIndex,
@@ -375,7 +373,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         : { events: [{ ...getDefaultEvent(), ...groupAggregation }] }
                 newInsightFilters = cleanFilters({
                     insight: InsightType.TRENDS,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     ...eventAddition,
                     ...filters,
@@ -391,7 +389,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentExposureInsight: async ({ filters }) => {
             const newInsightFilters = cleanFilters({
                 insight: InsightType.TRENDS,
-                date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                 date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                 ...filters,
             })
@@ -811,7 +809,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     return parseFloat(
                         (
                             4 /
-                            Math.pow(Math.sqrt(lambda1 / DEFAULT_DURATION) - Math.sqrt(lambda2 / DEFAULT_DURATION), 2)
+                            Math.pow(
+                                Math.sqrt(lambda1 / EXPERIMENT_DEFAULT_DURATION) -
+                                    Math.sqrt(lambda2 / EXPERIMENT_DEFAULT_DURATION),
+                                2
+                            )
                         ).toFixed(1)
                     )
                 },
@@ -819,7 +821,7 @@ export const experimentLogic = kea<experimentLogicType>([
         expectedRunningTime: [
             () => [],
             () =>
-                (entrants: number, sampleSize: number, duration: number = DEFAULT_DURATION): number => {
+                (entrants: number, sampleSize: number, duration: number = EXPERIMENT_DEFAULT_DURATION): number => {
                     // recommended people / (actual people / day) = expected days
                     return parseFloat((sampleSize / (entrants / duration)).toFixed(1))
                 },
