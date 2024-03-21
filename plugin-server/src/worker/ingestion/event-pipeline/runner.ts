@@ -78,14 +78,14 @@ export class EventPipelineRunner {
                         drop_cause: 'disallowed',
                     })
                     .inc()
-                return this.registerLastStep('eventDisallowedStep', null, [event])
+                return this.registerLastStep('eventDisallowedStep', [event])
             }
             let result: EventPipelineResult
             const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
             if (eventWithTeam != null) {
                 result = await this.runEventPipelineSteps(eventWithTeam)
             } else {
-                result = this.registerLastStep('populateTeamDataStep', null, [event])
+                result = this.registerLastStep('populateTeamDataStep', [event])
             }
             eventProcessedAndIngestedCounter.inc()
             return result
@@ -120,7 +120,7 @@ export class EventPipelineRunner {
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
 
         if (processedEvent == null) {
-            return this.registerLastStep('pluginsProcessEventStep', event.team_id, [event])
+            return this.registerLastStep('pluginsProcessEventStep', [event])
         }
         const [normalizedEvent, person] = await this.runStep(processPersonsStep, [this, processedEvent], event.team_id)
 
@@ -132,15 +132,10 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
+        return this.registerLastStep('createEventStep', [rawClickhouseEvent, person], [eventAck])
     }
 
-    registerLastStep(
-        stepName: string,
-        teamId: number | null,
-        args: any[],
-        promises?: Array<Promise<void>>
-    ): EventPipelineResult {
+    registerLastStep(stepName: string, args: any[], promises?: Array<Promise<void>>): EventPipelineResult {
         pipelineLastStepCounter.labels(stepName).inc()
         return { promises: promises, lastStep: stepName, args }
     }
