@@ -101,7 +101,12 @@ export function LemonDialog({
     )
 }
 
-const LemonFormDialog = ({ initialValues = {}, onSubmit, errors, ...props }: LemonFormDialogProps): JSX.Element => {
+export const LemonFormDialog = ({
+    initialValues = {},
+    onSubmit,
+    errors,
+    ...props
+}: LemonFormDialogProps): JSX.Element => {
     const logic = lemonDialogLogic({ errors })
     const { form, isFormValid, formValidationErrors } = useValues(logic)
     const { setFormValues } = useActions(logic)
