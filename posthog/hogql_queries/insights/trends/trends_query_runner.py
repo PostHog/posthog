@@ -24,7 +24,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import (
     BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
@@ -494,18 +493,6 @@ class TrendsQueryRunner(QueryRunner):
                         series_object["label"] = remapped_label
 
                     series_object["breakdown_value"] = remapped_label
-
-                # If the breakdown value is the numeric "other", then set it to the string version
-                if (
-                    remapped_label == BREAKDOWN_OTHER_NUMERIC_LABEL
-                    or remapped_label == str(BREAKDOWN_OTHER_NUMERIC_LABEL)
-                    or remapped_label == float(BREAKDOWN_OTHER_NUMERIC_LABEL)
-                ):
-                    series_object["breakdown_value"] = BREAKDOWN_OTHER_STRING_LABEL
-                    if real_series_count > 1 or self._is_breakdown_field_boolean():
-                        series_object["label"] = "{} - {}".format(series_label or "All events", "Other")
-                    else:
-                        series_object["label"] = "Other"
 
             res.append(series_object)
         return res
