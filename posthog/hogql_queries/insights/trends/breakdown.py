@@ -218,7 +218,7 @@ class Breakdown:
         return ast.Array(exprs=exprs)
 
     @cached_property
-    def _all_breakdown_values(self) -> List[str | None]:
+    def _all_breakdown_values(self) -> List[str | int | None]:
         # Used in the actors query
         if self.breakdown_values_override is not None:
             return cast(List[str | None], self.breakdown_values_override)
@@ -236,7 +236,7 @@ class Breakdown:
                 query_date_range=self.query_date_range,
                 modifiers=self.modifiers,
             )
-            return cast(List[str | None], breakdown.get_breakdown_values())
+            return breakdown.get_breakdown_values()
 
     @cached_property
     def _breakdown_values(self) -> List[str]:
