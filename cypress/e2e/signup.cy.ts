@@ -99,7 +99,7 @@ describe('Signup', () => {
         cy.get('.Toastify [data-attr="error-toast"]').contains('Inactive social login session.')
     })
 
-    it.only('Shows redirect notice if redirecting for maintenance', () => {
+    it('Shows redirect notice if redirecting for maintenance', () => {
         cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({
