@@ -1179,6 +1179,9 @@ export interface FunnelCorrelationQuery {
     response?: FunnelCorrelationResponse
 }
 
+/**  @format date-time */
+export type DatetimeDay = string
+
 export type BreakdownValueInt = integer
 export interface InsightActorsQueryOptionsResponse {
     day?: { label: string; value: string | Day }[]

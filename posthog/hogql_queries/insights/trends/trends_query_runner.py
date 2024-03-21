@@ -188,7 +188,7 @@ class TrendsQueryRunner(QueryRunner):
         res_days: list[DayItem] = [
             DayItem(
                 label=format_label_date(value, self.query_date_range.interval_name),
-                value=value.isoformat().replace("+00:00", "Z"),
+                value=value,
             )
             for value in self.query_date_range.all_values()
         ]
@@ -400,7 +400,7 @@ class TrendsQueryRunner(QueryRunner):
                     "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
-                        "days": [value.isoformat() for value in self.query_date_range.all_values()],
+                        "days": self.query_date_range.all_values(),
                         "id": series_label,
                         "type": "events",
                         "order": series.series_order,
@@ -434,7 +434,7 @@ class TrendsQueryRunner(QueryRunner):
                     "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
-                        "days": [value.isoformat() for value in self.query_date_range.all_values()],
+                        "days": self.query_date_range.all_values(),
                         "id": series_label,
                         "type": "events",
                         "order": series.series_order,

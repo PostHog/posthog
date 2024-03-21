@@ -949,6 +949,10 @@
             },
             "type": "object"
         },
+        "DatetimeDay": {
+            "format": "date-time",
+            "type": "string"
+        },
         "Day": {
             "type": "integer"
         },
@@ -2789,6 +2793,9 @@
                                         "type": "string"
                                     },
                                     {
+                                        "$ref": "#/definitions/DatetimeDay"
+                                    },
+                                    {
                                         "$ref": "#/definitions/Day"
                                     }
                                 ]
@@ -3838,6 +3845,9 @@
                                         "anyOf": [
                                             {
                                                 "type": "string"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/DatetimeDay"
                                             },
                                             {
                                                 "$ref": "#/definitions/Day"
