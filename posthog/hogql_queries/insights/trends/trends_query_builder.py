@@ -182,31 +182,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             actors_query_time_frame=actors_query_time_frame,
         )
 
-        default_query = cast(
-            ast.SelectQuery,
-            parse_select(
-                """
-                    SELECT
-                        {aggregation_operation} AS total
-                    FROM {table} AS e
-                    WHERE {events_filter}
-                """
-                if isinstance(self.series, DataWarehouseNode)
-                else """
-                    SELECT
-                        {aggregation_operation} AS total
-                    FROM {table} AS e
-                    SAMPLE {sample}
-                    WHERE {events_filter}
-                """,
-                placeholders={
-                    "table": self._table_expr,
-                    "events_filter": events_filter,
-                    "aggregation_operation": self._aggregation_operation.select_aggregation(),
-                    "sample": self._sample_value(),
-                },
-            ),
+        default_query = ast.SelectQuery(
+            select=[ast.Alias(alias="total", expr=self._aggregation_operation.select_aggregation())],
+            select_from=ast.JoinExpr(table=self._table_expr, alias="e"),
+            where=events_filter,
         )
+        if not isinstance(self.series, DataWarehouseNode):
+            default_query.select_from.sample = ast.SampleExpr(
+                sample_value=self._sample_value(),
+            )
 
         default_query.group_by = []
 
@@ -461,13 +445,20 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # Dates
         if is_actors_query and actors_query_time_frame is not None:
-            to_start_of_time_frame = f"toStartOf{self.query_date_range.interval_name.capitalize()}"
-            filters.append(
-                ast.CompareOperation(
-                    left=ast.Call(name=to_start_of_time_frame, args=[ast.Field(chain=["timestamp"])]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Call(name="toDateTime", args=[ast.Constant(value=actors_query_time_frame)]),
-                )
+            actors_from, actors_to = self.query_date_range.interval_bounds_from_str(actors_query_time_frame)
+            filters.extend(
+                [
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["timestamp"]),
+                        op=ast.CompareOperationOp.GtEq,
+                        right=ast.Call(name="toDateTime", args=[ast.Constant(value=actors_from)]),
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["timestamp"]),
+                        op=ast.CompareOperationOp.Lt,
+                        right=ast.Call(name="toDateTime", args=[ast.Constant(value=actors_to)]),
+                    ),
+                ]
             )
         elif not self._aggregation_operation.requires_query_orchestration():
             filters.extend(
