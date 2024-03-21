@@ -34,6 +34,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
 from loginas.utils import is_impersonated_session
 
@@ -94,7 +95,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class NotebookSerializer(NotebookMinimalSerializer):
+class NotebookSerializer(NotebookMinimalSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = Notebook
         fields = [
@@ -109,6 +110,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -117,6 +119,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "user_access_level",
         ]
 
     def create(self, validated_data: Dict, *args, **kwargs) -> Notebook:

@@ -1,6 +1,7 @@
 from functools import cached_property
 from django.db.models import Model, Q, QuerySet
-from typing import TYPE_CHECKING, List, Optional
+from rest_framework import serializers
+from typing import TYPE_CHECKING, List, Optional, cast
 
 from posthog.constants import AvailableFeature
 from posthog.models import (
@@ -205,3 +206,16 @@ class UserAccessControl:
         # )
 
         return queryset
+
+
+class UserAccessControlSerializerMixin(serializers.Serializer):
+    user_access_level = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The effective access level the user has for this object",
+    )
+
+    def get_user_access_level(self, obj: Model) -> Optional[str]:
+        access_control = cast(UserAccessControl, self.context["view"].user_access_control).access_control_for_object(
+            obj
+        )
+        return access_control.access_level if access_control else None
