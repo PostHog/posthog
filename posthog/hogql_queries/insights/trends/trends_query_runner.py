@@ -142,7 +142,7 @@ class TrendsQueryRunner(QueryRunner):
 
     def to_actors_query(
         self,
-        time_frame: Optional[str | int],
+        time_frame: Optional[str],
         series_index: int,
         breakdown_value: Optional[str | int] = None,
         compare: Optional[Compare] = None,
