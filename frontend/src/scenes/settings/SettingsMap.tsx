@@ -1,3 +1,4 @@
+import { RolesAndResourceAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAndResourceAccessControls'
 import { AvailableFeature } from '~/types'
 
 import { Invites } from './organization/Invites'
@@ -224,16 +225,23 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'project',
-        id: 'project-rbac',
+        id: 'project-access-control',
         title: 'Access control',
         settings: [
             {
-                id: 'project-rbac',
+                id: 'project-access-control',
                 title: 'Access control',
                 component: <ProjectAccessControl />,
             },
+            {
+                id: 'project-role-based-access-control',
+                title: 'Role based access control',
+                flag: 'ACCESS_CONTROL',
+                component: <RolesAndResourceAccessControls />,
+            },
         ],
     },
+
     {
         level: 'project',
         id: 'project-danger-zone',

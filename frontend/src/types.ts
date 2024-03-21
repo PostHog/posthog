@@ -3405,6 +3405,7 @@ export interface AccessControlTypeBase {
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
+    resource: APIScopeObject
     access_level: string | null // TODO: Change to enum
     organization_member?: OrganizationMemberType['id'] | null
     role?: RoleType['id'] | null
@@ -3422,7 +3423,9 @@ export interface AccessControlTypeRole extends AccessControlTypeBase {
 
 export type AccessControlType = AccessControlTypeProject | AccessControlTypeMember | AccessControlTypeRole
 
-export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'>
+export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'> & {
+    resource?: AccessControlType['resource']
+}
 
 export type AccessControlResponseType = {
     access_controls: AccessControlType[]

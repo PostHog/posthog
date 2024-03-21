@@ -3,18 +3,26 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
-import api, { PaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlType, AccessControlTypeRole, AccessControlUpdateType, AvailableFeature, RoleType } from '~/types'
+import {
+    AccessControlResponseType,
+    AccessControlType,
+    AccessControlTypeRole,
+    AccessControlUpdateType,
+    APIScopeObject,
+    AvailableFeature,
+    RoleType,
+} from '~/types'
 
 import type { roleBasedAccessControlLogicType } from './roleBasedAccessControlLogicType'
 
 export type RoleWithResourceAccessControls = {
-    role: RoleType
-    accessControlByResource: Record<AccessControlType['resource'], AccessControlTypeRole>
+    role?: RoleType
+    accessControlByResource: Record<APIScopeObject, AccessControlTypeRole>
 }
 
 export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>([
@@ -49,13 +57,13 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
     }),
     loaders(({ values }) => ({
         roleBasedAccessControls: [
-            null as AccessControlTypeRole[] | null,
+            null as AccessControlResponseType | null,
             {
                 loadRoleBasedAccessControls: async () => {
-                    const response = await api.get<PaginatedResponse<AccessControlTypeRole>>(
+                    const response = await api.get<AccessControlResponseType>(
                         'api/projects/@current/role_based_access_controls'
                     )
-                    return response.results.filter((accessControl) => !!accessControl.role)
+                    return response
                 },
 
                 updateRoleBasedAccessControls: async ({ accessControls }) => {
@@ -160,31 +168,62 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
 
     selectors({
         availableLevels: [
-            () => [],
-            (): string[] => {
-                return ['viewer', 'editor']
+            (s) => [s.roleBasedAccessControls],
+            (roleBasedAccessControls): string[] => {
+                return roleBasedAccessControls?.available_access_levels ?? []
+            },
+        ],
+
+        defaultAccessLevel: [
+            (s) => [s.roleBasedAccessControls],
+            (roleBasedAccessControls): string | null => {
+                return roleBasedAccessControls?.default_access_level ?? null
+            },
+        ],
+        defaultResourceAccessControls: [
+            (s) => [s.roleBasedAccessControls],
+            (roleBasedAccessControls): RoleWithResourceAccessControls => {
+                const accessControls = roleBasedAccessControls?.access_controls ?? []
+
+                // Find all acs without a roles (they are the default ones)
+                const accessControlByResource = accessControls
+                    .filter((control) => !control.role)
+                    .reduce(
+                        (acc, control) => ({
+                            ...acc,
+                            [control.resource]: control,
+                        }),
+                        {} as Record<APIScopeObject, AccessControlTypeRole>
+                    )
+
+                return { accessControlByResource }
             },
         ],
         rolesWithResourceAccessControls: [
-            (s) => [s.roles, s.roleBasedAccessControls],
-            (roles, accessControls): RoleWithResourceAccessControls[] => {
-                if (!roles || !accessControls) {
+            (s) => [s.roles, s.roleBasedAccessControls, s.defaultResourceAccessControls],
+            (roles, roleBasedAccessControls, defaultResourceAccessControls): RoleWithResourceAccessControls[] => {
+                if (!roles) {
                     return []
                 }
 
-                return roles.map((role) => {
-                    const accessControlByResource = accessControls
-                        .filter((control) => control.role === role.id)
-                        .reduce(
-                            (acc, control) => ({
-                                ...acc,
-                                [control.resource]: control,
-                            }),
-                            {} as Record<AccessControlType['resource'], AccessControlTypeRole>
-                        )
+                const accessControls = roleBasedAccessControls?.access_controls ?? []
 
-                    return { role, accessControlByResource }
-                })
+                return [
+                    defaultResourceAccessControls,
+                    ...roles.map((role) => {
+                        const accessControlByResource = accessControls
+                            .filter((control) => control.role === role.id)
+                            .reduce(
+                                (acc, control) => ({
+                                    ...acc,
+                                    [control.resource]: control,
+                                }),
+                                {} as Record<APIScopeObject, AccessControlTypeRole>
+                            )
+
+                        return { role, accessControlByResource }
+                    }),
+                ]
             },
         ],
 

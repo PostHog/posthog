@@ -7,7 +7,12 @@ from rest_framework.response import Response
 
 from ee.models.rbac.access_control import AccessControl
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
-from posthog.rbac.user_access_control import UserAccessControl, default_access_level, ordered_access_levels
+from posthog.rbac.user_access_control import (
+    RESOURCE_BASED_ACCESS_LEVELS,
+    UserAccessControl,
+    default_access_level,
+    ordered_access_levels,
+)
 
 
 class AccessControlSerializer(serializers.ModelSerializer):
@@ -88,12 +93,24 @@ class AccessControlViewSetMixin:
         kwargs.setdefault("context", self.get_serializer_context())
         return AccessControlSerializer(*args, **kwargs)
 
-    def _get_access_controls(self, request: Request):
+    def _get_access_controls(self, request: Request, role_based=False):
         resource = getattr(self, "scope_object", None)
+
+        if role_based and resource != "project":
+            raise exceptions.NotFound("Role based access controls are only available for projects.")
+
         obj = self.get_object()
         resource_id = obj.id
 
-        access_controls = AccessControl.objects.filter(team=self.team, resource=resource, resource_id=resource_id).all()
+        if role_based:
+            # If role based then we are getting all controls for the project that aren't specific to a resource
+            access_controls = AccessControl.objects.filter(team=self.team, resource_id=None).all()
+        else:
+            # Otherwise we are getting all controls for the specific resource
+            access_controls = AccessControl.objects.filter(
+                team=self.team, resource=resource, resource_id=resource_id
+            ).all()
+
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
         # TODO: Fix - could be none
         user_access_level = self.user_access_control.access_control_for_object(obj).access_level
@@ -101,22 +118,26 @@ class AccessControlViewSetMixin:
         return Response(
             {
                 "access_controls": serializer.data,
-                "available_access_levels": ordered_access_levels(resource),
-                "default_access_level": default_access_level(resource),
+                "available_access_levels": RESOURCE_BASED_ACCESS_LEVELS
+                if role_based
+                else ordered_access_levels(resource),
+                "default_access_level": "editor" if role_based else default_access_level(resource),
                 "user_access_level": user_access_level,
                 "user_can_edit_access_levels": self.user_access_control.check_can_modify_access_levels_for_object(obj),
             }
         )
 
-    def _update_access_controls(self, request: Request):
+    def _update_access_controls(self, request: Request, role_based=False):
         resource = getattr(self, "scope_object", None)
         obj = self.get_object()
         resource_id = str(obj.id)
 
         # Generically validate the incoming data
-        data = request.data
-        data["resource"] = resource
-        data["resource_id"] = resource_id
+        if not role_based:
+            # If not role based we are deriving from the viewset
+            data = request.data
+            data["resource"] = resource
+            data["resource_id"] = resource_id
 
         partial_serializer = self._get_access_control_serializer(data=request.data)
         partial_serializer.is_valid(raise_exception=True)
@@ -124,8 +145,8 @@ class AccessControlViewSetMixin:
 
         instance = AccessControl.objects.filter(
             team=self.team,
-            resource=resource,
-            resource_id=resource_id,
+            resource=params["resource"],
+            resource_id=params.get("resource_id"),
             organization_member=params.get("organization_member"),
             role=params.get("role"),
         ).first()
@@ -153,3 +174,10 @@ class AccessControlViewSetMixin:
             return self._get_access_controls(request)
         if request.method == "PUT":
             return self._update_access_controls(request)
+
+    @action(methods=["GET", "PUT"], detail=True)
+    def role_based_access_controls(self, request: Request, *args, **kwargs):
+        if request.method == "GET":
+            return self._get_access_controls(request, role_based=True)
+        if request.method == "PUT":
+            return self._update_access_controls(request, role_based=True)

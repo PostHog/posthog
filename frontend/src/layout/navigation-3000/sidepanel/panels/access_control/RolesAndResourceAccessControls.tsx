@@ -32,6 +32,7 @@ export function RolesAndResourceAccessControls(): JSX.Element {
         resources,
         availableLevels,
         selectedRoleId,
+        defaultAccessLevel,
     } = useValues(roleBasedAccessControlLogic)
 
     const { updateRoleBasedAccessControls, selectRoleId, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
@@ -44,8 +45,12 @@ export function RolesAndResourceAccessControls(): JSX.Element {
             render: (_, { role }) => (
                 <span className="whitespace-nowrap">
                     <LemonTableLink
-                        onClick={() => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))}
-                        title={role.name}
+                        onClick={
+                            role
+                                ? () => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))
+                                : undefined
+                        }
+                        title={role?.name ?? 'Default'}
                     />
                 </span>
             ),
@@ -54,17 +59,21 @@ export function RolesAndResourceAccessControls(): JSX.Element {
             title: 'Members',
             key: 'members',
             render: (_, { role }) => {
-                return role.members.length ? (
-                    <ProfileBubbles
-                        people={role.members.map((member) => ({
-                            email: member.user.email,
-                            name: member.user.first_name,
-                            title: `${member.user.first_name} <${member.user.email}>`,
-                        }))}
-                        onClick={() => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))}
-                    />
+                return role ? (
+                    role.members.length ? (
+                        <ProfileBubbles
+                            people={role.members.map((member) => ({
+                                email: member.user.email,
+                                name: member.user.first_name,
+                                title: `${member.user.first_name} <${member.user.email}>`,
+                            }))}
+                            onClick={() => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))}
+                        />
+                    ) : (
+                        'No members'
+                    )
                 ) : (
-                    'No members'
+                    'All members'
                 )
             },
         },
@@ -79,14 +88,14 @@ export function RolesAndResourceAccessControls(): JSX.Element {
                 return (
                     <LemonSelect
                         size="small"
-                        placeholder="No access"
+                        placeholder="No override"
                         className="my-1 whitespace-nowrap"
-                        value={ac?.access_level}
+                        value={role ? ac?.access_level : ac?.access_level ?? defaultAccessLevel}
                         onChange={(newValue) =>
                             updateRoleBasedAccessControls([
                                 {
                                     resource,
-                                    role: role.id,
+                                    role: role?.id ?? null,
                                     access_level: newValue,
                                 },
                             ])
@@ -115,10 +124,11 @@ export function RolesAndResourceAccessControls(): JSX.Element {
                         dataSource={rolesWithResourceAccessControls}
                         loading={rolesLoading || roleBasedAccessControlsLoading}
                         expandable={{
-                            isRowExpanded: (record) => !!selectedRoleId && record.role.id === selectedRoleId,
-                            onRowExpand: (record) => selectRoleId(record.role.id),
+                            isRowExpanded: ({ role }) => !!selectedRoleId && role?.id === selectedRoleId,
+                            onRowExpand: ({ role }) => (role ? selectRoleId(role.id) : undefined),
                             onRowCollapse: () => selectRoleId(null),
-                            expandedRowRender: ({ role }) => <RoleDetails roleId={role.id} />,
+                            expandedRowRender: ({ role }) => (role ? <RoleDetails roleId={role?.id} /> : null),
+                            rowExpandable: ({ role }) => !!role,
                         }}
                     />
 
