@@ -292,6 +292,7 @@ class TrendsQueryRunner(QueryRunner):
                     team=self.team,
                     timings=self.timings,
                     modifiers=self.modifiers,
+                    limit_context=self.limit_context,
                 )
 
                 timings_matrix[index] = response.timings
