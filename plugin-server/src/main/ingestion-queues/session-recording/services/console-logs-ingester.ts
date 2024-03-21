@@ -3,11 +3,9 @@ import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-
 import { Counter } from 'prom-client'
 
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
-import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
-import { PluginsServerConfig } from '../../../../types'
+import { flushProducer, produce } from '../../../../kafka/producer'
 import { status } from '../../../../utils/status'
 import { eventDroppedCounter } from '../../metrics'
 import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
@@ -42,10 +40,8 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 // TODO this is an almost exact duplicate of the replay events ingester
 // am going to leave this duplication and then collapse it when/if we add a performance events ingester
 export class ConsoleLogsIngester {
-    producer?: RdKafkaProducer
-
     constructor(
-        private readonly serverConfig: PluginsServerConfig,
+        private readonly producer: RdKafkaProducer,
         private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
     ) {}
 
@@ -175,21 +171,13 @@ export class ConsoleLogsIngester {
         }
     }
 
-    public async start(): Promise<void> {
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
-
-        const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
-
-        this.producer = await createKafkaProducer(connectionConfig, producerConfig)
-        this.producer.connect()
+    public start(): void {
+        if (!this.producer.isConnected()) {
+            status.error('🔁', '[console-log-events-ingester] kakfa producer should have been connected by parent')
+        }
     }
 
-    public async stop(): Promise<void> {
+    public stop(): void {
         status.info('🔁', '[console-log-events-ingester] stopping')
-
-        if (this.producer && this.producer.isConnected()) {
-            status.info('🔁', '[console-log-events-ingester] disconnecting kafka producer in batchConsumer stop')
-            await disconnectProducer(this.producer)
-        }
     }
 }

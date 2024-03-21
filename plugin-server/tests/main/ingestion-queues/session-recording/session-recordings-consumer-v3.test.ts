@@ -314,6 +314,9 @@ describe('ingester', () => {
         it('shuts down without error', async () => {
             await setup()
 
+            await ingester.start()
+            expect(ingester['mainKafkaClusterProducer']?.producer.isConnected())
+
             await expect(ingester.stop()).resolves.toMatchObject([
                 // destroy sessions,
                 { status: 'fulfilled' },

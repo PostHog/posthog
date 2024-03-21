@@ -8,9 +8,11 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
+import { createKafkaProducer } from '../../../kafka/producer'
 import { PluginsServerConfig, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
@@ -82,6 +84,8 @@ export class SessionRecordingIngesterV3 {
     // this allows us to output more information for that partition
     private debugPartition: number | undefined = undefined
 
+    private mainKafkaClusterProducer?: KafkaProducerWrapper
+
     constructor(
         private globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
@@ -136,7 +140,6 @@ export class SessionRecordingIngesterV3 {
          */
         this.promises.add(promise)
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         promise.finally(() => this.promises.delete(promise))
 
         return promise
@@ -277,24 +280,30 @@ export class SessionRecordingIngesterV3 {
         // Load teams into memory
         await this.teamsRefresher.refresh()
 
+        // this producer uses the default plugin server config to connect to the main kafka cluster
+        const mainClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
+        const producerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
+        const producer = await createKafkaProducer(mainClusterConnectionConfig, producerConfig)
+        producer.connect()
+        this.mainKafkaClusterProducer = new KafkaProducerWrapper(producer)
+
         // NOTE: This is the only place where we need to use the shared server config
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
-            this.consoleLogsIngester = new ConsoleLogsIngester(this.globalServerConfig)
-            await this.consoleLogsIngester.start()
+            this.consoleLogsIngester = new ConsoleLogsIngester(producer)
+            this.consoleLogsIngester.start()
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
-            this.replayEventsIngester = new ReplayEventsIngester(this.globalServerConfig)
-            await this.replayEventsIngester.start()
+            this.replayEventsIngester = new ReplayEventsIngester(producer)
+            this.replayEventsIngester.start()
         }
-
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
-
+        // the batch consumer reads from the session replay kafka cluster
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
         this.batchConsumer = await startBatchConsumer({
-            connectionConfig,
+            connectionConfig: replayClusterConnectionConfig,
             groupId: KAFKA_CONSUMER_GROUP_ID,
             topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             autoCommit: true, // NOTE: This is the crucial difference between this and the other consumer
@@ -344,14 +353,18 @@ export class SessionRecordingIngesterV3 {
             )
         )
 
+        // stop is effectively a no-op on both of these but is kept here
+        // in case we want to add any cleanup logic in the future
         if (this.replayEventsIngester) {
-            void this.scheduleWork(this.replayEventsIngester.stop())
+            this.replayEventsIngester.stop()
         }
         if (this.consoleLogsIngester) {
-            void this.scheduleWork(this.consoleLogsIngester!.stop())
+            this.consoleLogsIngester.stop()
         }
 
         const promiseResults = await Promise.allSettled(this.promises)
+
+        await this.mainKafkaClusterProducer?.disconnect()
 
         status.info('👍', 'session-replay-ingestion - stopped!')
 

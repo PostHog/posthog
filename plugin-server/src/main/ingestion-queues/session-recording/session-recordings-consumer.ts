@@ -145,7 +145,7 @@ export class SessionRecordingIngester {
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
     // this allows us to output more information for that partition
     private debugPartition: number | undefined = undefined
-    private ingestionWarningProducer?: KafkaProducerWrapper
+    private mainKafkaClusterProducer?: KafkaProducerWrapper
 
     constructor(
         private globalServerConfig: PluginsServerConfig,
@@ -335,7 +335,7 @@ export class SessionRecordingIngester {
                                         teamId: teams[token]?.teamId || null,
                                         consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
                                     })),
-                                this.ingestionWarningProducer
+                                this.mainKafkaClusterProducer
                             )
 
                             if (recordingMessage) {
@@ -431,27 +431,30 @@ export class SessionRecordingIngester {
         // Load teams into memory
         await this.teamsRefresher.refresh()
 
+        // this producer uses the default plugin server config to connect to the main kafka cluster
+        const mainClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
+        const producerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
+        const producer = await createKafkaProducer(mainClusterConnectionConfig, producerConfig)
+        producer.connect()
+        this.mainKafkaClusterProducer = new KafkaProducerWrapper(producer)
+
         // NOTE: This is the only place where we need to use the shared server config
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
-            this.consoleLogsIngester = new ConsoleLogsIngester(this.globalServerConfig, this.persistentHighWaterMarker)
-            await this.consoleLogsIngester.start()
+            this.consoleLogsIngester = new ConsoleLogsIngester(producer, this.persistentHighWaterMarker)
+            this.consoleLogsIngester.start()
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
-            this.replayEventsIngester = new ReplayEventsIngester(
-                this.globalServerConfig,
-                this.persistentHighWaterMarker
-            )
-            await this.replayEventsIngester.start()
+            this.replayEventsIngester = new ReplayEventsIngester(producer, this.persistentHighWaterMarker)
+            this.replayEventsIngester.start()
         }
-
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
-
+        // the batch consumer reads from the session replay kafka cluster
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
         this.batchConsumer = await startBatchConsumer({
-            connectionConfig,
+            connectionConfig: replayClusterConnectionConfig,
             groupId: KAFKA_CONSUMER_GROUP_ID,
             topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             autoCommit: false,
@@ -510,11 +513,6 @@ export class SessionRecordingIngester {
             status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
             await this.stop()
         })
-
-        const producerConfig = createRdProducerConfigFromEnvVars(this.config)
-        const producer = await createKafkaProducer(connectionConfig, producerConfig)
-        producer.connect()
-        this.ingestionWarningProducer = new KafkaProducerWrapper(producer)
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
@@ -531,11 +529,13 @@ export class SessionRecordingIngester {
         void this.scheduleWork(this.onRevokePartitions(assignedPartitions))
         void this.scheduleWork(this.realtimeManager.unsubscribe())
 
+        // stop is effectively a no-op on both of these but is kept here
+        // in case we want to add any cleanup logic in the future
         if (this.replayEventsIngester) {
-            void this.scheduleWork(this.replayEventsIngester.stop())
+            this.replayEventsIngester.stop()
         }
         if (this.consoleLogsIngester) {
-            void this.scheduleWork(this.consoleLogsIngester.stop())
+            this.consoleLogsIngester.stop()
         }
 
         const promiseResults = await Promise.allSettled(this.promises)
@@ -544,7 +544,7 @@ export class SessionRecordingIngester {
         await this.redisPool.drain()
         await this.redisPool.clear()
 
-        await this.ingestionWarningProducer?.disconnect()
+        await this.mainKafkaClusterProducer?.disconnect()
 
         status.info('👍', 'blob_ingester_consumer - stopped!')
 

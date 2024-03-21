@@ -1,12 +1,11 @@
 import { DateTime } from 'luxon'
 import { HighLevelProducer } from 'node-rdkafka'
 
-import { defaultConfig } from '../../../../../src/config/config'
-import { createKafkaProducer, produce } from '../../../../../src/kafka/producer'
+import { produce } from '../../../../../src/kafka/producer'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
-import { PluginsServerConfig, TimestampFormat } from '../../../../../src/types'
+import { TimestampFormat } from '../../../../../src/types'
 import { status } from '../../../../../src/utils/status'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
@@ -36,17 +35,14 @@ describe('replay events ingester', () => {
     let ingester: ReplayEventsIngester
     const mockProducer: jest.Mock = jest.fn()
 
-    beforeEach(async () => {
+    beforeEach(() => {
         mockProducer.mockClear()
         mockProducer['connect'] = jest.fn()
-
-        jest.mocked(createKafkaProducer).mockImplementation(() =>
-            Promise.resolve(mockProducer as unknown as HighLevelProducer)
-        )
+        mockProducer['isConnected'] = () => true
 
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
-        ingester = new ReplayEventsIngester({ ...defaultConfig } as PluginsServerConfig, mockedHighWaterMarker)
-        await ingester.start()
+        ingester = new ReplayEventsIngester(mockProducer as unknown as HighLevelProducer, mockedHighWaterMarker)
+        ingester.start()
     })
 
     test('does not ingest messages from a month in the future', async () => {
