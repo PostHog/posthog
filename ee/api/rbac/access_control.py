@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from ee.models.rbac.access_control import AccessControl
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
+from posthog.rbac.user_access_control import UserAccessControl, default_access_level, ordered_access_levels
 
 
 class AccessControlSerializer(serializers.ModelSerializer):
@@ -96,11 +96,16 @@ class AccessControlViewSetMixin:
 
         access_controls = AccessControl.objects.filter(team=self.team, resource=resource, resource_id=resource_id).all()
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
+        # TODO: Fix - could be none
+        user_access_level = self.user_access_control.access_control_for_object(obj).access_level
 
         return Response(
             {
                 "access_controls": serializer.data,
                 "available_access_levels": ordered_access_levels(resource),
+                "default_access_level": default_access_level(resource),
+                "user_access_level": user_access_level,
+                "user_can_edit_access_levels": self.user_access_control.check_can_modify_access_levels_for_object(obj),
             }
         )
 

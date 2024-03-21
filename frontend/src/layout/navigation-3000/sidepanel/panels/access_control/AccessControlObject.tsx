@@ -124,6 +124,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                         <SimplLevelComponent
                             size="small"
                             level={access_level}
+                            levels={availableLevels}
                             onChange={(level) =>
                                 void updateAccessControlMembers([{ member: organization_member, level }])
                             }
@@ -162,7 +163,6 @@ function AccessControlObjectUsers(): JSX.Element | null {
                     label: `${member.user.first_name} ${member.user.email}`,
                     labelComponent: <UserSelectItem user={member.user} />,
                 }))}
-                levels={availableLevels}
             />
 
             <LemonTable columns={columns} dataSource={accessControlMembers} loading={accessControlsLoading} />
@@ -217,6 +217,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                         <SimplLevelComponent
                             size="small"
                             level={access_level}
+                            levels={availableLevels}
                             onChange={(level) => void updateAccessControlRoles([{ role, level }])}
                         />
                     </div>
@@ -250,7 +251,6 @@ function AccessControlObjectRoles(): JSX.Element | null {
                     key: role.id,
                     label: role.name,
                 }))}
-                levels={availableLevels}
             />
 
             <LemonTable columns={columns} dataSource={accessControlRoles} loading={accessControlsLoading} />
@@ -318,17 +318,16 @@ function AccessControlObjectRoles(): JSX.Element | null {
 function SimplLevelComponent(props: {
     size?: LemonSelectProps<any>['size']
     level: AccessControlType['access_level'] | null
+    levels: AccessControlType['access_level'][]
     onChange: (newValue: AccessControlType['access_level']) => void
 }): JSX.Element | null {
-    const { availableLevels } = useValues(accessControlLogic)
-
     return (
         <LemonSelect
             size={props.size}
             placeholder="Select level..."
             value={props.level}
             onChange={(newValue) => props.onChange(newValue)}
-            options={availableLevels.map((level) => ({
+            options={props.levels.map((level) => ({
                 value: level,
                 label: capitalizeFirstLetter(level ?? ''),
             }))}
@@ -370,18 +369,18 @@ function AddItemsControls(props: {
         key: string
         label: string
     }[]
-    levels: AccessControlType['access_level'][]
 }): JSX.Element | null {
+    const { availableLevels } = useValues(accessControlLogic)
     // TODO: Move this into a form logic
     const [items, setItems] = useState<string[]>([])
-    const [level, setLevel] = useState<AccessControlType['access_level']>(props.levels[0] ?? null)
+    const [level, setLevel] = useState<AccessControlType['access_level']>(availableLevels[0] ?? null)
 
     const onSubmit =
         items.length && level
             ? (): void =>
                   void props.onAdd(items, level).then(() => {
                       setItems([])
-                      setLevel(props.levels[0] ?? null)
+                      setLevel(availableLevels[0] ?? null)
                   })
             : undefined
 
@@ -399,7 +398,7 @@ function AddItemsControls(props: {
                     }}
                 />
             </div>
-            <SimplLevelComponent level={level} onChange={setLevel} />
+            <SimplLevelComponent levels={availableLevels} level={level} onChange={setLevel} />
 
             <LemonButton
                 type="primary"

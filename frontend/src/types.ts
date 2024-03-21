@@ -3374,11 +3374,7 @@ export interface AccessControlTypeBase {
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
-
-    resource: string // TODO: Change to enum
-    resource_id?: string | null
     access_level: string | null // TODO: Change to enum
-
     organization_member?: OrganizationMemberType['id'] | null
     role?: RoleType['id'] | null
 }
@@ -3395,7 +3391,15 @@ export interface AccessControlTypeRole extends AccessControlTypeBase {
 
 export type AccessControlType = AccessControlTypeProject | AccessControlTypeMember | AccessControlTypeRole
 
-export type AccessControlUpdateType = Omit<AccessControlType, 'created_by' | 'created_at' | 'updated_at'>
+export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'>
+
+export type AccessControlResponseType = {
+    access_controls: AccessControlType[]
+    available_access_levels: string[] // TODO: Change to enum
+    user_access_level: string
+    default_access_level: string
+    user_can_edit_access_levels: boolean
+}
 
 // TODO: To be deprecated
 export interface FeatureFlagAssociatedRoleType {

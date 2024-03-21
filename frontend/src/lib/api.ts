@@ -2106,7 +2106,12 @@ const api = {
         })
     },
 
-    async _update<T = any>(method: 'PATCH' | 'PUT', url: string, data: any, options?: ApiMethodOptions): Promise<T> {
+    async _update<T = any, P = any>(
+        method: 'PATCH' | 'PUT',
+        url: string,
+        data: P,
+        options?: ApiMethodOptions
+    ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -2128,15 +2133,15 @@ const api = {
         return await getJSONOrNull(response)
     },
 
-    async update<T = any>(url: string, data: any, options?: ApiMethodOptions): Promise<T> {
+    async update<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
         return api._update('PATCH', url, data, options)
     },
 
-    async put<T = any>(url: string, data: any, options?: ApiMethodOptions): Promise<T> {
+    async put<T = any, P = any>(url: string, data: P, options?: ApiMethodOptions): Promise<T> {
         return api._update('PUT', url, data, options)
     },
 
-    async create<T = any>(url: string, data?: any, options?: ApiMethodOptions): Promise<T> {
+    async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
         const res = await api.createResponse(url, data, options)
         return await getJSONOrNull(res)
     },

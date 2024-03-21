@@ -1,12 +1,13 @@
 import { LemonSelectOption } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api, { PaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    AccessControlResponseType,
     AccessControlType,
     AccessControlTypeMember,
     AccessControlTypeProject,
@@ -61,40 +62,29 @@ export const accessControlLogic = kea<accessControlLogicType>([
             }[]
         ) => ({ accessControls }),
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ values }) => ({
         accessControls: [
-            null as AccessControlType[] | null,
+            null as AccessControlResponseType | null,
             {
                 loadAccessControls: async () => {
-                    const response = await api.get<PaginatedResponse<AccessControlType>>(values.endpoint)
-                    return response?.results || []
+                    const response = await api.get<AccessControlResponseType>(values.endpoint)
+                    return response
                 },
 
                 updateAccessControlDefault: async ({ level }) => {
-                    if (!values.currentTeam) {
-                        return values.accessControls
-                    }
-                    const params: AccessControlUpdateType = {
-                        resource: props.resource,
-                        resource_id: props.resource_id,
+                    await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                         access_level: level,
-                    }
-
-                    await api.update<AccessControlType>(values.endpoint, params)
+                    })
 
                     return values.accessControls
                 },
 
                 updateAccessControlRoles: async ({ accessControls }) => {
                     for (const { role, level } of accessControls) {
-                        const params: AccessControlUpdateType = {
-                            resource: props.resource,
-                            resource_id: props.resource_id,
+                        await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             role: role,
                             access_level: level,
-                        }
-
-                        await api.update<AccessControlType>(values.endpoint, params)
+                        })
                     }
 
                     return values.accessControls
@@ -102,14 +92,10 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
                 updateAccessControlMembers: async ({ accessControls }) => {
                     for (const { member, level } of accessControls) {
-                        const params: AccessControlUpdateType = {
-                            resource: props.resource,
-                            resource_id: props.resource_id,
+                        await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             organization_member: member,
                             access_level: level,
-                        }
-
-                        await api.update<AccessControlType>(values.endpoint, params)
+                        })
                     }
 
                     return values.accessControls
@@ -134,47 +120,42 @@ export const accessControlLogic = kea<accessControlLogicType>([
             },
         ],
 
+        availableLevelsWithNone: [
+            (s) => [s.accessControls],
+            (accessControls): string[] => {
+                return accessControls?.available_access_levels ?? []
+            },
+        ],
+
         availableLevels: [
-            () => [(_, props) => props],
-            (props): string[] => {
-                if (!props.resource) {
-                    return []
-                }
+            (s) => [s.availableLevelsWithNone],
+            (availableLevelsWithNone): string[] => {
+                return availableLevelsWithNone.filter((level) => level !== 'none')
+            },
+        ],
 
-                if (props.resource === 'project') {
-                    return ['member', 'admin']
-                }
-
-                return ['viewer', 'editor']
+        canEditAccessControls: [
+            (s) => [s.accessControls],
+            (accessControls): boolean => {
+                return accessControls?.user_can_edit_access_levels ?? false
             },
         ],
 
         accessControlDefaultLevel: [
-            () => [(_, props) => props],
-            (props): string => {
-                if (props.resource === 'project') {
-                    return 'member'
-                }
-
-                return 'editor'
+            (s) => [s.accessControls],
+            (accessControls): string => {
+                return accessControls?.default_access_level ?? ''
             },
         ],
 
         accessControlDefaultOptions: [
-            (s) => [s.availableLevels, (_, props) => props.resource],
-            (availableLevels, resource): LemonSelectOption<string>[] => {
-                const options = availableLevels.map((level) => ({
+            (s) => [s.availableLevelsWithNone, (_, props) => props.resource],
+            (availableLevelsWithNone): LemonSelectOption<string>[] => {
+                const options = availableLevelsWithNone.map((level) => ({
                     value: level,
                     // TODO: Correct "a" and "an"
-                    label: `Everyone is a ${level} by default`,
+                    label: level === 'none' ? 'No access by default' : `Everyone is a ${level} by default`,
                 }))
-
-                if (resource === 'project') {
-                    options.unshift({
-                        value: 'none',
-                        label: 'No access by default',
-                    })
-                }
 
                 return options
             },
@@ -182,7 +163,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
         accessControlDefault: [
             (s) => [s.accessControls, s.accessControlDefaultLevel],
             (accessControls, accessControlDefaultLevel): AccessControlTypeProject => {
-                const found = accessControls?.find(
+                const found = accessControls?.access_controls?.find(
                     (accessControl) => !accessControl.organization_member && !accessControl.role
                 ) as AccessControlTypeProject
                 return (
@@ -196,7 +177,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
         accessControlMembers: [
             (s) => [s.accessControls],
             (accessControls): AccessControlTypeMember[] => {
-                return (accessControls || []).filter(
+                return (accessControls?.access_controls || []).filter(
                     (accessControl) => !!accessControl.organization_member
                 ) as AccessControlTypeMember[]
             },
@@ -205,7 +186,9 @@ export const accessControlLogic = kea<accessControlLogicType>([
         accessControlRoles: [
             (s) => [s.accessControls],
             (accessControls): AccessControlTypeRole[] => {
-                return (accessControls || []).filter((accessControl) => !!accessControl.role) as AccessControlTypeRole[]
+                return (accessControls?.access_controls || []).filter(
+                    (accessControl) => !!accessControl.role
+                ) as AccessControlTypeRole[]
             },
         ],
 
