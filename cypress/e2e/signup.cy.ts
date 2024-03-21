@@ -40,6 +40,8 @@ describe('Signup', () => {
     })
 
     it('Can create user account', () => {
+        cy.intercept('POST', '/api/signup/').as('signupRequest')
+
         const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
         cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
@@ -50,6 +52,29 @@ describe('Signup', () => {
         cy.get('.Popover li:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
+
+        cy.wait('@signupRequest').then((interception) => {
+            expect(interception.request.body).to.have.property('organization_name')
+            expect(interception.request.body.organization_name).to.equal('Hogflix SpinOff')
+        })
+
+        // lazy regex for a guid
+        cy.location('pathname').should('match', /\/verify_email\/[a-zA-Z0-9_.-]*/)
+    })
+    it('Can create user account without an organization name', () => {
+        cy.intercept('POST', '/api/signup/').as('signupRequest')
+
+        const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
+        cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
+        cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
+        cy.get('[data-attr=signup-start]').click()
+        cy.get('[data-attr=signup-first-name]').type('Alice').should('have.value', 'Alice')
+        cy.get('[data-attr=signup-submit]').click()
+
+        cy.wait('@signupRequest').then((interception) => {
+            expect(interception.request.body).to.have.property('organization_name')
+            expect(interception.request.body.organization_name).to.equal("Alice's Organization")
+        })
 
         // lazy regex for a guid
         cy.location('pathname').should('match', /\/verify_email\/[a-zA-Z0-9_.-]*/)
