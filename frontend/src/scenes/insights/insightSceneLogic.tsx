@@ -131,6 +131,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     ? {
                           activity_scope: ActivityScope.INSIGHT,
                           activity_item_id: `${insight.id}`,
+                          access_control_resource: 'insight',
+                          access_control_resource_id: `${insight.id}`,
                       }
                     : null
             },
