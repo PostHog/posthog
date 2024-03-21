@@ -375,17 +375,21 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         <LemonField name="has_self_signed_cert">
-                            <LemonCheckbox
-                                bordered
-                                label={
-                                    <span className="flex items-center gap-2">
-                                        Does your Postgres instance have a self-signed SSL certificate?
-                                        <Tooltip title="In most cases, Heroku and RDS users should check this.">
-                                            <IconInfo className=" text-lg text-muted-alt" />
-                                        </Tooltip>
-                                    </span>
-                                }
-                            />
+                            {({ value, onChange }) => (
+                                <LemonCheckbox
+                                    bordered
+                                    label={
+                                        <span className="flex items-center gap-2">
+                                            Does your Postgres instance have a self-signed SSL certificate?
+                                            <Tooltip title="In most cases, Heroku and RDS users should check this.">
+                                                <IconInfo className=" text-lg text-muted-alt" />
+                                            </Tooltip>
+                                        </span>
+                                    }
+                                    checked={!!value}
+                                    onChange={onChange}
+                                />
+                            )}
                         </LemonField>
 
                         <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
