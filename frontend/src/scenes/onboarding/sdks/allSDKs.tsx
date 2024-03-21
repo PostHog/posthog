@@ -108,6 +108,13 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/java',
     },
     {
+        name: 'Laravel',
+        key: SDKKey.LARAVEL,
+        tags: [SDKTag.SERVER],
+        image: require('./logos/laravel.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/laravel',
+    },
+    {
         name: 'Next.js',
         key: SDKKey.NEXT_JS,
         tags: [SDKTag.WEB],

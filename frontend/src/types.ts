@@ -3755,6 +3755,7 @@ export enum SDKKey {
     IOS = 'ios',
     JAVA = 'java',
     JS_WEB = 'javascript_web',
+    LARAVEL = 'laravel',
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
