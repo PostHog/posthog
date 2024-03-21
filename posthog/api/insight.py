@@ -90,6 +90,7 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -563,6 +564,7 @@ class InsightViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
+    AccessControlViewSetMixin,
     viewsets.ModelViewSet,
 ):
     scope_object = "insight"

@@ -127,7 +127,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.insight],
             (insight): SidePanelSceneContext | null => {
-                return insight
+                return insight?.id
                     ? {
                           activity_scope: ActivityScope.INSIGHT,
                           activity_item_id: `${insight.id}`,

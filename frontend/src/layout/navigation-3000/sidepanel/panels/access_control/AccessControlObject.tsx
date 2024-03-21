@@ -38,7 +38,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
     return (
         <BindLogic logic={accessControlLogic} props={props}>
             <div className="space-y-4">
-                {!canEditAccessControls ? (
+                {canEditAccessControls === false ? (
                     <LemonBanner type="info">
                         <b>You don't have permission to edit access controls for {suffix}.</b>
                         <br />
@@ -68,7 +68,8 @@ function AccessControlObjectDefaults(): JSX.Element | null {
 
     return (
         <LemonSelect
-            value={accessControlDefault?.access_level ?? null}
+            placeholder="Loading..."
+            value={accessControlDefault?.access_level ?? undefined}
             onChange={(newValue) => {
                 guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => {
                     updateAccessControlDefault(newValue)

@@ -143,15 +143,15 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
         canEditAccessControls: [
             (s) => [s.accessControls],
-            (accessControls): boolean => {
-                return accessControls?.user_can_edit_access_levels ?? false
+            (accessControls): boolean | null => {
+                return accessControls?.user_can_edit_access_levels ?? null
             },
         ],
 
         accessControlDefaultLevel: [
             (s) => [s.accessControls],
-            (accessControls): string => {
-                return accessControls?.default_access_level ?? ''
+            (accessControls): string | null => {
+                return accessControls?.default_access_level ?? null
             },
         ],
 
