@@ -573,7 +573,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             onClick={() => {
                                                 editFeatureFlag(true)
                                             }}
-                                            // disabled={!featureFlag.can_edit}
                                         >
                                             Edit
                                         </LemonButton>
