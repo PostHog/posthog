@@ -204,11 +204,7 @@ class Breakdown:
 
     @cached_property
     def _breakdown_values_ast(self) -> ast.Array:
-        exprs: list[ast.Expr] = []
-        for v in self._breakdown_values:
-            expr = ast.Constant(value=v)
-            exprs.append(expr)
-        return ast.Array(exprs=exprs)
+        return ast.Array(exprs=[ast.Constant(value=v) for v in self._breakdown_values])
 
     @cached_property
     def _all_breakdown_values(self) -> List[str | None]:
@@ -233,8 +229,7 @@ class Breakdown:
 
     @cached_property
     def _breakdown_values(self) -> List[str]:
-        values = self._all_breakdown_values
-        values = [v if v is not None else BREAKDOWN_NULL_STRING_LABEL for v in values]
+        values = [BREAKDOWN_NULL_STRING_LABEL if v is None else v for v in self._all_breakdown_values]
         return cast(List[str], values)
 
     @cached_property
