@@ -32,12 +32,12 @@
         CROSS JOIN
           (SELECT breakdown_value
            FROM
-             (SELECT [toString('d'), toString('c'), toString('b'), toString('a')] AS breakdown_value) ARRAY
+             (SELECT ['d', 'c', 'b', 'a'] AS breakdown_value) ARRAY
            JOIN breakdown_value AS breakdown_value) AS sec
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT count(e.id) AS total,
                          toStartOfDay(toDateTime(toTimeZone(e.created, 'UTC'), 'UTC')) AS day_start,
-                         transform(ifNull(toString(e.prop_1), '$$_posthog_breakdown_null_$$'), [toString('d'), toString('c'), toString('b'), toString('a')], [toString('d'), toString('c'), toString('b'), toString('a')], '$$_posthog_breakdown_other_$$') AS breakdown_value
+                         transform(ifNull(toString(e.prop_1), '$$_posthog_breakdown_null_$$'), ['d', 'c', 'b', 'a'], ['d', 'c', 'b', 'a'], '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', 'id String, prop_1 String, prop_2 String, created DateTime64(3, \'UTC\')') AS e
         WHERE and(ifNull(greaterOrEquals(toDateTime(toTimeZone(e.created, 'UTC'), 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toDateTime(toTimeZone(e.created, 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), or(ifNull(equals(toString(e.prop_1), 'd'), 0), ifNull(equals(toString(e.prop_1), 'c'), 0), ifNull(equals(toString(e.prop_1), 'b'), 0), ifNull(equals(toString(e.prop_1), 'a'), 0)))
         GROUP BY day_start,
@@ -85,12 +85,12 @@
         CROSS JOIN
           (SELECT breakdown_value
            FROM
-             (SELECT [toString('a')] AS breakdown_value) ARRAY
+             (SELECT ['a'] AS breakdown_value) ARRAY
            JOIN breakdown_value AS breakdown_value) AS sec
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT count(e.id) AS total,
                          toStartOfDay(toDateTime(toTimeZone(e.created, 'UTC'), 'UTC')) AS day_start,
-                         transform(ifNull(toString(e.prop_1), '$$_posthog_breakdown_null_$$'), [toString('a')], [toString('a')], '$$_posthog_breakdown_other_$$') AS breakdown_value
+                         transform(ifNull(toString(e.prop_1), '$$_posthog_breakdown_null_$$'), ['a'], ['a'], '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', 'id String, prop_1 String, prop_2 String, created DateTime64(3, \'UTC\')') AS e
         WHERE and(ifNull(greaterOrEquals(toDateTime(toTimeZone(e.created, 'UTC'), 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(toDateTime(toTimeZone(e.created, 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0), equals(e.prop_1, 'a'), ifNull(equals(toString(e.prop_1), 'a'), 0))
         GROUP BY day_start,
