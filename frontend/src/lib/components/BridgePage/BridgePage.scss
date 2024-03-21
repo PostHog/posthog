@@ -28,6 +28,7 @@
 
         @include screen($md) {
             width: auto;
+            max-width: 100%;
         }
     }
 
