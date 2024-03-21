@@ -25,7 +25,7 @@ import { processPersonsStep } from './processPersonsStep'
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
     // contains the Kafka producer ACKs, to avoid blocking after every message.
-    promises?: Array<Promise<void>>
+    ackPromises?: Array<Promise<void>>
     // Only used in tests
     // TODO: update to test for side-effects of running the pipeline rather than
     // this return type.
@@ -135,9 +135,9 @@ export class EventPipelineRunner {
         return this.registerLastStep('createEventStep', [rawClickhouseEvent, person], [eventAck])
     }
 
-    registerLastStep(stepName: string, args: any[], promises?: Array<Promise<void>>): EventPipelineResult {
+    registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {
         pipelineLastStepCounter.labels(stepName).inc()
-        return { promises: promises, lastStep: stepName, args }
+        return { ackPromises, lastStep: stepName, args }
     }
 
     protected runStep<Step extends (...args: any[]) => any>(
