@@ -13,7 +13,6 @@ async def check_limit(
     model = await aget_external_data_job(team_id, job_id)
 
     if new_count >= CHUNK_SIZE:
-        await aupdate_job_count(job_id, team_id, new_count)
         new_count = 0
 
     status = model.status
