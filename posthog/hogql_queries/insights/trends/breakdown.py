@@ -151,7 +151,7 @@ class Breakdown:
             left = ast.Field(chain=self._properties_chain)
 
         if not self.is_histogram_breakdown:
-            left = ast.Call(name="toString", args=[left])
+            left = hogql_to_string(left)
 
         compare_ops = []
         for _value in self._breakdown_values:
