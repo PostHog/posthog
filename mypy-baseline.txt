@@ -650,6 +650,18 @@ posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attrib
 posthog/hogql/database/schema/test/test_channel_type.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
 posthog/hogql/database/schema/test/test_channel_type.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
 posthog/api/organization_member.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
+posthog/api/fields.py:0: error: List item 0 has incompatible type "type[PydanticModelValidator]"; expected "Callable[[dict[str, Any] | list[dict[str, Any]]], None] | ContextValidator[dict[str, Any] | list[dict[str, Any]]]"  [list-item]
+posthog/api/fields.py:0: note: "PydanticModelValidator" is missing following "ContextValidator" protocol member:
+posthog/api/fields.py:0: note: requires_context
+posthog/api/fields.py:0: note: Following member(s) of "PydanticModelValidator" have conflicts:
+posthog/api/fields.py:0: note: Expected:
+posthog/api/fields.py:0: note: def __call__(dict[str, Any] | list[dict[str, Any]], Field[Any, Any, Any, Any], /) -> None
+posthog/api/fields.py:0: note: Got:
+posthog/api/fields.py:0: note: def __init__(model: Any) -> PydanticModelValidator
+posthog/api/fields.py:0: note: Expected:
+posthog/api/fields.py:0: note: def __call__(dict[str, Any] | list[dict[str, Any]], Field[Any, Any, Any, Any], /) -> None
+posthog/api/fields.py:0: note: Got:
+posthog/api/fields.py:0: note: def __init__(model: Any) -> PydanticModelValidator
 ee/api/role.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 ee/clickhouse/views/insights.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/queries/trends/test/test_person.py:0: error: "str" has no attribute "get"  [attr-defined]
@@ -775,6 +787,17 @@ posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in
 posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in assignment (expression has type "int", target has type "str")  [assignment]
 posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in assignment (expression has type "dict[str, Collection[str]]", variable has type "StripeSourcePayload")  [assignment]
 posthog/warehouse/external_data_source/source.py:0: error: Argument 1 to "_create_source" has incompatible type "StripeSourcePayload"; expected "dict[Any, Any]"  [arg-type]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "FlatPostgresPersonOverridesManager"  [attr-defined]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "PersonOverrideTuple"  [attr-defined]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "QueryInputs"  [attr-defined]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "SerializablePersonOverrideToDelete"  [attr-defined]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "delete_squashed_person_overrides_from_clickhouse"  [attr-defined]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "delete_squashed_person_overrides_from_postgres"  [attr-defined]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "drop_dictionary"  [attr-defined]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "prepare_dictionary"  [attr-defined]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "prepare_person_overrides"  [attr-defined]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "select_persons_to_delete"  [attr-defined]
+posthog/temporal/tests/test_squash_person_overrides_workflow.py:0: error: Module "posthog.temporal.batch_exports.squash_person_overrides" has no attribute "squash_events_partition"  [attr-defined]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_execute_calls" (hint: "_execute_calls: List[<type>] = ...")  [var-annotated]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_execute_async_calls" (hint: "_execute_async_calls: List[<type>] = ...")  [var-annotated]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_cursors" (hint: "_cursors: List[<type>] = ...")  [var-annotated]

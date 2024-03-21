@@ -339,7 +339,6 @@ export const startBatchConsumer = async ({
                     resolve(null)
                 }, timeout)
 
-                // eslint-disable-next-line @typescript-eslint/no-floating-promises
                 mainLoop.finally(() => {
                     resolve(null)
                     clearTimeout(timerHandle)

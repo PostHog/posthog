@@ -731,7 +731,8 @@ def get_all_feature_flags(
                     distinct_ids = [distinct_id, str(hash_key_override)]
                     query = """
                         WITH target_person_ids AS (
-                            SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                            SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
+                            distinct_id = ANY(%(distinct_ids)s)
                         ),
                         existing_overrides AS (
                             SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
@@ -742,7 +743,7 @@ def get_all_feature_flags(
                     """
                     cursor.execute(
                         query,
-                        {"team_id": team_id, "distinct_ids": tuple(distinct_ids)},  # type: ignore
+                        {"team_id": team_id, "distinct_ids": distinct_ids},  # type: ignore
                     )
                     flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
                     should_write_hash_key_override = len(flags_with_no_overrides) > 0
@@ -843,7 +844,8 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as cursor:
                 query = """
                     WITH target_person_ids AS (
-                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
+                        distinct_id = ANY(%(distinct_ids)s)
                     ),
                     existing_overrides AS (
                         SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
@@ -872,7 +874,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
                     query,
                     {
                         "team_id": team_id,
-                        "distinct_ids": tuple(distinct_ids),  # type: ignore
+                        "distinct_ids": distinct_ids,  # type: ignore
                         "hash_key_override": hash_key_override,
                     },
                 )
