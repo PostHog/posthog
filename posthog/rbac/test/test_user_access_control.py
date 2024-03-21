@@ -1,5 +1,6 @@
 import pytest
 from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.test.base import BaseTest
@@ -53,10 +54,11 @@ class TestUserTeamPermissions(BaseTest):
         self.organization.available_features = []
         self.organization.save()
 
+        # This always will return false - the user of this class will take care of it
         assert self.user_access_control.access_control_for_object(self.team) is None
-        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is None
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is False
         assert self.other_user_access_control.access_control_for_object(self.team) is None
-        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is None
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
 
     def test_ac_object_default_response(self):
         assert self.user_access_control.access_control_for_object(self.team).access_level == "member"
@@ -155,73 +157,21 @@ class TestUserTeamPermissions(BaseTest):
         # the matching one should be the highest level
         assert self.user_access_control.access_control_for_object(self.team) == ac_role
 
+    def test_org_admin_always_has_access(self):
+        self._create_access_control(access_level="none")
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "member") is False
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
 
-#     def test_team_effective_membership_level(self):
-#         with self.assertNumQueries(1):
-#             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
 
-#     def test_team_effective_membership_level_updated(self):
-#         self.organization_membership.level = OrganizationMembership.Level.ADMIN
-#         self.organization_membership.save()
+        assert self.user_access_control.check_access_level_for_object(self.team, "member") is True
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
 
-#         with self.assertNumQueries(1):
-#             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+    def test_leaving_the_org_revokes_access(self):
+        self.user.leave(organization=self.organization)
+        assert self.user_access_control.check_access_level_for_object(self.team, "member") is False
 
-#     def test_team_effective_membership_level_does_not_belong(self):
-#         self.organization_membership.delete()
-
-#         permissions = UserPermissions(user=self.user)
-#         with self.assertNumQueries(1):
-#             assert permissions.team(self.team).effective_membership_level is None
-
-#     def test_team_effective_membership_level_membership_isolation(self):
-#         self.team.access_control = True
-#         self.team.save()
-#         ExplicitTeamMembership.objects.create(
-#             team=self.team,
-#             parent_membership=self.organization_membership,
-#         )
-#         forbidden_team = Team.objects.create(
-#             organization=self.organization,
-#             name="FORBIDDEN",
-#             access_control=True,
-#         )
-#         permissions = UserPermissions(user=self.user)
-#         with self.assertNumQueries(2):
-#             assert permissions.team(forbidden_team).effective_membership_level is None
-
-#     def test_team_effective_membership_level_with_explicit_membership_returns_current_level(self):
-#         self.team.access_control = True
-#         self.team.save()
-#         self.organization_membership.level = OrganizationMembership.Level.ADMIN
-#         self.organization_membership.save()
-
-#         with self.assertNumQueries(2):
-#             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
-
-#     def test_team_effective_membership_level_with_member(self):
-#         self.team.access_control = True
-#         self.team.save()
-#         self.organization_membership.level = OrganizationMembership.Level.MEMBER
-#         self.organization_membership.save()
-
-#         with self.assertNumQueries(2):
-#             assert self.permissions().current_team.effective_membership_level is None
-
-#     def test_team_effective_membership_level_with_explicit_membership_returns_explicit_membership(self):
-#         self.team.access_control = True
-#         self.team.save()
-#         self.organization_membership.level = OrganizationMembership.Level.MEMBER
-#         self.organization_membership.save()
-
-#         ExplicitTeamMembership.objects.create(
-#             team=self.team,
-#             parent_membership=self.organization_membership,
-#             level=ExplicitTeamMembership.Level.ADMIN,
-#         )
-
-#         with self.assertNumQueries(2):
-#             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
 #     def test_team_ids_visible_for_user(self):
 #         assert self.permissions().team_ids_visible_for_user == [self.team.pk]

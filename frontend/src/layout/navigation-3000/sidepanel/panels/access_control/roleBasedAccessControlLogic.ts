@@ -3,7 +3,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -52,17 +52,15 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
             null as AccessControlTypeRole[] | null,
             {
                 loadRoleBasedAccessControls: async () => {
-                    const response = await api.accessControls.list({
-                        team: values.currentTeam!.id,
-                        // TODO: Figure out how to filter down to only the project wide role based controls...
-                    })
-                    return response.results.filter((accessControl) => !!accessControl.role) as AccessControlTypeRole[]
+                    const response = await api.get<PaginatedResponse<AccessControlTypeRole>>(
+                        'api/projects/@current/role_based_access_controls'
+                    )
+                    return response.results.filter((accessControl) => !!accessControl.role)
                 },
 
                 updateRoleBasedAccessControls: async ({ accessControls }) => {
                     for (const control of accessControls) {
-                        await api.accessControls.update({
-                            // team: values.currentTeam!.id,
+                        await api.put<AccessControlTypeRole>('api/projects/@current/role_based_access_controls', {
                             ...control,
                         })
                     }

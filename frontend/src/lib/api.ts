@@ -10,8 +10,6 @@ import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { QuerySchema, QueryStatus } from '~/queries/schema'
 import {
-    AccessControlType,
-    AccessControlUpdateType,
     ActionType,
     ActivityScope,
     BatchExportConfiguration,
@@ -496,11 +494,6 @@ class ApiRequest {
 
     public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
         return this.roleMemberships(roleId).addPathComponent(userUuid)
-    }
-
-    // # AccessControls
-    public accessControls(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('access_controls')
     }
 
     // # OrganizationMembers
@@ -1408,18 +1401,6 @@ const api = {
         },
     },
 
-    accessControls: {
-        async list(
-            params: Partial<Pick<AccessControlType, 'resource' | 'resource_id'>>
-        ): Promise<PaginatedResponse<AccessControlType>> {
-            return await new ApiRequest().accessControls().withQueryString(params).get()
-        },
-
-        async update(params: AccessControlUpdateType): Promise<PaginatedResponse<AccessControlType>> {
-            return await new ApiRequest().accessControls().put({ data: params })
-        },
-    },
-
     persons: {
         async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
             return new ApiRequest().person(id).update({ data: person })
@@ -2125,7 +2106,7 @@ const api = {
         })
     },
 
-    async _update(method: 'PATCH' | 'PUT', url: string, data: any, options?: ApiMethodOptions): Promise<any> {
+    async _update<T = any>(method: 'PATCH' | 'PUT', url: string, data: any, options?: ApiMethodOptions): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -2147,15 +2128,15 @@ const api = {
         return await getJSONOrNull(response)
     },
 
-    async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
+    async update<T = any>(url: string, data: any, options?: ApiMethodOptions): Promise<T> {
         return api._update('PATCH', url, data, options)
     },
 
-    async put(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
+    async put<T = any>(url: string, data: any, options?: ApiMethodOptions): Promise<T> {
         return api._update('PUT', url, data, options)
     },
 
-    async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
+    async create<T = any>(url: string, data?: any, options?: ApiMethodOptions): Promise<T> {
         const res = await api.createResponse(url, data, options)
         return await getJSONOrNull(res)
     },

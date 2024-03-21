@@ -1,7 +1,7 @@
 import { LemonSelectOption } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -66,10 +66,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             null as AccessControlType[] | null,
             {
                 loadAccessControls: async () => {
-                    const response = await api.accessControls.list({
-                        resource: props.resource,
-                        resource_id: props.resource_id,
-                    })
+                    const response = await api.get<PaginatedResponse<AccessControlType>>(values.endpoint)
                     return response?.results || []
                 },
 
@@ -83,7 +80,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         access_level: level,
                     }
 
-                    await api.accessControls.update(params)
+                    await api.update<AccessControlType>(values.endpoint, params)
 
                     return values.accessControls
                 },
@@ -97,7 +94,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                             access_level: level,
                         }
 
-                        await api.accessControls.update(params)
+                        await api.update<AccessControlType>(values.endpoint, params)
                     }
 
                     return values.accessControls
@@ -112,7 +109,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                             access_level: level,
                         }
 
-                        await api.accessControls.update(params)
+                        await api.update<AccessControlType>(values.endpoint, params)
                     }
 
                     return values.accessControls
@@ -126,6 +123,17 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControlMembersSuccess: () => actions.loadAccessControls(),
     })),
     selectors({
+        endpoint: [
+            () => [(_, props) => props],
+            (props): string => {
+                // TODO: This is far from perfect... but it's a start
+                if (props.resource === 'project') {
+                    return `api/projects/@current/access_controls`
+                }
+                return `api/projects/@current/${props.resource}s/${props.resource_id}/access_controls`
+            },
+        ],
+
         availableLevels: [
             () => [(_, props) => props],
             (props): string[] => {

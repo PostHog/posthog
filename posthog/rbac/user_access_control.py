@@ -74,15 +74,17 @@ class UserAccessControl:
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
-        # TODO: Don't throw if none
-        return OrganizationMembership.objects.get(organization=self._organization, user=self._user)
+        try:
+            return OrganizationMembership.objects.get(organization=self._organization, user=self._user)
+        except OrganizationMembership.DoesNotExist:
+            return None
 
     @property
-    def _rbac_supported(self) -> bool:
+    def rbac_supported(self) -> bool:
         return self._organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
 
     @property
-    def _access_controls_supported(self) -> bool:
+    def access_controls_supported(self) -> bool:
         # NOTE: This is a proxy feature. We may want to consider making it explicit later
         # ADVANCED_PERMISSIONS was only for dashboard collaborators, PROJECT_BASED_PERMISSIONING for project permissions
         # both now apply to this generic access control
@@ -100,7 +102,7 @@ class UserAccessControl:
 
         # TODO: Make this more efficient
         role_memberships = self._user.role_memberships.select_related("role").all()
-        role_ids = [membership.role.id for membership in role_memberships] if self._rbac_supported else []
+        role_ids = [membership.role.id for membership in role_memberships] if self.rbac_supported else []
 
         # TODO: Need to determine if there exists any ACs for the resource to determine if we should return None or not
         return AccessControl.objects.filter(
@@ -131,14 +133,14 @@ class UserAccessControl:
         resource = model_to_resource(obj)
         resource_id = str(obj.id)
 
-        if not self._access_controls_supported:
+        if not self.access_controls_supported:
             return None
 
         org_membership = self._organization_membership
 
         if not org_membership:
             # NOTE: Technically this is covered by Org Permission check so more of a sanity check
-            return False
+            return None
 
         # Org admins always have object level access
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
@@ -172,7 +174,7 @@ class UserAccessControl:
         """
         access_control = self.access_control_for_object(obj)
 
-        return None if not access_control else access_level_satisfied(obj, access_control.access_level, required_level)
+        return False if not access_control else access_level_satisfied(obj, access_control.access_level, required_level)
 
     def check_can_modify_access_levels_for_object(self, obj: Model) -> Optional[bool]:
         """
