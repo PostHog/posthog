@@ -56,16 +56,13 @@
     }
 
     .BridgePage__footer {
+        display: flex;
+        gap: 10%;
+        justify-content: center;
         width: 100%;
+        margin: 1rem 0;
         font-weight: 500;
         color: var(--muted);
-
-        @include screen($md) {
-            display: flex;
-            gap: 10%;
-            justify-content: center;
-            margin: 1rem 0;
-        }
     }
 
     .BridgePage__left {
