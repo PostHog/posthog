@@ -8,6 +8,7 @@ import {
     HTMLSnippetInstructions,
     JSWebInstructions,
     NextJSInstructions,
+    NuxtJSInstructions,
     ReactInstructions,
 } from '.'
 
@@ -19,5 +20,6 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.BUBBLE]: BubbleInstructions,
     [SDKKey.FRAMER]: FramerInstructions,
     [SDKKey.NEXT_JS]: NextJSInstructions,
+    [SDKKey.NUXT_JS]: NuxtJSInstructions,
     [SDKKey.REACT]: ReactInstructions,
 }
