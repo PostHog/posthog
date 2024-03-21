@@ -308,7 +308,11 @@ export function DashboardHeader(): JSX.Element | null {
                                 multiline
                                 name="description"
                                 markdown
-                                value={dashboard.description || ''}
+                                value={
+                                    (hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) &&
+                                        dashboard.description) ||
+                                    ''
+                                }
                                 placeholder="Description (optional)"
                                 onSave={(value) =>
                                     updateDashboard({ id: dashboard.id, description: value, allowUndo: true })
@@ -316,7 +320,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 saveOnBlur={true}
                                 compactButtons
                                 mode={!canEditDashboard ? 'view' : undefined}
-                                paywall={!hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION)}
+                                paywallFeature={AvailableFeature.TEAM_COLLABORATION}
                             />
                         )}
                         {dashboard?.tags && (
