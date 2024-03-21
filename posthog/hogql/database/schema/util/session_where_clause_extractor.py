@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
+
 from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor
 
 SESSION_BUFFER_DAYS = 3
@@ -288,7 +289,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_field(self, node: ast.Field) -> bool:
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
-            if resolved_field and isinstance(resolved_field, DatabaseField):
+            if resolved_field and isinstance(resolved_field, DatabaseField) and resolved_field:
                 return resolved_field.name in ["min_timestamp", "timestamp"]
         # no type information, so just use the name of the field
         return node.chain[-1] in ["min_timestamp", "timestamp"]
@@ -344,9 +345,15 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         raise Exception()
 
     def visit_alias(self, node: ast.Alias) -> bool:
+        from posthog.hogql.database.schema.events import EventsTable
+        from posthog.hogql.database.schema.sessions import SessionsTable
+
         if node.type and isinstance(node.type, ast.FieldAliasType):
             resolved_field = node.type.resolve_database_field(self.context)
-            return resolved_field.name in ["min_timestamp", "timestamp"]
+            table = node.type.resolve_table_type(self.context).table
+            return (isinstance(table, EventsTable) and resolved_field.name == "timestamp") or (
+                isinstance(table, SessionsTable) and resolved_field.name == "min_timestamp"
+            )
 
         return self.visit(node.expr)
 
@@ -363,14 +370,17 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
         self.context = context
 
     def visit_field(self, node: ast.Field) -> ast.Field:
+        from posthog.hogql.database.schema.events import EventsTable
+        from posthog.hogql.database.schema.sessions import SessionsTable
+
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
-            if (
-                resolved_field
-                and isinstance(resolved_field, DatabaseField)
-                and resolved_field.name in ["min_timestamp", "timestamp"]
-            ):
-                return ast.Field(chain=["raw_sessions", "min_timestamp"])
+            table = node.type.resolve_table_type(self.context).table
+            if resolved_field and isinstance(resolved_field, DatabaseField):
+                if (isinstance(table, EventsTable) and resolved_field.name == "timestamp") or (
+                    isinstance(table, SessionsTable) and resolved_field.name == "min_timestamp"
+                ):
+                    return ast.Field(chain=["raw_sessions", "min_timestamp"])
         # no type information, so just use the name of the field
         if node.chain[-1] in ["min_timestamp", "timestamp"]:
             return ast.Field(chain=["raw_sessions", "min_timestamp"])
