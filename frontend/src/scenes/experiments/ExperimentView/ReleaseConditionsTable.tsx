@@ -17,7 +17,7 @@ export function ReleaseConditionsTable(): JSX.Element {
         {
             key: 'key',
             title: '',
-            render: function Key(_, item, index): JSX.Element {
+            render: function Key(_, _item, index): JSX.Element {
                 return <div className="font-semibold">{`Set ${index + 1}`}</div>
             },
         },

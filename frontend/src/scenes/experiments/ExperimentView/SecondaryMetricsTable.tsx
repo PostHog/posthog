@@ -1,15 +1,12 @@
 import '../Experiment.scss'
 
-import { IconPencil, IconTrash } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { InsightType } from '~/types'
 
@@ -44,7 +41,6 @@ export function SecondaryMetricsTable({
         getIndexForVariant,
         experiment,
         experimentResults,
-        editingExistingExperiment,
         tabularSecondaryMetricResults,
     } = useValues(experimentLogic({ experimentId }))
 
@@ -160,120 +156,56 @@ export function SecondaryMetricsTable({
                     </LemonField>
                 </Form>
             </LemonModal>
-            {experimentId == 'new' || editingExistingExperiment ? (
+            <div>
                 <div className="flex">
-                    <div>
-                        {metrics.map((metric, idx) => (
-                            <div key={idx} className="mt-4 border rounded p-4">
-                                <div className="flex items-center justify-between w-full mb-3 pb-2 border-b">
-                                    <div>
-                                        <b>{metric.name}</b>
-                                    </div>
-                                    <div className="flex">
-                                        <LemonButton
-                                            icon={<IconPencil />}
-                                            size="small"
-                                            onClick={() => openModalToEditSecondaryMetric(metric, idx)}
-                                        />
-                                        <LemonButton
-                                            icon={<IconTrash />}
-                                            size="small"
-                                            onClick={() => deleteMetric(idx)}
-                                        />
-                                    </div>
-                                </div>
-                                {metric.filters.insight === InsightType.FUNNELS && (
-                                    <ActionFilter
-                                        bordered
-                                        filters={metric.filters}
-                                        setFilters={() => {}}
-                                        typeKey={`funnel-preview-${idx}`}
-                                        mathAvailability={MathAvailability.None}
-                                        buttonCopy="Add funnel step"
-                                        seriesIndicatorType="numeric"
-                                        sortable
-                                        showNestedArrow
-                                        propertiesTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.EventFeatureFlags,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                        ]}
-                                        readOnly
-                                    />
-                                )}
-                                {metric.filters.insight === InsightType.TRENDS && (
-                                    <ActionFilter
-                                        bordered
-                                        filters={metric.filters}
-                                        setFilters={() => {}}
-                                        typeKey={`trend-preview-${idx}`}
-                                        buttonCopy="Add graph series"
-                                        showSeriesIndicator
-                                        entitiesLimit={1}
-                                        propertiesTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.EventFeatureFlags,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                        ]}
-                                        readOnly={true}
-                                    />
-                                )}
-                            </div>
-                        ))}
-                        {metrics && !(metrics.length > 2) && (
-                            <div className="mb-2 mt-4">
-                                <LemonButton
-                                    data-attr="add-secondary-metric-btn"
-                                    type="secondary"
-                                    onClick={openModalToCreateSecondaryMetric}
-                                >
-                                    Add metric
-                                </LemonButton>
-                            </div>
+                    <div className="w-1/2">
+                        <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
+                        {metrics.length > 0 && (
+                            <div className="mb-2">Click a metric name to compare variants on a graph.</div>
                         )}
                     </div>
-                </div>
-            ) : (
-                <div>
-                    <div className="flex">
-                        <div className="w-1/2">
-                            <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
-                            <div className="mb-2">Click a metric name to compare variants on a graph.</div>
-                        </div>
 
-                        <div className="w-1/2 flex flex-col justify-end">
-                            <div className="ml-auto">
-                                {metrics && !(metrics.length > 2) && isExperimentRunning && (
-                                    <div className="mb-2 mt-4 justify-end">
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={openModalToCreateSecondaryMetric}
-                                        >
-                                            Add metric
-                                        </LemonButton>
-                                    </div>
-                                )}
-                            </div>
+                    <div className="w-1/2 flex flex-col justify-end">
+                        <div className="ml-auto">
+                            {metrics && metrics.length > 0 && metrics.length < 3 && isExperimentRunning && (
+                                <div className="mb-2 mt-4 justify-end">
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={openModalToCreateSecondaryMetric}
+                                    >
+                                        Add metric
+                                    </LemonButton>
+                                </div>
+                            )}
                         </div>
                     </div>
-                    {metrics && metrics.length > 0 ? (
-                        <LemonTable
-                            loading={secondaryMetricResultsLoading}
-                            columns={columns}
-                            dataSource={tabularSecondaryMetricResults}
-                        />
-                    ) : !isExperimentRunning ? (
-                        <>--</>
-                    ) : (
-                        <></>
-                    )}
                 </div>
-            )}
+                {metrics && metrics.length > 0 ? (
+                    <LemonTable
+                        loading={secondaryMetricResultsLoading}
+                        columns={columns}
+                        dataSource={tabularSecondaryMetricResults}
+                    />
+                ) : (
+                    <div className="border rounded bg-bg-light pt-6 pb-8 text-muted">
+                        <div className="flex flex-col items-center mx-auto space-y-3">
+                            <IconAreaChart fontSize="30" />
+                            <div className="text-sm text-center text-balance">
+                                Add up to 3 secondary metrics to gauge side effects of your experiment.
+                            </div>
+                            <LemonButton
+                                icon={<IconPlus />}
+                                type="secondary"
+                                size="small"
+                                onClick={openModalToCreateSecondaryMetric}
+                            >
+                                Add metric
+                            </LemonButton>
+                        </div>
+                    </div>
+                )}
+            </div>
         </>
     )
 }
