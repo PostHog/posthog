@@ -140,7 +140,8 @@ export class SessionRecordingIngesterV3 {
          */
         this.promises.add(promise)
 
-        promise.finally(() => this.promises.delete(promise))
+        // we void the promise returned by finally here to avoid the need to await it
+        void promise.finally(() => this.promises.delete(promise))
 
         return promise
     }
