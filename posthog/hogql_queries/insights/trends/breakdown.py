@@ -25,7 +25,7 @@ class Breakdown:
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
-    breakdown_values_override: Optional[List[str | int | float]]
+    breakdown_values_override: Optional[List[str]]
 
     def __init__(
         self,
@@ -74,7 +74,7 @@ class Breakdown:
         elif self.query.breakdownFilter.breakdown_type == "hogql":
             return ast.Alias(
                 alias="breakdown_value",
-                expr=ast.Call(name="toString", args=[parse_expr(self.query.breakdownFilter.breakdown)]),
+                expr=parse_expr(self.query.breakdownFilter.breakdown),
             )
         elif self.query.breakdownFilter.breakdown_type == "cohort":
             if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
@@ -94,14 +94,12 @@ class Breakdown:
         if self.query.breakdownFilter.breakdown_type == "hogql":
             return ast.Alias(
                 alias="breakdown_value",
-                expr=ast.Call(name="toString", args=[parse_expr(self.query.breakdownFilter.breakdown)]),
+                expr=parse_expr(self.query.breakdownFilter.breakdown),
             )
 
         # If there's no breakdown values
         if len(self._breakdown_values) == 1 and self._breakdown_values[0] is None:
-            return ast.Alias(
-                alias="breakdown_value", expr=ast.Call(name="toString", args=[ast.Field(chain=self._properties_chain)])
-            )
+            return ast.Alias(alias="breakdown_value", expr=ast.Field(chain=self._properties_chain))
 
         return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_transform_func)
 
@@ -147,11 +145,13 @@ class Breakdown:
             left = parse_expr(self.query.breakdownFilter.breakdown)
         else:
             left = ast.Field(chain=self._properties_chain)
-        left = ast.Call(name="toString", args=[left])
+
+        if not self.is_histogram_breakdown:
+            left = ast.Call(name="toString", args=[left])
 
         compare_ops = []
         for _value in self._breakdown_values:
-            value: Optional[str | int | float] = _value
+            value: Optional[str] = _value
             # If the value is one of the "other" values, then use the `transform()` func
             if value == BREAKDOWN_OTHER_STRING_LABEL:
                 transform_func = self._get_breakdown_transform_func
@@ -204,11 +204,9 @@ class Breakdown:
 
     @cached_property
     def _breakdown_values_ast(self) -> ast.Array:
-        exprs = []
+        exprs: list[ast.Expr] = []
         for v in self._breakdown_values:
             expr = ast.Constant(value=v)
-            if not isinstance(v, str):
-                expr = ast.Call(name="toString", args=[expr])
             exprs.append(expr)
         return ast.Array(exprs=exprs)
 

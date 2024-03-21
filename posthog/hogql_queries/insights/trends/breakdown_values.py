@@ -83,24 +83,22 @@ class BreakdownValues:
         if self.breakdown_type == "hogql":
             select_field = ast.Alias(
                 alias="value",
-                expr=ast.Call(name="toString", args=[parse_expr(str(self.breakdown_field))]),
+                expr=parse_expr(str(self.breakdown_field)),
             )
         else:
             select_field = ast.Alias(
                 alias="value",
-                expr=ast.Call(
-                    name="toString",
-                    args=[
-                        ast.Field(
-                            chain=get_properties_chain(
-                                breakdown_type=self.breakdown_type,
-                                breakdown_field=str(self.breakdown_field),
-                                group_type_index=self.group_type_index,
-                            )
-                        )
-                    ],
+                expr=ast.Field(
+                    chain=get_properties_chain(
+                        breakdown_type=self.breakdown_type,
+                        breakdown_field=str(self.breakdown_field),
+                        group_type_index=self.group_type_index,
+                    )
                 ),
             )
+
+        if not self.histogram_bin_count:
+            select_field.expr = ast.Call(name="toString", args=[select_field.expr])
 
         if self.chart_display_type == ChartDisplayType.WorldMap:
             breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES

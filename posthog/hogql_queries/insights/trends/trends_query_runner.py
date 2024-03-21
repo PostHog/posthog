@@ -175,7 +175,7 @@ class TrendsQueryRunner(QueryRunner):
                 modifiers=self.modifiers,
             )
 
-            query = query_builder.build_actors_query(time_frame=time_frame, breakdown_filter=breakdown_value)
+            query = query_builder.build_actors_query(time_frame=time_frame, breakdown_filter=str(breakdown_value))
 
         return query
 
