@@ -3746,6 +3746,7 @@ export enum SDKKey {
     BUBBLE = 'bubble',
     DOCUSAURUS = 'docusaurus',
     ELIXIR = 'elixir',
+    FRAMER = 'framer',
     FLUTTER = 'flutter',
     GATSBY = 'gatsby',
     GO = 'go',

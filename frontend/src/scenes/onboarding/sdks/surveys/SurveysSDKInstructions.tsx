@@ -4,6 +4,7 @@ import {
     AngularInstructions,
     AstroInstructions,
     BubbleInstructions,
+    FramerInstructions,
     HTMLSnippetInstructions,
     JSWebInstructions,
     NextJSInstructions,
@@ -16,6 +17,7 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANGULAR]: AngularInstructions,
     [SDKKey.ASTRO]: AstroInstructions,
     [SDKKey.BUBBLE]: BubbleInstructions,
+    [SDKKey.FRAMER]: FramerInstructions,
     [SDKKey.NEXT_JS]: NextJSInstructions,
     [SDKKey.REACT]: ReactInstructions,
 }

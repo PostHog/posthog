@@ -1,6 +1,7 @@
 export * from './angular'
 export * from './astro'
 export * from './bubble'
+export * from './framer'
 export * from './html-snippet'
 export * from './js-web'
 export * from './next-js'
