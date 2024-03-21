@@ -237,3 +237,37 @@ WHERE
     ifNull(greater(toTimeZone(sessions.min_timestamp, %(hogql_val_2)s), %(hogql_val_3)s), 0)
 LIMIT 10000"""
         assert expected == actual
+
+    def test_join_with_events(self):
+        actual = self.print_query(
+            """
+SELECT
+    sessions.session_id,
+    uniq(uuid)
+FROM events
+JOIN sessions
+ON events.$session_id = sessions.session_id
+WHERE events.timestamp > '2021-01-01'
+GROUP BY sessions.session_id
+"""
+        )
+        expected = f"""SELECT
+    sessions.session_id AS session_id,
+    uniq(events.uuid)
+FROM
+    events
+    JOIN (SELECT
+        sessions.session_id AS session_id
+    FROM
+        sessions
+    WHERE
+        and(equals(sessions.team_id, {self.team.id}), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_0)s), toIntervalDay(3)), %(hogql_val_1)s), 0))
+    GROUP BY
+        sessions.session_id,
+        sessions.session_id) AS sessions ON equals(events.`$session_id`, sessions.session_id)
+WHERE
+    and(equals(events.team_id, {self.team.id}), greater(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s))
+GROUP BY
+    sessions.session_id
+LIMIT 10000"""
+        assert expected == actual
