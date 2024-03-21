@@ -9,7 +9,7 @@ import { AvailableFeature } from '~/types'
 import type { upgradeModalLogicType } from './upgradeModalLogicType'
 
 export type GuardAvailableFeatureFn = (
-    featureKey: AvailableFeature,
+    featureKey?: AvailableFeature,
     featureAvailableCallback?: () => void,
     options?: {
         guardOnCloud?: boolean
@@ -60,6 +60,10 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
             (s) => [s.preflight, s.hasAvailableFeature],
             (preflight, hasAvailableFeature): GuardAvailableFeatureFn => {
                 return (featureKey, featureAvailableCallback, options): boolean => {
+                    if (!featureKey) {
+                        featureAvailableCallback?.()
+                        return true
+                    }
                     const {
                         guardOnCloud = true,
                         guardOnSelfHosted = true,
