@@ -75,12 +75,8 @@ class Breakdown:
     def column_expr(self) -> ast.Alias:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
-        elif self.query.breakdownFilter.breakdown_type == "hogql":
-            return ast.Alias(
-                alias="breakdown_value",
-                expr=hogql_to_string(parse_expr(self.query.breakdownFilter.breakdown)),
-            )
-        elif self.query.breakdownFilter.breakdown_type == "cohort":
+
+        if self.query.breakdownFilter.breakdown_type == "cohort":
             if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
                 return ast.Alias(
                     alias="breakdown_value",
@@ -94,16 +90,6 @@ class Breakdown:
                 alias="breakdown_value",
                 expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
-
-        if self.query.breakdownFilter.breakdown_type == "hogql":
-            return ast.Alias(
-                alias="breakdown_value",
-                expr=hogql_to_string(parse_expr(self.query.breakdownFilter.breakdown)),
-            )
-
-        # If there's no breakdown values
-        if len(self._breakdown_values) == 1 and self._breakdown_values[0] is None:
-            return ast.Alias(alias="breakdown_value", expr=hogql_to_string(ast.Field(chain=self._properties_chain)))
 
         return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_transform_func)
 
@@ -181,6 +167,11 @@ class Breakdown:
 
     @cached_property
     def _get_breakdown_transform_func(self) -> ast.Call:
+        if self.query.breakdownFilter.breakdown_type == "hogql":
+            return self._get_breakdown_values_transform(parse_expr(self.query.breakdownFilter.breakdown))
+        return self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain))
+
+    def _get_breakdown_values_transform(self, node: ast.Expr) -> ast.Call:
         breakdown_values = self._breakdown_values_ast
         return ast.Call(
             name="transform",
@@ -188,7 +179,7 @@ class Breakdown:
                 ast.Call(
                     name="ifNull",
                     args=[
-                        hogql_to_string(ast.Field(chain=self._properties_chain)),
+                        hogql_to_string(node),
                         ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                     ],
                 ),
