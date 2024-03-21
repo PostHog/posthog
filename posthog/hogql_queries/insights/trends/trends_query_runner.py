@@ -666,25 +666,27 @@ class TrendsQueryRunner(QueryRunner):
                     res.append(new_result)
             return res
 
-        if self._trends_display.should_aggregate_values():
-            series_data = list(map(lambda s: [s["aggregated_value"]], results))
-            new_series_data = FormulaAST(series_data).call(formula)
+        if len(results) > 0:
+            if self._trends_display.should_aggregate_values():
+                series_data = list(map(lambda s: [s["aggregated_value"]], results))
+                new_series_data = FormulaAST(series_data).call(formula)
 
-            new_result = results[0]
-            new_result["aggregated_value"] = float(sum(new_series_data))
-            new_result["data"] = None
-            new_result["count"] = 0
-            new_result["label"] = f"Formula ({formula})"
-        else:
-            series_data = list(map(lambda s: s["data"], results))
-            new_series_data = FormulaAST(series_data).call(formula)
+                new_result = results[0]
+                new_result["aggregated_value"] = float(sum(new_series_data))
+                new_result["data"] = None
+                new_result["count"] = 0
+                new_result["label"] = f"Formula ({formula})"
+            else:
+                series_data = list(map(lambda s: s["data"], results))
+                new_series_data = FormulaAST(series_data).call(formula)
 
-            new_result = results[0]
-            new_result["data"] = new_series_data
-            new_result["count"] = float(sum(new_series_data))
-            new_result["label"] = f"Formula ({formula})"
+                new_result = results[0]
+                new_result["data"] = new_series_data
+                new_result["count"] = float(sum(new_series_data))
+                new_result["label"] = f"Formula ({formula})"
 
-        return [new_result]
+            return [new_result]
+        return []
 
     def _is_breakdown_field_boolean(self):
         if not self.query.breakdownFilter or not self.query.breakdownFilter.breakdown_type:
@@ -741,13 +743,19 @@ class TrendsQueryRunner(QueryRunner):
         field: str,
         field_type: PropertyDefinition.Type,
         group_type_index: Optional[int],
-    ):
-        return PropertyDefinition.objects.get(
-            name=field,
-            team=self.team,
-            type=field_type,
-            group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
-        ).property_type
+    ) -> str:
+        try:
+            return (
+                PropertyDefinition.objects.get(
+                    name=field,
+                    team=self.team,
+                    type=field_type,
+                    group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
+                ).property_type
+                or "String"
+            )
+        except PropertyDefinition.DoesNotExist:
+            return "String"
 
     # TODO: Move this to posthog/hogql_queries/legacy_compatibility/query_to_filter.py
     def _query_to_filter(self) -> Dict[str, Any]:
