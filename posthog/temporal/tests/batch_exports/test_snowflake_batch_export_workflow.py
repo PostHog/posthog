@@ -455,6 +455,7 @@ async def test_snowflake_export_workflow_exports_events(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 10
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
@@ -695,6 +696,7 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
     run = runs[0]
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
+    assert run.records_completed == 0
 
 
 async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_errors(ateam, snowflake_batch_export):

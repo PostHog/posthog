@@ -901,13 +901,12 @@ export interface SessionRecordingsResponse {
     has_next: boolean
 }
 
-export type ErrorClusterSample = { session_id: string; input: string }
-
-type ErrorCluster = {
+export type ErrorCluster = {
     cluster: number
-    samples: ErrorClusterSample[]
+    sample: { session_id: string; error: string }
     occurrences: number
     unique_sessions: number
+    viewed: number
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
 
@@ -3595,6 +3594,7 @@ export type BatchExportDestinationS3 = {
         compression: string | null
         encryption: string | null
         kms_key_id: string | null
+        endpoint_url: string | null
     }
 }
 

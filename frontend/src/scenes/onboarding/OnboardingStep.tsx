@@ -16,6 +16,7 @@ export const OnboardingStep = ({
     showHelpButton = false,
     onSkip,
     continueAction,
+    continueText,
     continueOverride,
     hideHeader,
 }: {
@@ -27,6 +28,7 @@ export const OnboardingStep = ({
     showHelpButton?: boolean
     onSkip?: () => void
     continueAction?: () => void
+    continueText?: string
     continueOverride?: JSX.Element
     hideHeader?: boolean
 }): JSX.Element => {
@@ -114,7 +116,7 @@ export const OnboardingStep = ({
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                         >
-                            {!hasNextStep ? 'Finish' : 'Next'}
+                            {continueText ? continueText : !hasNextStep ? 'Finish' : 'Next'}
                         </LemonButton>
                     )}
                 </div>
