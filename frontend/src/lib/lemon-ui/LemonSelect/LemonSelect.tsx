@@ -154,6 +154,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                           }
                         : null
                 }
+                tooltip={activeLeaf?.tooltip}
                 {...buttonProps}
             >
                 <span className="flex flex-1">

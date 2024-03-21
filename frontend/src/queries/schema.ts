@@ -4,6 +4,7 @@ import {
     Breakdown,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
     EventPropertyFilter,
@@ -25,6 +26,8 @@ import {
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
+
+export { ChartDisplayCategory }
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */

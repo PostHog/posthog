@@ -3,7 +3,7 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconCopy, IconFilter, IconPencil, IconTrash } from '@posthog/icons'
+import { IconCopy, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -39,6 +39,7 @@ import {
     ActionFilter,
     ActionFilter as ActionFilterType,
     BaseMathType,
+    ChartDisplayCategory,
     CountPerActorMathType,
     EntityType,
     EntityTypes,
@@ -115,6 +116,7 @@ export interface ActionFilterRowProps {
         renameRowButton,
         deleteButton,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
+    trendsDisplayCategory: ChartDisplayCategory | null
 }
 
 export function ActionFilterRow({
@@ -142,6 +144,7 @@ export function ActionFilterRow({
     disabled = false,
     readOnly = false,
     renderRow,
+    trendsDisplayCategory,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -376,6 +379,7 @@ export function ActionFilterRow({
                                         disabled={readOnly}
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                         mathAvailability={mathAvailability}
+                                        trendsDisplayCategory={trendsDisplayCategory}
                                     />
                                     {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                         MathCategory.PropertyValue && (
@@ -513,6 +517,7 @@ interface MathSelectorProps {
     disabled?: boolean
     disabledReason?: string
     onMathSelect: (index: number, value: any) => any
+    trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
 }
 
@@ -524,11 +529,14 @@ function isCountPerActorMath(math: string | undefined): math is CountPerActorMat
     return !!math && math in COUNT_PER_ACTOR_MATH_DEFINITIONS
 }
 
+const TRAILING_MATH_TYPES = new Set<string>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
+
 function useMathSelectorOptions({
     math,
     index,
     mathAvailability,
     onMathSelect,
+    trendsDisplayCategory,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const mountedInsightDataLogic = insightDataLogic.findMounted()
     const query = mountedInsightDataLogic?.values?.query
@@ -549,19 +557,33 @@ function useMathSelectorOptions({
         mathAvailability != MathAvailability.ActorsOnly ? staticMathDefinitions : staticActorsOnlyMathDefinitions
     )
         .filter(([key]) => {
-            if (!isStickiness) {
-                return true
+            if (isStickiness) {
+                // Remove WAU and MAU from stickiness insights
+                return !TRAILING_MATH_TYPES.has(key)
             }
-
-            // Remove WAU and MAU from stickiness insights
-            return key !== BaseMathType.WeeklyActiveUsers && key !== BaseMathType.MonthlyActiveUsers
+            return true
         })
-        .map(([key, definition]) => ({
-            value: key,
-            label: definition.name,
-            tooltip: definition.description,
-            'data-attr': `math-${key}-${index}`,
-        }))
+        .map(([key, definition]) => {
+            const shouldWarnAboutTrailingMath =
+                TRAILING_MATH_TYPES.has(key) && trendsDisplayCategory === ChartDisplayCategory.TotalValue
+            return {
+                value: key,
+                icon: shouldWarnAboutTrailingMath ? <IconWarning /> : undefined,
+                label: definition.name,
+                tooltip: !shouldWarnAboutTrailingMath ? (
+                    definition.description
+                ) : (
+                    <>
+                        <p>{definition.description}</p>
+                        <i>
+                            We advise against using "{definition.name}" in total value insights, as this combination has
+                            unclear mechanics. Use "Unique users" instead
+                        </i>
+                    </>
+                ),
+                'data-attr': `math-${key}-${index}`,
+            }
+        })
 
     if (mathAvailability !== MathAvailability.ActorsOnly) {
         options.splice(1, 0, {
@@ -579,7 +601,6 @@ function useMathSelectorOptions({
                         options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS).map(([key, definition]) => ({
                             value: key,
                             label: definition.shortName,
-                            tooltip: definition.description,
                             'data-attr': `math-${key}-${index}`,
                         }))}
                         onClick={(e) => e.stopPropagation()}
