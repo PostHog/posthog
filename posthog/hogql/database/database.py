@@ -53,7 +53,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
-
 if TYPE_CHECKING:
     from posthog.models import Team
 
@@ -211,7 +210,7 @@ def create_hogql_database(
             if "timestamp" not in tables[warehouse_modifier.table_name].fields.keys():
                 tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
                     name="timestamp",
-                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                    expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
                 )
 
             # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
