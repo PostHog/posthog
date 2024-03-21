@@ -269,6 +269,14 @@
                   "distinct_id",
                   "person_id"
               ]
+          },
+          {
+              "key": "$virt_initial_referring_domain_type",
+              "type": "expression"
+          },
+          {
+              "key": "$virt_initial_channel_type",
+              "type": "expression"
           }
       ],
       "person_distinct_ids": [
@@ -1112,6 +1120,14 @@
                   "distinct_id",
                   "person_id"
               ]
+          },
+          {
+              "key": "$virt_initial_referring_domain_type",
+              "type": "expression"
+          },
+          {
+              "key": "$virt_initial_channel_type",
+              "type": "expression"
           }
       ],
       "person_distinct_ids": [

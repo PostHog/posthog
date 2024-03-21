@@ -830,7 +830,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
                 ),
             )
 
@@ -959,7 +959,7 @@ class FunnelBase(ABC):
             to_time = f"latest_{exclusion.funnelToStep}"
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
             condition = parse_expr(
-                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), {from_time} + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 
@@ -988,7 +988,11 @@ class FunnelBase(ABC):
             duplicate_event = is_equal(series[i], series[i - 1]) or is_superset(series[i], series[i - 1])
 
             conditions.append(parse_expr(f"latest_{i - 1} {'<' if duplicate_event else '<='} latest_{i}"))
-            conditions.append(parse_expr(f"latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}"))
+            conditions.append(
+                parse_expr(
+                    f"latest_{i} <= toTimeZone(latest_0, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}"
+                )
+            )
 
         return ast.Call(
             name="if",

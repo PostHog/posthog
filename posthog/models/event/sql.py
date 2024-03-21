@@ -106,6 +106,18 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     storage_policy=STORAGE_POLICY(),
 )
 
+EVENTS_TABLE_INSERTED_AT_INDEX_SQL = """
+ALTER TABLE {table_name} ON CLUSTER {cluster}
+ADD INDEX `minmax_inserted_at` COALESCE(`inserted_at`, `_timestamp`)
+TYPE minmax
+GRANULARITY 1
+""".format(table_name=EVENTS_DATA_TABLE(), cluster=settings.CLICKHOUSE_CLUSTER)
+
+EVENTS_TABLE_MATERIALIZE_INSERTED_AT_INDEX_SQL = """
+ALTER TABLE {table_name} ON CLUSTER {cluster}
+MATERIALIZE INDEX `minmax_inserted_at`
+""".format(table_name=EVENTS_DATA_TABLE(), cluster=settings.CLICKHOUSE_CLUSTER)
+
 # we add the settings to prevent poison pills from stopping ingestion
 # kafka_skip_broken_messages is an int, not a boolean, so we explicitly set
 # the max block size to consume from kafka such that we skip _all_ broken messages

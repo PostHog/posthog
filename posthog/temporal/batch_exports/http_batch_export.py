@@ -152,7 +152,7 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
 
 
 @activity.defn
-async def insert_into_http_activity(inputs: HttpInsertInputs):
+async def insert_into_http_activity(inputs: HttpInsertInputs) -> int:
     """Activity streams data from ClickHouse to an HTTP Endpoint."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
     logger.info(
@@ -180,7 +180,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return
+            return 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -302,6 +302,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs):
                 if batch_file.tell() > 0:
                     last_uploaded_timestamp = str(inserted_at)
                     await flush_batch_to_http_endpoint(last_uploaded_timestamp, session)
+
+            return batch_file.records_total
 
 
 @workflow.defn(name="http-export")

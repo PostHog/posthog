@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -12,7 +13,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -34,7 +34,7 @@ export function SessionsRecordings(): JSX.Element {
     const { tab } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
@@ -87,8 +87,7 @@ export function SessionsRecordings(): JSX.Element {
                                                     ? newPlaylistHandler.onEvent?.(e)
                                                     : saveFiltersPlaylistHandler.onEvent?.(e)
                                             },
-                                            undefined,
-                                            playlists.count
+                                            { currentUsage: playlists.count }
                                         )
                                     }
                                 >
@@ -111,8 +110,7 @@ export function SessionsRecordings(): JSX.Element {
                                     guardAvailableFeature(
                                         AvailableFeature.RECORDINGS_PLAYLISTS,
                                         () => newPlaylistHandler.onEvent?.(e),
-                                        undefined,
-                                        playlists.count
+                                        { currentUsage: playlists.count }
                                     )
                                 }
                                 data-attr="save-recordings-playlist-button"

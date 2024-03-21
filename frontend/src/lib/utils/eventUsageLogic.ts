@@ -457,11 +457,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
         reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
         reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
-        reportActivationSideBarShown: (
-            activeTasksCount: number,
-            completedTasksCount: number,
-            completionPercent: number
-        ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
         reportRoleCreated: (role: string) => ({ role }),
@@ -507,8 +502,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
         reportCommandBarActionSearch: (query: string) => ({ query }),
         reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
+        reportBillingCTAShown: true,
     }),
     listeners(({ values }) => ({
+        reportBillingCTAShown: () => {
+            posthog.capture('billing CTA shown')
+        },
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },
@@ -1086,13 +1085,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture(`${name} team setting updated`, {
                 setting: name,
                 value,
-            })
-        },
-        reportActivationSideBarShown: ({ activeTasksCount, completedTasksCount, completionPercent }) => {
-            posthog.capture('activation sidebar shown', {
-                active_tasks_count: activeTasksCount,
-                completed_tasks_count: completedTasksCount,
-                completion_percent_count: completionPercent,
             })
         },
         reportActivationSideBarTaskClicked: ({ key }) => {

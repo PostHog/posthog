@@ -96,7 +96,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                     {(!hasSnippetEvents || multiInstallProducts.includes(product.type as ProductKey)) && (
                         <LemonButton
                             type="tertiary"
-                            data-attr="start-onboarding"
+                            data-attr="start-onboarding-sdk"
                             onClick={() => {
                                 setTeamPropertiesForProduct(product.type as ProductKey)
                                 reportOnboardingProductSelected(
