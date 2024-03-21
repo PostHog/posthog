@@ -24,6 +24,19 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
 
     This means that we can incrementally add support for more complex queries, without breaking existing queries, by
     handling more cases.
+
+    Some examples of failing-safe:
+
+    `SELECT * FROM sessions where min_timestamp > '2022-01-01' AND f(session_id)`
+    only the` min_timestamp > '2022-01-01'` part is relevant, so we can ignore the `f(session_id)` part, and it is safe
+    to replace it with a constant True, which collapses the AND to just the `min_timestamp > '2022-01-01'` part.
+
+    `SELECT * FROM sessions where min_timestamp > '2022-01-01' OR f(session_id)`
+    only the` min_timestamp > '2022-01-01'` part is relevant, and turning the `f(session_id)` part into a constant True
+    would collapse the OR to True. In this case we return None as no pre-filtering is possible.
+
+    All min_timestamp comparisons are given a buffer of SESSION_BUFFER_DAYS each side, to ensure that we collect all the
+    relevant rows for each session.
     """
 
     def get_inner_where(self, parsed_query: ast.SelectQuery) -> Optional[ast.Expr]:
