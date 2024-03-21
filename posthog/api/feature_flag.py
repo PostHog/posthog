@@ -55,6 +55,8 @@ from posthog.queries.base import (
 from posthog.rate_limit import BurstRateThrottle
 from loginas.utils import is_impersonated_session
 
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
     if ("local_evaluation" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES)
@@ -363,6 +365,7 @@ class FeatureFlagViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
+    AccessControlViewSetMixin,
     viewsets.ModelViewSet,
 ):
     """

@@ -7,7 +7,6 @@ from rest_framework.response import Response
 
 from ee.models.rbac.access_control import AccessControl
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
-from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, default_access_level, ordered_access_levels
 
 
