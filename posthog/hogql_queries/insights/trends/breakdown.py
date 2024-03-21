@@ -17,6 +17,10 @@ from posthog.models.team.team import Team
 from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
 
 
+def toString(expr: ast.Expr) -> ast.Call:
+    return ast.Call(name="toString", args=[expr])
+
+
 class Breakdown:
     query: TrendsQuery
     team: Team
@@ -68,13 +72,13 @@ class Breakdown:
 
         return {"cross_join_breakdown_values": ast.Alias(alias="breakdown_value", expr=values)}
 
-    def column_expr(self) -> ast.Expr:
+    def column_expr(self) -> ast.Alias:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
         elif self.query.breakdownFilter.breakdown_type == "hogql":
             return ast.Alias(
                 alias="breakdown_value",
-                expr=parse_expr(self.query.breakdownFilter.breakdown),
+                expr=toString(parse_expr(self.query.breakdownFilter.breakdown)),
             )
         elif self.query.breakdownFilter.breakdown_type == "cohort":
             if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
@@ -94,12 +98,12 @@ class Breakdown:
         if self.query.breakdownFilter.breakdown_type == "hogql":
             return ast.Alias(
                 alias="breakdown_value",
-                expr=parse_expr(self.query.breakdownFilter.breakdown),
+                expr=toString(parse_expr(self.query.breakdownFilter.breakdown)),
             )
 
         # If there's no breakdown values
         if len(self._breakdown_values) == 1 and self._breakdown_values[0] is None:
-            return ast.Alias(alias="breakdown_value", expr=ast.Field(chain=self._properties_chain))
+            return ast.Alias(alias="breakdown_value", expr=toString(ast.Field(chain=self._properties_chain)))
 
         return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_transform_func)
 
@@ -177,18 +181,19 @@ class Breakdown:
 
     @cached_property
     def _get_breakdown_transform_func(self) -> ast.Call:
+        breakdown_values = self._breakdown_values_ast
         return ast.Call(
             name="transform",
             args=[
                 ast.Call(
                     name="ifNull",
                     args=[
-                        ast.Call(name="toString", args=[ast.Field(chain=self._properties_chain)]),
+                        toString(ast.Field(chain=self._properties_chain)),
                         ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                     ],
                 ),
-                self._breakdown_values_ast,
-                self._breakdown_values_ast,
+                breakdown_values,
+                breakdown_values,
                 ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
             ],
         )
@@ -202,9 +207,12 @@ class Breakdown:
 
         return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), values)))
 
-    @cached_property
+    @property
     def _breakdown_values_ast(self) -> ast.Array:
-        return ast.Array(exprs=[ast.Constant(value=v) for v in self._breakdown_values])
+        exprs: list[ast.Expr] = []
+        for value in self._breakdown_values:
+            exprs.append(toString(ast.Constant(value=value)))
+        return ast.Array(exprs=exprs)
 
     @cached_property
     def _all_breakdown_values(self) -> List[str | None]:
