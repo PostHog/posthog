@@ -10,7 +10,10 @@ import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ActivityFilters, activityForSceneLogic } from './activityForSceneLogic'
+import { ActivityScope, UserBasicType } from '~/types'
+
+import { SidePanelSceneContext } from '../../types'
+import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
@@ -31,10 +34,16 @@ export enum SidePanelActivityTab {
     All = 'all',
 }
 
+export type ActivityFilters = {
+    scope?: ActivityScope
+    item_id?: ActivityLogItem['item_id']
+    user?: UserBasicType['id']
+}
+
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect({
-        values: [activityForSceneLogic, ['sceneActivityFilters']],
+        values: [sidePanelContextLogic, ['sceneSidePanelContext']],
     }),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -253,8 +262,16 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     }),
 
     subscriptions(({ actions, values }) => ({
-        sceneActivityFilters: (activityFilters) => {
-            actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
+        sceneSidePanelContext: (sceneSidePanelContext: SidePanelSceneContext) => {
+            actions.setFiltersForCurrentPage(
+                sceneSidePanelContext
+                    ? {
+                          ...values.filters,
+                          scope: sceneSidePanelContext.activity_scope,
+                          item_id: sceneSidePanelContext.activity_item_id,
+                      }
+                    : null
+            )
         },
         filters: () => {
             if (values.activeTab === SidePanelActivityTab.All) {
