@@ -23,7 +23,6 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import (
-    BREAKDOWN_NULL_NUMERIC_LABEL,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
@@ -240,14 +239,10 @@ class TrendsQueryRunner(QueryRunner):
                     cohort_name = "all users" if str(value) == "0" else Cohort.objects.get(pk=value).name
                     label = cohort_name
                     value = value
-                elif value == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
-                    # label = "Other"
-                    # value = BREAKDOWN_OTHER_STRING_LABEL
-                    continue  # TODO: Add support for "other" breakdowns
-                elif value == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:
-                    # label = "Null"
-                    # value = BREAKDOWN_NULL_STRING_LABEL
-                    continue  # TODO: Add support for "null" breakdowns
+                elif value == BREAKDOWN_OTHER_STRING_LABEL:
+                    label = "Other (Groups all remaining values)"
+                elif value == BREAKDOWN_NULL_STRING_LABEL:
+                    label = "None (No value)"
                 elif is_boolean_breakdown:
                     label = self._convert_boolean(value)
                 else:
