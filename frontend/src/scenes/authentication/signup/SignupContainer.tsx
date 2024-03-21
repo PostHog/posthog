@@ -62,9 +62,9 @@ type ProductBenefit = {
 }
 
 const getProductBenefits = (featureFlags: FeatureFlagsSet): ProductBenefit[] => {
-    const signupBenefitsFlag = featureFlags[FEATURE_FLAGS.GENERIC_SIGNUP_BENEFITS]
+    const signupBenefitsFlag = featureFlags[FEATURE_FLAGS.SIGNUP_BENEFITS_LANGUAGE]
     switch (signupBenefitsFlag) {
-        case 'generic':
+        case 'generic-language':
             return [
                 {
                     benefit: 'Free usage every month - even on paid plans',
