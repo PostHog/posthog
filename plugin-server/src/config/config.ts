@@ -163,6 +163,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_DEBUG_PARTITION: undefined,
         SESSION_RECORDING_KAFKA_DEBUG: undefined,
         SESSION_RECORDING_MAX_PARALLEL_FLUSHES: 10,
+        SESSION_RECORDING_OVERFLOW_ENABLED: false,
+        SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 2_000_000, // 2MB/second uncompressed, sustained
+        SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 100_000_000, // 100MB burst
     }
 }
 

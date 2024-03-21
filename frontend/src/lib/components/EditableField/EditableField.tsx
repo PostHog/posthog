@@ -3,6 +3,7 @@ import './EditableField.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import { IconPencil } from '@posthog/icons'
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconMarkdown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -11,6 +12,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
+
+import { AvailableFeature } from '~/types'
+
+import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 
 export interface EditableFieldProps {
     /** What this field stands for. */
@@ -28,7 +33,7 @@ export interface EditableFieldProps {
     markdown?: boolean
     compactButtons?: boolean | 'xsmall' // The 'xsmall' is somewhat hacky, but necessary for 3000 breadcrumbs
     /** Whether this field should be gated behind a "paywall". */
-    paywall?: boolean
+    paywallFeature?: AvailableFeature
     /** Controlled mode. */
     mode?: 'view' | 'edit'
     onModeToggle?: (newMode: 'view' | 'edit') => void
@@ -58,7 +63,7 @@ export function EditableField({
     multiline = false,
     markdown = false,
     compactButtons = false,
-    paywall = false,
+    paywallFeature,
     mode,
     onModeToggle,
     editingIndication = 'outlined',
@@ -68,6 +73,7 @@ export function EditableField({
     saveButtonText = 'Save',
     notice,
 }: EditableFieldProps): JSX.Element {
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const [localIsEditing, setLocalIsEditing] = useState(mode === 'edit')
     const [localTentativeValue, setLocalTentativeValue] = useState(value)
     const [isDisplayTooltipNeeded, setIsDisplayTooltipNeeded] = useState(false)
@@ -125,7 +131,7 @@ export function EditableField({
         onModeToggle?.('view')
     }
 
-    const isEditing = !paywall && (mode === 'edit' || localIsEditing)
+    const isEditing = mode === 'edit' || localIsEditing
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
         if (isEditing) {
@@ -156,123 +162,117 @@ export function EditableField({
             style={style}
             ref={containerRef}
         >
-            <Tooltip
-                placement="right"
-                title={
-                    paywall
-                        ? "This field is part of PostHog's collaboration feature set and requires a premium plan."
-                        : undefined
-                }
-            >
-                <div className="EditableField__highlight">
-                    {isEditing ? (
-                        <>
-                            {multiline ? (
-                                <TextareaAutosize
-                                    name={name}
-                                    value={localTentativeValue}
-                                    onChange={(e) => {
+            <div className="EditableField__highlight">
+                {isEditing ? (
+                    <>
+                        {multiline ? (
+                            <TextareaAutosize
+                                name={name}
+                                value={localTentativeValue}
+                                onChange={(e) => {
+                                    onChange?.(e.target.value)
+                                    setLocalTentativeValue(e.target.value)
+                                }}
+                                onBlur={saveOnBlur ? (localTentativeValue !== value ? save : cancel) : undefined}
+                                onKeyDown={handleKeyDown}
+                                placeholder={placeholder}
+                                minLength={minLength}
+                                maxLength={maxLength}
+                                autoFocus={autoFocus}
+                                ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+                            />
+                        ) : (
+                            <AutosizeInput
+                                name={name}
+                                value={localTentativeValue}
+                                onChange={(e) => {
+                                    guardAvailableFeature(paywallFeature, () => {
                                         onChange?.(e.target.value)
                                         setLocalTentativeValue(e.target.value)
-                                    }}
-                                    onBlur={saveOnBlur ? (localTentativeValue !== value ? save : cancel) : undefined}
-                                    onKeyDown={handleKeyDown}
-                                    placeholder={placeholder}
-                                    minLength={minLength}
-                                    maxLength={maxLength}
-                                    autoFocus={autoFocus}
-                                    ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-                                />
-                            ) : (
-                                <AutosizeInput
-                                    name={name}
-                                    value={localTentativeValue}
-                                    onChange={(e) => {
-                                        onChange?.(e.target.value)
-                                        setLocalTentativeValue(e.target.value)
-                                    }}
-                                    onBlur={saveOnBlur ? (localTentativeValue !== value ? save : cancel) : undefined}
-                                    onKeyDown={handleKeyDown}
-                                    placeholder={placeholder}
-                                    minLength={minLength}
-                                    maxLength={maxLength}
-                                    autoFocus={autoFocus}
-                                    ref={inputRef as React.RefObject<HTMLInputElement>}
-                                />
-                            )}
-                            {(!mode || !!onModeToggle) && (
-                                <div className="EditableField__actions">
-                                    {markdown && (
-                                        <Tooltip title="Markdown formatting support">
-                                            <span className="flex items-center">
-                                                <IconMarkdown className="text-muted text-2xl" />
-                                            </span>
-                                        </Tooltip>
-                                    )}
-                                    <LemonButton
-                                        title="Cancel editing"
-                                        size={typeof compactButtons === 'string' ? compactButtons : 'small'}
-                                        onClick={cancel}
-                                        type="secondary"
-                                        onMouseDown={mouseDownOnCancelButton}
-                                    >
-                                        Cancel
-                                    </LemonButton>
-                                    <LemonButton
-                                        title={
-                                            !minLength
-                                                ? 'Save'
-                                                : `Save (at least ${pluralize(
-                                                      minLength,
-                                                      'character',
-                                                      'characters'
-                                                  )} required)`
-                                        }
-                                        size={typeof compactButtons === 'string' ? compactButtons : 'small'}
-                                        disabled={!isSaveable}
-                                        onClick={save}
-                                        type="primary"
-                                    >
-                                        {saveButtonText}
-                                    </LemonButton>
-                                </div>
-                            )}
-                        </>
-                    ) : (
-                        <>
-                            {localTentativeValue && markdown ? (
-                                <LemonMarkdown lowKeyHeadings>{localTentativeValue}</LemonMarkdown>
-                            ) : (
-                                <Tooltip
-                                    title={isDisplayTooltipNeeded ? localTentativeValue : undefined}
-                                    placement="bottom-start"
-                                    delayMs={0}
+                                    })
+                                }}
+                                onBlur={saveOnBlur ? (localTentativeValue !== value ? save : cancel) : undefined}
+                                onKeyDown={handleKeyDown}
+                                placeholder={placeholder}
+                                minLength={minLength}
+                                maxLength={maxLength}
+                                autoFocus={autoFocus}
+                                ref={inputRef as React.RefObject<HTMLInputElement>}
+                            />
+                        )}
+                        {(!mode || !!onModeToggle) && (
+                            <div className="EditableField__actions">
+                                {markdown && (
+                                    <Tooltip title="Markdown formatting support">
+                                        <span className="flex items-center">
+                                            <IconMarkdown className="text-muted text-2xl" />
+                                        </span>
+                                    </Tooltip>
+                                )}
+                                <LemonButton
+                                    title="Cancel editing"
+                                    size={typeof compactButtons === 'string' ? compactButtons : 'small'}
+                                    onClick={cancel}
+                                    type="secondary"
+                                    onMouseDown={mouseDownOnCancelButton}
                                 >
-                                    <span className="EditableField__display" ref={displayRef}>
-                                        {localTentativeValue || <i>{placeholder}</i>}
-                                    </span>
-                                </Tooltip>
-                            )}
-                            {(!mode || !!onModeToggle) && (
-                                <div className="EditableField__actions">
-                                    <LemonButton
-                                        title="Edit"
-                                        icon={<IconPencil />}
-                                        size={compactButtons ? 'small' : undefined}
-                                        onClick={() => {
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    title={
+                                        !minLength
+                                            ? 'Save'
+                                            : `Save (at least ${pluralize(
+                                                  minLength,
+                                                  'character',
+                                                  'characters'
+                                              )} required)`
+                                    }
+                                    size={typeof compactButtons === 'string' ? compactButtons : 'small'}
+                                    disabled={!isSaveable}
+                                    onClick={save}
+                                    type="primary"
+                                >
+                                    {saveButtonText}
+                                </LemonButton>
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <>
+                        {localTentativeValue && markdown ? (
+                            <LemonMarkdown lowKeyHeadings>{localTentativeValue}</LemonMarkdown>
+                        ) : (
+                            <Tooltip
+                                title={isDisplayTooltipNeeded ? localTentativeValue : undefined}
+                                placement="bottom-start"
+                                delayMs={0}
+                            >
+                                <span className="EditableField__display" ref={displayRef}>
+                                    {localTentativeValue || <i>{placeholder}</i>}
+                                </span>
+                            </Tooltip>
+                        )}
+                        {(!mode || !!onModeToggle) && (
+                            <div className="EditableField__actions">
+                                <LemonButton
+                                    title="Edit"
+                                    icon={<IconPencil />}
+                                    size={compactButtons ? 'small' : undefined}
+                                    onClick={() => {
+                                        guardAvailableFeature(paywallFeature, () => {
                                             setLocalIsEditing(true)
                                             onModeToggle?.('edit')
-                                        }}
-                                        data-attr={`edit-prop-${name}`}
-                                        disabled={paywall}
-                                        noPadding
-                                    />
-                                </div>
-                            )}
-                        </>
-                    )}
-                </div>
-            </Tooltip>
+                                        })
+                                    }}
+                                    data-attr={`edit-prop-${name}`}
+                                    noPadding
+                                />
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
             {!isEditing && notice && (
                 <Tooltip title={notice.tooltip} placement="right">
                     <span className="flex items-center">

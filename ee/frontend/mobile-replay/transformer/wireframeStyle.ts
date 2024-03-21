@@ -130,9 +130,24 @@ function makeLayoutStyles(wireframe: wireframe, styleOverride?: StyleOverride): 
             }`
         )
     }
+
     if (styleParts.length) {
         styleParts.push(`display: flex`)
     }
+
+    if (isUnitLike(combinedStyles.paddingLeft)) {
+        styleParts.push(`padding-left: ${ensureUnit(combinedStyles.paddingLeft)}`)
+    }
+    if (isUnitLike(combinedStyles.paddingRight)) {
+        styleParts.push(`padding-right: ${ensureUnit(combinedStyles.paddingRight)}`)
+    }
+    if (isUnitLike(combinedStyles.paddingTop)) {
+        styleParts.push(`padding-top: ${ensureUnit(combinedStyles.paddingTop)}`)
+    }
+    if (isUnitLike(combinedStyles.paddingBottom)) {
+        styleParts.push(`padding-bottom: ${ensureUnit(combinedStyles.paddingBottom)}`)
+    }
+
     return asStyleString(styleParts)
 }
 
