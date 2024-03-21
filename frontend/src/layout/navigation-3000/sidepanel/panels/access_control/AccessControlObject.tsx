@@ -15,7 +15,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -374,6 +374,10 @@ function AddItemsControls(props: {
     // TODO: Move this into a form logic
     const [items, setItems] = useState<string[]>([])
     const [level, setLevel] = useState<AccessControlType['access_level']>(availableLevels[0] ?? null)
+
+    useEffect(() => {
+        setLevel(availableLevels[0] ?? null)
+    }, [availableLevels])
 
     const onSubmit =
         items.length && level
