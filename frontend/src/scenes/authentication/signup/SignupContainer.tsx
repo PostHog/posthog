@@ -62,7 +62,7 @@ type ProductBenefit = {
 }
 
 const getProductBenefits = (featureFlags: FeatureFlagsSet): ProductBenefit[] => {
-    const signupBenefitsFlag = featureFlags[FEATURE_FLAGS.SIGNUP_BENEFITS_LANGUAGE]
+    const signupBenefitsFlag = featureFlags[FEATURE_FLAGS.SIGNUP_BENEFITS]
     switch (signupBenefitsFlag) {
         case 'generic-language':
             return [
