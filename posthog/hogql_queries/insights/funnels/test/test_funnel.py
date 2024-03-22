@@ -3618,6 +3618,37 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[0][1]["breakdown_value"], ["test'123"])
             self.assertEqual(results[0][1]["count"], 1)
 
+        def test_funnel_parses_event_names_correctly(self):
+            _create_person(
+                distinct_ids=[f"user_1"],
+                team=self.team,
+            )
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "test''1",
+                        "timestamp": datetime(2024, 3, 22, 13, 46),
+                    },
+                    {
+                        "event": "test''2",
+                        "timestamp": datetime(2024, 3, 22, 13, 47),
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[EventsNode(event="test'1"), EventsNode()],
+                dateRange=DateRange(
+                    date_from="2024-03-22",
+                    date_to="2024-03-22",
+                ),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0]["count"], 1)
+
     return TestGetFunnel
 
 

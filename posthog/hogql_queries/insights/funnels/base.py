@@ -613,7 +613,7 @@ class FunnelBase(ABC):
             event_expr = ast.Constant(value=True)
         else:
             # event
-            event_expr = parse_expr(f"event = '{entity.event}'")
+            event_expr = parse_expr("event = {event}", {"event": ast.Constant(value=entity.event)})
 
         if entity.properties is not None and entity.properties != []:
             # add property filters
