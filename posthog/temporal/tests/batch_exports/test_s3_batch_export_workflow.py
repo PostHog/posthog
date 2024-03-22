@@ -29,6 +29,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     update_export_run_status,
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
+    FILE_FORMAT_EXTENSIONS,
     HeartbeatDetails,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
@@ -311,7 +312,7 @@ TEST_S3_SCHEMAS: list[BatchExportSchema | None] = [
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
-@pytest.mark.parametrize("file_format", ["JSONLines", "Parquet"])
+@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 async def test_insert_into_s3_activity_puts_data_into_s3(
     clickhouse_client,
     bucket_name,
@@ -474,7 +475,7 @@ async def s3_batch_export(
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
-@pytest.mark.parametrize("file_format", ["JSONLines", "Parquet"], indirect=True)
+@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 async def test_s3_export_workflow_with_minio_bucket(
     clickhouse_client,
     minio_client,
@@ -604,7 +605,7 @@ async def s3_client(bucket_name, s3_key_prefix):
 @pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
 @pytest.mark.parametrize("bucket_name", [os.getenv("S3_TEST_BUCKET")], indirect=True)
 @pytest.mark.parametrize("batch_export_schema", TEST_S3_SCHEMAS)
-@pytest.mark.parametrize("file_format", ["JSONLines", "Parquet"])
+@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 async def test_s3_export_workflow_with_s3_bucket(
     s3_client,
     clickhouse_client,
