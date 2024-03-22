@@ -23,6 +23,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     }),
 
     reducers(({ props }) => ({
+        // TRICKY: We cache a copy of the props. This allows us to connect the logic without passing the props in - only the top level caller has to do this.
+        props: [props],
         temporaryToken: [
             props.temporaryToken || null,
             { logout: () => null, tokenExpired: () => null, authenticate: () => null },
@@ -30,24 +32,24 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
-        posthog: [props.posthog ?? null],
     })),
 
     selectors({
+        posthog: [(s) => [s.props], (props) => props.posthog],
         apiURL: [
-            () => [(_, props) => props],
-            (props) => `${props.apiURL.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
+            (s) => [s.props],
+            (props: ToolbarProps) => `${props.apiURL?.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
         ],
         jsURL: [
-            (s) => [(_, props) => props, s.apiURL],
-            (props, apiUrl) =>
+            (s) => [s.props, s.apiURL],
+            (props: ToolbarProps, apiUrl) =>
                 `${props.jsURL ? (props.jsURL.endsWith('/') ? props.jsURL.replace(/\/+$/, '') : props.jsURL) : apiUrl}`,
         ],
-        dataAttributes: [() => [(_, props) => props], (props): string[] => props.dataAttributes ?? []],
+        dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
     }),
 
-    listeners(({ props, values, actions }) => ({
+    listeners(({ values, actions }) => ({
         authenticate: () => {
             posthog.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
@@ -61,7 +63,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         tokenExpired: () => {
             posthog.capture('toolbar token expired')
             console.warn('PostHog Toolbar API token expired. Clearing session.')
-            if (props.source !== 'localstorage') {
+            if (values.props.source !== 'localstorage') {
                 lemonToast.error('PostHog Toolbar API token expired.')
             }
             actions.persistConfig()
@@ -70,7 +72,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         persistConfig: () => {
             // Most params we don't change, only those that we may have modified during the session
             const toolbarParams: ToolbarProps = {
-                ...props,
+                ...values.props,
                 temporaryToken: values.temporaryToken ?? undefined,
                 actionId: values.actionId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
@@ -101,12 +103,10 @@ export async function toolbarFetch(
     /*
      allows caller to control how the provided URL is altered before use
      if "full" then the payload and URL are taken apart and reconstructed
-     if "only-add-token" the URL is unchanged, the payload is not used
-     but the temporary token is added to the URL
      if "use-as-provided" then the URL is used as-is, and the payload is not used
      this is because the heatmapLogic needs more control over how the query parameters are constructed
     */
-    urlConstruction: 'full' | 'only-add-token' | 'use-as-provided' = 'full'
+    urlConstruction: 'full' | 'use-as-provided' = 'full'
 ): Promise<Response> {
     const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
     const apiURL = toolbarConfigLogic.findMounted()?.values.apiURL
@@ -114,8 +114,6 @@ export async function toolbarFetch(
     let fullUrl: string
     if (urlConstruction === 'use-as-provided') {
         fullUrl = url
-    } else if (urlConstruction === 'only-add-token') {
-        fullUrl = `${url}&temporary_token=${temporaryToken}`
     } else {
         const { pathname, searchParams } = combineUrl(url)
         const params = { ...searchParams, temporary_token: temporaryToken }
