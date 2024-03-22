@@ -55,6 +55,7 @@ exports[`replay/transform transform can convert images 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -214,6 +215,7 @@ exports[`replay/transform transform can convert navigation bar 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -395,6 +397,7 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -551,6 +554,7 @@ exports[`replay/transform transform can convert status bar 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -718,6 +722,7 @@ exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -860,6 +865,7 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -1006,6 +1012,7 @@ exports[`replay/transform transform can set background image to base64 png 1`] =
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -1199,6 +1206,7 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -1747,6 +1755,7 @@ exports[`replay/transform transform inputs buttons with nested elements 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -1913,6 +1922,7 @@ exports[`replay/transform transform inputs input - $inputType - hello 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -2032,6 +2042,7 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -2168,6 +2179,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -2315,6 +2327,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -2461,6 +2474,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -2609,6 +2623,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 4`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -2740,6 +2755,7 @@ exports[`replay/transform transform inputs input - email - $value 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -2871,6 +2887,7 @@ exports[`replay/transform transform inputs input - number - $value 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -3002,6 +3019,7 @@ exports[`replay/transform transform inputs input - password - $value 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -3133,6 +3151,7 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -3289,6 +3308,7 @@ exports[`replay/transform transform inputs input - progress - $value 2`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -3421,6 +3441,7 @@ exports[`replay/transform transform inputs input - progress - 0.75 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -3553,6 +3574,7 @@ exports[`replay/transform transform inputs input - progress - 0.75 2`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -3685,6 +3707,7 @@ exports[`replay/transform transform inputs input - search - $value 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -3816,6 +3839,7 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -3979,6 +4003,7 @@ exports[`replay/transform transform inputs input - tel - $value 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -4111,6 +4136,7 @@ exports[`replay/transform transform inputs input - text - $value 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -4242,6 +4268,7 @@ exports[`replay/transform transform inputs input - text - hello 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -4373,6 +4400,7 @@ exports[`replay/transform transform inputs input - textArea - $value 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -4504,6 +4532,7 @@ exports[`replay/transform transform inputs input - textArea - hello 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -4635,6 +4664,7 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -4814,6 +4844,7 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -4993,6 +5024,7 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -5172,6 +5204,7 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -5335,6 +5368,7 @@ exports[`replay/transform transform inputs input - url - https://example.io 1`] 
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -5466,6 +5500,7 @@ exports[`replay/transform transform inputs input gets 0 padding by default but c
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -6918,6 +6953,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -7053,6 +7089,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -7686,6 +7723,7 @@ exports[`replay/transform transform inputs radio group - $inputType - $value 1`]
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -7805,6 +7843,7 @@ exports[`replay/transform transform inputs radio_group - $inputType - $value 1`]
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -7934,6 +7973,7 @@ exports[`replay/transform transform inputs radio_group 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -8063,6 +8103,7 @@ exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = 
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -8198,6 +8239,7 @@ exports[`replay/transform transform inputs web_view with URL 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -8333,6 +8375,7 @@ exports[`replay/transform transform inputs wrapping with labels 1`] = `
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;
@@ -8480,6 +8523,7 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;

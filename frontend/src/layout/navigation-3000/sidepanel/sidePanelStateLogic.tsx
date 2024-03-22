@@ -1,6 +1,7 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
+import posthog from 'posthog-js'
 
 import { SidePanelTab } from '~/types'
 
@@ -55,10 +56,12 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
     listeners(({ actions, values }) => ({
         // NOTE: We explicitly reference the actions instead of connecting so that people don't accidentally
         // use this logic instead of sidePanelStateLogic
-        openSidePanel: () => {
+        openSidePanel: ({ tab }) => {
+            posthog.capture('sidebar opened', { tab })
             actions.setSidePanelOpen(true)
         },
         closeSidePanel: ({ tab }) => {
+            posthog.capture('sidebar closed', { tab })
             if (!tab) {
                 // If we aren't specifiying the tab we always close
                 actions.setSidePanelOpen(false)

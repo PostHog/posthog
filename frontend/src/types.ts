@@ -907,8 +907,10 @@ export interface SessionRecordingsResponse {
 
 export type ErrorCluster = {
     cluster: number
-    sample: { session_id: string; error: string }
+    sample: string
     occurrences: number
+    session_ids: string[]
+    sparkline: Record<string, number>
     unique_sessions: number
     viewed: number
 }
@@ -3612,7 +3614,7 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres' | 'Zendesk'
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType

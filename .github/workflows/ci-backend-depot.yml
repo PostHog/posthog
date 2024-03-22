@@ -5,15 +5,7 @@
 name: Backend CI (depot)
 
 on:
-    push:
-        branches:
-            - master
     pull_request:
-    workflow_dispatch:
-        inputs:
-            clickhouseServerVersion:
-                description: ClickHouse server version. Leave blank for default
-                type: string
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -39,9 +31,9 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'test-depot') }}
         name: Determine need to run backend checks
         # Set job outputs to values from filter step
         outputs:
@@ -90,7 +82,7 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality checks
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
 
         steps:
             # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
@@ -174,7 +166,7 @@ jobs:
         timeout-minutes: 10
 
         name: Validate Django migrations
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
 
         steps:
             - uses: actions/checkout@v3
@@ -237,7 +229,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }}) (depot)
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
 
         strategy:
             fail-fast: false
@@ -318,7 +310,7 @@ jobs:
             matrix:
                 clickhouse-server-image: ['clickhouse/clickhouse-server:23.11.2.11-alpine']
         if: needs.changes.outputs.backend == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v3
