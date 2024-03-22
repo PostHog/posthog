@@ -553,8 +553,13 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
 
 
 def get_batch_export_writer(
-    inputs, flush_callable: FlushCallable, max_bytes: int, schema: pa.Schema | None = None
+    inputs: S3InsertInputs, flush_callable: FlushCallable, max_bytes: int, schema: pa.Schema | None = None
 ) -> BatchExportWriter:
+    """Return the `BatchExportWriter` corresponding to configured `file_format`.
+
+    Raises:
+        UnsupportedFileFormatError: If no writer exists for given `file_format`.
+    """
     writer: BatchExportWriter
 
     if inputs.file_format == "Parquet":
