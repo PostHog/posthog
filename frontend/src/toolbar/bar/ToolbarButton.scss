@@ -14,6 +14,7 @@
         justify-content: center;
         width: 2rem;
         height: 2rem;
+        margin: 0.25rem;
         min-height: var(--lemon-button-height);
         color: var(--muted-alt);
         appearance: none !important; // Important as this gets overridden by Ant styles...
@@ -41,6 +42,14 @@
                 color: var(--muted-alt);
                 background: none;
             }
+        }
+    }
+
+    &--flex {
+        flex-grow: 1;
+        width: auto;
+        button {
+            width: 100%;
         }
     }
 }

@@ -77,7 +77,9 @@ function MoreMenu(): JSX.Element {
             }
             maxContentWidth={true}
         >
-            <ToolbarButton icon={<IconMenu />} title="More options" />
+            <ToolbarButton title="More options">
+                <IconMenu />
+            </ToolbarButton>
         </LemonMenu>
     )
 }
@@ -163,7 +165,6 @@ export function Toolbar(): JSX.Element {
                 className={clsx(
                     'Toolbar',
                     minimized && 'Toolbar--minimized',
-                    !isAuthenticated && 'Toolbar--unauthenticated',
                     hedgehogMode && 'Toolbar--hedgehog-mode',
                     isDragging && 'Toolbar--dragging'
                 )}
@@ -178,19 +179,32 @@ export function Toolbar(): JSX.Element {
                 }
             >
                 <ToolbarButton
-                    icon={<IconLogomark />}
                     onClick={isAuthenticated ? toggleMinimized : authenticate}
                     title={isAuthenticated ? 'Minimize' : 'Authenticate the PostHog Toolbar'}
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
-                />
+                >
+                    <IconLogomark />
+                </ToolbarButton>
                 {isAuthenticated ? (
                     <>
-                        <ToolbarButton icon={<IconSearch />} menuId="inspect" />
-                        <ToolbarButton icon={<IconCursorClick />} menuId="heatmap" />
-                        <ToolbarButton icon={<IconBolt />} menuId="actions" />
-                        <ToolbarButton icon={<IconToggle />} menuId="flags" title="Feature flags" />
+                        <ToolbarButton menuId="inspect">
+                            <IconSearch />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="heatmap">
+                            <IconCursorClick />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="actions">
+                            <IconBolt />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="flags" title="Feature flags">
+                            <IconToggle />
+                        </ToolbarButton>
                     </>
-                ) : null}
+                ) : (
+                    <ToolbarButton flex onClick={authenticate}>
+                        Authenticate
+                    </ToolbarButton>
+                )}
 
                 <MoreMenu />
             </div>
