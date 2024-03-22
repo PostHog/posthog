@@ -662,7 +662,7 @@ class FunnelBase(ABC):
 
             conditions.append(
                 parse_expr(
-                    f"arrayFlatten(array(prop)) = arrayFlatten(array({{funnelStepBreakdown}}))",
+                    "arrayFlatten(array(prop)) = arrayFlatten(array({funnelStepBreakdown}))",
                     {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
                 )
             )
