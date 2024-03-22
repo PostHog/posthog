@@ -254,8 +254,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.116.3
-    version: 1.116.3
+    specifier: 1.116.4
+    version: 1.116.4
   posthog-js-lite:
     specifier: 2.5.0
     version: 2.5.0
@@ -6796,7 +6796,7 @@ packages:
       '@storybook/csf': 0.1.3
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.17
-      '@types/qs': 6.9.13
+      '@types/qs': 6.9.14
       dequal: 2.0.3
       lodash: 4.17.21
       memoizerific: 1.11.3
@@ -8200,8 +8200,8 @@ packages:
     resolution: {integrity: sha512-bZcOkJ6uWrL0Qb2NAWKa7TBU+mJHPzhx9jjLL1KHF+XpzEcR7EXHvjbHlGtR/IsP1vyPrehuS6XqkmaePy//mg==}
     dev: false
 
-  /@types/qs@6.9.13:
-    resolution: {integrity: sha512-iLR+1vTTJ3p0QaOUq6ACbY1mzKTODFDT/XedZI8BksOotFmL4ForwDfRQ/DZeuTHR7/2i4lI1D203gdfxuqTlA==}
+  /@types/qs@6.9.14:
+    resolution: {integrity: sha512-5khscbd3SwWMhFqylJBLQ0zIu7c1K6Vz0uBIt915BI3zV0q1nfjRQD3RqSBcPaO6PHEF4ov/t9y89fSiyThlPA==}
     dev: true
 
   /@types/query-selector-shadow-dom@1.0.0:
@@ -17454,8 +17454,8 @@ packages:
     resolution: {integrity: sha512-Urvlp0Vu9h3td0BVFWt0QXFJDoOZcaAD83XM9d91NKMKTVPZtfU0ysoxstIf5mw/ce9ZfuMgpWPaagrZI4rmSg==}
     dev: false
 
-  /posthog-js@1.116.3:
-    resolution: {integrity: sha512-KakGsQ8rS/K/U5Q/tiBrRrFRCgGrR0oI9VSYw9hwNCY00EClwAU3EuykUuQTFdQ1EuYMrZDIMWDD4NW6zgf7wQ==}
+  /posthog-js@1.116.4:
+    resolution: {integrity: sha512-PZg208/k5OZRQbd9tnGvUgtyRl1IAYyyh74teyIDIH3EnlsAolBlVM4gcoyEYoVkUi5sZLKitj9gTX3/vnEG4Q==}
     dependencies:
       fflate: 0.4.8
       preact: 10.20.0
