@@ -1,3 +1,4 @@
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -23,13 +24,13 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
 
     if (!iNeedHelp) {
         return (
-            <LemonButton type="secondary" className="mt-8" onClick={() => setINeedHelp(true)}>
+            <LemonButton type="secondary" className="mt-2" onClick={() => setINeedHelp(true)}>
                 I need help
             </LemonButton>
         )
     }
 
-    const checklist = ['Check your spam folder', 'Check with your IT department']
+    const checklist = ['Checked your spam folder', 'Checked with your IT department (if applicable)']
 
     const handleChecklistChange = (index: number): void => {
         const newCheckListValues = [...checkListValues]
@@ -40,42 +41,52 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     const allChecked = checklist.every((_, index) => checkListValues[index])
 
     return (
-        <div className="w-full">
-            <div className="flex flex-col gap-y-3 justify-center items-center">
-                {checklist.map((item, index) => (
-                    <div key={index} className="flex items-center gap-x-2">
+        <div className="w-full bg-bg-3000 p-4 rounded relative">
+            <IconX
+                className="absolute top-3 right-3 cursor-pointer"
+                onClick={() => {
+                    setCheckListValues([])
+                    setINeedHelp(false)
+                }}
+            />
+            <div className="flex flex-col justify-center">
+                <p className="text-left mb-2">Please confirm you've done the following:</p>
+                <div className="space-y-2">
+                    {checklist.map((item, index) => (
                         <LemonCheckbox
+                            key={index}
                             onChange={() => handleChecklistChange(index)}
                             checked={checkListValues[index]}
                             label={item}
                             bordered
                             size="small"
                         />
-                    </div>
-                ))}
+                    ))}
+                </div>
             </div>
             {allChecked && (
-                <div className="flex flex-row gap-x-4 justify-center items-center">
-                    <LemonButton
-                        type="secondary"
-                        className="mt-8"
-                        onClick={() => {
-                            openSupportForm({ kind: 'bug', target_area: 'login' })
-                        }}
-                    >
-                        Contact support
-                    </LemonButton>
-                    {uuid && (
+                <div className="mt-4">
+                    <p className="text-left mb-2">Choose one of the following options:</p>
+                    <div className="flex flex-row gap-x-4 justify-start">
                         <LemonButton
-                            type="secondary"
-                            className="mt-8"
+                            type="primary"
                             onClick={() => {
-                                requestVerificationLink(uuid)
+                                openSupportForm({ kind: 'bug', target_area: 'login' })
                             }}
                         >
-                            Request a new link
+                            Contact support
                         </LemonButton>
-                    )}
+                        {uuid && (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => {
+                                    requestVerificationLink(uuid)
+                                }}
+                            >
+                                Request a new link
+                            </LemonButton>
+                        )}
+                    </div>
                 </div>
             )}
         </div>
