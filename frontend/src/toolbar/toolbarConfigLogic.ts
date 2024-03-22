@@ -119,10 +119,12 @@ export async function toolbarFetch(
     })
     if (response.status === 403) {
         const responseData = await response.json()
-        // Do not try to authenticate if the user has no project access altogether
-        if (responseData.detail !== "You don't have access to the project.") {
+        if (responseData.detail === "You don't have access to the project.") {
             toolbarConfigLogic.actions.authenticate()
         }
+    }
+    if (response.status == 401) {
+        toolbarConfigLogic.actions.tokenExpired()
     }
     return response
 }

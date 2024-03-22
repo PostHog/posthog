@@ -176,7 +176,7 @@ export interface DataNode extends Node {
 
 /** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
 export interface HogQLQueryModifiers {
-    personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
+    personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled' | 'v3_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
