@@ -512,14 +512,6 @@ class ParquetBatchExportWriter(BatchExportWriter):
             )
         return self._parquet_writer
 
-    def ensure_parquet_writer_is_closed(self) -> None:
-        """Ensure ParquetWriter is closed as Parquet footer bytes are written on closing."""
-        if self._parquet_writer is None:
-            return
-
-        self._parquet_writer.writer.close()
-        self._parquet_writer = None
-
     @contextlib.asynccontextmanager
     async def open_temporary_file(self):
         """Ensure underlying Parquet writer is closed before flushing and closing temporary file."""
@@ -527,7 +519,9 @@ class ParquetBatchExportWriter(BatchExportWriter):
             try:
                 yield
             finally:
-                self.ensure_parquet_writer_is_closed()
+                if self._parquet_writer is not None:
+                    self._parquet_writer.writer.close()
+                    self._parquet_writer = None
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Write records to a temporary file as Parquet."""
