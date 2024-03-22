@@ -141,6 +141,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
     })),
     selectors({
+        selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
@@ -218,7 +219,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         logic: dataWarehouseSceneLogic,
                         value: 'externalTables',
                         getName: (table: DataWarehouseTableType) => table.name,
-                        getValue: (table: DataWarehouseTableType) => table.id,
+                        getValue: (table: DataWarehouseTableType) => table.name,
                         getPopoverHeader: () => 'Data Warehouse Table',
                         getIcon: () => <IconServer />,
                     },

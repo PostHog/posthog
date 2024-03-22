@@ -1,6 +1,7 @@
 import Fuse from 'fuse.js'
 import { BuiltLogic, LogicWrapper } from 'kea'
 import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
+import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
 import {
@@ -22,6 +23,7 @@ export interface TaxonomicFilterProps {
     value?: TaxonomicFilterValue
     onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onClose?: () => void
+    filter?: LocalFilter
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>

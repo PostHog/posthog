@@ -140,6 +140,7 @@
         "maplibre-gl": "^3.5.1",
         "md5": "^2.3.0",
         "monaco-editor": "^0.39.0",
+        "natural-orderby": "^3.0.2",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
