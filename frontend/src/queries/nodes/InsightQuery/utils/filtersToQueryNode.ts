@@ -475,16 +475,14 @@ export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilt
         pathGroupings: filters.path_groupings,
         funnelPaths: filters.funnel_paths,
         funnelFilter: filters.funnel_filter,
-        funnelActorsQuery: filters.funnel_filter
-            ? ({
-                  kind: NodeKind.FunnelsActorsQuery,
-                  source: {
-                      funnelsFilter: funnelsFilterToQuery(filters.funnel_filter),
-                      ...filtersToQueryNode(filters.funnel_filter),
-                  },
-                  funnelStep: filters.funnel_filter.funnel_step,
-              } as FunnelsActorsQuery)
-            : undefined,
+        funnelActorsQuery:
+            filters.funnel_filter && Object.keys(filters.funnel_filter).length > 0
+                ? ({
+                      kind: NodeKind.FunnelsActorsQuery,
+                      source: filtersToQueryNode(filters.funnel_filter),
+                      funnelStep: filters.funnel_filter.funnel_step,
+                  } as FunnelsActorsQuery)
+                : undefined,
         excludeEvents: filters.exclude_events,
         stepLimit: filters.step_limit,
         pathReplacements: filters.path_replacements,

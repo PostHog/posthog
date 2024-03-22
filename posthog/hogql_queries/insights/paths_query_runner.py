@@ -520,9 +520,6 @@ class PathsQueryRunner(QueryRunner):
                 interval = self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowInterval
                 unit = self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowIntervalUnit
                 interval_unit = funnel_window_interval_unit_to_sql(unit)
-            # TODO: Figure out if funnelWindowDays still used
-            # elif self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowDays:
-            #    interval = self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowDays
 
             return parse_expr(
                 f"arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(_toInt64(x.3)) < toDateTime('2018-01-01') + INTERVAL {interval} {interval_unit}, 0, 1), paths_tuple)"
