@@ -65,20 +65,21 @@ export const createKafkaProducer = async (globalConfig: ProducerGlobalConfig, pr
 
     return producer
 }
+
 export const produce = async ({
     producer,
     topic,
     value,
     key,
     headers = [],
-    waitForAck = true,
+    waitForAck,
 }: {
     producer: RdKafkaProducer
     topic: string
     value: MessageValue
     key: MessageKey
     headers?: MessageHeader[]
-    waitForAck?: boolean
+    waitForAck: boolean
 }): Promise<number | null | undefined> => {
     status.debug('📤', 'Producing message', { topic: topic })
     const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })

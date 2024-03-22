@@ -35,7 +35,7 @@ export class KafkaProducerWrapper {
         key: MessageKey
         topic: string
         headers?: MessageHeader[]
-        waitForAck?: boolean
+        waitForAck: boolean
     }): Promise<void> {
         try {
             kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
@@ -66,7 +66,7 @@ export class KafkaProducerWrapper {
         }
     }
 
-    async queueMessage(kafkaMessage: ProducerRecord, waitForAck?: boolean) {
+    async queueMessage(kafkaMessage: ProducerRecord, waitForAck = false) {
         return await Promise.all(
             kafkaMessage.messages.map((message) =>
                 this.produce({
@@ -80,7 +80,7 @@ export class KafkaProducerWrapper {
         )
     }
 
-    async queueMessages(kafkaMessages: ProducerRecord[], waitForAck?: boolean): Promise<void> {
+    async queueMessages(kafkaMessages: ProducerRecord[], waitForAck = false): Promise<void> {
         await Promise.all(kafkaMessages.map((message) => this.queueMessage(message, waitForAck)))
     }
 
@@ -88,7 +88,7 @@ export class KafkaProducerWrapper {
         topic: string,
         key: Message['key'],
         object: Record<string, any>,
-        waitForAck?: boolean
+        waitForAck = false
     ): Promise<void> {
         await this.queueMessage(
             {
