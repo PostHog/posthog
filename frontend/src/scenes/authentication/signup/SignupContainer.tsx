@@ -83,7 +83,7 @@ const getProductBenefits = (featureFlags: FeatureFlagsSet): ProductBenefit[] => 
         case 'logos':
             return [
                 {
-                    benefit: 'Free for 1M events every month',
+                    benefit: '1M events free every month',
                     description: 'Product analytics, feature flags, experiments, and more.',
                 },
                 {
