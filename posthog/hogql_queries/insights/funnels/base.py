@@ -657,11 +657,15 @@ class FunnelBase(ABC):
             raise ValueError("Missing both funnelStep and funnelCustomSteps")
 
         if funnelStepBreakdown is not None:
-            breakdown_prop_value = funnelStepBreakdown
-            if isinstance(breakdown_prop_value, int) and breakdownType != "cohort":
-                breakdown_prop_value = str(breakdown_prop_value)
+            if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
+                funnelStepBreakdown = str(funnelStepBreakdown)
 
-            conditions.append(parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array({breakdown_prop_value}))"))
+            conditions.append(
+                parse_expr(
+                    f"arrayFlatten(array(prop)) = arrayFlatten(array({{funnelStepBreakdown}}))",
+                    {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                )
+            )
 
         return ast.And(exprs=conditions)
 

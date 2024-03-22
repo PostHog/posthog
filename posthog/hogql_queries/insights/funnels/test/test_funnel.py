@@ -3583,7 +3583,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
             self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
 
-        def test_funnel_parses_breakdowns_correctly(self):
+        def test_parses_breakdowns_correctly(self):
             _create_person(
                 distinct_ids=[f"user_1"],
                 team=self.team,
