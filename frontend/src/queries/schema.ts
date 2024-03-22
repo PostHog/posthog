@@ -1184,6 +1184,7 @@ export type DatetimeDay = string
 
 export type BreakdownValueInt = integer
 export interface InsightActorsQueryOptionsResponse {
+    // @ts-ignore:no-duplicate-type-constituents
     day?: { label: string; value: string | DatetimeDay | Day }[]
     status?: { label: string; value: string }[]
     interval?: {
