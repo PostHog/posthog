@@ -507,8 +507,7 @@ class ParquetBatchExportWriter(BatchExportWriter):
             self._parquet_writer = pq.ParquetWriter(
                 self.batch_export_file,
                 schema=self.schema,
-                # Compression *can* be `None`.
-                compression=self.compression,
+                compression="none" if self.compression is None else self.compression,
             )
         return self._parquet_writer
 
