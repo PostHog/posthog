@@ -15,6 +15,7 @@ import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
     ingestEventBatchingInputLengthSummary,
+    ingestEventEachBatchKafkaAckWait,
     ingestionOverflowingMessagesTotal,
     ingestionParallelism,
     ingestionParallelismPotential,
@@ -227,7 +228,9 @@ export async function eachBatchParallelIngestion(
         // impact the success. Delaying ACKs allows the producer to write in big batches for
         // better throughput and lower broker load.
         const awaitSpan = transaction.startChild({ op: 'awaitACKs', data: { promiseCount: processingPromises.length } })
+        const kafkaAckWaitMetric = ingestEventEachBatchKafkaAckWait.startTimer()
         await Promise.all(processingPromises)
+        kafkaAckWaitMetric()
         awaitSpan.finish()
 
         for (const message of messages) {

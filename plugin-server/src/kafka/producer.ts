@@ -7,6 +7,7 @@ import {
     NumberNullUndefined,
     ProducerGlobalConfig,
 } from 'node-rdkafka'
+import { Summary } from 'prom-client'
 
 import { getSpan } from '../sentry'
 import { status } from '../utils/status'
@@ -16,6 +17,13 @@ export type KafkaProducerConfig = {
     KAFKA_PRODUCER_BATCH_SIZE: number
     KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number
 }
+
+export const ingestEventKafkaAckWait = new Summary({
+    name: 'ingest_event_kafka_ack_wait',
+    help: 'Wait time for individual Kafka produces that await their ACKs',
+    labelNames: ['topic'],
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
 
 // Kafka production related functions using node-rdkafka.
 export const createKafkaProducer = async (globalConfig: ProducerGlobalConfig, producerConfig: KafkaProducerConfig) => {
@@ -84,6 +92,7 @@ export const produce = async ({
     const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
     return await new Promise((resolve, reject) => {
         if (waitForAck) {
+            const ackTimer = ingestEventKafkaAckWait.labels(topic).startTimer()
             producer.produce(
                 topic,
                 null,
@@ -100,6 +109,7 @@ export const produce = async ({
                         resolve(offset)
                     }
 
+                    ackTimer()
                     produceSpan?.finish()
                 }
             )
