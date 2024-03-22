@@ -898,7 +898,12 @@ class FunnelBase(ABC):
                 BreakdownType.group,
             ]:
                 breakdown_values = self._get_breakdown_conditions()
-                return [parse_expr(f"if(has({breakdown_values}, prop), prop, {other_aggregation}) as prop")]
+                return [
+                    parse_expr(
+                        f"if(has({{breakdown_values}}, prop), prop, {other_aggregation}) as prop",
+                        {"breakdown_values": ast.Constant(value=breakdown_values)},
+                    )
+                ]
             else:
                 # Cohorts don't have "Other" aggregation
                 return [ast.Field(chain=["prop"])]
