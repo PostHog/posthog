@@ -3,10 +3,10 @@ import { combineUrl, encodeParams } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { posthog } from '~/toolbar/posthog'
-import { ToolbarProps } from '~/types'
+import { ToolbarParams, ToolbarProps } from '~/types'
 
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
-import { clearSessionToolbarToken } from './utils'
+import { LOCALSTORAGE_KEY } from './utils'
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -19,48 +19,66 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         clearUserIntent: true,
         showButton: true,
         hideButton: true,
+        persistConfig: true,
     }),
 
     reducers(({ props }) => ({
-        rawApiURL: [props.apiURL as string],
-        rawJsURL: [(props.jsURL || props.apiURL) as string],
-        temporaryToken: [props.temporaryToken || null, { logout: () => null, tokenExpired: () => null }],
+        temporaryToken: [
+            props.temporaryToken || null,
+            { logout: () => null, tokenExpired: () => null, authenticate: () => null },
+        ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
-        source: [props.source || null, { logout: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
-        dataAttributes: [props.dataAttributes || []],
         posthog: [props.posthog ?? null],
     })),
 
     selectors({
-        apiURL: [(s) => [s.rawApiURL], (apiURL) => `${apiURL.endsWith('/') ? apiURL.replace(/\/+$/, '') : apiURL}`],
-        jsURL: [
-            (s) => [s.rawJsURL, s.apiURL],
-            (rawJsURL, apiUrl) =>
-                `${rawJsURL ? (rawJsURL.endsWith('/') ? rawJsURL.replace(/\/+$/, '') : rawJsURL) : apiUrl}`,
+        apiURL: [
+            () => [(_, props) => props],
+            (props) => `${props.apiURL.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
         ],
+        jsURL: [
+            (s) => [(_, props) => props, s.apiURL],
+            (props, apiUrl) =>
+                `${props.jsURL ? (props.jsURL.endsWith('/') ? props.jsURL.replace(/\/+$/, '') : props.jsURL) : apiUrl}`,
+        ],
+        dataAttributes: [() => [(_, props) => props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
     }),
 
-    listeners(({ values }) => ({
+    listeners(({ props, values, actions }) => ({
         authenticate: () => {
             posthog.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
+            actions.persistConfig()
             window.location.href = `${values.apiURL}/authorize_and_redirect/?redirect=${encodedUrl}`
-            clearSessionToolbarToken()
         },
         logout: () => {
             posthog.capture('toolbar logout')
-            clearSessionToolbarToken()
+            localStorage.removeItem(LOCALSTORAGE_KEY)
         },
         tokenExpired: () => {
             posthog.capture('toolbar token expired')
             console.warn('PostHog Toolbar API token expired. Clearing session.')
-            if (values.source !== 'localstorage') {
+            if (props.source !== 'localstorage') {
                 lemonToast.error('PostHog Toolbar API token expired.')
             }
-            clearSessionToolbarToken()
+            actions.persistConfig()
+        },
+
+        persistConfig: () => {
+            // Most params we don't change, only those that we may have modified during the session
+            const toolbarParams: ToolbarProps = {
+                ...props,
+                temporaryToken: values.temporaryToken ?? undefined,
+                actionId: values.actionId ?? undefined,
+                userIntent: values.userIntent ?? undefined,
+                posthog: undefined,
+                featureFlags: undefined,
+            }
+
+            localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))
         },
     })),
 
