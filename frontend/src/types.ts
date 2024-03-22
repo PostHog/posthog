@@ -211,6 +211,10 @@ export interface ColumnConfig {
     active: ColumnChoice
 }
 
+export type WithAccessControl = {
+    user_access_level: 'none' | 'member' | 'admin' | 'viewer' | 'editor'
+}
+
 interface UserBaseType {
     uuid: string
     distinct_id: string
@@ -420,7 +424,7 @@ export interface SessionRecordingAIConfig {
     important_user_properties: string[]
 }
 
-export interface TeamType extends TeamBasicType {
+export interface TeamType extends TeamBasicType, WithAccessControl {
     created_at: string
     updated_at: string
     anonymize_ips: boolean
@@ -3527,12 +3531,13 @@ export type NotebookListItemType = {
     last_modified_by?: UserBasicType | null
 }
 
-export type NotebookType = NotebookListItemType & {
-    content: JSONContent | null
-    version: number
-    // used to power text-based search
-    text_content?: string | null
-}
+export type NotebookType = NotebookListItemType &
+    WithAccessControl & {
+        content: JSONContent | null
+        version: number
+        // used to power text-based search
+        text_content?: string | null
+    }
 
 export enum NotebookNodeType {
     Mention = 'ph-mention',

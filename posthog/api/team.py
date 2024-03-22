@@ -47,6 +47,7 @@ from posthog.permissions import (
     get_organization_from_view,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.demo_create_data import create_data_for_demo_team
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_ip_address, get_week_start_for_country_code
@@ -115,7 +116,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         ]
 
 
-class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     groups_on_events_querying_enabled = serializers.SerializerMethodField()
@@ -167,6 +168,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "extra_settings",
             "has_completed_onboarding_for",
             "surveys_opt_in",
+            "user_access_level",
         )
         read_only_fields = (
             "id",
@@ -180,6 +182,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "has_group_types",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
+            "user_access_level",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:

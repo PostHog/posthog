@@ -214,8 +214,13 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
         help_text="The effective access level the user has for this object",
     )
 
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        # NOTE: The user_access_control is typically on the view but in specific cases such as the posthog_app_context it is set at the context level
+        if "user_access_control" in self.context:
+            return self.context["user_access_control"]
+        return self.context["view"].user_access_control
+
     def get_user_access_level(self, obj: Model) -> Optional[str]:
-        access_control = cast(UserAccessControl, self.context["view"].user_access_control).access_control_for_object(
-            obj
-        )
+        access_control = self.user_access_control.access_control_for_object(obj)
         return access_control.access_level if access_control else None
