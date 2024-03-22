@@ -189,7 +189,7 @@ export function LemonInputSelect({
         <LemonDropdown
             closeOnClickInside={false}
             visible={showPopover}
-            sameWidth
+            matchWidth
             actionable
             onClickOutside={() => {
                 popoverFocusRef.current = false
