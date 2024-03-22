@@ -162,7 +162,14 @@ async def read_parquet_from_s3(bucket_name: str, key: str, json_columns) -> list
             )
 
         else:
-            s3 = fs.S3FileSystem()
+            if os.getenv("S3_TEST_BUCKET") is not None:
+                s3 = fs.S3FileSystem()
+            else:
+                s3 = fs.S3FileSystem(
+                    access_key="object_storage_root_user",
+                    secret_key="object_storage_root_password",
+                    endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
+                )
 
     table = pq.read_table(f"{bucket_name}/{key}", filesystem=s3)
 
