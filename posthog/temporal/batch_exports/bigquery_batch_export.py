@@ -51,6 +51,17 @@ async def load_jsonl_file_to_bigquery_table(jsonl_file, table, table_schema, big
     await asyncio.to_thread(load_job.result)
 
 
+class InvalidFullyQualifiedIdError(Exception):
+    """Exception raised on an invalid fully qualified table id."""
+
+    def __init__(self, fully_qualified_table_id: str):
+        msg = (
+            "The project id, dataset id, and table id provided did not generate a valid "
+            f"(e.g. 'project.dataset.table') fully qualified ID, but instead: '{fully_qualified_table_id}'"
+        )
+        super().__init__(msg)
+
+
 async def create_table_in_bigquery(
     project_id: str,
     dataset_id: str,
@@ -61,7 +72,11 @@ async def create_table_in_bigquery(
 ) -> bigquery.Table:
     """Create a table in BigQuery."""
     fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
-    table = bigquery.Table(fully_qualified_name, schema=table_schema)
+
+    try:
+        table = bigquery.Table(fully_qualified_name, schema=table_schema)
+    except ValueError:
+        raise InvalidFullyQualifiedIdError(fully_qualified_name)
 
     if "timestamp" in [field.name for field in table_schema]:
         # TODO: Maybe choosing which column to use as parititoning should be a configuration parameter.
@@ -394,7 +409,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError", "BadRequest"],
+                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
 
@@ -429,6 +444,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                 "RefreshError",
                 # Usually means the dataset or project doesn't exist.
                 "NotFound",
+                # Raised when BigQuery detects a schema change.
+                "BadRequest",
+                # Raised when BigQuery rejects the table ID.
+                "InvalidFullyQualifiedIdError",
             ],
             update_inputs=update_inputs,
         )
