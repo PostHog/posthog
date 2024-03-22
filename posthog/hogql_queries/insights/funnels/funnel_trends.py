@@ -206,9 +206,9 @@ class FunnelTrends(FunnelBase):
                         expr=ast.Array(
                             exprs=[
                                 (
-                                    ast.Array(exprs=[ast.Constant(value=str(sub_value)) for sub_value in value])
+                                    ast.Array(exprs=[ast.Constant(value=sub_value) for sub_value in value])
                                     if isinstance(value, list)
-                                    else ast.Constant(value=str(value))
+                                    else ast.Constant(value=value)
                                 )
                                 for value in self.breakdown_values
                             ]
