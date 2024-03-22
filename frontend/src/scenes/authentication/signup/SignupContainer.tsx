@@ -72,7 +72,7 @@ const getProductBenefits = (featureFlags: FeatureFlagsSet): ProductBenefit[] => 
                 },
                 {
                     benefit: 'Start collecting data immediately',
-                    description: 'Integrate with developer-friendly APIs or low-code web snippet.',
+                    description: 'Integrate with developer-friendly APIs or a low-code web snippet.',
                 },
                 {
                     benefit: 'Join industry leaders that run on PostHog',
