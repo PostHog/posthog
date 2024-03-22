@@ -1,7 +1,7 @@
 from functools import cached_property
 from django.db.models import Model, Q, QuerySet
 from rest_framework import serializers
-from typing import TYPE_CHECKING, List, Optional, cast
+from typing import TYPE_CHECKING, List, Optional
 
 from posthog.constants import AvailableFeature
 from posthog.models import (
@@ -53,7 +53,8 @@ def model_to_resource(model: Model) -> APIScopeObject:
     """
     Given a model, return the resource type it represents
     """
-    name = model.__class__.__name__.lower()
+    name = model._meta.model_name
+    # name = model.__class__.__name__.lower()
 
     if name == "team":
         return "project"
@@ -67,10 +68,10 @@ def model_to_resource(model: Model) -> APIScopeObject:
 
 
 class UserAccessControl:
-    def __init__(self, user: User, team: Team):
+    def __init__(self, user: User, team: Optional[Team] = None, organization: Optional[Organization] = None):
         self._user = user
         self._team = team
-        self._organization: Organization = team.organization
+        self._organization: Organization = organization or team.organization
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
@@ -204,6 +205,55 @@ class UserAccessControl:
         # queryset = queryset.filter(
         #     id__in=(access_control.resource_id for access_control in access_controls_for_resource(user))
         # )
+
+        resource = model_to_resource(queryset.model)
+
+        # TODO: Make this more efficient
+        role_memberships = self._user.role_memberships.select_related("role").all()
+        role_ids = [membership.role.id for membership in role_memberships] if self.rbac_supported else []
+
+        filter_args = dict(resource=resource, resource_id__isnull=False)
+
+        if self._team:
+            filter_args["team"] = self._team
+        else:
+            filter_args["team__organization"] = self._organization
+
+        # With the resource, we can now filter for the access controls that apply to the user
+        access_controls = AccessControl.objects.filter(
+            Q(  # Access controls applying to this team for specific resources
+                **filter_args, organization_member=None, role=None
+            )
+            | Q(  # Access controls applying to this user for specific resources
+                **filter_args,
+                organization_member__user=self._user,
+                role=None,
+            )
+            | Q(  # Access controls applying to this user's roles
+                **filter_args,
+                organization_member=None,
+                role__in=role_ids,
+            )
+        )
+
+        blocked_resource_ids: set[str] = set()
+        resource_id_access_levels: dict[str, list[str]] = {}
+
+        for access_control in access_controls:
+            resource_id_access_levels.setdefault(access_control.resource_id, []).append(access_control.access_level)
+
+        for resource_id, access_levels in resource_id_access_levels.items():
+            # Check if every access level is "none"
+            if all(access_level == "none" for access_level in access_levels):
+                blocked_resource_ids.add(resource_id)
+
+        # Filter the queryset based on the access controls
+        if blocked_resource_ids:
+            queryset = queryset.exclude(id__in=blocked_resource_ids)
+
+        # controls = list(access_controls)
+
+        # sql = str(access_controls.query)
 
         return queryset
 

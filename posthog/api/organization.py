@@ -24,6 +24,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     extract_organization,
 )
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
@@ -63,7 +64,9 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
-class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class OrganizationSerializer(
+    serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
+):
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
@@ -120,7 +123,10 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         return membership.level if membership is not None else None
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
-        visible_teams = instance.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        # Support new access control system
+        visible_teams = self.user_access_control.filter_queryset_by_access_level(instance.teams)
+        # Support old access control system
+        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_metadata(self, instance: Organization) -> Dict[str, Union[str, int, object]]:

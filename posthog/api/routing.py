@@ -242,19 +242,19 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def user_access_control(self) -> "UserAccessControl":
-        # team: Optional[Team] = None
-        # try:
-        #     # TODO: Check this is correct...
-        #     if self.request.resolver_match.url_name.startswith("team-"):
-        #         # /projects/ endpoint handling
-        #         team = self.get_object()
-        #     else:
-        #         team = self.team
-        # # TODO: I don't think this will work - we will need to know about the underlying object to get the team I think...
-        # except (Team.DoesNotExist, KeyError):
-        #     pass
+        team: Optional[Team] = None
+        try:
+            # TODO: Check this is correct...
+            if self.request.resolver_match.url_name.startswith("team-"):
+                # /projects/ endpoint handling
+                team = self.get_object()
+            else:
+                team = self.team
+        # TODO: I don't think this will work - we will need to know about the underlying object to get the team I think...
+        except (Team.DoesNotExist, KeyError):
+            pass
 
-        return UserAccessControl(user=cast(User, self.request.user), team=self.team)
+        return UserAccessControl(user=cast(User, self.request.user), team=team, organization=self.organization)
 
     # Stdout tracing to see what legacy endpoints (non-project-nested) are still requested by the frontend
     # TODO: Delete below when no legacy endpoints are used anymore

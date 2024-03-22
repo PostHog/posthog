@@ -1,9 +1,13 @@
-from typing import cast
+from typing import Union, cast
+
+from django.db.models.query import QuerySet, RawQuerySet
 
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
+from rest_framework.filters import BaseFilterBackend
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from ee.models.rbac.access_control import AccessControl
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
@@ -75,6 +79,25 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
+class AccessControlFilterBackend(BaseFilterBackend):
+    """
+    Filters the queryset automatically based on access controls
+    """
+
+    def filter_queryset(
+        self,
+        request: Request,
+        queryset: Union[QuerySet, RawQuerySet],
+        view: APIView,
+    ):
+        if isinstance(queryset, RawQuerySet):
+            return queryset
+
+        queryset = view.user_access_control.filter_queryset_by_access_level(queryset)
+
+        return queryset
+
+
 class AccessControlViewSetMixin:
     """
     Adds an "access_controls" action to the viewset that handles access control for the given resource
@@ -86,6 +109,17 @@ class AccessControlViewSetMixin:
     # 1. Know that the project level access is covered by the Permission check
     # 2. Get the actual object which we can pass to the serializer to check if the user created it
     # 3. We can also use the serializer to check the access level for the object
+
+    filter_backends = [AccessControlFilterBackend]
+
+    # def get_queryset(self):
+    #     # Default method for filtering in only things the user has access to
+    #     qs = super().get_queryset()
+
+    #     # Filter the queryset based on the access controls
+    #     qs = self.user_access_control.filter_queryset_by_access_level(qs)
+
+    #     return qs
 
     def _get_access_control_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", self.get_serializer_context())
