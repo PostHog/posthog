@@ -2,6 +2,7 @@ import { IconFeatures } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -44,6 +45,17 @@ export function SessionRecordingErrors(): JSX.Element {
                             )
                         },
                         width: '50%',
+                    },
+                    {
+                        title: '',
+                        render: (_, cluster) => {
+                            return (
+                                <Sparkline
+                                    labels={Object.keys(cluster.sparkline)}
+                                    data={Object.values(cluster.sparkline)}
+                                />
+                            )
+                        },
                     },
                     {
                         title: 'Occurrences',
