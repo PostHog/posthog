@@ -416,9 +416,6 @@ function AddItemsControls(props: {
                     mode="multiple"
                     options={props.options}
                     disabled={!canEditAccessControls}
-                    dropdownProps={{
-                        sameWidth: false,
-                    }}
                 />
             </div>
             <SimplLevelComponent levels={availableLevels} level={level} onChange={setLevel} />
