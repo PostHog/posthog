@@ -3,7 +3,7 @@ import { combineUrl, encodeParams } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { posthog } from '~/toolbar/posthog'
-import { ToolbarParams, ToolbarProps } from '~/types'
+import { ToolbarProps } from '~/types'
 
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import { LOCALSTORAGE_KEY } from './utils'
