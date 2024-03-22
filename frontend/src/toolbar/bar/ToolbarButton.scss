@@ -14,8 +14,9 @@
         justify-content: center;
         width: 2rem;
         height: 2rem;
-        margin: 0.25rem;
         min-height: var(--lemon-button-height);
+        margin: 0.25rem;
+        font-weight: 600;
         color: var(--muted-alt);
         appearance: none !important; // Important as this gets overridden by Ant styles...
         cursor: pointer;
@@ -24,7 +25,6 @@
         border: none;
         border-radius: var(--radius);
         transition: transform 100ms ease;
-        font-weight: 600;
 
         > svg {
             font-size: 1.5rem;
@@ -49,6 +49,7 @@
     &--flex {
         flex-grow: 1;
         width: auto;
+
         button {
             width: 100%;
         }
