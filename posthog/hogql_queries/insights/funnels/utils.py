@@ -64,10 +64,9 @@ def get_breakdown_expr(
     breakdowns: List[str | int] | str | int, properties_column: str, normalize_url: bool | None = False
 ) -> ast.Expr:
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
-        expr: ast.Expr = ast.Call(
+        return ast.Call(
             name="ifNull", args=[ast.Field(chain=[*properties_column.split("."), breakdowns]), ast.Constant(value="")]
         )
-        return expr
     else:
         exprs = []
         for breakdown in breakdowns:

@@ -284,6 +284,7 @@ class FunnelBase(ABC):
             properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "hogql":
+            assert isinstance(breakdown, list)
             return ast.Alias(
                 alias="value",
                 expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
@@ -530,6 +531,7 @@ class FunnelBase(ABC):
             # so just select that. Except for the empty case, where we select the default.
 
             if self._query_has_array_breakdown():
+                assert isinstance(breakdown, list)
                 default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
                 # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
                 breakdown_selector = parse_expr(
