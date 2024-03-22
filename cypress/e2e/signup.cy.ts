@@ -12,7 +12,7 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-email]').type('test@posthog.com').should('have.value', 'test@posthog.com')
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
         cy.get('[data-attr=signup-start]').click()
-        cy.get('[data-attr=signup-first-name]').type('Jane').should('have.value', 'Jane')
+        cy.get('[data-attr=signup-name]').type('Jane Doe').should('have.value', 'Jane Doe')
         cy.get('[data-attr=signup-organization-name]').type('Hogflix Movies').should('have.value', 'Hogflix Movies')
         cy.get('[data-attr=signup-role-at-organization]').click()
         cy.get('.Popover li:first-child').click()
@@ -46,7 +46,7 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
         cy.get('[data-attr=signup-start]').click()
-        cy.get('[data-attr=signup-first-name]').type('Alice').should('have.value', 'Alice')
+        cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
         cy.get('[data-attr=signup-organization-name]').type('Hogflix SpinOff').should('have.value', 'Hogflix SpinOff')
         cy.get('[data-attr=signup-role-at-organization]').click()
         cy.get('.Popover li:first-child').click()
@@ -68,7 +68,7 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
         cy.get('[data-attr=signup-start]').click()
-        cy.get('[data-attr=signup-first-name]').type('Alice').should('have.value', 'Alice')
+        cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
         cy.get('[data-attr=signup-submit]').click()
 
         cy.wait('@signupRequest').then((interception) => {
@@ -86,10 +86,10 @@ describe('Signup', () => {
         // we get the expected error that no social session exists.
         cy.visit('/logout')
         cy.location('pathname').should('include', '/login')
-        cy.visit('/organization/confirm-creation?organization_name=&first_name=Test&email=test%40posthog.com')
+        cy.visit('/organization/confirm-creation?organization_name=&name=Test&email=test%40posthog.com')
 
         cy.get('[name=email]').should('have.value', 'test@posthog.com')
-        cy.get('[name=first_name]').should('have.value', 'Test')
+        cy.get('[name=name]').should('have.value', 'Test')
         cy.get('[name=organization_name]').type('Hogflix SpinOff').should('have.value', 'Hogflix SpinOff')
         cy.get('[data-attr=signup-role-at-organization]').click()
         cy.get('.Popover li:first-child').click()

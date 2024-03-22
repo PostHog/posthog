@@ -23,7 +23,7 @@ export interface AccountResponse {
 export interface SignupForm {
     email: string
     password: string
-    first_name: string
+    name: string
     organization_name: string
     role_at_organization: string
     referral_source: string
@@ -79,13 +79,13 @@ export const signupLogic = kea<signupLogicType>([
             alwaysShowErrors: true,
             showErrorsOnTouch: true,
             defaults: {
-                first_name: '',
+                name: '',
                 organization_name: '',
                 role_at_organization: '',
                 referral_source: '',
             } as SignupForm,
-            errors: ({ first_name }) => ({
-                first_name: !first_name ? 'Please enter your name' : undefined,
+            errors: ({ name }) => ({
+                name: !name ? 'Please enter your name' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 breakpoint()
@@ -93,7 +93,8 @@ export const signupLogic = kea<signupLogicType>([
                     const res = await api.create('api/signup/', {
                         ...values.signupPanel1,
                         ...payload,
-                        organization_name: payload.organization_name || `${payload.first_name}'s Organization`,
+                        first_name: payload.name.split(' ')[0],
+                        last_name: payload.name.split(' ')[1] || '',
                     })
                     if (!payload.organization_name) {
                         posthog.capture('default organization name set')
@@ -149,7 +150,7 @@ export const signupLogic = kea<signupLogicType>([
                         email,
                     })
                     actions.setSignupPanel2Values({
-                        first_name: 'X',
+                        name: 'X',
                         organization_name: 'Y',
                     })
                     actions.submitSignupPanel2()
