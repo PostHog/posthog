@@ -61,20 +61,27 @@ def funnel_window_interval_unit_to_sql(
 
 
 def get_breakdown_expr(
-    breakdowns: List[str | int], properties_column: str, normalize_url: bool | None = False
+    breakdowns: List[str | int] | str | int, properties_column: str, normalize_url: bool | None = False
 ) -> ast.Expr:
-    exprs = []
-    for breakdown in breakdowns:
+    if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         expr: ast.Expr = ast.Call(
-            name="ifNull", args=[ast.Field(chain=[*properties_column.split("."), breakdown]), ast.Constant(value="")]
+            name="ifNull", args=[ast.Field(chain=[*properties_column.split("."), breakdowns]), ast.Constant(value="")]
         )
-        if normalize_url:
-            regex = "[\\\\/?#]*$"
-            expr = parse_expr(
-                f"if( empty( replaceRegexpOne({{breakdown_value}}, '{regex}', '') ), '/', replaceRegexpOne({{breakdown_value}}, '{regex}', ''))",
-                {"breakdown_value": expr},
+        return expr
+    else:
+        exprs = []
+        for breakdown in breakdowns:
+            expr: ast.Expr = ast.Call(
+                name="ifNull",
+                args=[ast.Field(chain=[*properties_column.split("."), breakdown]), ast.Constant(value="")],
             )
-        exprs.append(expr)
-    expression = ast.Array(exprs=exprs)
+            if normalize_url:
+                regex = "[\\\\/?#]*$"
+                expr = parse_expr(
+                    f"if( empty( replaceRegexpOne({{breakdown_value}}, '{regex}', '') ), '/', replaceRegexpOne({{breakdown_value}}, '{regex}', ''))",
+                    {"breakdown_value": expr},
+                )
+            exprs.append(expr)
+        expression = ast.Array(exprs=exprs)
 
     return expression
