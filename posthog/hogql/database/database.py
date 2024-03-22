@@ -58,7 +58,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
-
 if TYPE_CHECKING:
     from posthog.models import Team
 
@@ -234,10 +233,22 @@ def create_hogql_database(
                 )
 
             if "timestamp" not in tables[warehouse_modifier.table_name].fields.keys():
-                tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
-                    name="timestamp",
-                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
-                )
+                table_model = DataWarehouseTable.objects.filter(
+                    team_id=team.pk, name=warehouse_modifier.table_name
+                ).latest("created_at")
+                timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
+
+                # If field type is none or datetime, we can use the field directly
+                if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
+                    tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                        name="timestamp",
+                        expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
+                    )
+                else:
+                    tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                        name="timestamp",
+                        expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                    )
 
             # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
             if "distinct_id" not in tables[warehouse_modifier.table_name].fields.keys():
