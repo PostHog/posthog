@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.data_imports.pipelines.zendesk.credentials import ZendeskCredentialsToken
 from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
@@ -220,7 +221,20 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
             schema=schema,
             table_names=endpoints,
         )
+    elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
+        from posthog.temporal.data_imports.pipelines.zendesk.helpers import zendesk_support
 
+        credentials = ZendeskCredentialsToken()
+        credentials.token = model.pipeline.job_inputs.get("zendesk_api_key")
+        credentials.subdomain = model.pipeline.job_inputs.get("zendesk_subdomain")
+        credentials.email = model.pipeline.job_inputs.get("zendesk_email_address")
+
+        data_support = zendesk_support(credentials=credentials, endpoints=tuple(endpoints), team_id=inputs.team_id)
+        # Uncomment to support zendesk chat and talk
+        # data_chat = zendesk_chat()
+        # data_talk = zendesk_talk()
+
+        source = data_support
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 

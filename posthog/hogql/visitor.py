@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, TypeVar, Generic, Any
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST, Expr
@@ -14,8 +14,11 @@ def clear_locations(expr: Expr) -> Expr:
     return CloningVisitor(clear_locations=True).visit(expr)
 
 
-class Visitor(object):
-    def visit(self, node: AST):
+T = TypeVar("T")
+
+
+class Visitor(Generic[T]):
+    def visit(self, node: AST) -> T:
         if node is None:
             return node
 
@@ -28,7 +31,7 @@ class Visitor(object):
             raise e
 
 
-class TraversingVisitor(Visitor):
+class TraversingVisitor(Visitor[None]):
     """Visitor that traverses the AST tree without returning anything"""
 
     def visit_expr(self, node: Expr):
@@ -247,6 +250,9 @@ class TraversingVisitor(Visitor):
     def visit_join_constraint(self, node: ast.JoinConstraint):
         self.visit(node.expr)
 
+    def visit_expression_field_type(self, node: ast.ExpressionFieldType):
+        pass
+
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         for attribute in node.attributes:
             self.visit(attribute)
@@ -255,7 +261,7 @@ class TraversingVisitor(Visitor):
         self.visit(node.value)
 
 
-class CloningVisitor(Visitor):
+class CloningVisitor(Visitor[Any]):
     """Visitor that traverses and clones the AST tree. Clears types."""
 
     def __init__(

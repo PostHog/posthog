@@ -3,7 +3,6 @@ from pydantic import ConfigDict, BaseModel
 
 from posthog.hogql.base import Expr
 from posthog.hogql.errors import HogQLException, NotImplementedException
-from posthog.schema import HogQLQueryModifiers
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -24,6 +23,7 @@ class DatabaseField(FieldOrTable):
     name: str
     array: Optional[bool] = None
     nullable: Optional[bool] = None
+    hidden: bool = False
 
 
 class IntegerDatabaseField(DatabaseField):
@@ -95,15 +95,11 @@ class Table(FieldOrTable):
         for key, field in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            if (
-                isinstance(field, Table)
-                or isinstance(field, LazyJoin)
-                or isinstance(field, FieldTraverser)
-                or isinstance(field, ExpressionField)
-            ):
+            if isinstance(field, Table) or isinstance(field, LazyJoin) or isinstance(field, FieldTraverser):
                 pass  # ignore virtual tables and columns for now
             elif isinstance(field, DatabaseField):
-                asterisk[key] = field
+                if not field.hidden:  # Skip over hidden fields
+                    asterisk[key] = field
             else:
                 raise HogQLException(f"Unknown field type {type(field).__name__} for asterisk")
         return asterisk
@@ -129,12 +125,14 @@ class LazyJoin(FieldOrTable):
 
 class LazyTable(Table):
     """
-    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers)`
+    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers, node: SelectQuery)`
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers) -> Any:
+    def lazy_select(
+        self, requested_fields: Dict[str, List[str | int]], context: "HogQLContext", node: "SelectQuery"
+    ) -> Any:
         raise NotImplementedException("LazyTable.lazy_select not overridden")
 
 

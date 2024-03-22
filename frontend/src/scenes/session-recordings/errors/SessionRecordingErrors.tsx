@@ -2,6 +2,7 @@ import { IconFeatures } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -14,7 +15,7 @@ const MAX_TITLE_LENGTH = 75
 export function SessionRecordingErrors(): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { errors, errorsLoading } = useValues(sessionRecordingErrorsLogic)
-    const { loadErrorClusters } = useActions(sessionRecordingErrorsLogic)
+    const { loadErrorClusters, createPlaylist } = useActions(sessionRecordingErrorsLogic)
 
     if (errorsLoading) {
         return <Spinner />
@@ -36,7 +37,7 @@ export function SessionRecordingErrors(): JSX.Element {
                         title: 'Error',
                         dataIndex: 'cluster',
                         render: (_, cluster) => {
-                            const displayTitle = parseTitle(cluster.sample.error)
+                            const displayTitle = parseTitle(cluster.sample)
                             return (
                                 <div title={displayTitle} className="font-semibold text-sm text-default line-clamp-1">
                                     {displayTitle}
@@ -44,6 +45,17 @@ export function SessionRecordingErrors(): JSX.Element {
                             )
                         },
                         width: '50%',
+                    },
+                    {
+                        title: '',
+                        render: (_, cluster) => {
+                            return (
+                                <Sparkline
+                                    labels={Object.keys(cluster.sparkline)}
+                                    data={Object.values(cluster.sparkline)}
+                                />
+                            )
+                        },
                     },
                     {
                         title: 'Occurrences',
@@ -68,23 +80,40 @@ export function SessionRecordingErrors(): JSX.Element {
                         title: 'Actions',
                         render: function Render(_, cluster) {
                             return (
-                                <LemonButton
-                                    to={urls.replaySingle(cluster.sample.session_id)}
-                                    onClick={(e) => {
-                                        e.preventDefault()
-                                        openSessionPlayer({ id: cluster.sample.session_id })
-                                    }}
-                                    className="p-2 whitespace-nowrap"
-                                    type="primary"
-                                >
-                                    Watch example
-                                </LemonButton>
+                                <div className="p-2 flex space-x-2">
+                                    <LemonButton
+                                        to={urls.replaySingle(cluster.session_ids[0])}
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            openSessionPlayer({ id: cluster.session_ids[0] })
+                                        }}
+                                        className="whitespace-nowrap"
+                                        type="primary"
+                                    >
+                                        Watch example
+                                    </LemonButton>
+                                    <LemonButton
+                                        onClick={() => {
+                                            createPlaylist(
+                                                `Examples of '${parseTitle(cluster.sample)}'`,
+                                                cluster.session_ids
+                                            )
+                                        }}
+                                        className="whitespace-nowrap"
+                                        type="secondary"
+                                        tooltip="Create a playlist of recordings containing this issue"
+                                    >
+                                        Create playlist
+                                    </LemonButton>
+                                </div>
                             )
                         },
                     },
                 ]}
                 dataSource={errors}
-                expandable={{ expandedRowRender: (cluster) => <ExpandedError error={cluster.sample.error} /> }}
+                expandable={{
+                    expandedRowRender: (cluster) => <ExpandedError error={cluster.sample} />,
+                }}
             />
             <SessionPlayerModal />
         </>

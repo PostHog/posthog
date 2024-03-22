@@ -5180,7 +5180,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(len(response), 0)
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
+        self.assertEqual(response[0]["count"], 0)
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries

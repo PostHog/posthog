@@ -7,6 +7,7 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
+    FieldOrTable,
     IntegerDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -27,6 +28,7 @@ from .credential import DataWarehouseCredential
 from uuid import UUID
 from sentry_sdk import capture_exception
 from posthog.warehouse.util import database_sync_to_async
+from .external_table_definitions import external_tables
 
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
@@ -98,6 +100,13 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     __repr__ = sane_repr("name")
 
+    def table_name_without_prefix(self) -> str:
+        if self.external_data_source is not None and self.external_data_source.prefix is not None:
+            prefix = self.external_data_source.prefix
+        else:
+            prefix = ""
+        return self.name[len(prefix) :]
+
     def get_columns(self, safe_expose_ch_error=True) -> Dict[str, str]:
         try:
             result = sync_execute(
@@ -126,7 +135,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         if not self.columns:
             raise Exception("Columns must be fetched and saved to use in HogQL.")
 
-        fields = {}
+        fields: Dict[str, FieldOrTable] = {}
         structure = []
         for column, type in self.columns.items():
             # Support for 'old' style columns
@@ -152,6 +161,9 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
 
             fields[column] = hogql_type(name=column)
+
+        # Replace fields with any redefined fields if they exist
+        fields = external_tables.get(self.table_name_without_prefix(), fields)
 
         return S3Table(
             name=self.name,

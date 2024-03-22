@@ -22,7 +22,7 @@ from posthog.batch_exports.service import (
     create_batch_export_backfill,
     create_batch_export_run,
     update_batch_export_backfill_status,
-    update_batch_export_run_status,
+    update_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
@@ -534,6 +534,7 @@ class UpdateBatchExportRunStatusInputs:
     status: str
     team_id: int
     latest_error: str | None = None
+    records_completed: int = 0
 
 
 @activity.defn
@@ -541,10 +542,11 @@ async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs) -> 
     """Activity that updates the status of an BatchExportRun."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
-    batch_export_run = await sync_to_async(update_batch_export_run_status)(
+    batch_export_run = await sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
+        records_completed=inputs.records_completed,
     )
 
     if batch_export_run.status in (BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE):
@@ -664,13 +666,14 @@ async def execute_batch_export_insert_activity(
     )
 
     try:
-        await workflow.execute_activity(
+        records_completed = await workflow.execute_activity(
             activity,
             inputs,
             start_to_close_timeout=dt.timedelta(seconds=start_to_close_timeout_seconds),
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )
+        update_inputs.records_completed = records_completed
 
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
@@ -690,6 +693,7 @@ async def execute_batch_export_insert_activity(
 
     finally:
         get_export_finished_metric(status=update_inputs.status.lower()).add(1)
+
         await workflow.execute_activity(
             update_export_run_status,
             update_inputs,
