@@ -66,7 +66,7 @@ def get_breakdown_expr(
     exprs = []
     for breakdown in breakdowns:
         expr: ast.Expr = ast.Call(
-            name="ifNull", args=[ast.Field(chain=[properties_column, breakdown]), ast.Constant(value="")]
+            name="ifNull", args=[ast.Field(chain=[*properties_column.split("."), breakdown]), ast.Constant(value="")]
         )
         if normalize_url:
             regex = "[\\\\/?#]*$"
