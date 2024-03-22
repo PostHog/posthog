@@ -71,14 +71,14 @@ export const produce = async ({
     value,
     key,
     headers = [],
-    waitForAck = true,
+    waitForAck,
 }: {
     producer: RdKafkaProducer
     topic: string
     value: MessageValue
     key: MessageKey
     headers?: MessageHeader[]
-    waitForAck?: boolean
+    waitForAck: boolean
 }): Promise<number | null | undefined> => {
     status.debug('📤', 'Producing message', { topic: topic })
     const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })

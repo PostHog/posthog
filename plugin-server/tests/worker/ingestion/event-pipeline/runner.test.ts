@@ -219,7 +219,9 @@ describe('EventPipelineRunner', () => {
                 await runner.runEventPipeline(pipelineEvent)
 
                 expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledTimes(1)
-                expect(JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].messages[0].value)).toMatchObject({
+                expect(
+                    JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].kafkaMessage.messages[0].value)
+                ).toMatchObject({
                     team_id: 2,
                     distinct_id: 'my_id',
                     error: 'Event ingestion failed. Error: testError',
