@@ -213,8 +213,13 @@ class BatchExportTemporaryFile:
         self.records_since_last_reset = 0
 
 
+LastInsertedAt = dt.datetime
+IsLast = bool
+RecordsSinceLastFlush = int
+BytesSinceLastFlush = int
 FlushCallable = collections.abc.Callable[
-    [BatchExportTemporaryFile, int, int, dt.datetime, bool], collections.abc.Awaitable[None]
+    [BatchExportTemporaryFile, RecordsSinceLastFlush, BytesSinceLastFlush, LastInsertedAt, IsLast],
+    collections.abc.Awaitable[None],
 ]
 
 
@@ -240,7 +245,11 @@ class BatchExportWriter(abc.ABC):
             per RecordBatch basis, which means the threshold will be surpassed by at most the
             size of a RecordBatch before a flush occurs.
         flush_callable: A callback to flush the temporary file when `max_bytes` is reached.
-            The temporary file will be reset after calling `flush_callable`.
+            The temporary file will be reset after calling `flush_callable`. When calling
+            `flush_callable` the following positional arguments will be passed: The temporary file
+            that must be flushed, the number of records since the last flush, the number of bytes
+            since the last flush, the latest recorded `_inserted_at`, and a `bool` indicating if
+            this is the last flush (when exiting the context manager).
         file_kwargs: Optional keyword arguments passed when initializing `_batch_export_file`.
         last_inserted_at: Latest `_inserted_at` written. This attribute leaks some implementation
             details, as we are assuming assume `_inserted_at` is present, as it's added to all
@@ -349,7 +358,10 @@ class BatchExportWriter(abc.ABC):
             await self.flush(last_inserted_at)
 
     async def flush(self, last_inserted_at: dt.datetime, is_last: bool = False) -> None:
-        """Call the provided `flush_callable` and reset underlying file."""
+        """Call the provided `flush_callable` and reset underlying file.
+
+        The underlying batch export temporary file will be reset after calling `flush_callable`.
+        """
         if is_last is True and self.batch_export_file.compression == "brotli":
             self.batch_export_file.finish_brotli_compressor()
 
