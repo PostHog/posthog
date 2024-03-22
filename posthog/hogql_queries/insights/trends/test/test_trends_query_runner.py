@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from freezegun import freeze_time
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property_definition import PropertyDefinition
@@ -175,6 +177,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown: Optional[BreakdownFilter] = None,
         filter_test_accounts: Optional[bool] = None,
         hogql_modifiers: Optional[HogQLQueryModifiers] = None,
+        limit_context: Optional[LimitContext] = None,
     ) -> TrendsQueryRunner:
         query_series: List[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
@@ -185,7 +188,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdownFilter=breakdown,
             filterTestAccounts=filter_test_accounts,
         )
-        return TrendsQueryRunner(team=self.team, query=query, modifiers=hogql_modifiers)
+        return TrendsQueryRunner(team=self.team, query=query, modifiers=hogql_modifiers, limit_context=limit_context)
 
     def _run_trends_query(
         self,
@@ -195,8 +198,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         series: Optional[List[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
+        *,
         filter_test_accounts: Optional[bool] = None,
         hogql_modifiers: Optional[HogQLQueryModifiers] = None,
+        limit_context: Optional[LimitContext] = None,
     ):
         return self._create_query_runner(
             date_from=date_from,
@@ -207,6 +212,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown=breakdown,
             filter_test_accounts=filter_test_accounts,
             hogql_modifiers=hogql_modifiers,
+            limit_context=limit_context,
         ).calculate()
 
     def test_trends_query_label(self):
@@ -375,7 +381,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(formula="A+B"),
             BreakdownFilter(breakdown_type=BreakdownType.person, breakdown="$browser"),
         )
-        self.assertEqual([], response.results)
+        self.assertEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], response.results[0]["data"])
 
     def test_trends_query_formula_aggregate(self):
         self._create_test_events()
@@ -708,16 +714,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
         assert len(response.results) == 8
-        assert breakdown_labels == [
-            "Chrome",
-            "Firefox",
-            "Edge",
-            "Safari",
-            "Chrome",
-            "Edge",
-            "Firefox",
-            "Safari",
-        ]
+        assert breakdown_labels == ["Chrome", "Firefox", "Edge", "Safari", "Chrome", "Edge", "Firefox", "Safari"]
         assert response.results[0]["label"] == f"$pageview - Chrome"
         assert response.results[1]["label"] == f"$pageview - Firefox"
         assert response.results[2]["label"] == f"$pageview - Edge"
@@ -817,6 +814,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             10,
             0,
         ]
+
         assert response.results[1]["data"] == [
             20,
             0,
@@ -1600,9 +1598,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
 
         assert response.breakdown == [
-            # BreakdownItem(label="Other", value="$$_posthog_breakdown_other_$$"), # TODO: Add when "Other" works
-            BreakdownItem(label="true", value=1),
-            BreakdownItem(label="false", value=0),
+            BreakdownItem(label="true", value="true"),
+            BreakdownItem(label="false", value="false"),
         ]
 
     def test_to_actors_query_options_breakdowns_histogram(self):
@@ -1694,3 +1691,16 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownItem(label="Safari", value="Safari"),
             BreakdownItem(label="Edge", value="Edge"),
         ]
+
+    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
+        self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
+
+        mock_sync_execute.assert_called_once()
+        self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
