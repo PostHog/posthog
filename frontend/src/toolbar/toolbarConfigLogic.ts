@@ -35,7 +35,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     })),
 
     selectors({
-        posthog: [(s) => [s.props], (props) => props.posthog],
+        posthog: [(s) => [s.props], (props) => props.posthog ?? null],
         apiURL: [
             (s) => [s.props],
             (props: ToolbarProps) => `${props.apiURL?.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
