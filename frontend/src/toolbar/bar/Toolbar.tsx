@@ -84,10 +84,11 @@ function MoreMenu(): JSX.Element {
     )
 }
 
-export function ToolbarInfoMenu(): JSX.Element {
+export function ToolbarInfoMenu(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
     const { visibleMenu, isDragging, menuProperties, minimized, isBlurred } = useValues(toolbarLogic)
     const { setMenu } = useActions(toolbarLogic)
+    const { isAuthenticated } = useValues(toolbarConfigLogic)
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
@@ -103,6 +104,10 @@ export function ToolbarInfoMenu(): JSX.Element {
         setMenu(ref.current)
         return () => setMenu(null)
     }, [ref.current])
+
+    if (!isAuthenticated) {
+        return null
+    }
 
     return (
         <div
