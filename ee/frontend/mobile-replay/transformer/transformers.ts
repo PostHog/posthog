@@ -105,6 +105,10 @@ export function _isPositiveInteger(id: unknown): id is number {
     return typeof id === 'number' && id > 0 && id % 1 === 0
 }
 
+function _isNullish(x: unknown): x is null | undefined {
+    return x === null || x === undefined
+}
+
 function isRemovedNodeMutation(x: addedNodeMutation | removedNodeMutation): x is removedNodeMutation {
     return isObject(x) && 'id' in x
 }
@@ -218,6 +222,17 @@ function makeTextElement(
     // because we might have to style the text, we always wrap it in a div
     // and apply styles to that
     const id = context.idSequence.next().value
+
+    const childNodes = [...children]
+    if (!_isNullish(wireframe.text)) {
+        childNodes.unshift({
+            type: NodeType.Text,
+            textContent: wireframe.text,
+            // since the text node is wrapped, we assign it a synthetic id
+            id,
+        })
+    }
+
     return {
         result: {
             type: NodeType.Element,
@@ -227,15 +242,7 @@ function makeTextElement(
                 'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,
-            childNodes: [
-                {
-                    type: NodeType.Text,
-                    textContent: wireframe.text,
-                    // since the text node is wrapped, we assign it a synthetic id
-                    id: id,
-                },
-                ...children,
-            ],
+            childNodes,
         },
         context,
     }
@@ -983,6 +990,7 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
 
 function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext): addedNodeMutation[] | null {
     const converted = convertWireframe(add.wireframe, context)
+
     if (!converted) {
         return null
     }
