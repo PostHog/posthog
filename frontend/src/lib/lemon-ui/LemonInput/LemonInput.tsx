@@ -64,6 +64,8 @@ export interface LemonInputPropsNumber
     value?: number
     defaultValue?: number
     onChange?: (newValue: number | undefined) => void
+    onWheel?: (event: React.WheelEvent<HTMLInputElement>) => void
+    onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
 }
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
@@ -82,6 +84,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         suffix,
         type,
         value,
+        onWheel,
+        onKeyDown,
         transparentBackground = false,
         size = 'medium',
         stopPropagation = false,
@@ -99,6 +103,21 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             inputRef.current?.focus()
         }
         setFocused(true)
+    }
+    // Prevent mouse wheel from changing the value of the number input fields
+    const handleNumberWheel = (event: React.WheelEvent<HTMLInputElement>) => {
+        event.currentTarget.blur()
+        onWheel?.(event)
+    }
+    // Prevent up arrow and down arrow from changing the value of the number input fields
+    const handleNumberKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (stopPropagation) {
+            event.stopPropagation()
+        }
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            event.preventDefault()
+        }
+        onKeyDown?.(event)
     }
 
     if (type === 'search') {
@@ -196,6 +215,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                         onPressEnter(event)
                     }
                 }}
+                onWheel={type === 'number' ? handleNumberWheel : onWheel}
+                onKeyDown={type === 'number' ? handleNumberKeyDown : onKeyDown}
                 {...textProps}
             />
             {suffix}
