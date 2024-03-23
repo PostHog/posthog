@@ -16,6 +16,7 @@ import {
     PipelineTab,
     ProductKey,
     ReplayTabs,
+    SDKKey,
 } from '~/types'
 
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -175,8 +176,10 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
-    onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
-        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
+    onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
+        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
+            sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
+        }`,
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
