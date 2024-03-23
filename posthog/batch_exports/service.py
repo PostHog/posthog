@@ -90,6 +90,7 @@ class S3BatchExportInputs:
     kms_key_id: str | None = None
     batch_export_schema: BatchExportSchema | None = None
     endpoint_url: str | None = None
+    file_format: str = "JSONLines"
 
 
 @dataclass

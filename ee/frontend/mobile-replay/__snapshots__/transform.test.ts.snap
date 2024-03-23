@@ -160,6 +160,147 @@ exports[`replay/transform transform can convert images 1`] = `
 ]
 `;
 
+exports[`replay/transform transform can convert invalid text wireframe 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 102,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                        padding-block: 0 !important;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 101,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12345,
+                      "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:normal;",
+                    },
+                    "childNodes": [],
+                    "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
 exports[`replay/transform transform can convert navigation bar 1`] = `
 [
   {
@@ -1453,6 +1594,20 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         },
         "parentId": 52129787,
       },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 52129787123,
+            "style": "position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:normal;",
+          },
+          "childNodes": [],
+          "id": 52129787123,
+          "tagName": "div",
+          "type": 2,
+        },
+        "parentId": 209272202,
+      },
     ],
     "attributes": [],
     "removes": [
@@ -1687,6 +1842,13 @@ AAAAAAAAAAAAAAAAAAAAAAAAgCN/AW0xMqHnNQceAAAAAElFTkSuQmCC
             "width": 368,
             "x": 66,
             "y": 556,
+          },
+        },
+        {
+          "parentId": 209272202,
+          "wireframe": {
+            "id": 52129787123,
+            "type": "text",
           },
         },
       ],
