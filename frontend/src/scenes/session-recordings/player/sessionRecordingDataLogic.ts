@@ -66,7 +66,9 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
 
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
-    sessionId: string
+    sessionId: string,
+    // this is only kept so that we can export the untransformed data for debugging
+    withMobileTransformer: boolean = true
 ): Promise<RecordingSnapshot[]> => {
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
@@ -83,7 +85,9 @@ export const parseEncodedSnapshots = async (
             const snapshotData = isRecordingSnapshot(snapshotLine) ? [snapshotLine] : snapshotLine['data']
 
             return snapshotData.map((d: unknown) => {
-                const snap = postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
+                const snap = withMobileTransformer
+                    ? postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
+                    : (d as eventWithTime)
                 return {
                     // this handles parsing data that was loaded from blob storage "window_id"
                     // and data that was exported from the front-end "windowId"
