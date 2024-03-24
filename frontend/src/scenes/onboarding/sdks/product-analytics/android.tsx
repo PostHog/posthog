@@ -21,7 +21,7 @@ function AdvertiseAndroidReplay(): JSX.Element {
                 Session Replay for Android <LemonTag type="highlight">NEW</LemonTag>
             </h3>
             <div>
-                Mobile replay is now in beta for Android.{' '}
+                Session replay is now in beta for Android.{' '}
                 <Link to={urls.onboarding('session_replay', OnboardingStepKey.INSTALL, SDKKey.ANDROID)}>
                     Learn how to set it up
                 </Link>
