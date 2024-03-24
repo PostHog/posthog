@@ -180,6 +180,10 @@ class DateRange(BaseModel):
     date_to: Optional[str] = None
 
 
+class DatetimeDay(RootModel[AwareDatetime]):
+    root: AwareDatetime
+
+
 class Day(RootModel[int]):
     root: int
 
@@ -458,7 +462,7 @@ class DayItem(BaseModel):
         extra="forbid",
     )
     label: str
-    value: Union[str, int]
+    value: Union[str, AwareDatetime, int]
 
 
 class IntervalItem(BaseModel):
