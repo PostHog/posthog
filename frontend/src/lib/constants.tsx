@@ -99,6 +99,7 @@ export const INSTANTLY_AVAILABLE_PROPERTIES = [
     'distinct_id',
 ]
 export const MAX_EXPERIMENT_VARIANTS = 10
+export const EXPERIMENT_DEFAULT_DURATION = 14 // days
 
 // Event constants
 export const ACTION_TYPE = 'action_type'
