@@ -11,7 +11,7 @@ interface LogoProps {
 }
 
 const Logo = ({ src, alt, className = '' }: LogoProps): JSX.Element => (
-    <img className={`bg-transparent text-text-3000 w-full px-3 py-3 h-10 ${className}`} src={src} alt={alt} />
+    <img className={`bg-transparent w-full px-3 py-3 h-10 ${className}`} src={src} alt={alt} />
 )
 
 export const CustomerLogo = ({ image, alt, className = '' }: CustomerProps): JSX.Element => {
