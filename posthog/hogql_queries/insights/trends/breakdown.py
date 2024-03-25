@@ -3,9 +3,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import (
-    BREAKDOWN_NULL_NUMERIC_LABEL,
     BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
     BreakdownValues,
 )
@@ -19,6 +17,10 @@ from posthog.models.team.team import Team
 from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
 
 
+def hogql_to_string(expr: ast.Expr) -> ast.Call:
+    return ast.Call(name="toString", args=[expr])
+
+
 class Breakdown:
     query: TrendsQuery
     team: Team
@@ -27,7 +29,7 @@ class Breakdown:
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
-    breakdown_values_override: Optional[List[str | int | float]]
+    breakdown_values_override: Optional[List[str]]
 
     def __init__(
         self,
@@ -38,7 +40,7 @@ class Breakdown:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
-        breakdown_values_override: Optional[List[str | int | float]] = None,
+        breakdown_values_override: Optional[List[str]] = None,
     ):
         self.team = team
         self.query = query
@@ -70,19 +72,15 @@ class Breakdown:
 
         return {"cross_join_breakdown_values": ast.Alias(alias="breakdown_value", expr=values)}
 
-    def column_expr(self) -> ast.Expr:
+    def column_expr(self) -> ast.Alias:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
-        elif self.query.breakdownFilter.breakdown_type == "hogql":
-            return ast.Alias(
-                alias="breakdown_value",
-                expr=parse_expr(self.query.breakdownFilter.breakdown),
-            )
-        elif self.query.breakdownFilter.breakdown_type == "cohort":
+
+        if self.query.breakdownFilter.breakdown_type == "cohort":
             if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
                 return ast.Alias(
                     alias="breakdown_value",
-                    expr=ast.Field(chain=["__in_cohort", "cohort_id"]),
+                    expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
                 )
 
             cohort_breakdown = (
@@ -90,18 +88,8 @@ class Breakdown:
             )
             return ast.Alias(
                 alias="breakdown_value",
-                expr=ast.Constant(value=cohort_breakdown),
+                expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
-
-        if self.query.breakdownFilter.breakdown_type == "hogql":
-            return ast.Alias(
-                alias="breakdown_value",
-                expr=parse_expr(self.query.breakdownFilter.breakdown),
-            )
-
-        # If there's no breakdown values
-        if len(self._breakdown_values) == 1 and self._breakdown_values[0] is None:
-            return ast.Alias(alias="breakdown_value", expr=ast.Field(chain=self._properties_chain))
 
         return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_transform_func)
 
@@ -148,15 +136,14 @@ class Breakdown:
         else:
             left = ast.Field(chain=self._properties_chain)
 
+        if not self.is_histogram_breakdown:
+            left = hogql_to_string(left)
+
         compare_ops = []
         for _value in self._breakdown_values:
-            value: Optional[str | int | float] = _value
+            value: Optional[str] = str(_value)  # non-cohorts are always strings
             # If the value is one of the "other" values, then use the `transform()` func
-            if (
-                value == BREAKDOWN_OTHER_STRING_LABEL
-                or value == BREAKDOWN_OTHER_NUMERIC_LABEL
-                or value == float(BREAKDOWN_OTHER_NUMERIC_LABEL)
-            ):
+            if value == BREAKDOWN_OTHER_STRING_LABEL:
                 transform_func = self._get_breakdown_transform_func
                 compare_ops.append(
                     ast.CompareOperation(
@@ -164,11 +151,7 @@ class Breakdown:
                     )
                 )
             else:
-                if (
-                    value == BREAKDOWN_NULL_STRING_LABEL
-                    or value == BREAKDOWN_NULL_NUMERIC_LABEL
-                    or value == float(BREAKDOWN_NULL_NUMERIC_LABEL)
-                ):
+                if value == BREAKDOWN_NULL_STRING_LABEL:
                     value = None
 
                 compare_ops.append(
@@ -184,30 +167,25 @@ class Breakdown:
 
     @cached_property
     def _get_breakdown_transform_func(self) -> ast.Call:
-        values = self._breakdown_values
-        all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
-        all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
+        if self.query.breakdownFilter.breakdown_type == "hogql":
+            return self._get_breakdown_values_transform(parse_expr(self.query.breakdownFilter.breakdown))
+        return self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain))
 
-        if all_values_are_ints_or_none:
-            breakdown_other_value = BREAKDOWN_OTHER_NUMERIC_LABEL
-            breakdown_null_value = BREAKDOWN_NULL_NUMERIC_LABEL
-        elif all_values_are_floats_or_none:
-            breakdown_other_value = float(BREAKDOWN_OTHER_NUMERIC_LABEL)
-            breakdown_null_value = float(BREAKDOWN_NULL_NUMERIC_LABEL)
-        else:
-            breakdown_other_value = BREAKDOWN_OTHER_STRING_LABEL
-            breakdown_null_value = BREAKDOWN_NULL_STRING_LABEL
-
+    def _get_breakdown_values_transform(self, node: ast.Expr) -> ast.Call:
+        breakdown_values = self._breakdown_values_ast
         return ast.Call(
             name="transform",
             args=[
                 ast.Call(
                     name="ifNull",
-                    args=[ast.Field(chain=self._properties_chain), ast.Constant(value=breakdown_null_value)],
+                    args=[
+                        hogql_to_string(node),
+                        ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                    ],
                 ),
-                self._breakdown_values_ast,
-                self._breakdown_values_ast,
-                ast.Constant(value=breakdown_other_value),
+                breakdown_values,
+                breakdown_values,
+                ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
             ],
         )
 
@@ -220,15 +198,21 @@ class Breakdown:
 
         return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), values)))
 
-    @cached_property
+    @property
     def _breakdown_values_ast(self) -> ast.Array:
-        return ast.Array(exprs=[ast.Constant(value=v) for v in self._breakdown_values])
+        exprs: list[ast.Expr] = []
+        for value in self._breakdown_values:
+            if isinstance(value, str):
+                exprs.append(ast.Constant(value=value))
+            else:
+                exprs.append(hogql_to_string(ast.Constant(value=value)))
+        return ast.Array(exprs=exprs)
 
     @cached_property
-    def _all_breakdown_values(self) -> List[str | int | float | None]:
+    def _all_breakdown_values(self) -> List[str | int | None]:
         # Used in the actors query
         if self.breakdown_values_override is not None:
-            return cast(List[str | int | float | None], self.breakdown_values_override)
+            return cast(List[str | int | None], self.breakdown_values_override)
 
         if self.query.breakdownFilter is None:
             return []
@@ -243,25 +227,12 @@ class Breakdown:
                 query_date_range=self.query_date_range,
                 modifiers=self.modifiers,
             )
-            return cast(List[str | int | float | None], breakdown.get_breakdown_values())
+            return cast(List[str | int | None], breakdown.get_breakdown_values())
 
     @cached_property
-    def _breakdown_values(self) -> List[str | int | float]:
-        values = self._all_breakdown_values
-        if len(values) == 0 or all(value is None for value in values):
-            return []
-
-        if None in values:
-            all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
-            all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
-
-            if all_values_are_ints_or_none:
-                values = [v if v is not None else BREAKDOWN_NULL_NUMERIC_LABEL for v in values]
-            elif all_values_are_floats_or_none:
-                values = [v if v is not None else float(BREAKDOWN_NULL_NUMERIC_LABEL) for v in values]
-            else:
-                values = [v if v is not None else BREAKDOWN_NULL_STRING_LABEL for v in values]
-        return cast(List[str | int | float], values)
+    def _breakdown_values(self) -> List[str | int]:
+        values = [BREAKDOWN_NULL_STRING_LABEL if v is None else v for v in self._all_breakdown_values]
+        return cast(List[str | int], values)
 
     @cached_property
     def has_breakdown_values(self) -> bool:

@@ -42,6 +42,7 @@ export default {
                             include_events: [],
                             encryption: null,
                             kms_key_id: null,
+                            file_format: 'JSONLines',
                         },
                     },
                     start_at: null,

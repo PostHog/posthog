@@ -106,6 +106,21 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_direct_empty_string(self):
+        self.assertEqual(
+            "Direct",
+            self._get_initial_channel_type(
+                {
+                    "$initial_referring_domain": "$direct",
+                    "$initial_utm_source": "",
+                    "$initial_utm_medium": "",
+                    "$initial_utm_campaign": "",
+                    "$initial_gclid": "",
+                    "$initial_gad_source": "",
+                }
+            ),
+        )
+
     def test_cross_network(self):
         self.assertEqual(
             "Cross Network",

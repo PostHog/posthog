@@ -35,7 +35,7 @@ export class KafkaProducerWrapper {
         key: MessageKey
         topic: string
         headers?: MessageHeader[]
-        waitForAck?: boolean
+        waitForAck: boolean
     }): Promise<void> {
         try {
             kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
@@ -66,7 +66,7 @@ export class KafkaProducerWrapper {
         }
     }
 
-    async queueMessage(kafkaMessage: ProducerRecord, waitForAck?: boolean) {
+    async queueMessage({ kafkaMessage, waitForAck }: { kafkaMessage: ProducerRecord; waitForAck: boolean }) {
         return await Promise.all(
             kafkaMessage.messages.map((message) =>
                 this.produce({
@@ -80,23 +80,34 @@ export class KafkaProducerWrapper {
         )
     }
 
-    async queueMessages(kafkaMessages: ProducerRecord[], waitForAck?: boolean): Promise<void> {
-        await Promise.all(kafkaMessages.map((message) => this.queueMessage(message, waitForAck)))
+    async queueMessages({
+        kafkaMessages,
+        waitForAck,
+    }: {
+        kafkaMessages: ProducerRecord[]
+        waitForAck: boolean
+    }): Promise<void> {
+        await Promise.all(kafkaMessages.map((kafkaMessage) => this.queueMessage({ kafkaMessage, waitForAck })))
     }
 
-    async queueSingleJsonMessage(
-        topic: string,
-        key: Message['key'],
-        object: Record<string, any>,
-        waitForAck?: boolean
-    ): Promise<void> {
-        await this.queueMessage(
-            {
+    async queueSingleJsonMessage({
+        topic,
+        key,
+        object,
+        waitForAck,
+    }: {
+        topic: string
+        key: Message['key']
+        object: Record<string, any>
+        waitForAck: boolean
+    }): Promise<void> {
+        await this.queueMessage({
+            kafkaMessage: {
                 topic,
                 messages: [{ key, value: JSON.stringify(object) }],
             },
-            waitForAck
-        )
+            waitForAck,
+        })
     }
 
     public async flush() {

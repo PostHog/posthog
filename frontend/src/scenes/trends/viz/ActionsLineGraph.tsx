@@ -152,6 +152,10 @@ export function ActionsLineGraph({
                                       breakdown: dataset.breakdown_value,
                                       compare: dataset.compare_label,
                                   },
+                                  additionalSelect: {
+                                      value_at_data_point: 'event_count',
+                                      matched_recordings: 'matched_recordings',
+                                  },
                               })
                           } else {
                               const datasetUrls = urlsForDatasets(

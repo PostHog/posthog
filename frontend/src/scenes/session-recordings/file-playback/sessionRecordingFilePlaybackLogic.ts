@@ -3,7 +3,6 @@ import { eventWithTime } from '@rrweb/types'
 import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
@@ -178,11 +177,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             }
 
             const snapshots = deduplicateSnapshots(
-                await parseEncodedSnapshots(
-                    values.sessionRecording.snapshots,
-                    values.sessionRecording.id,
-                    !!values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE]
-                )
+                await parseEncodedSnapshots(values.sessionRecording.snapshots, values.sessionRecording.id)
             )
 
             dataLogic.actions.loadRecordingSnapshotsSuccess({

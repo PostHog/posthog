@@ -173,7 +173,6 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
-
     const {
         isLoading,
         results,

@@ -28,6 +28,7 @@ INCREASED_MAX_EXECUTION_TIME = 600
 def execute_hogql_query(
     query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
     team: Team,
+    *,
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
     placeholders: Optional[Dict[str, ast.Expr]] = None,
@@ -147,6 +148,7 @@ def execute_hogql_query(
             has_joins="JOIN" in clickhouse_sql,
             has_json_operations="JSONExtract" in clickhouse_sql or "JSONHas" in clickhouse_sql,
             timings=timings_dict,
+            modifiers={k: v for k, v in modifiers.model_dump().items() if v is not None} if modifiers else {},
         )
 
         error = None
