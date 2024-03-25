@@ -2702,7 +2702,7 @@ class FunnelPathsFilter(BaseModel):
         extra="forbid",
     )
     funnelPathType: Optional[FunnelPathType] = None
-    funnelSource: Optional[FunnelsQuery] = None
+    funnelSource: FunnelsQuery
     funnelStep: Optional[int] = None
 
 

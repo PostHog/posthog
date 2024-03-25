@@ -795,8 +795,8 @@ export type PathsFilter = {
 }
 
 export type FunnelPathsFilter = {
-    funnelPathType?: PathsFilterLegacy['funnel_paths']
-    funnelSource?: FunnelsQuery
+    funnelPathType: PathsFilterLegacy['funnel_paths']
+    funnelSource: FunnelsQuery
     funnelStep?: integer
 }
 

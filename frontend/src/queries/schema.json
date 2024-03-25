@@ -1972,6 +1972,7 @@
                     "type": "integer"
                 }
             },
+            "required": ["funnelSource"],
             "type": "object"
         },
         "FunnelStepReference": {
