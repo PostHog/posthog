@@ -5,7 +5,6 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { JSInstallSnippet } from './js-web'
-import { NodeInstallSnippet } from './nodejs'
 
 function NuxtEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -59,31 +58,6 @@ export default defineNuxtPlugin(nuxtApp => {
     )
 }
 
-function NuxtAppServerCode(): JSX.Element {
-    return (
-        <CodeSnippet language={Language.JavaScript}>
-            {`<!-- ...rest of code -->
-
-<script setup>
-import { useAsyncData, useCookie, useRuntimeConfig } from 'nuxt/app';
-import { PostHog } from 'posthog-node';
-
-const { data: someData, error } = await useAsyncData('example', async () => {
-  const runtimeConfig = useRuntimeConfig();
-  const posthog = new PostHog(
-    runtimeConfig.public.posthogPublicKey,
-    { host: runtimeConfig.public.posthogHost }
-  );
-
-  // rest of your code
-
-});
-
-</script>`}
-        </CodeSnippet>
-    )
-}
-
 export function SDKInstallNuxtJSInstructions(): JSX.Element {
     return (
         <>
@@ -108,18 +82,6 @@ export function SDKInstallNuxtJSInstructions(): JSX.Element {
                 :
             </p>
             <NuxtAppClientCodeSnippet />
-            <h3>Server-side integration</h3>
-            <p>Install posthog-node using your package manager</p>
-            <NodeInstallSnippet />
-            <h3>Server-side initialization</h3>
-            <p>
-                Initialize the PostHog Node client where you'd like to use it on the server side. For example, in{' '}
-                <Link to="https://nuxt.com/docs/api/composables/use-async-data" target="_blank">
-                    useAsyncData
-                </Link>
-                :{' '}
-            </p>
-            <NuxtAppServerCode />
         </>
     )
 }

@@ -18,6 +18,7 @@ import {
     FeatureFlagsPHPInstructions,
     FeatureFlagsPythonInstructions,
     FeatureFlagsReactInstructions,
+    FeatureFlagsRemixJSInstructions,
     FeatureFlagsRNInstructions,
     FeatureFlagsRubyInstructions,
 } from '.'
@@ -41,6 +42,7 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: FeatureFlagsPythonInstructions,
     [SDKKey.REACT]: FeatureFlagsReactInstructions,
     [SDKKey.REACT_NATIVE]: FeatureFlagsRNInstructions,
+    [SDKKey.REMIX]: FeatureFlagsRemixJSInstructions,
     [SDKKey.RUBY]: FeatureFlagsRubyInstructions,
     // add rust, gatsby, nuxt, vue, svelte, and others here
 }

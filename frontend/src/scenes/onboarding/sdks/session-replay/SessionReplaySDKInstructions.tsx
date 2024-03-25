@@ -10,6 +10,7 @@ import {
     NextJSInstructions,
     NuxtJSInstructions,
     ReactInstructions,
+    RemixInstructions,
 } from '.'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
@@ -22,4 +23,5 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.NEXT_JS]: NextJSInstructions,
     [SDKKey.NUXT_JS]: NuxtJSInstructions,
     [SDKKey.REACT]: ReactInstructions,
+    [SDKKey.REMIX]: RemixInstructions,
 }

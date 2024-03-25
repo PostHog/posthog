@@ -3763,6 +3763,7 @@ export enum SDKKey {
     PYTHON = 'python',
     REACT = 'react',
     REACT_NATIVE = 'react_native',
+    REMIX = 'remix',
     RETOOL = 'retool',
     RUBY = 'ruby',
     RUDDERSTACK = 'rudderstack',

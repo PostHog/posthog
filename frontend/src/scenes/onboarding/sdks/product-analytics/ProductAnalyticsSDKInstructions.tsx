@@ -19,6 +19,7 @@ import {
     ProductAnalyticsNuxtJSInstructions,
     ProductAnalyticsPHPInstructions,
     ProductAnalyticsPythonInstructions,
+    ProductAnalyticsRemixJSInstructions,
     ProductAnalyticsRNInstructions,
     ProductAnalyticsRubyInstructions,
 } from '.'
@@ -43,5 +44,6 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PHP]: ProductAnalyticsPHPInstructions,
     [SDKKey.PYTHON]: ProductAnalyticsPythonInstructions,
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructions,
+    [SDKKey.REMIX]: ProductAnalyticsRemixJSInstructions,
     [SDKKey.RUBY]: ProductAnalyticsRubyInstructions,
 }

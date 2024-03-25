@@ -167,6 +167,13 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/react-native',
     },
     {
+        name: 'Remix',
+        key: SDKKey.REMIX,
+        tags: [SDKTag.WEB],
+        image: require('./logos/remix.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/remix',
+    },
+    {
         name: 'Ruby',
         key: SDKKey.RUBY,
         tags: [SDKTag.SERVER],

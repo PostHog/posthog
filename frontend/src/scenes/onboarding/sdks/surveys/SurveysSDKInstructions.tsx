@@ -10,6 +10,7 @@ import {
     NextJSInstructions,
     NuxtJSInstructions,
     ReactInstructions,
+    RemixInstructions,
 } from '.'
 
 export const SurveysSDKInstructions: SDKInstructionsMap = {
@@ -22,4 +23,5 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NEXT_JS]: NextJSInstructions,
     [SDKKey.NUXT_JS]: NuxtJSInstructions,
     [SDKKey.REACT]: ReactInstructions,
+    [SDKKey.REMIX]: RemixInstructions,
 }
