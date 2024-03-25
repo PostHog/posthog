@@ -158,7 +158,7 @@ export function InsightVizDisplay({
         ) {
             return (
                 <>
-                    <h2 className="font-semibold text-lg my-4 mx-0">Detailed results</h2>
+                    <h2 className="font-semibold text-lg mt-4 mb-2 mx-0">Detailed results</h2>
                     <FunnelStepsTable />
                 </>
             )
@@ -176,7 +176,7 @@ export function InsightVizDisplay({
             return (
                 <>
                     {exportContext && (
-                        <div className="flex items-center justify-between my-4 mx-0 detailed-results-header-panel">
+                        <div className="flex items-center justify-between my-4 mx-0">
                             <h2 className="font-semibold text-lg m-0">Detailed results</h2>
                             <Tooltip title="Export this table" placement="left">
                                 <ExportButton
