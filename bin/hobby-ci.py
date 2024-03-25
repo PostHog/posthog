@@ -12,6 +12,7 @@ import time
 import digitalocean
 import requests
 
+
 letters = string.ascii_lowercase
 random_bit = "".join(random.choice(letters) for i in range(4))
 name = f"do-ci-hobby-deploy-{random_bit}"
@@ -156,7 +157,7 @@ class HobbyTester:
 
 def main():
     print("Creating droplet on Digitalocean for testing Hobby Deployment")
-    ht = HobbyTester()
+    ht = HobbyTester(hostname=hostname)
     signal.signal(signal.SIGINT, ht.handle_sigint)  # type: ignore
     signal.signal(signal.SIGHUP, ht.handle_sigint)  # type: ignore
     signal.signal(signal.SIGTERM, ht.handle_sigint)  # type: ignore
