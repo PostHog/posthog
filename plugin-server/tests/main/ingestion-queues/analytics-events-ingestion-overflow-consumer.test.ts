@@ -97,20 +97,23 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
             expect(queue.pluginsServer.teamManager.getTeamForEvent).toHaveBeenCalledTimes(1)
             expect(consume).toHaveBeenCalledWith('1:ingestion_capacity_overflow:id', 1)
             expect(mockQueueMessage).toHaveBeenCalledWith({
-                topic: 'clickhouse_ingestion_warnings_test',
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            team_id: 1,
-                            type: 'ingestion_capacity_overflow',
-                            source: 'plugin-server',
-                            details: JSON.stringify({
-                                overflowDistinctId: 'id',
+                kafkaMessage: {
+                    topic: 'clickhouse_ingestion_warnings_test',
+                    messages: [
+                        {
+                            value: JSON.stringify({
+                                team_id: 1,
+                                type: 'ingestion_capacity_overflow',
+                                source: 'plugin-server',
+                                details: JSON.stringify({
+                                    overflowDistinctId: 'id',
+                                }),
+                                timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
                             }),
-                            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                        }),
-                    },
-                ],
+                        },
+                    ],
+                },
+                waitForAck: true,
             })
 
             // Event is processed
