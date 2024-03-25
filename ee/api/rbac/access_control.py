@@ -1,13 +1,10 @@
-from typing import Union, cast
+from typing import cast
 
-from django.db.models.query import QuerySet, RawQuerySet
 
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
-from rest_framework.filters import BaseFilterBackend
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from ee.models.rbac.access_control import AccessControl
 from posthog.models.personal_api_key import API_SCOPE_OBJECTS
@@ -91,6 +88,7 @@ class AccessControlViewSetMixin:
     # 2. Get the actual object which we can pass to the serializer to check if the user created it
     # 3. We can also use the serializer to check the access level for the object
 
+    # TODO: Probably move this to the TeamAndOrgViewSetMixin
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
         # TODO: Detect GET param to include hidden resources (for admins)
