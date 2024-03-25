@@ -363,7 +363,7 @@ def render_template(
         elif request.user.pk:
             user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
-            user_access_control = UserAccessControl(user=user, organization=user.organization)
+            user_access_control = UserAccessControl(user=user, team=user.team)
             user_serialized = UserSerializer(
                 request.user,
                 context={
