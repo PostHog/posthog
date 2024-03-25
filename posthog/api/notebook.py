@@ -237,7 +237,7 @@ class NotebookSerializer(NotebookMinimalSerializer, UserAccessControlSerializerM
         ],
     )
 )
-class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet, AccessControlViewSetMixin):
+class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "notebook"
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]

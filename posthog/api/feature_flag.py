@@ -363,9 +363,9 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
 
 class FeatureFlagViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
-    AccessControlViewSetMixin,
     viewsets.ModelViewSet,
 ):
     """

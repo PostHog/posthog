@@ -562,9 +562,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
 class InsightViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
-    AccessControlViewSetMixin,
     viewsets.ModelViewSet,
 ):
     scope_object = "insight"

@@ -79,25 +79,6 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
-class AccessControlFilterBackend(BaseFilterBackend):
-    """
-    Filters the queryset automatically based on access controls
-    """
-
-    def filter_queryset(
-        self,
-        request: Request,
-        queryset: Union[QuerySet, RawQuerySet],
-        view: APIView,
-    ):
-        if isinstance(queryset, RawQuerySet):
-            return queryset
-
-        queryset = view.user_access_control.filter_queryset_by_access_level(queryset)
-
-        return queryset
-
-
 class AccessControlViewSetMixin:
     """
     Adds an "access_controls" action to the viewset that handles access control for the given resource
@@ -110,7 +91,17 @@ class AccessControlViewSetMixin:
     # 2. Get the actual object which we can pass to the serializer to check if the user created it
     # 3. We can also use the serializer to check the access level for the object
 
-    filter_backends = [AccessControlFilterBackend]
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        # TODO: Detect GET param to include hidden resources (for admins)
+
+        if self.action != "list":
+            # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
+            # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
+            return queryset
+        queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+
+        return queryset
 
     def _get_access_control_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", self.get_serializer_context())

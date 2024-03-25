@@ -201,7 +201,9 @@ class UserAccessControl:
         # Find all items related to the queryset model that have access controls such that the effective level for the user is "none"
         # and exclude them from the queryset
 
-        resource = model_to_resource(queryset.model)
+        model = queryset.model
+        resource = model_to_resource(model)
+        model_has_creator = hasattr(model, "created_by")
 
         # TODO: Make this more efficient
         role_memberships = self._user.role_memberships.select_related("role").all()
@@ -242,13 +244,13 @@ class UserAccessControl:
             if all(access_level == NO_ACCESS_LEVEL for access_level in access_levels):
                 blocked_resource_ids.add(resource_id)
 
-        # TODO: Don't filter the queryset if the user is an admin
-        # TODO: Allow the creator of the resource to be able to see it - could either do this by saving
-        # a special access control when adding one if no other exists, or by saving a link to the foreign resource
-
         # Filter the queryset based on the access controls
         if blocked_resource_ids:
-            queryset = queryset.exclude(id__in=blocked_resource_ids)
+            # Filter out any IDs where the user is not the creator and the id is blocked
+            if model_has_creator:
+                queryset = queryset.exclude(Q(id__in=blocked_resource_ids) & ~Q(created_by=self._user))
+            else:
+                queryset = queryset.exclude(id__in=blocked_resource_ids)
 
         return queryset
 
