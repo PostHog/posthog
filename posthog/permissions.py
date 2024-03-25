@@ -386,7 +386,7 @@ class AccessControlPermission(ScopeBasePermission):
             return None
         return view.user_access_control
 
-    def _get_required_access_level(self, request, view, object) -> str:
+    def _get_required_access_level(self, request, view) -> str:
         required_scopes = self._get_required_scopes(request, view)
 
         if not required_scopes:
@@ -408,7 +408,7 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         # TODO: How to determine action level to check...
-        required_level = self._get_required_access_level(request, view, object)
+        required_level = self._get_required_access_level(request, view)
         has_access = uac.check_access_level_for_object(object, required_level=required_level)
 
         if not has_access:
@@ -433,6 +433,16 @@ class AccessControlPermission(ScopeBasePermission):
 
             if not is_member:
                 self.message = f"You are not a member of this project."
+                return False
+
+            required_level = self._get_required_access_level(request, view)
+            # TODO: Scope object should probably be applied against the `required_scopes` attribute
+            has_access = uac.check_access_level_for_resource(
+                self._get_scope_object(request, view), required_level=required_level
+            )
+
+            if not has_access:
+                self.message = f"You do not have {required_level} access to this resource."
                 return False
 
             return True
