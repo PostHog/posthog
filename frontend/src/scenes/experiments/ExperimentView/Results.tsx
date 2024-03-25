@@ -1,6 +1,5 @@
 import '../Experiment.scss'
 
-import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -10,20 +9,8 @@ import { InsightShortId } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { transformResultFilters } from '../utils'
+import { ResultsTag } from './components'
 import { SummaryTable } from './SummaryTable'
-
-export function ResultsTag(): JSX.Element {
-    const { areResultsSignificant } = useValues(experimentLogic)
-    const result: { color: LemonTagType; label: string } = areResultsSignificant
-        ? { color: 'success', label: 'Significant' }
-        : { color: 'primary', label: 'Not significant' }
-
-    return (
-        <LemonTag type={result.color}>
-            <b className="uppercase">{result.label}</b>
-        </LemonTag>
-    )
-}
 
 export function Results(): JSX.Element {
     const { experimentResults } = useValues(experimentLogic)

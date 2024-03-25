@@ -5,20 +5,16 @@ import { useActions, useValues } from 'kea'
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic } from './experimentLogic'
-import {
-    ExperimentLoader,
-    ExperimentLoadingAnimation,
-    FeatureFlagInfo,
-    PageHeaderCustom,
-} from './ExperimentView/components'
+import { ExperimentLoader, ExperimentLoadingAnimation, PageHeaderCustom } from './ExperimentView/components'
 import { DistributionTable } from './ExperimentView/DistributionTable'
 import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './ExperimentView/Goal'
+import { Info } from './ExperimentView/Info'
 import { NoResultsEmptyState } from './ExperimentView/NoResultsEmptyState'
+import { Overview } from './ExperimentView/Overview'
 import { ProgressBar } from './ExperimentView/ProgressBar'
 import { ReleaseConditionsTable } from './ExperimentView/ReleaseConditionsTable'
 import { Results } from './ExperimentView/Results'
 import { SecondaryMetricsTable } from './ExperimentView/SecondaryMetricsTable'
-import { Status } from './ExperimentView/Status'
 
 export function ExperimentView(): JSX.Element {
     const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
@@ -34,12 +30,12 @@ export function ExperimentView(): JSX.Element {
                     <ExperimentLoader />
                 ) : (
                     <>
-                        <FeatureFlagInfo />
+                        <Info />
                         {experimentResultsLoading ? (
                             <ExperimentLoadingAnimation />
                         ) : experimentResults && experimentResults.insight ? (
                             <>
-                                <Status />
+                                <Overview />
                                 <ProgressBar />
                                 <Goal />
                                 <Results />

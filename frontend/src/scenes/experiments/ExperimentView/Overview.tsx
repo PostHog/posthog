@@ -9,7 +9,7 @@ import { InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 
-export function Status(): JSX.Element {
+export function Overview(): JSX.Element {
     const {
         experimentResults,
         getIndexForVariant,
@@ -35,7 +35,7 @@ export function Status(): JSX.Element {
 
         return (
             <div>
-                <h2 className="font-semibold text-lg">Status</h2>
+                <h2 className="font-semibold text-lg">Summary</h2>
                 <div className="items-center inline-flex">
                     <div
                         className="w-2 h-2 rounded-full mr-1"
@@ -67,7 +67,7 @@ export function Status(): JSX.Element {
 
         return (
             <div>
-                <h2 className="font-semibold text-lg">Status</h2>
+                <h2 className="font-semibold text-lg">Overview</h2>
                 <LemonDivider />
                 <div className="items-center inline-flex">
                     <div
