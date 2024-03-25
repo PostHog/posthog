@@ -547,47 +547,6 @@ describe('filtersToQueryNode', () => {
                     startPoint: 'a',
                     endPoint: 'b',
                     pathGroupings: ['c', 'd'],
-                    funnelPaths: FunnelPathType.between,
-                    funnelFilter: {
-                        events: [
-                            {
-                                id: '$pageview',
-                                name: '$pageview',
-                                order: 0,
-                                type: 'events',
-                            },
-                            {
-                                id: null,
-                                order: 1,
-                                type: 'events',
-                            },
-                        ],
-                        exclusions: [],
-                        funnel_step: 1,
-                        funnel_viz_type: 'steps',
-                        insight: 'FUNNELS',
-                    },
-                    funnelActorsQuery: {
-                        funnelStep: 1,
-                        kind: NodeKind.FunnelsActorsQuery,
-                        source: {
-                            funnelsFilter: {
-                                funnelVizType: FunnelVizType.Steps,
-                            },
-                            kind: NodeKind.FunnelsQuery,
-                            series: [
-                                {
-                                    event: '$pageview',
-                                    kind: NodeKind.EventsNode,
-                                    name: '$pageview',
-                                },
-                                {
-                                    event: null,
-                                    kind: NodeKind.EventsNode,
-                                },
-                            ],
-                        },
-                    },
                     excludeEvents: ['e', 'f'],
                     stepLimit: 1,
                     pathReplacements: true,
@@ -595,6 +554,27 @@ describe('filtersToQueryNode', () => {
                     edgeLimit: 1,
                     minEdgeWeight: 1,
                     maxEdgeWeight: 1,
+                },
+                funnelPathsFilter: {
+                    funnelPathType: FunnelPathType.between,
+                    funnelStep: 1,
+                    funnelSource: {
+                        funnelsFilter: {
+                            funnelVizType: FunnelVizType.Steps,
+                        },
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                event: '$pageview',
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                            },
+                            {
+                                event: null,
+                                kind: NodeKind.EventsNode,
+                            },
+                        ],
+                    },
                 },
             }
             expect(result).toEqual(query)
