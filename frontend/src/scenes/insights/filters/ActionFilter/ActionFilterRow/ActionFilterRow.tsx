@@ -577,7 +577,7 @@ function useMathSelectorOptions({
                         <p>{definition.description}</p>
                         <i>
                             In total value insights, it's usually not clear what date range "{definition.name}" refers
-                            to. For full clarity, we recommend using "Unique users" here instead
+                            to. For full clarity, we recommend using "Unique users" here instead.
                         </i>
                     </>
                 ),
