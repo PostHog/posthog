@@ -3771,6 +3771,7 @@ export enum SDKKey {
     SEGMENT = 'segment',
     SENTRY = 'sentry',
     SHOPIFY = 'shopify',
+    SVELTE = 'svelte',
     VUE_JS = 'vuejs',
     WORDPRESS = 'wordpress',
 }

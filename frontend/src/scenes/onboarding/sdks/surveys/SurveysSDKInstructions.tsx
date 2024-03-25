@@ -11,6 +11,7 @@ import {
     NuxtJSInstructions,
     ReactInstructions,
     RemixInstructions,
+    SvelteInstructions,
 } from '.'
 
 export const SurveysSDKInstructions: SDKInstructionsMap = {
@@ -24,4 +25,5 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NUXT_JS]: NuxtJSInstructions,
     [SDKKey.REACT]: ReactInstructions,
     [SDKKey.REMIX]: RemixInstructions,
+    [SDKKey.SVELTE]: SvelteInstructions,
 }

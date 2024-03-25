@@ -21,6 +21,7 @@ import {
     FeatureFlagsRemixJSInstructions,
     FeatureFlagsRNInstructions,
     FeatureFlagsRubyInstructions,
+    FeatureFlagsSvelteInstructions,
 } from '.'
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
@@ -44,5 +45,5 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REACT_NATIVE]: FeatureFlagsRNInstructions,
     [SDKKey.REMIX]: FeatureFlagsRemixJSInstructions,
     [SDKKey.RUBY]: FeatureFlagsRubyInstructions,
-    // add rust, gatsby, nuxt, vue, svelte, and others here
+    [SDKKey.SVELTE]: FeatureFlagsSvelteInstructions,
 }

@@ -181,18 +181,25 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/ruby',
     },
     {
-        name: 'Vue.js',
-        key: SDKKey.VUE_JS,
-        tags: [SDKTag.WEB],
-        image: require('./logos/vue.svg'),
-        docsLink: 'https://posthog.com/docs/libraries/vue-js',
-    },
-    {
         name: 'Rust',
         key: SDKKey.RUST,
         tags: [SDKTag.SERVER],
         image: require('./logos/rust.svg'),
         docsLink: 'https://posthog.com/docs/libraries/rust',
+    },
+    {
+        name: 'Svelte',
+        key: SDKKey.SVELTE,
+        tags: [SDKTag.WEB],
+        image: require('./logos/svelte.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/svelte',
+    },
+    {
+        name: 'Vue.js',
+        key: SDKKey.VUE_JS,
+        tags: [SDKTag.WEB],
+        image: require('./logos/vue.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/vue-js',
     },
     // integrations
     {
