@@ -180,6 +180,10 @@ class DateRange(BaseModel):
     date_to: Optional[str] = None
 
 
+class DatetimeDay(RootModel[AwareDatetime]):
+    root: AwareDatetime
+
+
 class Day(RootModel[int]):
     root: int
 
@@ -418,6 +422,7 @@ class PersonsOnEventsMode(str, Enum):
     v1_enabled = "v1_enabled"
     v1_mixed = "v1_mixed"
     v2_enabled = "v2_enabled"
+    v3_enabled = "v3_enabled"
 
 
 class HogQLQueryModifiers(BaseModel):
@@ -457,7 +462,7 @@ class DayItem(BaseModel):
         extra="forbid",
     )
     label: str
-    value: Union[str, int]
+    value: Union[str, AwareDatetime, int]
 
 
 class IntervalItem(BaseModel):

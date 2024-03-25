@@ -225,6 +225,7 @@ export const parseKafkaMessage = async (
         metadata: {
             partition: message.partition,
             topic: message.topic,
+            rawSize: message.size,
             lowOffset: message.offset,
             highOffset: message.offset,
             timestamp: message.timestamp,
@@ -267,6 +268,7 @@ export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): I
                     existingMessage.eventsByWindowId[windowId] = events
                 }
             }
+            existingMessage.metadata.rawSize += clonedMessage.metadata.rawSize
 
             // Update the events ranges
             existingMessage.metadata.lowOffset = Math.min(
