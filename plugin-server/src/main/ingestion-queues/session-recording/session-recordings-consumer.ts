@@ -1,5 +1,6 @@
 import { captureException } from '@sentry/node'
 import crypto from 'crypto'
+import { Redis } from 'ioredis'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
@@ -20,7 +21,7 @@ import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
 import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
-import { OverflowDetection } from './services/overflow-detection'
+import { OverflowManager } from './services/overflow-manager'
 import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
@@ -42,6 +43,7 @@ require('@sentry/tracing')
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
+const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
 
 const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
@@ -129,7 +131,7 @@ export class SessionRecordingIngester {
     sessionHighWaterMarker: OffsetHighWaterMarker
     persistentHighWaterMarker: OffsetHighWaterMarker
     realtimeManager: RealtimeManager
-    overflowDetection?: OverflowDetection
+    overflowDetection?: OverflowManager
     replayEventsIngester?: ReplayEventsIngester
     consoleLogsIngester?: ConsoleLogsIngester
     batchConsumer?: BatchConsumer
@@ -149,7 +151,8 @@ export class SessionRecordingIngester {
     constructor(
         private globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
-        private objectStorage: ObjectStorage
+        private objectStorage: ObjectStorage,
+        captureRedis: Redis | undefined
     ) {
         this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
             ? parseInt(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION)
@@ -162,11 +165,13 @@ export class SessionRecordingIngester {
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 
-        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED) {
-            this.overflowDetection = new OverflowDetection(
+        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis) {
+            this.overflowDetection = new OverflowManager(
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
-                24 * 3600 // One day
+                24 * 3600, // One day,
+                CAPTURE_OVERFLOW_REDIS_KEY,
+                captureRedis
             )
         }
 
@@ -250,6 +255,8 @@ export class SessionRecordingIngester {
 
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
+        // TODO: use this for session key too if it's safe to do so
+        const overflowKey = `${team_id}:${session_id}`
 
         const { partition, highOffset } = event.metadata
         if (this.debugPartition === partition) {
@@ -285,9 +292,6 @@ export class SessionRecordingIngester {
             return
         }
 
-        // TODO: update Redis if this triggers
-        this.overflowDetection?.observe(key, event.metadata.rawSize, event.metadata.timestamp)
-
         if (!this.sessions[key]) {
             const { partition, topic } = event.metadata
 
@@ -304,7 +308,10 @@ export class SessionRecordingIngester {
             )
         }
 
-        await this.sessions[key]?.add(event)
+        await Promise.allSettled([
+            this.sessions[key]?.add(event),
+            this.overflowDetection?.observe(overflowKey, event.metadata.rawSize, event.metadata.timestamp),
+        ])
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
