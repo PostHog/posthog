@@ -33,7 +33,7 @@ jobs:
     changes:
         runs-on: depot-ubuntu-latest-4
         timeout-minutes: 5
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'test-depot') }}
+        if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
         # Set job outputs to values from filter step
         outputs:
