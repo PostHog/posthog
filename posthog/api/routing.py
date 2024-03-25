@@ -244,13 +244,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def user_access_control(self) -> "UserAccessControl":
         team: Optional[Team] = None
         try:
-            # TODO: Check this is correct...
-            if self.request.resolver_match.url_name.startswith("team-"):
-                # /projects/ endpoint handling
-                team = self.get_object()
-            else:
+            # TRICKY: We don't want to load the team if that is the object we are validating (because we get into a recursive loop)
+            if not self.request.resolver_match.url_name.startswith("team-"):
+                # TODO: This calls get_object for team.py which triggers a recursive loop via get_queryset (which uses this method)
+                # It's mostly a problem for team view because the object we are filtering for _is_ this object :see_no_evil:
                 team = self.team
-        # TODO: I don't think this will work - we will need to know about the underlying object to get the team I think...
         except (Team.DoesNotExist, KeyError):
             pass
 

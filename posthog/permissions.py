@@ -382,17 +382,9 @@ class AccessControlPermission(ScopeBasePermission):
     """
 
     def _get_user_access_control(self, request, view) -> Optional[UserAccessControl]:
-        try:
-            # TODO: Check this is correct...
-            if request.resolver_match.url_name.startswith("team-"):
-                # /projects/ endpoint handling
-                team = view.get_object()
-            else:
-                team = view.team
-        except (Team.DoesNotExist, KeyError):
+        if not hasattr(view, "user_access_control"):
             return None
-
-        return UserAccessControl(user=request.user, team=team)
+        return view.user_access_control
 
     def _get_required_access_level(self, request, view, object) -> str:
         required_scopes = self._get_required_scopes(request, view)
@@ -447,4 +439,4 @@ class AccessControlPermission(ScopeBasePermission):
 
         except (ValueError, KeyError):
             # TODO: Does this means its okay because there is no team level thing?
-            pass
+            return True

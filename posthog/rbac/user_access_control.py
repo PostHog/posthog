@@ -53,8 +53,10 @@ def model_to_resource(model: Model) -> APIScopeObject:
     """
     Given a model, return the resource type it represents
     """
-    name = model._meta.model_name
-    # name = model.__class__.__name__.lower()
+    if hasattr(model, "_meta"):
+        name = model._meta.model_name
+    else:
+        name = model.__class__.__name__.lower()
 
     if name == "team":
         return "project"
@@ -128,8 +130,8 @@ class UserAccessControl:
         We find all relevant access controls and then return the highest value
         """
 
-        # TODO: Figure out - do we need also want to include Resource level controls (i.e. where resource_id is explicitly None?)
-        # or are they only applicable when there is no object level controls?
+        if not obj:
+            return None
 
         resource = model_to_resource(obj)
         resource_id = str(obj.id)
@@ -191,7 +193,8 @@ class UserAccessControl:
             return True
 
         # If they aren't the creator then they need to be a project admin or org admin
-        return self.check_access_level_for_object(self._team, "admin")
+        # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
+        return self.check_access_level_for_object(self._team or obj, "admin")
 
     # Used for filtering a queryset by access level
     def filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
@@ -214,7 +217,7 @@ class UserAccessControl:
 
         filter_args = dict(resource=resource, resource_id__isnull=False)
 
-        if self._team:
+        if self._team and resource != "project":
             filter_args["team"] = self._team
         else:
             filter_args["team__organization"] = self._organization
