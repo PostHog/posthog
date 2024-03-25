@@ -1,5 +1,6 @@
 import { IconFeatures } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Sparkline } from 'lib/lemon-ui/Sparkline'
@@ -162,5 +163,20 @@ function parseTitle(error: string): string {
         input = error
     }
 
-    return input?.split('\n')[0].trim().substring(0, MAX_TITLE_LENGTH) || error
+    if (!input) {
+        return error
+    }
+
+    try {
+        // TRICKY - after json parsing we might not have a string,
+        // since the JSON parser will helpfully convert to other types too e.g. have seen objects here
+        if (typeof input !== 'string') {
+            input = JSON.stringify(input)
+        }
+
+        return input.split('\n')[0].trim().substring(0, MAX_TITLE_LENGTH) || error
+    } catch (e) {
+        captureException(e, { extra: { error }, tags: { feature: 'replay/error-clustering' } })
+        return error
+    }
 }
