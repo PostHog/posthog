@@ -4,8 +4,10 @@ import { IconInfo } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -90,6 +92,8 @@ export function MetricSelector({
 }
 
 export function ExperimentInsightCreator({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
     // insightVizDataLogic
     const { isTrends, series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -131,6 +135,15 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                     TaxonomicFilterGroupType.Elements,
                     TaxonomicFilterGroupType.HogQLExpression,
                 ]}
+                actionsTaxonomicGroupTypes={
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
+                        ? [
+                              TaxonomicFilterGroupType.Events,
+                              TaxonomicFilterGroupType.Actions,
+                              TaxonomicFilterGroupType.DataWarehouse,
+                          ]
+                        : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+                }
             />
             <div className="mt-4 space-y-4">
                 {!isTrends && (
