@@ -189,14 +189,19 @@ class HobbyTester:
         self.destroy_self()
 
     def export_droplet(self):
-        if self.droplet:
-            with open("$GITHUB_ENV", "a") as env_file:
-                env_file.write(f"HOBBY_DROPLET_ID={self.droplet.id}\n")
-        if self.record:
-            with open("$GITHUB_ENV", "a") as env_file:
-                env_file.write(f"HOBBY_DNS_RECORD_ID={self.record['domain_record']['id']}\n")
-                env_file.write(f"HOBBY_DNS_RECORD_NAME={self.record['domain_record']['name']}\n")
-                env_file.write(f"HOBBY_NAME={self.name}\n")
+        if not self.droplet or not self.record:
+            return
+        record_id = self.record["domain_record"]["id"]
+        record_name = self.record["domain_record"]["name"]
+        droplet_id = self.droplet.id
+
+        print(f"Exporting the droplet ID: {self.droplet.id} and DNS record ID: {record_id}")
+        with open("$GITHUB_ENV", "a") as env_file:
+            env_file.write(f"HOBBY_DROPLET_ID={droplet_id}\n")
+        with open("$GITHUB_ENV", "a") as env_file:
+            env_file.write(f"HOBBY_DNS_RECORD_ID={record_id}\n")
+            env_file.write(f"HOBBY_DNS_RECORD_NAME={record_name}\n")
+            env_file.write(f"HOBBY_NAME={self.name}\n")
 
     def ensure_droplet(self, ssh_enabled=True):
         self.create_droplet(ssh_enabled=ssh_enabled)
