@@ -1997,6 +1997,21 @@ test('team event_properties', async () => {
     ])
 })
 
+test('$truncate_created_at', async () => {
+    await processEvent(
+        'xxx',
+        '',
+        '',
+        { event: 'event name', properties: { $truncate_created_at: true } } as any as PluginEvent,
+        team.id,
+        now,
+        new UUIDT().toString()
+    )
+    const [event] = await hub.db.fetchEvents()
+    expect(event.created_at).toEqual(DateTime.utc().startOf('day'))
+    expect(event.person_created_at).toEqual(DateTime.utc().startOf('day'))
+})
+
 test('event name object json', async () => {
     await processEvent(
         'xxx',

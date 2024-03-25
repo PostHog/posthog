@@ -213,6 +213,14 @@ export class EventsProcessor {
         })
         // TODO: Remove Redis caching for person that's not used anymore
 
+        let createdAt = DateTime.utc()
+        let personCreatedAt = person.created_at
+        if (properties['$truncate_created_at']) {
+            // Some customers don't want accurate timestamps around their events for privacy reasons.
+            createdAt = createdAt.startOf('day')
+            personCreatedAt = personCreatedAt.startOf('day')
+        }
+
         const rawEvent: RawClickHouseEvent = {
             uuid,
             event: safeClickhouseString(event),
@@ -221,10 +229,10 @@ export class EventsProcessor {
             team_id: teamId,
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
-            created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
             person_id: person.uuid,
             person_properties: eventPersonProperties ?? undefined,
-            person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
+            person_created_at: castTimestampOrNow(personCreatedAt, TimestampFormat.ClickHouseSecondPrecision),
             ...groupsColumns,
         }
 
