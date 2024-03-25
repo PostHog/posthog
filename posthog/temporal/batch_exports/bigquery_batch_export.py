@@ -15,8 +15,9 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
+    BatchExportActivityReturnType,
     CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
+    FinishBatchExportRunInputs,
     create_export_run,
     default_fields,
     execute_batch_export_insert_activity,
@@ -195,7 +196,7 @@ def bigquery_default_fields() -> list[BatchExportField]:
 
 
 @activity.defn
-async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> int:
+async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> BatchExportActivityReturnType:
     """Activity streams data from ClickHouse to BigQuery."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="BigQuery")
     logger.info(
@@ -232,7 +233,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> int:
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return 0
+            return 0, 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -356,7 +357,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> int:
 
                     jsonl_file.reset()
 
-                return jsonl_file.records_total
+                return jsonl_file.records_total, count
 
 
 @workflow.defn(name="bigquery-export")
@@ -398,7 +399,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(
+        finish_inputs = FinishBatchExportRunInputs(
             id=run_id, status=BatchExportRun.Status.COMPLETED, team_id=inputs.team_id
         )
 
@@ -430,5 +431,5 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                 # Usually means the dataset or project doesn't exist.
                 "NotFound",
             ],
-            update_inputs=update_inputs,
+            finish_inputs=finish_inputs,
         )

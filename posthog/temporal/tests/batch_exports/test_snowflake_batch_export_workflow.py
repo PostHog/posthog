@@ -27,8 +27,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.batch_exports.service import BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
 )
 from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
@@ -409,7 +409,7 @@ async def test_snowflake_export_workflow_exports_events(
             activities=[
                 create_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -477,7 +477,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
             activities=[
                 create_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -560,7 +560,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
             activities=[
                 create_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -626,7 +626,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
             activities=[
                 create_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -677,7 +677,7 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
             activities=[
                 create_export_run,
                 insert_into_snowflake_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -724,7 +724,7 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
             activities=[
                 create_export_run,
                 insert_into_snowflake_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -772,7 +772,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
             activities=[
                 create_export_run,
                 never_finish_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -1089,7 +1089,7 @@ async def test_snowflake_export_workflow(
             activities=[
                 create_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -1174,7 +1174,7 @@ async def test_snowflake_export_workflow_with_many_files(
             activities=[
                 create_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -1244,7 +1244,7 @@ async def test_snowflake_export_workflow_handles_cancellation(
             activities=[
                 create_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):

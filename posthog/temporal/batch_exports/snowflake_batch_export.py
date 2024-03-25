@@ -18,8 +18,9 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, SnowflakeBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
+    BatchExportActivityReturnType,
     CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
+    FinishBatchExportRunInputs,
     create_export_run,
     default_fields,
     execute_batch_export_insert_activity,
@@ -390,7 +391,7 @@ async def copy_loaded_files_to_snowflake_table(
 
 
 @activity.defn
-async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> int:
+async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> BatchExportActivityReturnType:
     """Activity streams data from ClickHouse to Snowflake.
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
@@ -432,7 +433,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> int:
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return 0
+            return 0, 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -555,7 +556,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> int:
 
             await copy_loaded_files_to_snowflake_table(connection, inputs.table_name)
 
-        return local_results_file.records_total
+        return local_results_file.records_total, count
 
 
 @workflow.defn(name="snowflake-export")
@@ -597,7 +598,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(
+        finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
@@ -632,5 +633,5 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 # Raised by Snowflake with an incorrect account name.
                 "ForbiddenError",
             ],
-            update_inputs=update_inputs,
+            finish_inputs=finish_inputs,
         )

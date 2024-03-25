@@ -12,9 +12,9 @@ from posthog.models import (
 )
 from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
+    FinishBatchExportRunInputs,
     create_export_run,
-    update_export_run_status,
+    finish_batch_export_run,
 )
 
 
@@ -101,7 +101,7 @@ async def test_create_export_run(activity_environment, team, batch_export):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_export_run_status(activity_environment, team, batch_export):
+async def test_finish_batch_export_run(activity_environment, team, batch_export):
     """Test the export_run_status activity."""
     start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
     end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
@@ -119,12 +119,12 @@ async def test_update_export_run_status(activity_environment, team, batch_export
     run = await sync_to_async(runs.first)()  # type:ignore
     assert run.status == "Starting"
 
-    update_inputs = UpdateBatchExportRunStatusInputs(
+    finish_inputs = FinishBatchExportRunInputs(
         id=str(run_id),
         status="Completed",
         team_id=inputs.team_id,
     )
-    await activity_environment.run(update_export_run_status, update_inputs)
+    await activity_environment.run(finish_batch_export_run, finish_inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
     run = await sync_to_async(runs.first)()  # type:ignore

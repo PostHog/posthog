@@ -13,8 +13,9 @@ from posthog.batch_exports.service import BatchExportField, BatchExportSchema, H
 from posthog.models import BatchExportRun
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
+    BatchExportActivityReturnType,
     CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
+    FinishBatchExportRunInputs,
     create_export_run,
     execute_batch_export_insert_activity,
     get_data_interval,
@@ -154,7 +155,7 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
 
 
 @activity.defn
-async def insert_into_http_activity(inputs: HttpInsertInputs) -> int:
+async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportActivityReturnType:
     """Activity streams data from ClickHouse to an HTTP Endpoint."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
     logger.info(
@@ -182,7 +183,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> int:
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return 0
+            return 0, 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -305,7 +306,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> int:
                     last_uploaded_timestamp = str(inserted_at)
                     await flush_batch_to_http_endpoint(last_uploaded_timestamp, session)
 
-            return batch_file.records_total
+            return batch_file.records_total, count
 
 
 @workflow.defn(name="http-export")
@@ -347,7 +348,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(
+        finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
@@ -370,7 +371,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             non_retryable_error_types=[
                 "NonRetryableResponseError",
             ],
-            update_inputs=update_inputs,
+            finish_inputs=finish_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
             heartbeat_timeout_seconds=None,
         )

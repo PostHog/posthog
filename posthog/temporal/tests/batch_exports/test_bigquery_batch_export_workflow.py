@@ -22,8 +22,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.batch_exports.service import BatchExportSchema, BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
 )
 from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
@@ -435,7 +435,7 @@ async def test_bigquery_export_workflow(
                 activities=[
                     create_export_run,
                     insert_into_bigquery_activity,
-                    update_export_run_status,
+                    finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
@@ -454,6 +454,7 @@ async def test_bigquery_export_workflow(
         run = runs[0]
         assert run.status == "Completed"
         assert run.records_completed == 100
+        assert run.records_total_count == 100
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.timezone.utc)
         assert_clickhouse_records_in_bigquery(
@@ -497,7 +498,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bi
             activities=[
                 create_export_run,
                 insert_into_bigquery_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -548,7 +549,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
             activities=[
                 create_export_run,
                 insert_into_bigquery_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -597,7 +598,7 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
             activities=[
                 create_export_run,
                 never_finish_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):

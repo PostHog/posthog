@@ -21,8 +21,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.batch_exports.service import BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
 )
 from posthog.temporal.batch_exports.redshift_batch_export import (
     RedshiftBatchExportInputs,
@@ -414,7 +414,7 @@ async def test_redshift_export_workflow(
             activities=[
                 create_export_run,
                 insert_into_redshift_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -490,7 +490,7 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(ateam, re
             activities=[
                 create_export_run,
                 insert_into_redshift_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -541,7 +541,7 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
             activities=[
                 create_export_run,
                 insert_into_redshift_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):

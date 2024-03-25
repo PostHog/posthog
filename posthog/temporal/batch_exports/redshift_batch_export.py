@@ -16,8 +16,9 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, RedshiftBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
+    BatchExportActivityReturnType,
     CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
+    FinishBatchExportRunInputs,
     create_export_run,
     default_fields,
     execute_batch_export_insert_activity,
@@ -271,7 +272,7 @@ class RedshiftInsertInputs(PostgresInsertInputs):
 
 
 @activity.defn
-async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> int:
+async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchExportActivityReturnType:
     """Activity to insert data from ClickHouse to Redshift.
 
     This activity executes the following steps:
@@ -313,7 +314,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> int:
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return 0
+            return 0, 0
 
         logger.info("BatchExporting %s rows", count)
 
@@ -397,7 +398,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> int:
                 inputs.table_name,
             )
 
-        return records_completed
+        return records_completed, count
 
 
 @workflow.defn(name="redshift-export")
@@ -439,7 +440,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(
+        finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
@@ -475,7 +476,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                 # Missing permissions to, e.g., insert into table.
                 "InsufficientPrivilege",
             ],
-            update_inputs=update_inputs,
+            finish_inputs=finish_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
             heartbeat_timeout_seconds=None,
         )

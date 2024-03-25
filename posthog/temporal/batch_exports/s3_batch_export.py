@@ -19,8 +19,9 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, BatchExportSchema, S3BatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
+    BatchExportActivityReturnType,
     CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
+    FinishBatchExportRunInputs,
     create_export_run,
     default_fields,
     execute_batch_export_insert_activity,
@@ -413,7 +414,7 @@ def s3_default_fields() -> list[BatchExportField]:
 
 
 @activity.defn
-async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
+async def insert_into_s3_activity(inputs: S3InsertInputs) -> BatchExportActivityReturnType:
     """Activity to batch export data from PostHog's ClickHouse to S3.
 
     It currently only creates a single file per run, and uploads as a multipart upload.
@@ -449,7 +450,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return 0
+            return 0, 0
 
         logger.info("BatchExporting %s rows to S3", count)
 
@@ -549,7 +550,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
 
             await s3_upload.complete()
 
-        return writer.records_total
+        return writer.records_total, count
 
 
 def get_batch_export_writer(
@@ -672,7 +673,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(
+        finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
@@ -708,5 +709,5 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 # An S3 bucket doesn't exist.
                 "NoSuchBucket",
             ],
-            update_inputs=update_inputs,
+            finish_inputs=finish_inputs,
         )

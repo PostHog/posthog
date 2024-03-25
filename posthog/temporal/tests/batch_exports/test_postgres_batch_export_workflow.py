@@ -19,8 +19,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.batch_exports.service import BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
 )
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresBatchExportInputs,
@@ -366,7 +366,7 @@ async def test_postgres_export_workflow(
             activities=[
                 create_export_run,
                 insert_into_postgres_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -386,6 +386,7 @@ async def test_postgres_export_workflow(
     run = runs[0]
     assert run.status == "Completed"
     assert run.records_completed == 100
+    assert run.records_total_count == 100
 
     await assert_clickhouse_records_in_postgres(
         postgres_connection=postgres_connection,
@@ -425,7 +426,7 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, po
             activities=[
                 create_export_run,
                 insert_into_postgres_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -476,7 +477,7 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
             activities=[
                 create_export_run,
                 insert_into_postgres_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -495,7 +496,8 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
     run = runs[0]
     assert run.status == "Failed"
     assert run.latest_error == "InsufficientPrivilege: A useful error message"
-    assert run.records_completed == 0
+    assert run.records_completed is None
+    assert run.records_total_count is None
 
 
 async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_batch_export, interval):
@@ -525,7 +527,7 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
             activities=[
                 create_export_run,
                 never_finish_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):

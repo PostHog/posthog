@@ -17,8 +17,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
 )
 from posthog.temporal.batch_exports.http_batch_export import (
     HeartbeatDetails,
@@ -347,7 +347,7 @@ async def test_http_export_workflow(
             activities=[
                 create_export_run,
                 insert_into_http_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -407,7 +407,7 @@ async def test_http_export_workflow_handles_insert_activity_errors(ateam, http_b
             activities=[
                 create_export_run,
                 insert_into_http_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -457,7 +457,7 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
             activities=[
                 create_export_run,
                 insert_into_http_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -505,7 +505,7 @@ async def test_http_export_workflow_handles_cancellation(ateam, http_batch_expor
             activities=[
                 create_export_run,
                 never_finish_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
