@@ -10,7 +10,7 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.personal_api_key import APIScopeObject, API_SCOPE_OBJECTS
+from posthog.models.scopes import APIScopeObject, API_SCOPE_OBJECTS
 
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ def access_level_satisfied_for_object(obj: Model, current_level: str, required_l
     return access_level_satisfied_for_resource(resource, current_level, required_level)
 
 
-def model_to_resource(model: Model) -> APIScopeObject:
+def model_to_resource(model: Model) -> Optional[APIScopeObject]:
     """
     Given a model, return the resource type it represents
     """
@@ -63,12 +63,11 @@ def model_to_resource(model: Model) -> APIScopeObject:
     else:
         name = model.__class__.__name__.lower()
 
+    # NOTE: These are special mappings where the 1-1 of APIScopeObject doesn't match
     if name == "team":
         return "project"
     if name == "featureflag":
         return "feature_flag"
-    if name == "pluginconfig":
-        return "plugin_config"
 
     if name not in API_SCOPE_OBJECTS:
         raise ValueError(f"Model {name} does not have a corresponding API scope object.")
@@ -108,6 +107,9 @@ class UserAccessControl:
         Used when checking an individual object - gets all access controls for the object and its type
         """
         resource = model_to_resource(obj)
+        if not resource:
+            return []
+
         resource_id = str(obj.id)
 
         # TODO: Make this more efficient
@@ -167,6 +169,9 @@ class UserAccessControl:
             return None
 
         resource = model_to_resource(obj)
+        if not resource:
+            return None
+
         resource_id = str(obj.id)
 
         if not self.access_controls_supported:
@@ -292,6 +297,10 @@ class UserAccessControl:
 
         model = queryset.model
         resource = model_to_resource(model)
+
+        if not resource:
+            return queryset
+
         model_has_creator = hasattr(model, "created_by")
 
         # TODO: Make this more efficient
