@@ -123,8 +123,8 @@ class RawPersonsTable(Table):
 class PersonsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = PERSONS_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
-        return select_from_persons_table(requested_fields, modifiers)
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
+        return select_from_persons_table(requested_fields, context.modifiers)
 
     def to_printed_clickhouse(self, context):
         return "person"

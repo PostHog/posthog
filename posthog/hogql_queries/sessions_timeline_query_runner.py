@@ -135,6 +135,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             query_type="SessionsTimelineQuery",
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
         assert query_result.results is not None
         timeline_entries_map: Dict[str, TimelineEntry] = {}

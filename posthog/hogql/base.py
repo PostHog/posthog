@@ -32,7 +32,7 @@ class AST:
             return visit(self)
         if hasattr(visitor, "visit_unknown"):
             return visitor.visit_unknown(self)
-        raise NotImplementedException(f"Visitor has no method {method_name}")
+        raise NotImplementedException(f"{visitor.__class__.__name__} has no method {method_name}")
 
 
 @dataclass(kw_only=True)

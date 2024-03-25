@@ -125,7 +125,7 @@ class TestVisitor(BaseTest):
 
         with self.assertRaises(HogQLException) as e:
             UnknownNotDefinedVisitor().visit(parse_expr("1 + 3 / 'asd2'"))
-        self.assertEqual(str(e.exception), "Visitor has no method visit_constant")
+        self.assertEqual(str(e.exception), "UnknownNotDefinedVisitor has no method visit_constant")
 
     def test_hogql_exception_start_end(self):
         class EternalVisitor(TraversingVisitor):

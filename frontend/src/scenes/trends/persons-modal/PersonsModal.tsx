@@ -369,6 +369,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                             onClick={onOpenRecordingClick}
                             sideIcon={matchedRecordings.length === 1 ? <IconPlayCircle /> : null}
                             type="secondary"
+                            status={matchedRecordings.length > 1 ? 'alt' : undefined}
                             size="small"
                         >
                             {matchedRecordings.length > 1 ? `${matchedRecordings.length} recordings` : 'View recording'}

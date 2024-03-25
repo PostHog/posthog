@@ -230,6 +230,10 @@ export interface PluginsServerConfig {
     // a single partition which will output many more log messages to the console
     // useful when that partition is lagging unexpectedly
     SESSION_RECORDING_DEBUG_PARTITION: string | undefined
+    // overflow detection, updating Redis for capture to move the traffic away
+    SESSION_RECORDING_OVERFLOW_ENABLED: boolean
+    SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
+    SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined

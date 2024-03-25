@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 from uuid import UUID
 
 import dlt
@@ -9,7 +10,7 @@ import asyncio
 import os
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
-from dlt.sources import DltResource
+from dlt.sources import DltSource
 
 
 @dataclass
@@ -23,9 +24,9 @@ class PipelineInputs:
 
 
 class DataImportPipeline:
-    loader_file_format = "parquet"
+    loader_file_format: Literal["parquet"] = "parquet"
 
-    def __init__(self, inputs: PipelineInputs, source: DltResource, logger: FilteringBoundLogger):
+    def __init__(self, inputs: PipelineInputs, source: DltSource, logger: FilteringBoundLogger):
         self.inputs = inputs
         self.logger = logger
         self.source = source
@@ -47,6 +48,7 @@ class DataImportPipeline:
             credentials = {
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+                "region_name": settings.AIRBYTE_BUCKET_REGION,
             }
 
         return dlt.destinations.filesystem(
