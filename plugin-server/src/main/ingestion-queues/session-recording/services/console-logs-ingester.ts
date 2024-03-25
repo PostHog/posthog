@@ -170,14 +170,4 @@ export class ConsoleLogsIngester {
             })
         }
     }
-
-    public start(): void {
-        if (!this.producer.isConnected()) {
-            status.error('🔁', '[console-log-events-ingester] kakfa producer should have been connected by parent')
-        }
-    }
-
-    public stop(): void {
-        status.info('🔁', '[console-log-events-ingester] stopping')
-    }
 }

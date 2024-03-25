@@ -455,12 +455,10 @@ export class SessionRecordingIngester {
         // NOTE: This is the only place where we need to use the shared server config
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(producer, this.persistentHighWaterMarker)
-            this.consoleLogsIngester.start()
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
             this.replayEventsIngester = new ReplayEventsIngester(producer, this.persistentHighWaterMarker)
-            this.replayEventsIngester.start()
         }
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
@@ -542,15 +540,6 @@ export class SessionRecordingIngester {
         // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
         void this.scheduleWork(this.onRevokePartitions(assignedPartitions))
         void this.scheduleWork(this.realtimeManager.unsubscribe())
-
-        // stop is effectively a no-op on both of these but is kept here
-        // in case we want to add any cleanup logic in the future
-        if (this.replayEventsIngester) {
-            this.replayEventsIngester.stop()
-        }
-        if (this.consoleLogsIngester) {
-            this.consoleLogsIngester.stop()
-        }
 
         const promiseResults = await Promise.allSettled(this.promises)
 

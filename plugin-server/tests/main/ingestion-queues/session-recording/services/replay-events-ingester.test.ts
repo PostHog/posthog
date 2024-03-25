@@ -24,6 +24,7 @@ const makeIncomingMessage = (source: string | null, timestamp: number): Incoming
             topic: 'topic',
             timestamp: timestamp,
             consoleLogIngestionEnabled: true,
+            rawSize: 0,
         },
         session_id: '',
         team_id: 0,
@@ -42,7 +43,6 @@ describe('replay events ingester', () => {
 
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
         ingester = new ReplayEventsIngester(mockProducer as unknown as HighLevelProducer, mockedHighWaterMarker)
-        ingester.start()
     })
 
     test('does not ingest messages from a month in the future', async () => {

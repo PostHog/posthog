@@ -291,12 +291,10 @@ export class SessionRecordingIngesterV3 {
         // NOTE: This is the only place where we need to use the shared server config
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(producer)
-            this.consoleLogsIngester.start()
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
             this.replayEventsIngester = new ReplayEventsIngester(producer)
-            this.replayEventsIngester.start()
         }
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
@@ -353,15 +351,6 @@ export class SessionRecordingIngesterV3 {
                 Object.entries(this.sessions).map(([key, sessionManager]) => this.destroySession(key, sessionManager))
             )
         )
-
-        // stop is effectively a no-op on both of these but is kept here
-        // in case we want to add any cleanup logic in the future
-        if (this.replayEventsIngester) {
-            this.replayEventsIngester.stop()
-        }
-        if (this.consoleLogsIngester) {
-            this.consoleLogsIngester.stop()
-        }
 
         const promiseResults = await Promise.allSettled(this.promises)
 

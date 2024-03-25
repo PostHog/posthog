@@ -175,13 +175,4 @@ export class ReplayEventsIngester {
             })
         }
     }
-    public start(): void {
-        if (!this.producer.isConnected()) {
-            status.error('🔁', '[replay-events] kakfa producer should have been connected by parent')
-        }
-    }
-
-    public stop(): void {
-        status.info('🔁', '[replay-events] stopping')
-    }
 }

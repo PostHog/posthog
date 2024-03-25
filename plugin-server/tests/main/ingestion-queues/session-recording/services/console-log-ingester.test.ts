@@ -24,6 +24,7 @@ const makeIncomingMessage = (
             topic: 'topic',
             timestamp: 0,
             consoleLogIngestionEnabled,
+            rawSize: 0,
         },
         session_id: '',
         team_id: 0,
@@ -45,7 +46,6 @@ describe('console log ingester', () => {
             mockProducer as unknown as HighLevelProducer,
             mockedHighWaterMarker
         )
-        consoleLogIngester.start()
     })
     describe('when enabled on team', () => {
         test('it truncates large console logs', async () => {
