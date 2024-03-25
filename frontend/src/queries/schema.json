@@ -3255,9 +3255,6 @@
                     },
                     "type": "array"
                 },
-                "funnelPaths": {
-                    "$ref": "#/definitions/FunnelPathType"
-                },
                 "includeEventTypes": {
                     "items": {
                         "$ref": "#/definitions/PathType"

@@ -597,7 +597,6 @@ class PathsFilter(BaseModel):
     edgeLimit: Optional[int] = None
     endPoint: Optional[str] = None
     excludeEvents: Optional[List[str]] = None
-    funnelPaths: Optional[FunnelPathType] = None
     includeEventTypes: Optional[List[PathType]] = None
     localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
     maxEdgeWeight: Optional[int] = None
