@@ -65,7 +65,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
         if resource_id:
             # Check that they have the right access level for this specific resource object
-            if not access_control.check_can_modify_access_levels_for_object(the_object):
+            if not access_control.check_can_modify_access_levels_for_object(the_object, resource=resource):
                 raise exceptions.PermissionDenied(f"Must be {required_level} to modify {resource} permissions.")
         else:
             # If modifying the base resource rules then we are checking the parent membership (project or organization)
@@ -125,7 +125,7 @@ class AccessControlViewSetMixin:
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
         # TODO: Fix - could be none
-        user_access_level = self.user_access_control.access_control_for_object(obj).access_level
+        user_access_level = self.user_access_control.access_control_for_object(obj, resource).access_level
 
         return Response(
             {

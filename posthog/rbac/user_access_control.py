@@ -49,11 +49,6 @@ def access_level_satisfied_for_resource(resource: APIScopeObject, current_level:
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
 
 
-def access_level_satisfied_for_object(obj: Model, current_level: str, required_level: str) -> bool:
-    resource = model_to_resource(obj)
-    return access_level_satisfied_for_resource(resource, current_level, required_level)
-
-
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
     """
     Given a model, return the resource type it represents
@@ -70,7 +65,7 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "feature_flag"
 
     if name not in API_SCOPE_OBJECTS:
-        raise ValueError(f"Model {name} does not have a corresponding API scope object.")
+        return None
 
     return name
 
@@ -102,14 +97,10 @@ class UserAccessControl:
         ) or self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
     # @cached_property
-    def _access_controls_for_object(self, obj: Model) -> List[_AccessControl]:
+    def _access_controls_for_object(self, obj: Model, resource: str) -> List[_AccessControl]:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
-        resource = model_to_resource(obj)
-        if not resource:
-            return []
-
         resource_id = str(obj.id)
 
         # TODO: Make this more efficient
@@ -159,7 +150,7 @@ class UserAccessControl:
         )
 
     # Object level - checking conditions for specific items
-    def access_control_for_object(self, obj: Model) -> Optional[_AccessControl]:
+    def access_control_for_object(self, obj: Model, resource: Optional[str] = None) -> Optional[_AccessControl]:
         """
         Access levels are strings - the order of which is determined at run time.
         We find all relevant access controls and then return the highest value
@@ -168,7 +159,7 @@ class UserAccessControl:
         if not obj:
             return None
 
-        resource = model_to_resource(obj)
+        resource = resource or model_to_resource(obj)
         if not resource:
             return None
 
@@ -192,7 +183,7 @@ class UserAccessControl:
                 access_level=ordered_access_levels(resource)[-1],
             )
 
-        access_controls = self._access_controls_for_object(obj)
+        access_controls = self._access_controls_for_object(obj, resource)
         if not access_controls:
             return AccessControl(
                 team=self._team,
@@ -213,15 +204,20 @@ class UserAccessControl:
 
         Returns true or false if access controls are applied, otherwise None
         """
-        access_control = self.access_control_for_object(obj)
+
+        resource = model_to_resource(obj)
+        if not resource:
+            return None
+
+        access_control = self.access_control_for_object(obj, resource)
 
         return (
             False
             if not access_control
-            else access_level_satisfied_for_object(obj, access_control.access_level, required_level)
+            else access_level_satisfied_for_resource(resource, access_control.access_level, required_level)
         )
 
-    def check_can_modify_access_levels_for_object(self, obj: Model) -> Optional[bool]:
+    def check_can_modify_access_levels_for_object(self, obj: Model, resource: Optional[str] = None) -> Optional[bool]:
         """
         Special case for checking if the user can modify the access levels for an object.
         Unlike check_access_level_for_object, this requires that one of these conditions is true:
@@ -236,7 +232,7 @@ class UserAccessControl:
 
         # If they aren't the creator then they need to be a project admin or org admin
         # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
-        return self.check_access_level_for_object(self._team or obj, "admin")
+        return self.check_access_level_for_object(self._team or obj, required_level="admin")
 
     # Resource level - checking conditions for the resource type
 
@@ -291,12 +287,12 @@ class UserAccessControl:
             else access_level_satisfied_for_resource(resource, access_control.access_level, required_level)
         )
 
-    def filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
+    def filter_queryset_by_access_level(self, queryset: QuerySet, resource: Optional[str] = None) -> QuerySet:
         # Find all items related to the queryset model that have access controls such that the effective level for the user is "none"
         # and exclude them from the queryset
 
         model = queryset.model
-        resource = model_to_resource(model)
+        resource = resource or model_to_resource(model)
 
         if not resource:
             return queryset

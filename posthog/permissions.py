@@ -417,7 +417,6 @@ class AccessControlPermission(ScopeBasePermission):
             # TODO: IS this corrrect...
             return True
 
-        # TODO: How to determine action level to check...
         required_level = self._get_required_access_level(request, view)
         has_access = uac.check_access_level_for_object(object, required_level=required_level)
 
@@ -439,7 +438,7 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         try:
-            is_member = uac.check_access_level_for_object(view.team, "member")
+            is_member = uac.check_access_level_for_object(view.team, required_level="member")
 
             if not is_member:
                 self.message = f"You are not a member of this project."
