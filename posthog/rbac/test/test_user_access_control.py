@@ -55,15 +55,15 @@ class TestUserTeamPermissions(BaseTest):
         self.organization.save()
 
         # This always will return false - the user of this class will take care of it
-        assert self.user_access_control.access_control_for_object(self.team) is None
+        assert self.user_access_control.access_level_for_object(self.team) is None
         assert self.user_access_control.check_access_level_for_object(self.team, "admin") is False
-        assert self.other_user_access_control.access_control_for_object(self.team) is None
+        assert self.other_user_access_control.access_level_for_object(self.team) is None
         assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
 
     def test_ac_object_default_response(self):
-        assert self.user_access_control.access_control_for_object(self.team).access_level == "member"
+        assert self.user_access_control.access_level_for_object(self.team) == "member"
         assert self.user_access_control.check_access_level_for_object(self.team, "admin") is False
-        assert self.other_user_access_control.access_control_for_object(self.team).access_level == "member"
+        assert self.other_user_access_control.access_level_for_object(self.team) == "member"
         assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
 
     def test_ac_object_user_access_control(self):
@@ -75,7 +75,7 @@ class TestUserTeamPermissions(BaseTest):
             organization_member=self.organization_membership,
         )
 
-        assert self.user_access_control.access_control_for_object(self.team) == ac
+        assert self.user_access_control.access_level_for_object(self.team) == "admin"
         assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
         assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
 
@@ -93,7 +93,7 @@ class TestUserTeamPermissions(BaseTest):
         # Setup no access by default
         ac = self._create_access_control(access_level="none")
 
-        assert self.user_access_control.access_control_for_object(self.team) == ac
+        assert self.user_access_control.access_level_for_object(self.team) == "none"
         assert self.user_access_control.check_access_level_for_object(self.team, "admin") is False
         assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
 
@@ -114,7 +114,7 @@ class TestUserTeamPermissions(BaseTest):
     def test_ac_object_role_access_control(self):
         ac = self._create_access_control(access_level="admin", role=self.role_a)
 
-        assert self.user_access_control.access_control_for_object(self.team) == ac
+        assert self.user_access_control.access_level_for_object(self.team) == "admin"
         assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
         assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
         assert self.user_with_no_role_access_control.check_access_level_for_object(self.team, "admin") is False
@@ -148,14 +148,14 @@ class TestUserTeamPermissions(BaseTest):
             resource_id="something else", access_level="admin", organization_member=self.organization_membership
         )
 
-        matching_acs = list(self.user_access_control._access_controls_for_object(self.team))
+        matching_acs = list(self.user_access_control._access_controls_for_object(self.team, "project"))
         assert len(matching_acs) == 4
         assert ac_project in matching_acs
         assert ac_user in matching_acs
         assert ac_role in matching_acs
         assert ac_role_2 in matching_acs
         # the matching one should be the highest level
-        assert self.user_access_control.access_control_for_object(self.team) == ac_role
+        assert self.user_access_control.access_level_for_object(self.team) == "admin"
 
     def test_org_admin_always_has_access(self):
         self._create_access_control(access_level="none")

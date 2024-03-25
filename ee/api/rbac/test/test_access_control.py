@@ -86,6 +86,7 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
     def test_project_change_rejected_if_bad_access_level(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
         res = self._put_project_access_control({"access_level": "bad"})
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
         assert res.json()["detail"] == "Invalid access level. Must be one of: none, member, admin", res.json()
@@ -124,7 +125,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert res.json() == {
             "access_controls": [],
-            "available_access_levels": ["viewer", "editor"],
+            "available_access_levels": ["none", "viewer", "editor"],
             "user_access_level": "editor",
             "default_access_level": "editor",
             "user_can_edit_access_levels": True,
