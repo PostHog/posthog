@@ -158,7 +158,7 @@ export function InsightVizDisplay({
         ) {
             return (
                 <>
-                    <h2 className="font-semibold text-lg mt-4 mb-2 mx-0">Detailed results</h2>
+                    <h2 className="font-semibold text-lg my-4 mx-0">Detailed results</h2>
                     <FunnelStepsTable />
                 </>
             )
