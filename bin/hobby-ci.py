@@ -190,7 +190,8 @@ class HobbyTester:
 
     def export_droplet(self):
         if not self.droplet or not self.record:
-            return
+            print("Droplet or DNS record not found. Exiting")
+            exit(1)
         record_id = self.record["domain_record"]["id"]
         record_name = self.record["domain_record"]["name"]
         droplet_id = self.droplet.id
