@@ -67,6 +67,8 @@ def model_to_resource(model: Model) -> APIScopeObject:
         return "project"
     if name == "featureflag":
         return "feature_flag"
+    if name == "pluginconfig":
+        return "plugin_config"
 
     if name not in API_SCOPE_OBJECTS:
         raise ValueError(f"Model {name} does not have a corresponding API scope object.")
