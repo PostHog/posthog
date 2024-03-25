@@ -895,8 +895,6 @@ class PathsQueryRunner(QueryRunner):
             else:
                 conditions.append(parse_expr("1=1"))
 
-        # TODO: Funnel?
-
         actors_query = parse_select(
             """
                 SELECT
