@@ -254,8 +254,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.116.4
-    version: 1.116.4
+    specifier: 1.116.5
+    version: 1.116.5
   posthog-js-lite:
     specifier: 2.5.0
     version: 2.5.0
@@ -13633,7 +13633,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.20.0
+      preact: 10.20.1
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17454,19 +17454,19 @@ packages:
     resolution: {integrity: sha512-Urvlp0Vu9h3td0BVFWt0QXFJDoOZcaAD83XM9d91NKMKTVPZtfU0ysoxstIf5mw/ce9ZfuMgpWPaagrZI4rmSg==}
     dev: false
 
-  /posthog-js@1.116.4:
-    resolution: {integrity: sha512-PZg208/k5OZRQbd9tnGvUgtyRl1IAYyyh74teyIDIH3EnlsAolBlVM4gcoyEYoVkUi5sZLKitj9gTX3/vnEG4Q==}
+  /posthog-js@1.116.5:
+    resolution: {integrity: sha512-Dfsy07WGPRqbXNQgfhR5zhcQw4A078xCRX1y0oGmy8xVUmL6QLNNTVKENB4xpo45Ox+88cysi+hEMhd9SfV5Qg==}
     dependencies:
       fflate: 0.4.8
-      preact: 10.20.0
+      preact: 10.20.1
     dev: false
 
   /potpack@2.0.0:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.20.0:
-    resolution: {integrity: sha512-wU7iZw2BjsaKDal3pDRDy/HpPB6cuFOnVUCcw9aIPKG98+ZrXx3F+szkos8BVME5bquyKDKvRlOJFG8kMkcAbg==}
+  /preact@10.20.1:
+    resolution: {integrity: sha512-JIFjgFg9B2qnOoGiYMVBtrcFxHqn+dNXbq76bVmcaHYJFYR4lW67AOcXgAYQQTDYXDOg/kTZrKPNCdRgJ2UJmw==}
     dev: false
 
   /prelude-ls@1.2.1:

@@ -242,6 +242,15 @@ export function BatchExportsEditFields({
                                     ]}
                                 />
                             </LemonField>
+
+                            <LemonField name="file_format" label="Format" className="flex-1">
+                                <LemonSelect
+                                    options={[
+                                        { value: 'JSONLines', label: 'JSON lines' },
+                                        { value: 'Parquet', label: 'Apache Parquet' },
+                                    ]}
+                                />
+                            </LemonField>
                         </div>
 
                         <div className="flex gap-4">

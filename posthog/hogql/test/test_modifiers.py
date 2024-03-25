@@ -74,6 +74,13 @@ class TestModifiers(BaseTest):
                 "events.person_properties AS properties",
                 "toTimeZone(events.person_created_at, %(hogql_val_1)s) AS created_at",
             ),
+            (
+                PersonsOnEventsMode.v3_enabled,
+                "events.event AS event",
+                "if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS id",
+                "events.person_properties AS properties",
+                "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
+            ),
         ]
 
         for mode, *expected in test_cases:
