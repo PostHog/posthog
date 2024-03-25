@@ -906,6 +906,7 @@ export type ErrorCluster = {
     sample: string
     occurrences: number
     session_ids: string[]
+    sparkline: Record<string, number>
     unique_sessions: number
     viewed: number
 }
@@ -3041,7 +3042,7 @@ interface BreadcrumbBase {
     /** Symbol, e.g. a lettermark or a profile picture. */
     symbol?: React.ReactNode
     /** Whether to show a custom popover */
-    popover?: Pick<PopoverProps, 'overlay' | 'sameWidth'>
+    popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
     /** Path to link to. */
@@ -3596,6 +3597,7 @@ export type BatchExportDestinationS3 = {
         encryption: string | null
         kms_key_id: string | null
         endpoint_url: string | null
+        file_format: string
     }
 }
 

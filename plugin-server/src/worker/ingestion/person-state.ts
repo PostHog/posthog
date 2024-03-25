@@ -453,7 +453,7 @@ export class PersonState {
             olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
             properties
         )
-        await this.db.kafkaProducer.queueMessages(kafkaMessages)
+        await this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
         return mergedPerson
     }
 
@@ -767,7 +767,7 @@ export class DeferredPersonOverrideWorker {
                 // Postgres for some reason -- the same row state should be
                 // generated each call, and the receiving ReplacingMergeTree will
                 // ensure we keep only the latest version after all writes settle.)
-                await this.kafkaProducer.queueMessages(messages, true)
+                await this.kafkaProducer.queueMessages({ kafkaMessages: messages, waitForAck: true })
 
                 return rows.length
             }

@@ -109,35 +109,49 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
     }
 
     return (
-        <div className="border rounded bg-bg-light">
-            <div className="card-secondary p-4 border-b">Feature flag usage and implementation</div>
-            <div className="p-6">
-                <div className="flex mb-2 justify-between">
-                    <div className="flex items-center">
-                        <span className="mr-2">Variant group</span>
-                        <LemonSelect
-                            size="small"
-                            className="min-w-[5rem]"
-                            onSelect={setCurrentVariant}
-                            value={currentVariant}
-                            options={(experiment?.parameters?.feature_flag_variants || []).map(
-                                (variant: MultivariateFlagVariant) => ({
-                                    value: variant.key,
-                                    label: variant.key,
-                                })
-                            )}
-                        />
+        <div>
+            <h2 className="font-semibold text-lg mb-2">Implementation</h2>
+            <div className="border rounded bg-bg-light">
+                <div className="p-6 space-y-4">
+                    <div className="flex justify-between">
+                        <div className="flex items-center">
+                            <span className="mr-2">Variant group</span>
+                            <LemonSelect
+                                size="small"
+                                className="min-w-[5rem]"
+                                onSelect={setCurrentVariant}
+                                value={currentVariant}
+                                options={(experiment?.parameters?.feature_flag_variants || []).map(
+                                    (variant: MultivariateFlagVariant) => ({
+                                        value: variant.key,
+                                        label: variant.key,
+                                    })
+                                )}
+                            />
+                        </div>
+                        <div>
+                            <CodeLanguageSelect
+                                selectOption={selectOption}
+                                selectedOptionValue={selectedOption.value}
+                            />
+                        </div>
                     </div>
                     <div>
-                        <CodeLanguageSelect selectOption={selectOption} selectedOptionValue={selectedOption.value} />
+                        <div className="mb-1">
+                            <b>Implement your experiment in code</b>
+                        </div>
+                        <div className="mb-1">
+                            <selectedOption.Snippet
+                                variant={currentVariant}
+                                flagKey={experiment?.feature_flag?.key ?? ''}
+                            />
+                        </div>
+
+                        <Link subtle to={selectedOption.documentationLink} target="_blank">
+                            See the docs for more implementation information.
+                        </Link>
                     </div>
                 </div>
-                <b>Implement your experiment in code</b>
-                <selectedOption.Snippet variant={currentVariant} flagKey={experiment?.feature_flag?.key ?? ''} />
-
-                <Link subtle to={selectedOption.documentationLink} target="_blank">
-                    See the docs for more implementation information.
-                </Link>
             </div>
         </div>
     )

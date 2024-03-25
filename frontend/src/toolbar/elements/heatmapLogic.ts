@@ -24,7 +24,7 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
-        values: [toolbarConfigLogic, ['apiURL'], currentPageLogic, ['href', 'wildcardHref']],
+        values: [currentPageLogic, ['href', 'wildcardHref']],
         actions: [currentPageLogic, ['setHref', 'setWildcardHref']],
     }),
     actions({
@@ -113,7 +113,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                             ...values.heatmapFilter,
                         }
                         const includeEventsParams = '&include=$autocapture&include=$rageclick'
-                        defaultUrl = `${values.apiURL}/api/element/stats/${encodeParams(
+                        defaultUrl = `/api/element/stats/${encodeParams(
                             { ...params, paginate_response: true },
                             '?'
                         )}${includeEventsParams}`
@@ -124,7 +124,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         url || defaultUrl,
                         'GET',
                         undefined,
-                        url ? 'use-as-provided' : 'only-add-token'
+                        url ? 'use-as-provided' : 'full'
                     )
 
                     if (response.status === 403) {
