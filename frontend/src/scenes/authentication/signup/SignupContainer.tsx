@@ -30,13 +30,13 @@ export function SignupContainer(): JSX.Element | null {
         <BridgePage
             view="signup"
             footer={
-                <>
+                <div className="sm:flex sm:justify-center w-full gap-[10%]">
                     {footerHighlights[preflight?.cloud ? 'cloud' : 'selfHosted'].map((val, idx) => (
-                        <span key={idx} className="text-center">
+                        <p key={idx} className="text-center mb-2">
                             {val}
-                        </span>
+                        </p>
                     ))}
-                </>
+                </div>
             }
             sideLogo
             leftContainerContent={<SignupLeftContainer />}
