@@ -112,15 +112,6 @@ class AccessControlViewSetMixin:
 
     filter_backends = [AccessControlFilterBackend]
 
-    # def get_queryset(self):
-    #     # Default method for filtering in only things the user has access to
-    #     qs = super().get_queryset()
-
-    #     # Filter the queryset based on the access controls
-    #     qs = self.user_access_control.filter_queryset_by_access_level(qs)
-
-    #     return qs
-
     def _get_access_control_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", self.get_serializer_context())
         return AccessControlSerializer(*args, **kwargs)

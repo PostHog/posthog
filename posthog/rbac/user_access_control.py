@@ -242,6 +242,10 @@ class UserAccessControl:
             if all(access_level == NO_ACCESS_LEVEL for access_level in access_levels):
                 blocked_resource_ids.add(resource_id)
 
+        # TODO: Don't filter the queryset if the user is an admin
+        # TODO: Allow the creator of the resource to be able to see it - could either do this by saving
+        # a special access control when adding one if no other exists, or by saving a link to the foreign resource
+
         # Filter the queryset based on the access controls
         if blocked_resource_ids:
             queryset = queryset.exclude(id__in=blocked_resource_ids)
