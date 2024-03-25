@@ -3,14 +3,15 @@
 import datetime
 import os
 import random
-import re
-import signal
 import string
 import sys
 import time
 
 import digitalocean
 import requests
+
+
+DOMAIN = "posthog.cc"
 
 
 class HobbyTester:
@@ -24,22 +25,17 @@ class HobbyTester:
         release_tag="latest-release",
         branch=None,
         hostname=None,
-        domain=None,
+        domain=DOMAIN,
+        droplet_id=None,
         droplet=None,
+        record_id=None,
         record=None,
     ):
         if not token:
             token = os.getenv("DIGITALOCEAN_TOKEN")
         self.token = token
-
-        if not branch:
-            branch = sys.argv[1]
         self.branch = branch
-
         self.release_tag = release_tag
-        branch_regex = re.compile("release-*.*")
-        if branch_regex.match(self.branch):
-            self.release_tag = f"{branch}-unstable"
 
         random_bit = "".join(random.choice(string.ascii_lowercase) for i in range(4))
 
@@ -48,7 +44,7 @@ class HobbyTester:
         self.name = name
 
         if not hostname:
-            hostname = f"{name}.posthog.cc"
+            hostname = f"{name}.{DOMAIN}"
         self.hostname = hostname
 
         self.region = region
@@ -57,7 +53,12 @@ class HobbyTester:
 
         self.domain = domain
         self.droplet = droplet
+        if droplet_id:
+            self.droplet = digitalocean.Droplet(token=self.token, id=droplet_id)
+
         self.record = record
+        if record_id:
+            self.record = digitalocean.Record(token=self.token, id=record_id)
 
         self.user_data = (
             f"#!/bin/bash \n"
@@ -116,7 +117,7 @@ class HobbyTester:
         self.droplet.create()
         return self.droplet
 
-    def wait_for_instance(self, timeout=20, retry_interval=15):
+    def test_deployment(self, timeout=20, retry_interval=15):
         if not self.hostname:
             return
         # timeout in minutes
@@ -144,7 +145,7 @@ class HobbyTester:
         return False
 
     def create_dns_entry(self, type, name, data):
-        self.domain = digitalocean.Domain(token=self.token, name="posthog.cc")
+        self.domain = digitalocean.Domain(token=self.token, name=DOMAIN)
         self.record = self.domain.create_new_domain_record(type=type, name=name, data=data)
         return self.record
 
@@ -154,15 +155,23 @@ class HobbyTester:
         self.record = self.create_dns_entry(type="A", name=self.hostname, data=self.get_public_ip())
         return self.record
 
-    def destroy_environment(self, retries=3):
+    def destroy_self(self, retries=3):
         if not self.droplet or not self.domain or not self.record:
             return
+        droplet_id = self.droplet.id
+        self.destroy_environment(droplet_id, self.domain, self.record["domain_record"]["id"], retries=retries)
+
+    @staticmethod
+    def destroy_environment(droplet_id, record_id, retries=3):
         print("Destroying the droplet")
+        token = os.getenv("DIGITALOCEAN_TOKEN")
+        droplet = digitalocean.Droplet(token=token, id=droplet_id)
+        domain = digitalocean.Domain(token=token, name=DOMAIN)
         attempts = 0
         while attempts <= retries:
             attempts += 1
             try:
-                self.droplet.destroy()
+                droplet.destroy()
                 break
             except Exception as e:
                 print(f"Could not destroy droplet because\n{e}")
@@ -171,34 +180,63 @@ class HobbyTester:
         while attempts <= retries:
             attempts += 1
             try:
-                self.domain.delete_domain_record(id=self.record["domain_record"]["id"])
+                domain.delete_domain_record(id=record_id)
                 break
             except Exception as e:
                 print(f"Could not destroy the dns entry because\n{e}")
 
     def handle_sigint(self):
-        self.destroy_environment()
+        self.destroy_self()
+
+    def export_droplet(self):
+        if self.droplet:
+            with open("$GITHUB_ENV", "a") as env_file:
+                env_file.write(f"HOBBY_DROPLET_ID={self.droplet.id}\n")
+        if self.record:
+            with open("$GITHUB_ENV", "a") as env_file:
+                env_file.write(f"HOBBY_DNS_RECORD_ID={self.record['domain_record']['id']}\n")
+                env_file.write(f"HOBBY_DNS_RECORD_NAME={self.record['domain_record']['name']}\n")
+                env_file.write(f"HOBBY_NAME={self.name}\n")
+
+    def ensure_droplet(self, ssh_enabled=True):
+        self.create_droplet(ssh_enabled=ssh_enabled)
+        self.block_until_droplet_is_started()
+        self.export_droplet()
 
 
 def main():
-    print("Creating droplet on Digitalocean for testing Hobby Deployment")
-    ht = HobbyTester()
-    signal.signal(signal.SIGINT, ht.handle_sigint)  # type: ignore
-    signal.signal(signal.SIGHUP, ht.handle_sigint)  # type: ignore
-    signal.signal(signal.SIGTERM, ht.handle_sigint)  # type: ignore
-    ht.create_droplet(ssh_enabled=True)
-    ht.block_until_droplet_is_started()
-    ht.create_dns_entry_for_instance()
-    print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):")
-    print(f"https://{ht.hostname}")
-    health_success = ht.wait_for_instance()
-    ht.destroy_environment()
-    if health_success:
-        print("We succeeded")
-        exit()
-    else:
-        print("We failed")
-        exit(1)
+    command = sys.argv[1]
+    if command == "create":
+        print("Creating droplet on Digitalocean for testing Hobby Deployment")
+        ht = HobbyTester()
+        ht.ensure_droplet(ssh_enabled=True)
+        print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):")
+        print(f"https://{ht.hostname}")
+
+    if command == "destroy":
+        print("Destroying droplet on Digitalocean for testing Hobby Deployment")
+        droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+        domain_record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
+        HobbyTester.destroy_environment(droplet_id=droplet_id, domain=DOMAIN, record_id=domain_record_id)
+
+    if command == "test":
+        if len(sys.argv) < 3:
+            print("Please provide the branch name to test")
+            exit(1)
+        print("Testing the deployment")
+        ht = HobbyTester(
+            branch=sys.argv[2],
+            name=os.environ.get("HOBBY_NAME"),
+            record_id=os.environ.get("HOBBY_DNS_RECORD_ID"),
+            droplet_id=os.environ.get("HOBBY_DROPLET_ID"),
+        )
+        health_success = ht.test_deployment()
+        if health_success:
+            print("We succeeded")
+            exit()
+        else:
+            print("We failed")
+            exit(1)
 
 
 if __name__ == "__main__":
