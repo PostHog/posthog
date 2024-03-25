@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { NodeKind, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightShortId, PropertyMathType } from '~/types'
@@ -14,6 +15,17 @@ describe('insightsTableDataLogic', () => {
 
     const props = { dashboardItemId: Insight123 }
     beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/projects/:team/query': [
+                    200,
+                    {
+                        results: [],
+                    },
+                ],
+            },
+        })
+
         initKeaTests()
         logic = insightsTableDataLogic(props)
         logic.mount()
