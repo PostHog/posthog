@@ -223,12 +223,19 @@ def main():
         if len(sys.argv) < 3:
             print("Please provide the branch name to test")
             exit(1)
-        print("Testing the deployment")
+        branch = sys.argv[2]
+        name = os.environ.get("HOBBY_NAME")
+        record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
+        droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+        print(f"Testing the deployment for {name} on branch {branch}")
+        print(f"Record ID: {record_id}")
+        print(f"Droplet ID: {droplet_id}")
+
         ht = HobbyTester(
-            branch=sys.argv[2],
-            name=os.environ.get("HOBBY_NAME"),
-            record_id=os.environ.get("HOBBY_DNS_RECORD_ID"),
-            droplet_id=os.environ.get("HOBBY_DROPLET_ID"),
+            branch=branch,
+            name=name,
+            record_id=record_id,
+            droplet_id=droplet_id,
         )
         health_success = ht.test_deployment()
         if health_success:
