@@ -116,7 +116,7 @@ describe('Feature Flags', () => {
         cy.get('.Toastify').contains('Undo').should('be.visible')
     })
 
-    it.only('Move between property types smoothly, and support relative dates', () => {
+    it('Move between property types smoothly, and support relative dates', () => {
         // ensure unique names to avoid clashes
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
         cy.get('[data-attr=new-feature-flag]').click()
