@@ -13,39 +13,64 @@ import digitalocean
 import requests
 
 
-letters = string.ascii_lowercase
-random_bit = "".join(random.choice(letters) for i in range(4))
-name = f"do-ci-hobby-deploy-{random_bit}"
-region = "sfo3"
-image = "ubuntu-22-04-x64"
-size = "s-4vcpu-8gb"
-release_tag = "latest-release"
-branch_regex = re.compile("release-*.*")
-branch = sys.argv[1]
-if branch_regex.match(branch):
-    release_tag = f"{branch}-unstable"
-hostname = f"{name}.posthog.cc"
-user_data = (
-    f"#!/bin/bash \n"
-    "mkdir hobby \n"
-    "cd hobby \n"
-    "sed -i \"s/#\\$nrconf{restart} = 'i';/\\$nrconf{restart} = 'a';/g\" /etc/needrestart/needrestart.conf \n"
-    "git clone https://github.com/PostHog/posthog.git \n"
-    "cd posthog \n"
-    f"git checkout {branch} \n"
-    "cd .. \n"
-    f"chmod +x posthog/bin/deploy-hobby \n"
-    f"./posthog/bin/deploy-hobby {release_tag} {hostname} 1 \n"
-)
-token = os.getenv("DIGITALOCEAN_TOKEN")
-
-
 class HobbyTester:
-    def __init__(self, hostname=hostname, domain=None, droplet=None, record=None):
+    def __init__(
+        self,
+        token=None,
+        name=None,
+        region="sfo3",
+        image="ubuntu-22-04-x64",
+        size="s-4vcpu-8gb",
+        release_tag="latest-release",
+        branch=None,
+        hostname=None,
+        domain=None,
+        droplet=None,
+        record=None,
+    ):
+        if not token:
+            token = os.getenv("DIGITALOCEAN_TOKEN")
+        self.token = token
+
+        if not branch:
+            branch = sys.argv[1]
+        self.branch = branch
+
+        self.release_tag = release_tag
+        branch_regex = re.compile("release-*.*")
+        if branch_regex.match(self.branch):
+            self.release_tag = f"{branch}-unstable"
+
+        random_bit = "".join(random.choice(string.ascii_lowercase) for i in range(4))
+
+        if not name:
+            name = f"do-ci-hobby-deploy-{random_bit}"
+        self.name = name
+
+        if not hostname:
+            hostname = f"{name}.posthog.cc"
         self.hostname = hostname
+
+        self.region = region
+        self.image = image
+        self.size = size
+
         self.domain = domain
         self.droplet = droplet
         self.record = record
+
+        self.user_data = (
+            f"#!/bin/bash \n"
+            "mkdir hobby \n"
+            "cd hobby \n"
+            "sed -i \"s/#\\$nrconf{restart} = 'i';/\\$nrconf{restart} = 'a';/g\" /etc/needrestart/needrestart.conf \n"
+            "git clone https://github.com/PostHog/posthog.git \n"
+            "cd posthog \n"
+            f"git checkout {branch} \n"
+            "cd .. \n"
+            f"chmod +x posthog/bin/deploy-hobby \n"
+            f"./posthog/bin/deploy-hobby {release_tag} {hostname} 1 \n"
+        )
 
     def block_until_droplet_is_started(self):
         if not self.droplet:
@@ -76,15 +101,15 @@ class HobbyTester:
     def create_droplet(self, ssh_enabled=False):
         keys = None
         if ssh_enabled:
-            manager = digitalocean.Manager(token=token)
+            manager = digitalocean.Manager(token=self.token)
             keys = manager.get_all_sshkeys()
         self.droplet = digitalocean.Droplet(
-            token=token,
-            name=name,
-            region=region,
-            image=image,
-            size_slug=size,
-            user_data=user_data,
+            token=self.token,
+            name=self.name,
+            region=self.region,
+            image=self.image,
+            size_slug=self.size,
+            user_data=self.user_data,
             ssh_keys=keys,
             tags=["ci"],
         )
@@ -119,7 +144,7 @@ class HobbyTester:
         return False
 
     def create_dns_entry(self, type, name, data):
-        self.domain = digitalocean.Domain(token=token, name="posthog.cc")
+        self.domain = digitalocean.Domain(token=self.token, name="posthog.cc")
         self.record = self.domain.create_new_domain_record(type=type, name=name, data=data)
         return self.record
 
@@ -157,7 +182,7 @@ class HobbyTester:
 
 def main():
     print("Creating droplet on Digitalocean for testing Hobby Deployment")
-    ht = HobbyTester(hostname=hostname)
+    ht = HobbyTester()
     signal.signal(signal.SIGINT, ht.handle_sigint)  # type: ignore
     signal.signal(signal.SIGHUP, ht.handle_sigint)  # type: ignore
     signal.signal(signal.SIGTERM, ht.handle_sigint)  # type: ignore
