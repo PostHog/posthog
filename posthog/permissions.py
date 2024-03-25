@@ -15,7 +15,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.utils import get_can_create_org
 
 CREATE_ACTIONS = ["create", "update", "partial_update"]
@@ -387,21 +387,31 @@ class AccessControlPermission(ScopeBasePermission):
         return view.user_access_control
 
     def _get_required_access_level(self, request, view) -> str:
+        resource = self._get_scope_object(request, view)
         required_scopes = self._get_required_scopes(request, view)
 
+        READ_LEVEL = ordered_access_levels(resource)[-2]
+        WRITE_LEVEL = ordered_access_levels(resource)[-1]
+
         if not required_scopes:
-            return "viewer" if request.method in SAFE_METHODS else "editor"
+            return READ_LEVEL if request.method in SAFE_METHODS else WRITE_LEVEL
 
         # TODO: This is definitely not right - we need to more safely map the scopes to access levels relevant to the object
         for scope in required_scopes:
             if scope.endswith(":write"):
-                return "editor"
+                return WRITE_LEVEL
 
-        return "viewer"
+        return READ_LEVEL
 
     def has_object_permission(self, request, view, object) -> bool:
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
-        uac = self._get_user_access_control(request, view)
+
+        # NOTE: If the object is a Team then we shortcircuit here and create a UAC
+        # Reason being that there is a loop from view.user_access_control -> view.team -> view.user_access_control
+        if isinstance(object, Team):
+            uac = UserAccessControl(user=request.user, team=object)
+        else:
+            uac = self._get_user_access_control(request, view)
 
         if not uac:
             # TODO: IS this corrrect...

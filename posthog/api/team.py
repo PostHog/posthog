@@ -40,6 +40,7 @@ from posthog.models.utils import generate_random_token_project, UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
+    AccessControlPermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
@@ -425,6 +426,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         common_permissions: list = [
             IsAuthenticated,
             APIScopePermission,
+            AccessControlPermission,
             PremiumMultiProjectPermissions,
         ] + self.permission_classes
 
