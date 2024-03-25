@@ -6,7 +6,6 @@ import clsx from 'clsx'
 import { range } from 'd3'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -58,12 +57,10 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                 <Link to="https://posthog.com/docs/libraries/js" target="_blank">
                     the Web SDK
                 </Link>
-                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE} match={true}>
-                    ,{' '}
-                    <Link to="https://posthog.com/docs/libraries/android" target="_blank">
-                        the Android SDK
-                    </Link>
-                </FlaggedFeature>
+                ,{' '}
+                <Link to="https://posthog.com/docs/libraries/android" target="_blank">
+                    the Android SDK
+                </Link>
             </p>
         </LemonBanner>
     )

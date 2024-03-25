@@ -171,6 +171,7 @@ export class ReplayEventsIngester {
                     topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
                     value: Buffer.from(JSON.stringify(replayRecord)),
                     key: event.session_id,
+                    waitForAck: true,
                 }),
             ]
         } catch (error) {

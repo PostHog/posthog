@@ -6,6 +6,7 @@ export type IncomingRecordingMessage = {
     metadata: {
         topic: string
         partition: number
+        rawSize: number
         lowOffset: number
         highOffset: number
         timestamp: number

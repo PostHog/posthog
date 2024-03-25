@@ -228,6 +228,7 @@ export function ActionFilterRow({
             fullWidth
             groupType={filter.type as TaxonomicFilterGroupType}
             value={getValue(value, filter)}
+            filter={filter}
             onChange={(changedValue, taxonomicGroupType, item) => {
                 const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
                 if (groupType === EntityTypes.DATA_WAREHOUSE) {

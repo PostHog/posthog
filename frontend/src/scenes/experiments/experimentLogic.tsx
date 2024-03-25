@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightVizNode } from '~/queries/schema'
+import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema'
 import {
     ActionFilter as ActionFilterType,
     Breadcrumb,
@@ -380,7 +380,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
 
-            actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
+            // This allows switching between insight types. It's necessary as `updateQuerySource` merges
+            // the new query with any existing query and that causes validation problems when there are
+            // unsupported properties in the now merged query.
+            const newQuery = filtersToQueryNode(newInsightFilters)
+            if (filters?.insight === InsightType.FUNNELS) {
+                ;(newQuery as TrendsQuery).trendsFilter = undefined
+            } else {
+                ;(newQuery as FunnelsQuery).funnelsFilter = undefined
+            }
+            actions.updateQuerySource(newQuery)
         },
         // sync form value `filters` with query
         setQuery: ({ query }) => {
