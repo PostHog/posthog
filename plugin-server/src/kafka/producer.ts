@@ -18,10 +18,10 @@ export type KafkaProducerConfig = {
     KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number
 }
 
-export const ingestEventKafkaAckWait = new Summary({
-    name: 'ingest_event_kafka_ack_wait',
-    help: 'Wait time for individual Kafka produces that await their ACKs',
-    labelNames: ['topic'],
+export const ingestEventKafkaProduceLatency = new Summary({
+    name: 'ingest_event_kafka_produce_latency',
+    help: 'Wait time for individual Kafka produces',
+    labelNames: ['topic', 'waitForAck'],
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
@@ -91,8 +91,11 @@ export const produce = async ({
     status.debug('📤', 'Producing message', { topic: topic })
     const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
     return await new Promise((resolve, reject) => {
+        const produceTimer = ingestEventKafkaProduceLatency
+            .labels({ topic, waitForAck: waitForAck.toString() })
+            .startTimer()
+
         if (waitForAck) {
-            const ackTimer = ingestEventKafkaAckWait.labels(topic).startTimer()
             producer.produce(
                 topic,
                 null,
@@ -109,7 +112,7 @@ export const produce = async ({
                         resolve(offset)
                     }
 
-                    ackTimer()
+                    produceTimer()
                     produceSpan?.finish()
                 }
             )
@@ -122,6 +125,7 @@ export const produce = async ({
                 produceSpan?.finish()
             })
             resolve(undefined)
+            produceTimer()
         }
     })
 }
