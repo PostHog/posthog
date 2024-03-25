@@ -44,7 +44,7 @@ class HobbyTester:
         random_bit = "".join(random.choice(string.ascii_lowercase) for i in range(4))
 
         if not name:
-            name = f"do-ci-hobby-deploy-{random_bit}"
+            name = f"do-ci-hobby-deploy-{self.release_tag}-{random_bit}"
         self.name = name
 
         if not hostname:
