@@ -590,6 +590,28 @@ class PathType(str, Enum):
     hogql = "hogql"
 
 
+class PathsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    edgeLimit: Optional[int] = None
+    endPoint: Optional[str] = None
+    excludeEvents: Optional[List[str]] = None
+    funnelPaths: Optional[FunnelPathType] = None
+    includeEventTypes: Optional[List[PathType]] = None
+    localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
+    maxEdgeWeight: Optional[int] = None
+    minEdgeWeight: Optional[int] = None
+    pathDropoffKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
+    pathEndKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
+    pathGroupings: Optional[List[str]] = None
+    pathReplacements: Optional[bool] = None
+    pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
+    pathsHogQLExpression: Optional[str] = None
+    startPoint: Optional[str] = None
+    stepLimit: Optional[int] = None
+
+
 class PathsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2368,6 +2390,12 @@ class HogQLAutocomplete(BaseModel):
     startPosition: int = Field(..., description="Start position of the editor word")
 
 
+class InsightFilter(
+    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
+):
+    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
+
+
 class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2670,6 +2698,15 @@ class NamedParametersTypeofDateRangeForFilter(BaseModel):
     source: Optional[FilterType] = None
 
 
+class FunnelPathsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelPathType: Optional[FunnelPathType] = None
+    funnelSource: Optional[FunnelsQuery] = None
+    funnelStep: Optional[int] = None
+
+
 class FunnelsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2697,30 +2734,6 @@ class FunnelsActorsQuery(BaseModel):
     source: FunnelsQuery
 
 
-class PathsFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    edgeLimit: Optional[int] = None
-    endPoint: Optional[str] = None
-    excludeEvents: Optional[List[str]] = None
-    funnelActorsQuery: Optional[FunnelsActorsQuery] = None
-    funnelFilter: Optional[Dict[str, Any]] = None
-    funnelPaths: Optional[FunnelPathType] = None
-    includeEventTypes: Optional[List[PathType]] = None
-    localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
-    maxEdgeWeight: Optional[int] = None
-    minEdgeWeight: Optional[int] = None
-    pathDropoffKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
-    pathEndKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
-    pathGroupings: Optional[List[str]] = None
-    pathReplacements: Optional[bool] = None
-    pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
-    pathsHogQLExpression: Optional[str] = None
-    startPoint: Optional[str] = None
-    stepLimit: Optional[int] = None
-
-
 class PathsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2729,6 +2742,9 @@ class PathsQuery(BaseModel):
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
+    )
+    funnelPathsFilter: Optional[FunnelPathsFilter] = Field(
+        default=None, description="Used for displaying paths in relation to funnel steps."
     )
     kind: Literal["PathsQuery"] = "PathsQuery"
     pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
@@ -2769,12 +2785,6 @@ class FunnelCorrelationQuery(BaseModel):
     kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
     response: Optional[FunnelCorrelationResponse] = None
     source: FunnelsActorsQuery
-
-
-class InsightFilter(
-    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
-):
-    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
 class InsightVizNode(BaseModel):

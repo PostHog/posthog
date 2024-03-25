@@ -1959,6 +1959,21 @@
             "enum": ["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"],
             "type": "string"
         },
+        "FunnelPathsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelPathType": {
+                    "$ref": "#/definitions/FunnelPathType"
+                },
+                "funnelSource": {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                "funnelStep": {
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
         "FunnelStepReference": {
             "enum": ["total", "previous"],
             "type": "string"
@@ -3240,12 +3255,6 @@
                     },
                     "type": "array"
                 },
-                "funnelActorsQuery": {
-                    "$ref": "#/definitions/FunnelsActorsQuery"
-                },
-                "funnelFilter": {
-                    "type": "object"
-                },
                 "funnelPaths": {
                     "$ref": "#/definitions/FunnelPathType"
                 },
@@ -3378,6 +3387,10 @@
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
+                },
+                "funnelPathsFilter": {
+                    "$ref": "#/definitions/FunnelPathsFilter",
+                    "description": "Used for displaying paths in relation to funnel steps."
                 },
                 "kind": {
                     "const": "PathsQuery",

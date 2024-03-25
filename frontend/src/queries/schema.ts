@@ -786,8 +786,6 @@ export type PathsFilter = {
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
     funnelPaths?: PathsFilterLegacy['funnel_paths']
-    funnelFilter?: PathsFilterLegacy['funnel_filter']
-    funnelActorsQuery?: FunnelsActorsQuery
 
     /** Relevant only within actors query */
     pathStartKey?: string
@@ -797,11 +795,19 @@ export type PathsFilter = {
     pathDropoffKey?: string
 }
 
+export type FunnelPathsFilter = {
+    funnelPathType?: PathsFilterLegacy['funnel_paths']
+    funnelSource?: FunnelsQuery
+    funnelStep?: integer
+}
+
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     response?: PathsQueryResponse
     /** Properties specific to the paths insight */
     pathsFilter: PathsFilter
+    /** Used for displaying paths in relation to funnel steps. */
+    funnelPathsFilter?: FunnelPathsFilter
 }
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
