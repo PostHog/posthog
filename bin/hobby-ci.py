@@ -40,15 +40,16 @@ token = os.getenv("DIGITALOCEAN_TOKEN")
 
 
 class HobbyTester:
-    def __init__(self, domain, droplet, record):
-        # Placeholders for DO resources
+    def __init__(self, hostname=hostname, domain=None, droplet=None, record=None):
+        self.hostname = hostname
         self.domain = domain
         self.droplet = droplet
         self.record = record
 
-    @staticmethod
-    def block_until_droplet_is_started(droplet):
-        actions = droplet.get_actions()
+    def block_until_droplet_is_started(self):
+        if not self.droplet:
+            return
+        actions = self.droplet.get_actions()
         up = False
         while not up:
             for action in actions:
@@ -60,23 +61,23 @@ class HobbyTester:
                     print("Droplet not booted yet - waiting a bit")
                     time.sleep(5)
 
-    @staticmethod
-    def get_public_ip(droplet):
+    def get_public_ip(self):
+        if not self.droplet:
+            return
         ip = None
         while not ip:
             time.sleep(1)
-            droplet.load()
-            ip = droplet.ip_address
+            self.droplet.load()
+            ip = self.droplet.ip_address
         print(f"Public IP found: {ip}")  # type: ignore
         return ip
 
-    @staticmethod
-    def create_droplet(ssh_enabled=False):
+    def create_droplet(self, ssh_enabled=False):
         keys = None
         if ssh_enabled:
             manager = digitalocean.Manager(token=token)
             keys = manager.get_all_sshkeys()
-        droplet = digitalocean.Droplet(
+        self.droplet = digitalocean.Droplet(
             token=token,
             name=name,
             region=region,
@@ -86,16 +87,17 @@ class HobbyTester:
             ssh_keys=keys,
             tags=["ci"],
         )
-        droplet.create()
-        return droplet
+        self.droplet.create()
+        return self.droplet
 
-    @staticmethod
-    def wait_for_instance(hostname, timeout=20, retry_interval=15):
+    def wait_for_instance(self, timeout=20, retry_interval=15):
+        if not self.hostname:
+            return
         # timeout in minutes
         # return true if success or false if failure
         print("Attempting to reach the instance")
         print(f"We will time out after {timeout} minutes")
-        url = f"https://{hostname}/_health"
+        url = f"https://{self.hostname}/_health"
         start_time = datetime.datetime.now()
         while datetime.datetime.now() < start_time + datetime.timedelta(minutes=timeout):
             try:
@@ -115,14 +117,26 @@ class HobbyTester:
         print("Failure - we timed out before receiving a heartbeat")
         return False
 
-    @staticmethod
-    def destroy_environment(droplet, domain, record, retries=3):
+    def create_dns_entry(self, type, name, data):
+        self.domain = digitalocean.Domain(token=token, name="posthog.cc")
+        self.record = self.domain.create_new_domain_record(type=type, name=name, data=data)
+        return self.record
+
+    def create_dns_entry_for_instance(self):
+        if not self.droplet:
+            return
+        self.record = self.create_dns_entry(type="A", name=self.hostname, data=self.get_public_ip())
+        return self.record
+
+    def destroy_environment(self, retries=3):
+        if not self.droplet or not self.domain or not self.record:
+            return
         print("Destroying the droplet")
         attempts = 0
         while attempts <= retries:
             attempts += 1
             try:
-                droplet.destroy()
+                self.droplet.destroy()
                 break
             except Exception as e:
                 print(f"Could not destroy droplet because\n{e}")
@@ -131,30 +145,28 @@ class HobbyTester:
         while attempts <= retries:
             attempts += 1
             try:
-                domain.delete_domain_record(id=record["domain_record"]["id"])
+                self.domain.delete_domain_record(id=self.record["domain_record"]["id"])
                 break
             except Exception as e:
                 print(f"Could not destroy the dns entry because\n{e}")
 
     def handle_sigint(self):
-        self.destroy_environment(self.droplet, self.domain, self.record)
+        self.destroy_environment()
 
 
 def main():
     print("Creating droplet on Digitalocean for testing Hobby Deployment")
-    droplet = HobbyTester.create_droplet(ssh_enabled=True)
-    HobbyTester.block_until_droplet_is_started(droplet)
-    public_ip = HobbyTester.get_public_ip(droplet)
-    domain = digitalocean.Domain(token=token, name="posthog.cc")
-    record = domain.create_new_domain_record(type="A", name=name, data=public_ip)
-
-    hobby_tester = HobbyTester(domain, droplet, record)
-    signal.signal(signal.SIGINT, hobby_tester.handle_sigint)  # type: ignore
-    signal.signal(signal.SIGHUP, hobby_tester.handle_sigint)  # type: ignore
+    ht = HobbyTester()
+    signal.signal(signal.SIGINT, ht.handle_sigint)  # type: ignore
+    signal.signal(signal.SIGHUP, ht.handle_sigint)  # type: ignore
+    signal.signal(signal.SIGTERM, ht.handle_sigint)  # type: ignore
+    ht.create_droplet(ssh_enabled=True)
+    ht.block_until_droplet_is_started()
+    ht.create_dns_entry_for_instance()
     print("Instance has started. You will be able to access it here after PostHog boots (~15 minutes):")
-    print(f"https://{hostname}")
-    health_success = HobbyTester.wait_for_instance(hostname)
-    HobbyTester.destroy_environment(droplet, domain, record)
+    print(f"https://{ht.hostname}")
+    health_success = ht.wait_for_instance()
+    ht.destroy_environment()
     if health_success:
         print("We succeeded")
         exit()
