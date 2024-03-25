@@ -124,7 +124,6 @@ class AccessControlViewSetMixin:
             ).all()
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
-        # TODO: Fix - could be none
         user_access_level = self.user_access_control.access_level_for_object(obj, resource)
 
         return Response(
