@@ -23,6 +23,8 @@ from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
+    FunnelsActorsQuery,
+    FunnelsFilter,
     HogQLQueryModifiers,
     PathsQueryResponse,
     PathCleaningFilter,
@@ -130,35 +132,35 @@ class PathsQueryRunner(QueryRunner):
         return event_hogql
 
     def handle_funnel(self) -> tuple[list, Optional[ast.Expr]]:
-        if (
-            not self.query.pathsFilter.funnelActorsQuery
-            or not self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter
-        ):
-            raise ValueError("Funnel actors query is required for funnel paths")
+        if not self.query.funnelPathsFilter:
+            return [], None
 
-        if self.query.pathsFilter.funnelPaths in (
+        funnelPathType, funnelSource, funnelStep = (
+            self.query.funnelPathsFilter.funnelPathType,
+            self.query.funnelPathsFilter.funnelSource,
+            self.query.funnelPathsFilter.funnelStep,
+        )
+        funnelSourceFilter = funnelSource.funnelsFilter or FunnelsFilter()
+
+        if funnelPathType in (
             FunnelPathType.funnel_path_after_step,
             FunnelPathType.funnel_path_before_step,
         ):
             funnel_fields = [
                 ast.Alias(alias="target_timestamp", expr=ast.Field(chain=["funnel_actors", "timestamp"])),
             ]
-            interval = self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowInterval or 14
-            unit = self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowIntervalUnit
+            interval = funnelSourceFilter.funnelWindowInterval or 14
+            unit = funnelSourceFilter.funnelWindowIntervalUnit
             interval_unit = funnel_window_interval_unit_to_sql(unit)
-            operator = ">=" if self.query.pathsFilter.funnelPaths == FunnelPathType.funnel_path_after_step else "<="
+            operator = ">=" if funnelPathType == FunnelPathType.funnel_path_after_step else "<="
             default_case = f"events.timestamp {operator} {{target_timestamp}}"
-            if (
-                self.query.pathsFilter.funnelPaths == FunnelPathType.funnel_path_after_step
-                and self.query.pathsFilter.funnelActorsQuery.funnelStep
-                and self.query.pathsFilter.funnelActorsQuery.funnelStep < 0
-            ):
+            if funnelPathType == FunnelPathType.funnel_path_after_step and funnelStep and funnelStep < 0:
                 default_case += f" + INTERVAL {interval} {interval_unit}"
             event_filter = parse_expr(
                 default_case, {"target_timestamp": ast.Field(chain=["funnel_actors", "timestamp"])}
             )
             return funnel_fields, event_filter
-        elif self.query.pathsFilter.funnelPaths == FunnelPathType.funnel_path_between_steps:
+        elif funnelPathType == FunnelPathType.funnel_path_between_steps:
             funnel_fields = [
                 ast.Alias(alias="min_timestamp", expr=ast.Field(chain=["funnel_actors", "min_timestamp"])),
                 ast.Alias(alias="max_timestamp", expr=ast.Field(chain=["funnel_actors", "max_timestamp"])),
@@ -178,17 +180,24 @@ class PathsQueryRunner(QueryRunner):
                 ]
             )
             return funnel_fields, event_filter
-
-        return [], None
+        else:
+            raise ValueError("Unexpected `funnelPathType` for funnel path filter.")
 
     def funnel_join(self) -> ast.JoinExpr:
-        if not self.query.pathsFilter.funnelActorsQuery:
-            raise ValueError("Funnel actors query is required for funnel paths")
+        if not self.query.funnelPathsFilter:
+            raise ValueError("Funnel paths filter is required for funnel paths.")
 
         from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 
+        funnelPathType, funnelSource, funnelStep = (
+            self.query.funnelPathsFilter.funnelPathType,
+            self.query.funnelPathsFilter.funnelSource,
+            self.query.funnelPathsFilter.funnelStep,
+        )
+
+        actor_query = FunnelsActorsQuery(source=funnelSource, funnelStep=funnelStep)
         actors_query_runner = InsightActorsQueryRunner(
-            query=self.query.pathsFilter.funnelActorsQuery,
+            query=actor_query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
@@ -196,12 +205,12 @@ class PathsQueryRunner(QueryRunner):
         )
 
         assert actors_query_runner.source_runner.context is not None
-        actors_query_runner.source_runner.context.includeTimestamp = self.query.pathsFilter.funnelPaths in (
+        actors_query_runner.source_runner.context.includeTimestamp = funnelPathType in (
             FunnelPathType.funnel_path_after_step,
             FunnelPathType.funnel_path_before_step,
         )
         actors_query_runner.source_runner.context.includePrecedingTimestamp = (
-            self.query.pathsFilter.funnelPaths == FunnelPathType.funnel_path_between_steps
+            funnelPathType == FunnelPathType.funnel_path_between_steps
         )
         actors_query = actors_query_runner.to_query()
 
@@ -512,13 +521,15 @@ class PathsQueryRunner(QueryRunner):
             return self.get_filtered_path_ordering()
 
     def get_session_threshold_clause(self) -> ast.Expr:
-        if self.query.pathsFilter.funnelPaths:
+        if self.query.funnelPathsFilter:
+            funnelSourceFilter = self.query.funnelPathsFilter.funnelSource.funnelsFilter or FunnelsFilter()
+
             interval = 14
             interval_unit = FunnelConversionWindowTimeUnit.day
 
-            if self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowInterval:
-                interval = self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowInterval
-                unit = self.query.pathsFilter.funnelActorsQuery.source.funnelsFilter.funnelWindowIntervalUnit
+            if funnelSourceFilter.funnelWindowInterval:
+                interval = funnelSourceFilter.funnelWindowInterval
+                unit = funnelSourceFilter.funnelWindowIntervalUnit
                 interval_unit = funnel_window_interval_unit_to_sql(unit)
 
             return parse_expr(
