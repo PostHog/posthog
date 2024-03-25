@@ -1,7 +1,6 @@
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useEffect } from 'react'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -13,12 +12,7 @@ interface ActionsListViewProps {
 
 export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element {
     const { allActionsLoading, searchTerm } = useValues(actionsLogic)
-    const { getActions } = useActions(actionsLogic)
     const { selectAction } = useActions(actionsTabLogic)
-
-    useEffect(() => {
-        getActions()
-    }, [])
 
     return (
         <div className="flex flex-col h-full overflow-y-scoll space-y-px">

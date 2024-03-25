@@ -28,6 +28,7 @@ INCREASED_MAX_EXECUTION_TIME = 600
 def execute_hogql_query(
     query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
     team: Team,
+    *,
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
     placeholders: Optional[Dict[str, ast.Expr]] = None,

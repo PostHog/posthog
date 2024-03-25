@@ -903,8 +903,10 @@ export interface SessionRecordingsResponse {
 
 export type ErrorCluster = {
     cluster: number
-    sample: { session_id: string; error: string }
+    sample: string
     occurrences: number
+    session_ids: string[]
+    sparkline: Record<string, number>
     unique_sessions: number
     viewed: number
 }
@@ -3542,7 +3544,7 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres' | 'Zendesk'
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
@@ -3595,6 +3597,7 @@ export type BatchExportDestinationS3 = {
         encryption: string | null
         kms_key_id: string | null
         endpoint_url: string | null
+        file_format: string
     }
 }
 

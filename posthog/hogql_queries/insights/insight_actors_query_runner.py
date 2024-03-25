@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import cast
+from typing import cast, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -37,7 +37,7 @@ class InsightActorsQueryRunner(QueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
             query = cast(InsightActorsQuery, self.query)
             return trends_runner.to_actors_query(
-                time_frame=query.day,
+                time_frame=cast(Optional[str], query.day),  # Other runner accept day as int, but not this one
                 series_index=query.series or 0,
                 breakdown_value=query.breakdown,
                 compare=query.compare,
@@ -102,6 +102,7 @@ class InsightActorsQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
     def _is_stale(self, cached_result_package):
