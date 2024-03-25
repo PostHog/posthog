@@ -4,6 +4,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -22,8 +23,6 @@ import { TestAccountFilter } from '~/queries/nodes/InsightViz/filters/TestAccoun
 import { Query } from '~/queries/Query/Query'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { EditorFilterProps, FilterType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
-
-import { DEFAULT_DURATION } from './experimentLogic'
 
 export interface MetricSelectorProps {
     dashboardItemId: InsightShortId
@@ -75,8 +74,8 @@ export function MetricSelector({
 
             {showDateRangeBanner && (
                 <LemonBanner type="info" className="mt-3 mb-3">
-                    Preview insights are generated based on {DEFAULT_DURATION} days of data. This can cause a mismatch
-                    between the preview and the actual results.
+                    Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can cause a
+                    mismatch between the preview and the actual results.
                 </LemonBanner>
             )}
 

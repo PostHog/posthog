@@ -118,6 +118,10 @@ export function ActionsPie({
                               kind: NodeKind.InsightActorsQuery,
                               source: query.source,
                           },
+                          additionalSelect: {
+                              value_at_data_point: 'event_count',
+                              matched_recordings: 'matched_recordings',
+                          },
                       })
                   } else if (selectedUrl) {
                       openPersonsModal({

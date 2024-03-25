@@ -174,6 +174,7 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                 <div className="flex items-center gap-1">
                     <LemonButton
                         size="small"
+                        type="secondary"
                         noPadding
                         onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
                         tooltipPlacement="left"
@@ -191,14 +192,15 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
 
                     <LemonButton
                         size="small"
+                        type="secondary"
                         noPadding
                         active={syncScroll}
                         onClick={() => {
-                            // If the user has syncScrolling on but it is paused due to interacting with the Inspector, we want to resume it
+                            // If the user has syncScrolling on, but it is paused due to interacting with the Inspector, we want to resume it
                             if (syncScroll && syncScrollingPaused) {
                                 setSyncScrollPaused(false)
                             } else {
-                                // Otherwise we are just toggling the settting
+                                // Otherwise we are just toggling the setting
                                 setSyncScroll(!syncScroll)
                             }
                         }}

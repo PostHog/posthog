@@ -66,7 +66,7 @@ export interface LemonMenuProps
             LemonDropdownProps,
             | 'placement'
             | 'fallbackPlacements'
-            | 'sameWidth'
+            | 'matchWidth'
             | 'maxContentWidth'
             | 'visible'
             | 'onVisibilityChange'
