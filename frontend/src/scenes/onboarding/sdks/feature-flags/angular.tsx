@@ -1,3 +1,5 @@
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+
 import { SDKKey } from '~/types'
 
 import { SDKInstallAngularInstructions } from '../sdk-install-instructions/angular'

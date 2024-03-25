@@ -1,11 +1,27 @@
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import { HTMLSnippetInstructions, JSWebInstructions, NextJSInstructions, ReactInstructions, AngularInstructions } from '.'
+import {
+    AngularInstructions,
+    AstroInstructions,
+    BubbleInstructions,
+    FramerInstructions,
+    HTMLSnippetInstructions,
+    JSWebInstructions,
+    NextJSInstructions,
+    NuxtJSInstructions,
+    ReactInstructions,
+    RemixInstructions,
+} from '.'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
     [SDKKey.HTML_SNIPPET]: HTMLSnippetInstructions,
     [SDKKey.ANGULAR]: AngularInstructions,
+    [SDKKey.ASTRO]: AstroInstructions,
+    [SDKKey.BUBBLE]: BubbleInstructions,
+    [SDKKey.FRAMER]: FramerInstructions,
     [SDKKey.NEXT_JS]: NextJSInstructions,
+    [SDKKey.NUXT_JS]: NuxtJSInstructions,
     [SDKKey.REACT]: ReactInstructions,
+    [SDKKey.REMIX]: RemixInstructions,
 }
