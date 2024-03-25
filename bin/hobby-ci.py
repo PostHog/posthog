@@ -217,6 +217,8 @@ def main():
         print("Destroying droplet on Digitalocean for testing Hobby Deployment")
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
         domain_record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
+        print(f"Droplet ID: {droplet_id}")
+        print(f"Record ID: {domain_record_id}")
         HobbyTester.destroy_environment(droplet_id=droplet_id, record_id=domain_record_id)
 
     if command == "test":
