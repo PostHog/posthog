@@ -36,16 +36,18 @@ export function Overview(): JSX.Element {
         return (
             <div>
                 <h2 className="font-semibold text-lg">Summary</h2>
-                <div className="items-center inline-flex">
+                <div className="items-center inline-flex flex-wrap">
                     <div
                         className="w-2 h-2 rounded-full mr-1"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ backgroundColor: getSeriesColor(winningVariant.index + 1) }}
                     />
                     <span className="font-semibold">{capitalizeFirstLetter(winningVariant.key)}</span>
-                    <span>&nbsp;is winning with a&nbsp;</span>
-                    <span className="font-semibold text-success items-center">{`${difference.toFixed(2)}% lift`}</span>
-                    <span>&nbsp;in conversion rate (vs&nbsp;</span>
+                    <span>&nbsp;is winning with a conversion rate&nbsp;</span>
+                    <span className="font-semibold text-success items-center">
+                        increase of {`${difference.toFixed(2)}%`}
+                    </span>
+                    <span>&nbsp;percentage points (vs&nbsp;</span>
                     <div
                         className="w-2 h-2 rounded-full mr-1"
                         // eslint-disable-next-line react/forbid-dom-props
