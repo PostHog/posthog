@@ -27,8 +27,9 @@ except ImportError:
     pass
 
 
-MEMBER_BASED_ACCESS_LEVELS = ["none", "member", "admin"]
-RESOURCE_BASED_ACCESS_LEVELS = ["viewer", "editor"]
+NO_ACCESS_LEVEL = "none"
+MEMBER_BASED_ACCESS_LEVELS = [NO_ACCESS_LEVEL, "member", "admin"]
+RESOURCE_BASED_ACCESS_LEVELS = [NO_ACCESS_LEVEL, "viewer", "editor"]
 
 
 def ordered_access_levels(resource: APIScopeObject) -> List[str]:
@@ -196,18 +197,9 @@ class UserAccessControl:
         # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
         return self.check_access_level_for_object(self._team or obj, "admin")
 
-    # Used for filtering a queryset by access level
     def filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
-        # TODO: Get list of all access controls for the user and then filter the queryset based on that
-        # For now we just need to make sure this works for project filtering
-
-        # 1. Check the overall setting for project access (to determine if we are filtering in or filtering out)
-        # 2. Get all access controls for projects where the user has explicit access
-        # 3. Filter the queryset based on the access controls
-
-        # queryset = queryset.filter(
-        #     id__in=(access_control.resource_id for access_control in access_controls_for_resource(user))
-        # )
+        # Find all items related to the queryset model that have access controls such that the effective level for the user is "none"
+        # and exclude them from the queryset
 
         resource = model_to_resource(queryset.model)
 
@@ -247,16 +239,12 @@ class UserAccessControl:
 
         for resource_id, access_levels in resource_id_access_levels.items():
             # Check if every access level is "none"
-            if all(access_level == "none" for access_level in access_levels):
+            if all(access_level == NO_ACCESS_LEVEL for access_level in access_levels):
                 blocked_resource_ids.add(resource_id)
 
         # Filter the queryset based on the access controls
         if blocked_resource_ids:
             queryset = queryset.exclude(id__in=blocked_resource_ids)
-
-        # controls = list(access_controls)
-
-        # sql = str(access_controls.query)
 
         return queryset
 
