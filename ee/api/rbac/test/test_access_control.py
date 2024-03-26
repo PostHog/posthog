@@ -302,6 +302,73 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         assert self._patch_notebook(id=self.notebook.short_id).status_code == status.HTTP_200_OK
 
 
+class TestAccessControlFiltering(BaseAccessControlTest):
+    """
+    Test actual permissions being applied for a resource (notebooks as an example)
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = self._create_user("other_user")
+
+        self.other_user_notebook = Notebook.objects.create(
+            team=self.team, created_by=self.other_user, title="not my notebook"
+        )
+
+        self.notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="my notebook")
+
+    def _put_notebook_access_control(self, notebook_id: str, data={}):
+        payload = {
+            "access_level": "editor",
+        }
+
+        payload.update(data)
+        return self.client.put(
+            f"/api/projects/@current/notebooks/{notebook_id}/access_controls",
+            payload,
+        )
+
+    def _get_notebooks(self):
+        return self.client.get("/api/projects/@current/notebooks/")
+
+    def test_default_allows_all_access(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        assert len(self._get_notebooks().json()["results"]) == 2
+
+    def test_does_not_list_notebooks_without_access(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert (
+            self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
+        assert (
+            self._put_notebook_access_control(self.notebook.short_id, {"access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        res = self._get_notebooks()
+        assert len(res.json()["results"]) == 1
+        assert res.json()["results"][0]["id"] == str(self.notebook.id)
+
+    def test_list_notebooks_with_explicit_access(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert (
+            self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
+        assert (
+            self._put_notebook_access_control(
+                self.other_user_notebook.short_id,
+                {"organization_member": str(self.organization_membership.id), "access_level": "viewer"},
+            ).status_code
+            == status.HTTP_200_OK
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        res = self._get_notebooks()
+        assert len(res.json()["results"]) == 2
+
+
 # TODO: Add tests to check only project admins can edit the project
 # TODO: Add tests to check that a dashboard can't be edited if the user doesn't have access
-# TODO: Add tests for the role based access side of things
