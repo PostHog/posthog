@@ -81,6 +81,11 @@ class UserAccessControl:
         self._team = team
         self._organization: Organization = organization or team.organization
 
+    def _clear_cache(self):
+        # Primarily intended for tests
+        self._access_controls_for_object.cache_clear()
+        self._access_controls_for_resource.cache_clear()
+
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
         try:
@@ -112,20 +117,25 @@ class UserAccessControl:
         role_memberships = self._user.role_memberships.select_related("role").all()
         role_ids = [membership.role.id for membership in role_memberships] if self.rbac_supported else []
 
-        # TODO: Need to determine if there exists any ACs for the resource to determine if we should return None or not
-        return AccessControl.objects.filter(
-            Q(  # Access controls applying to this team
-                team=self._team, resource=resource, resource_id=resource_id, organization_member=None, role=None
-            )
-            | Q(  # Access controls applying to this user
-                team=self._team,
-                resource=resource,
-                resource_id=resource_id,
-                organization_member__user=self._user,
-                role=None,
-            )
-            | Q(  # Access controls applying to this user's roles
-                team=self._team, resource=resource, resource_id=resource_id, organization_member=None, role__in=role_ids
+        return list(
+            AccessControl.objects.filter(
+                Q(  # Access controls applying to this team
+                    team=self._team, resource=resource, resource_id=resource_id, organization_member=None, role=None
+                )
+                | Q(  # Access controls applying to this user
+                    team=self._team,
+                    resource=resource,
+                    resource_id=resource_id,
+                    organization_member__user=self._user,
+                    role=None,
+                )
+                | Q(  # Access controls applying to this user's roles
+                    team=self._team,
+                    resource=resource,
+                    resource_id=resource_id,
+                    organization_member=None,
+                    role__in=role_ids,
+                )
             )
         )
 
@@ -138,19 +148,21 @@ class UserAccessControl:
         role_memberships = self._user.role_memberships.select_related("role").all()
         role_ids = [membership.role.id for membership in role_memberships] if self.rbac_supported else []
 
-        return AccessControl.objects.filter(
-            Q(  # Access controls applying to this team
-                team=self._team, resource=resource, resource_id=None, organization_member=None, role=None
-            )
-            | Q(  # Access controls applying to this user
-                team=self._team,
-                resource=resource,
-                resource_id=None,
-                organization_member__user=self._user,
-                role=None,
-            )
-            | Q(  # Access controls applying to this user's roles
-                team=self._team, resource=resource, resource_id=None, organization_member=None, role__in=role_ids
+        return list(
+            AccessControl.objects.filter(
+                Q(  # Access controls applying to this team
+                    team=self._team, resource=resource, resource_id=None, organization_member=None, role=None
+                )
+                | Q(  # Access controls applying to this user
+                    team=self._team,
+                    resource=resource,
+                    resource_id=None,
+                    organization_member__user=self._user,
+                    role=None,
+                )
+                | Q(  # Access controls applying to this user's roles
+                    team=self._team, resource=resource, resource_id=None, organization_member=None, role__in=role_ids
+                )
             )
         )
 
@@ -174,13 +186,13 @@ class UserAccessControl:
             # NOTE: Technically this is covered by Org Permission check so more of a sanity check
             return None
 
-        if not self.access_controls_supported:
-            # If access controls aren't supported, then we return the default access level
-            return default_access_level(resource)
-
         # Org admins always have object level access
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
             return ordered_access_levels(resource)[-1]
+
+        if not self.access_controls_supported:
+            # If access controls aren't supported, then we return the default access level
+            return default_access_level(resource)
 
         access_controls = self._access_controls_for_object(obj, resource)
         if not access_controls:
@@ -242,13 +254,13 @@ class UserAccessControl:
             # In any of these cases, we can't determine the access level
             return None
 
-        if not self.access_controls_supported:
-            # If access controls aren't supported, then return the default access level
-            return default_access_level(resource)
-
         # Org admins always have resource level access
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
             return ordered_access_levels(resource)[-1]
+
+        if not self.access_controls_supported:
+            # If access controls aren't supported, then return the default access level
+            return default_access_level(resource)
 
         access_controls = self._access_controls_for_resource(resource)
         if not access_controls:
