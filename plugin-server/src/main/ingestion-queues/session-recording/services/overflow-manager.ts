@@ -50,5 +50,11 @@ export class OverflowManager {
         // The zset value is a timestamp in seconds.
         const expiration = (now ?? Date.now()) / 1000 + this.cooldownSeconds
         await this.redisClient.zadd(this.redisKey, 'NX', expiration, key)
+
+        // Cleanup old entries with values expired more than one hour ago.
+        // We run the cleanup here because we assume this will only run a dozen times per day per region.
+        // If this code path becomes too hot, it should move to a singleton loop.
+        const expired = (now ?? Date.now()) / 1000 - 3600
+        await this.redisClient.zremrangebyscore(this.redisKey, 0, expired)
     }
 }

@@ -611,6 +611,22 @@ describe('ingester', () => {
             await ingestBurst(10, 150_000, 150_000)
             expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
         })
+
+        it('should cleanup older entries when triggering', async () => {
+            await redisConn.zadd(CAPTURE_OVERFLOW_REDIS_KEY, 'NX', Date.now() / 1000 - 7000, 'expired:session')
+            await redisConn.zadd(CAPTURE_OVERFLOW_REDIS_KEY, 'NX', Date.now() / 1000 - 1000, 'not_expired:session')
+            expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
+                'expired:session',
+                'not_expired:session',
+            ])
+
+            await ingestBurst(10, 150_000, 10)
+            expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
+            expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
+                'not_expired:session',
+                `${team.id}:sid1`,
+            ])
+        })
     })
 
     describe('lag reporting', () => {
