@@ -7,7 +7,7 @@ export function FeatureFlagsDjangoInstructions(): JSX.Element {
     return (
         <>
             <SDKInstallDjangoInstructions />
-            <FlagImplementationSnippet sdkKey={SDKKey.DJANGO} />
+            <FlagImplementationSnippet sdkKey={SDKKey.PYTHON} />
         </>
     )
 }
