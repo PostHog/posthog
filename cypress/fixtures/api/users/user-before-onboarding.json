@@ -16,8 +16,9 @@
         "api_token": "dtrwW0uEC7LwVx64RmZmqog_XjU0nXWuEK1d1ZpjteQ",
         "name": "Hogflix Demo App",
         "completed_snippet_onboarding": false,
+        "has_completed_onboarding_for": {},
         "ingested_event": false,
-        "is_demo": true,
+        "is_demo": false,
         "timezone": "UTC"
     },
     "organization": {
@@ -35,8 +36,9 @@
                 "api_token": "dtrwW0uEC7LwVx64RmZmqog_XjU0nXWuEK1d1ZpjteQ",
                 "name": "Hogflix Demo App",
                 "completed_snippet_onboarding": false,
+                "has_completed_onboarding_for": {},
                 "ingested_event": false,
-                "is_demo": true,
+                "is_demo": false,
                 "timezone": "UTC"
             }
         ],
