@@ -1,0 +1,99 @@
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_global_properties
+from posthog.schema import (
+    CohortPropertyFilter,
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
+from posthog.test.base import BaseTest
+
+
+class TestCleanGlobalProperties(BaseTest):
+    def test_handles_empty_properties(self):
+        properties = {}
+
+        result = clean_global_properties(properties)
+
+        self.assertEqual(result, None)
+
+    def test_handles_old_style_properties(self):
+        properties = {"utm_medium__icontains": "email"}
+
+        result = clean_global_properties(properties)
+
+        self.assertEqual(
+            result,
+            PropertyGroupFilter(
+                type=FilterLogicalOperator.AND,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND,
+                        values=[
+                            EventPropertyFilter(key="utm_medium", value="email", operator=PropertyOperator.icontains)
+                        ],
+                    )
+                ],
+            ),
+        )
+
+    def test_handles_property_filter_lists(self):
+        properties = [{"key": "id", "type": "cohort", "value": 636, "operator": None}]
+
+        result = clean_global_properties(properties)
+
+        self.assertEqual(
+            result,
+            PropertyGroupFilter(
+                type=FilterLogicalOperator.AND,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND,
+                        values=[CohortPropertyFilter(key="id", value=636)],
+                    )
+                ],
+            ),
+        )
+
+    def test_handles_property_group_filters(self):
+        properties = {
+            "type": "AND",
+            "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "value": 850, "operator": None}]}],
+        }
+
+        result = clean_global_properties(properties)
+
+        self.assertEqual(
+            result,
+            PropertyGroupFilter(
+                type=FilterLogicalOperator.AND,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND,
+                        values=[CohortPropertyFilter(key="id", value=850)],
+                    )
+                ],
+            ),
+        )
+
+    def test_handles_property_group_filters_values(self):
+        properties = {
+            "type": "AND",
+            "values": [{"key": "id", "type": "cohort", "value": 850, "operator": None}],
+        }
+
+        result = clean_global_properties(properties)
+
+        self.assertEqual(
+            result,
+            PropertyGroupFilter(
+                type=FilterLogicalOperator.AND,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND,
+                        values=[CohortPropertyFilter(key="id", value=850)],
+                    )
+                ],
+            ),
+        )

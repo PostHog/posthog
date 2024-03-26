@@ -86,18 +86,22 @@ const cleanPropertyGroupFilter = (properties: Record<string, any>): PropertyGrou
 }
 
 const cleanPropertyGroupFilterValues = (
-    properties: PropertyGroupFilterValue[]
+    properties: (AnyPropertyFilter | PropertyGroupFilterValue)[]
 ): (AnyPropertyFilter | PropertyGroupFilterValue)[] => {
-    return properties.map((property) => {
-        if (property['type'] == 'AND' || property['type'] == 'OR') {
-            // property group filter value
-            property['values'] = cleanPropertyGroupFilterValues(property['values'] as PropertyGroupFilterValue[])
-            return property
-        } else {
-            // property filter
-            return cleanProperty(property)
-        }
-    })
+    return properties.map(cleanPropertyGroupFilterValue)
+}
+
+const cleanPropertyGroupFilterValue = (
+    property: AnyPropertyFilter | PropertyGroupFilterValue
+): AnyPropertyFilter | PropertyGroupFilterValue => {
+    if (property['type'] == 'AND' || property['type'] == 'OR') {
+        // property group filter value
+        property['values'] = cleanPropertyGroupFilterValues(property['values'] as PropertyGroupFilterValue[])
+        return property
+    } else {
+        // property filter
+        return cleanProperty(property)
+    }
 }
 
 const cleanProperty = (property: Record<string, any>): AnyPropertyFilter => {
