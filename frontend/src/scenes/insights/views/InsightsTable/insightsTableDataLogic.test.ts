@@ -15,17 +15,6 @@ describe('insightsTableDataLogic', () => {
 
     const props = { dashboardItemId: Insight123 }
     beforeEach(() => {
-        useMocks({
-            post: {
-                '/api/projects/:team/query': [
-                    200,
-                    {
-                        results: [],
-                    },
-                ],
-            },
-        })
-
         initKeaTests()
         logic = insightsTableDataLogic(props)
         logic.mount()
