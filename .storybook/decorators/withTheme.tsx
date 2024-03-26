@@ -6,8 +6,8 @@ import type { Decorator } from '@storybook/react'
 export const withTheme: Decorator = (Story, context) => {
     const theme = context.globals.theme
 
-    // set the theme
-    document.body.setAttribute('theme', theme === 'dark' ? 'dark' : 'light')
+    document.body.setAttribute('theme', theme === 'dark' ? 'dark' : 'light') // For component stories
+    document.cookie = `theme=${theme}; Path=/` // For scene stories, specifically `userLogic.selectors.themeMode`
 
     return <Story />
 }
