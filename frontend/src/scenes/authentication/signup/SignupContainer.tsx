@@ -123,11 +123,11 @@ export function SignupLeftContainer(): JSX.Element {
                         {' '}
                         You can use our{' '}
                         <Link to={getRegionUrl(Region.EU)}>
-                            <strong>{Region.EU} cloud</strong>
+                            <strong>PostHog Cloud EU</strong>
                         </Link>{' '}
                         or{' '}
                         <Link to={getRegionUrl(Region.US)}>
-                            <strong>{Region.US} cloud</strong>
+                            <strong>Posthog Cloud US</strong>
                         </Link>{' '}
                         and we'll take care of the hosting for you.
                     </span>
