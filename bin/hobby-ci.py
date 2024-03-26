@@ -189,8 +189,11 @@ class HobbyTester:
         self.destroy_self()
 
     def export_droplet(self):
-        if not self.droplet or not self.record:
-            print("Droplet or DNS record not found. Exiting")
+        if not self.droplet:
+            print("Droplet not found. Exiting")
+            exit(1)
+        if not self.record:
+            print("DNS record not found. Exiting")
             exit(1)
         record_id = self.record["domain_record"]["id"]
         record_name = self.record["domain_record"]["name"]
