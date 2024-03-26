@@ -75,8 +75,8 @@ class Table(FieldOrTable):
     def has_field(self, name: str | int) -> bool:
         return str(name) in self.fields
 
-    def get_field(self, name: str) -> FieldOrTable:
-        if self.has_field(name):
+    def get_field(self, name: str | int) -> FieldOrTable:
+        if self.has_field(str(name)):
             return self.fields[name]
         raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
 
