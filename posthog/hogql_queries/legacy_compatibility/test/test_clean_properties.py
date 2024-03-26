@@ -12,7 +12,7 @@ from posthog.test.base import BaseTest
 
 class TestCleanGlobalProperties(BaseTest):
     def test_handles_empty_properties(self):
-        properties = {}
+        properties: dict = {}
 
         result = clean_global_properties(properties)
 
@@ -101,7 +101,7 @@ class TestCleanGlobalProperties(BaseTest):
 
 class TestCleanEntityProperties(BaseTest):
     def test_handles_empty_properties(self):
-        properties = {}
+        properties: dict = {}
 
         result = clean_entity_properties(properties)
 

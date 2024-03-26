@@ -105,7 +105,7 @@ def clean_property(property: dict):
 
     # remove none from values
     if isinstance(cleaned_property.get("value"), list):
-        cleaned_property["value"] = list(filter(lambda x: x is not None, cleaned_property.get("value")))
+        cleaned_property["value"] = list(filter(lambda x: x is not None, cleaned_property.get("value")))  # type: ignore
 
     # remove keys without concrete value
     cleaned_property = {key: value for key, value in cleaned_property.items() if value is not None}

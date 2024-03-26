@@ -133,11 +133,6 @@ posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible default f
 posthog/hogql_queries/utils/query_date_range.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql_queries/utils/query_date_range.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "IntervalType | None" has no attribute "name"  [union-attr]
-posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument 1 to "filter" has incompatible type "Callable[[Any], bool]"; expected "Callable[[Any], TypeGuard[bool]]"  [arg-type]
-posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument 1 to "filter" has incompatible type "Callable[[Any], bool]"; expected "Callable[[Any], TypeGuard[Any]]"  [arg-type]
-posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument 2 to "filter" has incompatible type "Any | None"; expected "Iterable[Any]"  [arg-type]
-posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument 2 to "map" has incompatible type "Any | None"; expected "Iterable[Any]"  [arg-type]
-posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument 2 to "map" has incompatible type "Any | None"; expected "Iterable[Any]"  [arg-type]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 4 has incompatible type "str": "Literal[0, 1, 2, 3, 4] | None"; expected "str": "str | None"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Item "None" of "Any | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument 1 to "float" has incompatible type "Any | None"; expected "str | Buffer | SupportsFloat | SupportsIndex"  [arg-type]
