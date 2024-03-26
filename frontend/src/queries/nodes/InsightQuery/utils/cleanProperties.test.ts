@@ -54,7 +54,7 @@ describe('cleanGlobalProperties', () => {
         expect(result).toEqual(properties)
     })
 
-    it('handles property group filters without nested property group filter values', () => {
+    it('handles property group filters values', () => {
         const properties = {
             type: 'AND',
             values: [{ key: 'id', type: 'cohort', value: 850, operator: null }],
@@ -62,7 +62,15 @@ describe('cleanGlobalProperties', () => {
 
         const result = cleanGlobalProperties(properties)
 
-        expect(result).toEqual(properties)
+        expect(result).toEqual({
+            type: 'AND',
+            values: [
+                {
+                    type: 'AND',
+                    values: [{ key: 'id', type: 'cohort', value: 850 }],
+                },
+            ],
+        })
     })
 })
 
@@ -100,7 +108,7 @@ describe('cleanEntityProperties', () => {
         expect(result).toEqual(properties)
     })
 
-    it('handles property group filters without nested property group filter values', () => {
+    it('handles property group values', () => {
         const properties = {
             type: 'AND',
             values: [

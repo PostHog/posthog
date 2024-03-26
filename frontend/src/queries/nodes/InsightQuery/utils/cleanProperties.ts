@@ -36,6 +36,16 @@ export const cleanGlobalProperties = (
             values: [{ type: 'AND', values: properties }],
         }
         return cleanPropertyGroupFilter(properties)
+    } else if (
+        (properties['type'] === 'AND' || properties['type'] === 'OR') &&
+        !properties['values'].some((property) => property['type'] === 'AND' || property['type'] === 'OR')
+    ) {
+        // property group filter value
+        properties = {
+            type: 'AND',
+            values: [properties],
+        }
+        return cleanPropertyGroupFilter(properties)
     } else {
         // property group filter
         return cleanPropertyGroupFilter(properties)
