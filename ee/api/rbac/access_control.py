@@ -179,14 +179,14 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
     @action(methods=["GET", "PUT"], detail=True)
     def access_controls(self, request: Request, *args, **kwargs):
-        if request.method == "GET":
-            return self._get_access_controls(request)
         if request.method == "PUT":
             return self._update_access_controls(request)
 
+        return self._get_access_controls(request)
+
     @action(methods=["GET", "PUT"], detail=True)
     def global_access_controls(self, request: Request, *args, **kwargs):
-        if request.method == "GET":
-            return self._get_access_controls(request, is_global=True)
         if request.method == "PUT":
             return self._update_access_controls(request, is_global=True)
+
+        return self._get_access_controls(request, is_global=True)

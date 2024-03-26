@@ -315,7 +315,7 @@ class UserAccessControl:
 
         model_has_creator = hasattr(model, "created_by")
 
-        filter_args = dict(resource=resource, resource_id__isnull=False)
+        filter_args: dict[str, Any] = dict(resource=resource, resource_id__isnull=False)
 
         if self._team and resource != "project":
             filter_args["team"] = self._team
