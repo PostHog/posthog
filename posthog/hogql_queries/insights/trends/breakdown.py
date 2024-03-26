@@ -139,6 +139,12 @@ class Breakdown:
         if not self.is_histogram_breakdown:
             left = hogql_to_string(left)
 
+        if self.query.breakdownFilter is not None:
+            hide_other = self.query.breakdownFilter.breakdown_hide_other_aggregation
+            breakdown_limit = self.query.breakdownFilter.breakdown_limit or 25
+            if len(self._breakdown_values) < breakdown_limit + (0 if hide_other else 1):
+                return ast.Constant(value=True)
+
         compare_ops = []
         for _value in self._breakdown_values:
             value: Optional[str] = str(_value)  # non-cohorts are always strings
@@ -175,11 +181,11 @@ class Breakdown:
         return cast(
             ast.Call,
             parse_expr(
-                "transform(ifNull(nullIf(toString({node}), ''), {null}), {values}, {values}, {other})",
+                "transform(ifNull(nullIf(toString({node}), ''), {nil}), {values}, {values}, {other})",
                 placeholders={
                     "node": node,
                     "values": self._breakdown_values_ast,
-                    "null": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                    "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                     "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
                 },
             ),
