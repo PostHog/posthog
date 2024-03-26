@@ -1,3 +1,4 @@
+export * from './angular'
 export * from './html-snippet'
 export * from './js-web'
 export * from './next-js'

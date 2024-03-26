@@ -1,4 +1,5 @@
 export * from './android'
+export * from './angular'
 export * from './api'
 export * from './elixir'
 export * from './flutter'
