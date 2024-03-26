@@ -187,30 +187,30 @@ class UserAccessControl:
             return None
 
         resource = resource or model_to_resource(obj)
-        if not resource:
-            return None
-
         org_membership = self._organization_membership
 
-        if not org_membership:
-            # NOTE: Technically this is covered by Org Permission check so more of a sanity check
+        if not resource or not org_membership:
             return None
 
+        # Creators always have highest access
         if getattr(obj, "created_by", None) == self._user:
             return highest_access_level(resource)
 
-        # Org admins always have object level access
+        # Org admins always have highest access
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
             return highest_access_level(resource)
 
+        # If access controls aren't supported, then we return the default access level
         if not self.access_controls_supported:
-            # If access controls aren't supported, then we return the default access level
             return default_access_level(resource)
 
         access_controls = self._access_controls_for_object(obj, resource)
+
+        # If there is no specified controls on the resource then we return the default access level
         if not access_controls:
             return default_access_level(resource)
 
+        # If there are access controls we pick the highest level the user has
         return max(
             access_controls,
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
@@ -242,7 +242,7 @@ class UserAccessControl:
         Special case for checking if the user can modify the access levels for an object.
         Unlike check_access_level_for_object, this requires that one of these conditions is true:
         1. The user is the creator of the object
-        2. The user is a project admin
+        2. The user is explicitly a project admin
         2. The user is an org admin
         """
 

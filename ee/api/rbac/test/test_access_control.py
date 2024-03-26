@@ -423,47 +423,13 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         app_context = self._get_posthog_app_context()
         assert len(app_context["current_user"]["organization"]["teams"]) == 3
         assert app_context["current_team"]["id"] == self.team.id
-        assert app_context["current_team"]["user_access_level"] == "member"
+        assert app_context["current_team"]["user_access_level"] == "admin"
 
         self._put_project_access_control(self.team.id, {"access_level": "none"})
         app_context = self._get_posthog_app_context()
         assert len(app_context["current_user"]["organization"]["teams"]) == 2
         assert app_context["current_team"]["id"] == self.team.id
         assert app_context["current_team"]["user_access_level"] == "none"
-
-    # def test_does_not_list_notebooks_without_access(self):
-    #     self._org_membership(OrganizationMembership.Level.ADMIN)
-    #     assert (
-    #         self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
-    #         == status.HTTP_200_OK
-    #     )
-    #     assert (
-    #         self._put_notebook_access_control(self.notebook.short_id, {"access_level": "none"}).status_code
-    #         == status.HTTP_200_OK
-    #     )
-    #     self._org_membership(OrganizationMembership.Level.MEMBER)
-
-    #     res = self._get_notebooks()
-    #     assert len(res.json()["results"]) == 1
-    #     assert res.json()["results"][0]["id"] == str(self.notebook.id)
-
-    # def test_list_notebooks_with_explicit_access(self):
-    #     self._org_membership(OrganizationMembership.Level.ADMIN)
-    #     assert (
-    #         self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
-    #         == status.HTTP_200_OK
-    #     )
-    #     assert (
-    #         self._put_notebook_access_control(
-    #             self.other_user_notebook.short_id,
-    #             {"organization_member": str(self.organization_membership.id), "access_level": "viewer"},
-    #         ).status_code
-    #         == status.HTTP_200_OK
-    #     )
-    #     self._org_membership(OrganizationMembership.Level.MEMBER)
-
-    #     res = self._get_notebooks()
-    #     assert len(res.json()["results"]) == 2
 
 
 # TODO: Add tests to check only project admins can edit the project

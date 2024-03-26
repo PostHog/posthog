@@ -140,13 +140,13 @@ class AccessControlViewSetMixin:
             }
         )
 
-    def _update_access_controls(self, request: Request, role_based=False):
+    def _update_access_controls(self, request: Request, is_global=False):
         resource = getattr(self, "scope_object", None)
         obj = self.get_object()
         resource_id = str(obj.id)
 
         # Generically validate the incoming data
-        if not role_based:
+        if not is_global:
             # If not role based we are deriving from the viewset
             data = request.data
             data["resource"] = resource
