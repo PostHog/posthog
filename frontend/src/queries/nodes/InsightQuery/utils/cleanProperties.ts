@@ -21,16 +21,16 @@ export const cleanGlobalProperties = (
     ) {
         // empty properties
         return undefined
-    } else if (Array.isArray(properties)) {
-        // list of property filters
+    } else if (isOldStyleProperties(properties)) {
+        // old style properties
+        properties = transformOldStyleProperties(properties)
         properties = {
             type: 'AND',
             values: [{ type: 'AND', values: properties }],
         }
         return cleanPropertyGroupFilter(properties)
-    } else if (isOldStyleProperties(properties)) {
-        // old style properties
-        properties = transformOldStyleProperties(properties)
+    } else if (Array.isArray(properties)) {
+        // list of property filters
         properties = {
             type: 'AND',
             values: [{ type: 'AND', values: properties }],
@@ -46,15 +46,27 @@ export const cleanGlobalProperties = (
 export const cleanEntityProperties = (
     properties: Record<string, any> | Record<string, any>[] | undefined
 ): AnyPropertyFilter[] | undefined => {
-    if (properties == undefined) {
+    if (
+        properties == undefined ||
+        (Array.isArray(properties) && properties.length == 0) ||
+        Object.keys(properties).length == 0
+    ) {
         // empty properties
-        return properties
+        return undefined
     } else if (isOldStyleProperties(properties)) {
         // old style properties
         return transformOldStyleProperties(properties)
-    } else {
+    } else if (Array.isArray(properties)) {
         // list of property filters
         return properties.map(cleanProperty)
+    } else if (
+        (properties['type'] === 'AND' || properties['type'] === 'OR') &&
+        !properties['values'].some((property) => property['type'] === 'AND' || property['type'] === 'OR')
+    ) {
+        // property group filter value
+        return properties.values.map(cleanProperty)
+    } else {
+        throw new Error('Unexpected format of entity properties.')
     }
 }
 
