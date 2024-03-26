@@ -1,11 +1,13 @@
-try:
-    from ee.api.rbac.access_control import AccessControlViewSetMixin as _AccessControlViewSetMixin
-except ImportError:
-
-    class FakeAccessControlViewSetMixin:
-        pass
-
-    _AccessControlViewSetMixin = FakeAccessControlViewSetMixin
+from typing import TYPE_CHECKING
 
 
-AccessControlViewSetMixin = _AccessControlViewSetMixin
+if TYPE_CHECKING:
+    from ee.api.rbac.access_control import AccessControlViewSetMixin
+else:
+    try:
+        from ee.api.rbac.access_control import AccessControlViewSetMixin
+
+    except ImportError:
+
+        class AccessControlViewSetMixin:
+            pass

@@ -3,8 +3,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from django.views import View
-from rest_framework import exceptions, permissions, serializers, viewsets
+from rest_framework import exceptions, permissions, serializers, views, viewsets
 from rest_framework.request import Request
 
 from posthog import settings
@@ -33,7 +32,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple organizations."
 
-    def has_permission(self, request: Request, view: View) -> bool:
+    def has_permission(self, request: Request, view) -> bool:
         user = cast(User, request.user)
         if (
             # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
@@ -50,7 +49,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 
 class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
-    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`

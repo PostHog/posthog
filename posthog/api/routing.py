@@ -98,9 +98,20 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         return [auth() for auth in authentication_classes]
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        return self.filter_queryset_by_parents_lookups(queryset)
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+
+        # Filter based on org or project
+        queryset = self.filter_queryset_by_parents_lookups(queryset)
+
+        # TODO: Detect GET param to include hidden resources (for admins)
+        if self.action != "list":
+            # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
+            # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
+            return queryset
+        queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+
+        return queryset
 
     @property
     def is_team_view(self):

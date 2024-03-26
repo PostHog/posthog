@@ -1,10 +1,11 @@
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.viewsets import GenericViewSet
 
 from ee.models.rbac.access_control import AccessControl
 from posthog.models.scopes import API_SCOPE_OBJECTS
@@ -15,6 +16,12 @@ from posthog.rbac.user_access_control import (
     highest_access_level,
     ordered_access_levels,
 )
+
+
+if TYPE_CHECKING:
+    _GenericViewSet = GenericViewSet
+else:
+    _GenericViewSet = object
 
 
 class AccessControlSerializer(serializers.ModelSerializer):
@@ -77,7 +84,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
-class AccessControlViewSetMixin:
+class AccessControlViewSetMixin(_GenericViewSet):
     """
     Adds an "access_controls" action to the viewset that handles access control for the given resource
 
@@ -88,19 +95,6 @@ class AccessControlViewSetMixin:
     # 1. Know that the project level access is covered by the Permission check
     # 2. Get the actual object which we can pass to the serializer to check if the user created it
     # 3. We can also use the serializer to check the access level for the object
-
-    # TODO: Probably move this to the TeamAndOrgViewSetMixin
-    def filter_queryset(self, queryset):
-        queryset = super().filter_queryset(queryset)
-        # TODO: Detect GET param to include hidden resources (for admins)
-
-        if self.action != "list":
-            # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
-            # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
-            return queryset
-        queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
-
-        return queryset
 
     def _get_access_control_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", self.get_serializer_context())

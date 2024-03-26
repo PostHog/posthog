@@ -3,25 +3,25 @@ from typing import Optional, cast
 from django.db.models import Model
 from django.core.exceptions import ImproperlyConfigured
 
-from django.views import View
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
+from rest_framework.viewsets import ViewSet
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scopes import APIScopeObjectOrNotSupported
-from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.utils import get_can_create_org
 
 CREATE_ACTIONS = ["create", "update"]
 
 
-def extract_organization(object: Model, view: View) -> Organization:
+def extract_organization(object: Model, view: ViewSet) -> Organization:
     # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
     organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
     if organization_id_rewrite:
@@ -99,7 +99,7 @@ class OrganizationMemberPermissions(BasePermission):
 
         return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
-    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object, view)
         return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
@@ -129,7 +129,7 @@ class OrganizationAdminWritePermissions(BasePermission):
             >= OrganizationMembership.Level.ADMIN
         )
 
-    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in SAFE_METHODS:
             return True
 
@@ -301,6 +301,8 @@ class ScopeBasePermission(BasePermission):
         elif action in read_actions or request.method == "OPTIONS":
             return [f"{scope_object}:read"]
 
+        return None
+
 
 class APIScopePermission(ScopeBasePermission):
     """
@@ -384,9 +386,12 @@ class AccessControlPermission(ScopeBasePermission):
     def _get_user_access_control(self, request, view) -> UserAccessControl:
         return view.user_access_control
 
-    def _get_required_access_level(self, request, view) -> str:
+    def _get_required_access_level(self, request, view) -> Optional[AccessControlLevel]:
         resource = self._get_scope_object(request, view)
         required_scopes = self._get_required_scopes(request, view)
+
+        if resource == "INTERNAL":
+            return None
 
         READ_LEVEL = ordered_access_levels(resource)[-2]
         WRITE_LEVEL = ordered_access_levels(resource)[-1]
@@ -416,6 +421,10 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         required_level = self._get_required_access_level(request, view)
+
+        if not required_level:
+            return True
+
         has_access = uac.check_access_level_for_object(object, required_level=required_level)
 
         if not has_access:
@@ -438,11 +447,16 @@ class AccessControlPermission(ScopeBasePermission):
                 self.message = f"You are not a member of this project."
                 return False
 
+            scope_object = self._get_scope_object(request, view)
             required_level = self._get_required_access_level(request, view)
+
+            # If the API doesn't have a scope object or a required level for accessing then we can simply allow access
+            # as it isn't under access control
+            if scope_object == "INTERNAL" or not required_level:
+                return True
+
             # TODO: Scope object should probably be applied against the `required_scopes` attribute
-            has_access = uac.check_access_level_for_resource(
-                self._get_scope_object(request, view), required_level=required_level
-            )
+            has_access = uac.check_access_level_for_resource(scope_object, required_level=required_level)
 
             if not has_access:
                 self.message = f"You do not have {required_level} access to this resource."
