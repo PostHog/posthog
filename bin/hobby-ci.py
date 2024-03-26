@@ -210,6 +210,7 @@ class HobbyTester:
     def ensure_droplet(self, ssh_enabled=True):
         self.create_droplet(ssh_enabled=ssh_enabled)
         self.block_until_droplet_is_started()
+        self.create_dns_entry_for_instance()
         self.export_droplet()
 
 
