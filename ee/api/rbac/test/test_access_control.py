@@ -1,3 +1,5 @@
+import json
+from unittest.mock import MagicMock, Mock, patch
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -5,6 +7,8 @@ from ee.models.rbac.role import Role, RoleMembership
 from posthog.constants import AvailableFeature
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
+from posthog.utils import render_template
 
 
 class BaseAccessControlTest(APILicensedTest):
@@ -303,10 +307,6 @@ class TestAccessControlPermissions(BaseAccessControlTest):
 
 
 class TestAccessControlFiltering(BaseAccessControlTest):
-    """
-    Test actual permissions being applied for a resource (notebooks as an example)
-    """
-
     def setUp(self):
         super().setUp()
         self.other_user = self._create_user("other_user")
@@ -368,6 +368,102 @@ class TestAccessControlFiltering(BaseAccessControlTest):
 
         res = self._get_notebooks()
         assert len(res.json()["results"]) == 2
+
+
+class TestAccessControlProjectFiltering(BaseAccessControlTest):
+    """
+    Projects are listed in multiple places and ways so we need to test all of them here
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.other_team = Team.objects.create(organization=self.organization, name="other team")
+        self.other_team_2 = Team.objects.create(organization=self.organization, name="other team 2")
+
+    def _put_project_access_control(self, team_id: str, data={}):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        payload = {
+            "access_level": "editor",
+        }
+
+        payload.update(data)
+        res = self.client.put(
+            f"/api/projects/{team_id}/access_controls",
+            payload,
+        )
+
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        return res
+
+    def _get_posthog_app_context(self):
+        mock_template = MagicMock()
+        with patch("posthog.utils.get_template", return_value=mock_template):
+            mock_request = MagicMock()
+            mock_request.user = self.user
+            mock_request.GET = {}
+            render_template("index.html", request=mock_request, context={})
+
+            # Get the context passed to the template
+            return json.loads(mock_template.render.call_args[0][0]["posthog_app_context"])
+
+    def test_default_lists_all_projects(self):
+        assert len(self.client.get("/api/projects").json()["results"]) == 3
+        me_response = self.client.get("/api/users/@me").json()
+        assert len(me_response["organization"]["teams"]) == 3
+
+    def test_does_not_list_projects_without_access(self):
+        self._put_project_access_control(self.other_team.id, {"access_level": "none"})
+        assert len(self.client.get("/api/projects").json()["results"]) == 2
+        me_response = self.client.get("/api/users/@me").json()
+        assert len(me_response["organization"]["teams"]) == 2
+
+    def test_template_render_filters_teams(self):
+        app_context = self._get_posthog_app_context()
+        assert len(app_context["current_user"]["organization"]["teams"]) == 3
+        assert app_context["current_team"]["id"] == self.team.id
+        assert app_context["current_team"]["user_access_level"] == "member"
+
+        self._put_project_access_control(self.team.id, {"access_level": "none"})
+        app_context = self._get_posthog_app_context()
+        assert len(app_context["current_user"]["organization"]["teams"]) == 2
+        assert app_context["current_team"]["id"] == self.team.id
+        assert app_context["current_team"]["user_access_level"] == "none"
+
+    # def test_does_not_list_notebooks_without_access(self):
+    #     self._org_membership(OrganizationMembership.Level.ADMIN)
+    #     assert (
+    #         self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
+    #         == status.HTTP_200_OK
+    #     )
+    #     assert (
+    #         self._put_notebook_access_control(self.notebook.short_id, {"access_level": "none"}).status_code
+    #         == status.HTTP_200_OK
+    #     )
+    #     self._org_membership(OrganizationMembership.Level.MEMBER)
+
+    #     res = self._get_notebooks()
+    #     assert len(res.json()["results"]) == 1
+    #     assert res.json()["results"][0]["id"] == str(self.notebook.id)
+
+    # def test_list_notebooks_with_explicit_access(self):
+    #     self._org_membership(OrganizationMembership.Level.ADMIN)
+    #     assert (
+    #         self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
+    #         == status.HTTP_200_OK
+    #     )
+    #     assert (
+    #         self._put_notebook_access_control(
+    #             self.other_user_notebook.short_id,
+    #             {"organization_member": str(self.organization_membership.id), "access_level": "viewer"},
+    #         ).status_code
+    #         == status.HTTP_200_OK
+    #     )
+    #     self._org_membership(OrganizationMembership.Level.MEMBER)
+
+    #     res = self._get_notebooks()
+    #     assert len(res.json()["results"]) == 2
 
 
 # TODO: Add tests to check only project admins can edit the project
