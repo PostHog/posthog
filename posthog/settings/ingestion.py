@@ -11,6 +11,10 @@ INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_ID
 # KEEP IN SYNC WITH plugin-server/src/config/config.ts
 BUFFER_CONVERSION_SECONDS = get_from_env("BUFFER_CONVERSION_SECONDS", default=60, type_cast=int)
 
+# Whether or not overflow (random partitioning) should be enabled *at all*.
+# Note that this setting takes precedence over other overflow-related settings
+# below, if disabled.
+CAPTURE_OVERFLOW_ENABLED = get_from_env("CAPTURE_OVERFLOW_ENABLED", True, type_cast=str_to_bool)
 
 # A list of <team_id:distinct_id> pairs (in the format 2:myLovelyId) that we should use
 # random partitioning for when producing events to the Kafka topic consumed by the plugin server.
