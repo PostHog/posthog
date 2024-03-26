@@ -108,10 +108,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                 const beforeChange = { ...values.rawDashboards[id] }
 
-                const response = (await api.update(
+                const response = await api.update<DashboardType>(
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
-                )) as DashboardType
+                )
                 const updatedAttribute = Object.keys(payload)[0]
                 if (updatedAttribute === 'name' || updatedAttribute === 'description' || updatedAttribute === 'tags') {
                     eventUsageLogic.actions.reportDashboardFrontEndUpdate(
@@ -128,10 +128,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         button: {
                             label: 'Undo',
                             action: async () => {
-                                const reverted = (await api.update(
+                                const reverted = await api.update<DashboardType>(
                                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
-                                )) as DashboardType
+                                )
                                 actions.updateDashboardSuccess(reverted)
                                 lemonToast.success('Dashboard change reverted')
                             },
@@ -141,34 +141,43 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 return response
             },
             deleteDashboard: async ({ id, deleteInsights }) =>
-                (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                await api.update<DashboardType>(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     deleted: true,
                     delete_insights: deleteInsights,
-                })) as DashboardType,
+                }),
             restoreDashboard: async ({ id }) =>
-                (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                await api.update<DashboardType>(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     deleted: false,
-                })) as DashboardType,
+                }),
             pinDashboard: async ({ id, source }) => {
-                const response = (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    pinned: true,
-                })) as DashboardType
+                const response = await api.update<DashboardType>(
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    {
+                        pinned: true,
+                    }
+                )
                 eventUsageLogic.actions.reportDashboardPinToggled(true, source)
                 return response
             },
             unpinDashboard: async ({ id, source }) => {
-                const response = (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    pinned: false,
-                })) as DashboardType
+                const response = await api.update<DashboardType>(
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    {
+                        pinned: false,
+                    }
+                )
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
                 return response
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
-                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
-                    use_dashboard: id,
-                    name: `${name} (Copy)`,
-                    duplicate_tiles: duplicateTiles,
-                })) as DashboardType
+                const result = await api.create<DashboardType>(
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/`,
+                    {
+                        use_dashboard: id,
+                        name: `${name} (Copy)`,
+                        duplicate_tiles: duplicateTiles,
+                    }
+                )
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
                 }
