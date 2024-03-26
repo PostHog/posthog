@@ -67,10 +67,10 @@ class HobbyTester:
             "sed -i \"s/#\\$nrconf{restart} = 'i';/\\$nrconf{restart} = 'a';/g\" /etc/needrestart/needrestart.conf \n"
             "git clone https://github.com/PostHog/posthog.git \n"
             "cd posthog \n"
-            f"git checkout {branch} \n"
+            f"git checkout {self.branch} \n"
             "cd .. \n"
             f"chmod +x posthog/bin/deploy-hobby \n"
-            f"./posthog/bin/deploy-hobby {release_tag} {hostname} 1 \n"
+            f"./posthog/bin/deploy-hobby {self.release_tag} {self.hostname} 1 \n"
         )
 
     def block_until_droplet_is_started(self):
