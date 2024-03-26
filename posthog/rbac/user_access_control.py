@@ -33,15 +33,15 @@ RESOURCE_BASED_ACCESS_LEVELS = [NO_ACCESS_LEVEL, "viewer", "editor"]
 
 
 def ordered_access_levels(resource: APIScopeObject) -> List[str]:
-    if resource in ["project", "organization"]:
+    if resource in ["project"]:
         return MEMBER_BASED_ACCESS_LEVELS
 
     return RESOURCE_BASED_ACCESS_LEVELS
 
 
 def default_access_level(resource: APIScopeObject) -> bool:
-    if resource in ["project", "organization"]:
-        return "member"
+    if resource in ["project"]:
+        return "admin"
     return "editor"
 
 

@@ -18,7 +18,7 @@ from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.utils import get_can_create_org
 
-CREATE_ACTIONS = ["create", "update", "partial_update"]
+CREATE_ACTIONS = ["create", "update"]
 
 
 def extract_organization(object: Model, view: View) -> Organization:
