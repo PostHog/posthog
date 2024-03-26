@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
+import { AndroidInstructions } from 'scenes/onboarding/sdks/session-replay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ProductKey } from '~/types'
+import { AvailableFeature, ProductKey, SDKKey } from '~/types'
 
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
@@ -108,6 +110,9 @@ const SessionReplayOnboarding = (): JSX.Element => {
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hasAndroidOnBoarding = !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING]
+
     const configOptions: ProductConfigOption[] = [
         {
             type: 'toggle',
@@ -139,11 +144,16 @@ const SessionReplayOnboarding = (): JSX.Element => {
         })
     }
 
+    const sdkInstructionMap = SessionReplaySDKInstructions
+    if (hasAndroidOnBoarding) {
+        sdkInstructionMap[SDKKey.ANDROID] = AndroidInstructions
+    }
+
     return (
         <OnboardingWrapper>
             <SDKs
                 usersAction="recording sessions"
-                sdkInstructionMap={SessionReplaySDKInstructions}
+                sdkInstructionMap={sdkInstructionMap}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
             />
@@ -151,6 +161,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         </OnboardingWrapper>
     )
 }
+
 const FeatureFlagsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
