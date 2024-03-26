@@ -192,6 +192,8 @@ class SelectQueryAliasType(Type):
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
             return AsteriskType(table_type=self)
+        if self.select_query_type.has_child(name, context):
+            return FieldType(name=name, table_type=self)
         if self.view_name:
             if context.database is None:
                 raise HogQLException("Database must be set for queries with views")
@@ -208,8 +210,6 @@ class SelectQueryAliasType(Type):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
                 return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
-            return FieldType(name=name, table_type=self)
-        if self.select_query_type.has_child(name, context):
             return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
 
