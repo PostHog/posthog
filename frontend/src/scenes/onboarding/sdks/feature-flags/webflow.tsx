@@ -1,12 +1,12 @@
 import { SDKKey } from '~/types'
 
-import { SDKInstallAngularInstructions } from '../sdk-install-instructions/angular'
+import { SDKInstallWebflowInstructions } from '../sdk-install-instructions/webflow'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 
-export function FeatureFlagsAngularInstructions(): JSX.Element {
+export function FeatureFlagsWebflowInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallAngularInstructions />
+            <SDKInstallWebflowInstructions />
             <FlagImplementationSnippet sdkKey={SDKKey.JS_WEB} />
         </>
     )

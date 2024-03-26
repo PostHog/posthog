@@ -1,13 +1,13 @@
 import { SDKKey } from '~/types'
 
 import { NodeInstallSnippet, NodeSetupSnippet } from '../sdk-install-instructions'
-import { SDKInstallRemixJSInstructions } from '../sdk-install-instructions/remix'
+import { SDKInstallSvelteJSInstructions } from '../sdk-install-instructions/svelte'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 
-export function FeatureFlagsRemixJSInstructions(): JSX.Element {
+export function FeatureFlagsSvelteInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallRemixJSInstructions />
+            <SDKInstallSvelteJSInstructions />
             <h3>Client-side rendering</h3>
             <FlagImplementationSnippet sdkKey={SDKKey.JS_WEB} />
             <h3>Server-side rendering</h3>

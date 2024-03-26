@@ -8,6 +8,7 @@ import {
     ProductAnalyticsAPIInstructions,
     ProductAnalyticsAstroInstructions,
     ProductAnalyticsBubbleInstructions,
+    ProductAnalyticsDjangoInstructions,
     ProductAnalyticsElixirInstructions,
     ProductAnalyticsFlutterInstructions,
     ProductAnalyticsFramerInstructions,
@@ -22,6 +23,9 @@ import {
     ProductAnalyticsRemixJSInstructions,
     ProductAnalyticsRNInstructions,
     ProductAnalyticsRubyInstructions,
+    ProductAnalyticsSvelteJSInstructions,
+    ProductAnalyticsVueInstructions,
+    ProductAnalyticsWebflowInstructions,
 } from '.'
 
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
@@ -31,6 +35,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.API]: ProductAnalyticsAPIInstructions,
     [SDKKey.ASTRO]: ProductAnalyticsAstroInstructions,
     [SDKKey.BUBBLE]: ProductAnalyticsBubbleInstructions,
+    [SDKKey.DJANGO]: ProductAnalyticsDjangoInstructions,
     [SDKKey.ELIXIR]: ProductAnalyticsElixirInstructions,
     [SDKKey.FLUTTER]: ProductAnalyticsFlutterInstructions,
     [SDKKey.FRAMER]: ProductAnalyticsFramerInstructions,
@@ -46,4 +51,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructions,
     [SDKKey.REMIX]: ProductAnalyticsRemixJSInstructions,
     [SDKKey.RUBY]: ProductAnalyticsRubyInstructions,
+    [SDKKey.SVELTE]: ProductAnalyticsSvelteJSInstructions,
+    [SDKKey.VUE_JS]: ProductAnalyticsVueInstructions,
+    [SDKKey.WEBFLOW]: ProductAnalyticsWebflowInstructions,
 }

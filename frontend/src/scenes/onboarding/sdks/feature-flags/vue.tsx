@@ -1,12 +1,12 @@
 import { SDKKey } from '~/types'
 
-import { SDKInstallAngularInstructions } from '../sdk-install-instructions/angular'
+import { SDKInstallVueInstructions } from '../sdk-install-instructions/vue'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 
-export function FeatureFlagsAngularInstructions(): JSX.Element {
+export function FeatureFlagsVueInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallAngularInstructions />
+            <SDKInstallVueInstructions />
             <FlagImplementationSnippet sdkKey={SDKKey.JS_WEB} />
         </>
     )
