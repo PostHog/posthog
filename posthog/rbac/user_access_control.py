@@ -1,4 +1,4 @@
-from functools import cached_property
+from functools import cached_property, cache
 from django.db.models import Model, Q, QuerySet
 from rest_framework import serializers
 from typing import TYPE_CHECKING, List, Optional, cast
@@ -96,7 +96,7 @@ class UserAccessControl:
             AvailableFeature.PROJECT_BASED_PERMISSIONING
         ) or self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
-    # @cached_property
+    @cache
     def _access_controls_for_object(self, obj: Model, resource: str) -> List[_AccessControl]:
         """
         Used when checking an individual object - gets all access controls for the object and its type
@@ -124,7 +124,7 @@ class UserAccessControl:
             )
         )
 
-    # @cached_property
+    @cache
     def _access_controls_for_resource(self, resource: APIScopeObject) -> List[_AccessControl]:
         """
         Used when checking an individual object - gets all access controls for the object and its type
