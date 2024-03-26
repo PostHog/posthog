@@ -44,7 +44,7 @@ class HobbyTester:
         self.name = name
 
         if not hostname:
-            hostname = f"{name}"
+            hostname = f"{name}.{DOMAIN}"
         self.hostname = hostname
 
         self.region = region
@@ -152,7 +152,7 @@ class HobbyTester:
     def create_dns_entry_for_instance(self):
         if not self.droplet:
             return
-        self.record = self.create_dns_entry(type="A", name=self.hostname, data=self.get_public_ip())
+        self.record = self.create_dns_entry(type="A", name=self.name, data=self.get_public_ip())
         return self.record
 
     def destroy_self(self, retries=3):
