@@ -1,7 +1,7 @@
 import pytest
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
