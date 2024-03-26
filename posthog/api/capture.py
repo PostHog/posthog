@@ -624,7 +624,7 @@ def capture_internal(
     candidate_partition_key = f"{token}:{distinct_id}"
     if (
         not historical
-        and settings.CAPTURE_OVERFLOW_ENABLED
+        and settings.CAPTURE_ALLOW_RANDOM_PARTITIONING
         and (distinct_id.lower() in LIKELY_ANONYMOUS_IDS or is_randomly_partitioned(candidate_partition_key))
     ):
         kafka_partition_key = None
