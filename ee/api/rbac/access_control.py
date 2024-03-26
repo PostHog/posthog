@@ -8,7 +8,8 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from ee.models.rbac.access_control import AccessControl
-from posthog.models.scopes import API_SCOPE_OBJECTS
+from posthog.models.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     UserAccessControl,
@@ -101,9 +102,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
         return AccessControlSerializer(*args, **kwargs)
 
     def _get_access_controls(self, request: Request, is_global=False):
-        resource = getattr(self, "scope_object", None)
+        resource = cast(APIScopeObjectOrNotSupported, getattr(self, "scope_object", None))
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+        team = cast(Team, self.team)  # type: ignore
 
-        if is_global and resource != "project":
+        if is_global and resource != "project" or not resource or resource == "INTERNAL":
             raise exceptions.NotFound("Role based access controls are only available for projects.")
 
         obj = self.get_object()
@@ -111,15 +114,13 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         if is_global:
             # If role based then we are getting all controls for the project that aren't specific to a resource
-            access_controls = AccessControl.objects.filter(team=self.team, resource_id=None).all()
+            access_controls = AccessControl.objects.filter(team=team, resource_id=None).all()
         else:
             # Otherwise we are getting all controls for the specific resource
-            access_controls = AccessControl.objects.filter(
-                team=self.team, resource=resource, resource_id=resource_id
-            ).all()
+            access_controls = AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).all()
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
-        user_access_level = self.user_access_control.access_level_for_object(obj, resource)
+        user_access_level = user_access_control.access_level_for_object(obj, resource)
 
         return Response(
             {
@@ -130,7 +131,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 else ordered_access_levels(resource),
                 "default_access_level": "editor" if is_global else default_access_level(resource),
                 "user_access_level": user_access_level,
-                "user_can_edit_access_levels": self.user_access_control.check_can_modify_access_levels_for_object(obj),
+                "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
             }
         )
 
@@ -138,6 +139,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         resource = getattr(self, "scope_object", None)
         obj = self.get_object()
         resource_id = str(obj.id)
+        team = cast(Team, self.team)  # type: ignore
 
         # Generically validate the incoming data
         if not is_global:
@@ -151,7 +153,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         params = partial_serializer.validated_data
 
         instance = AccessControl.objects.filter(
-            team=self.team,
+            team=team,
             resource=params["resource"],
             resource_id=params.get("resource_id"),
             organization_member=params.get("organization_member"),
@@ -170,7 +172,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             serializer = self._get_access_control_serializer(data=request.data)
 
         serializer.is_valid(raise_exception=True)
-        serializer.validated_data["team"] = self.team
+        serializer.validated_data["team"] = team
         serializer.save()
 
         return Response(serializer.data, status=status.HTTP_200_OK)
