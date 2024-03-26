@@ -485,6 +485,7 @@ class CloningVisitor(Visitor[Any]):
             if node.window_exprs
             else None,
             settings=node.settings.model_copy() if node.settings is not None else None,
+            view_name=node.view_name,
         )
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):

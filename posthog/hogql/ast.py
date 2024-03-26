@@ -187,10 +187,24 @@ class SelectUnionQueryType(Type):
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectUnionQueryType
+    view_name: Optional[str] = None
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
             return AsteriskType(table_type=self)
+        if self.view_name:
+            field = context.database.get_table(self.view_name).get_field(name)
+            if isinstance(field, LazyJoin):
+                return LazyJoinType(table_type=self, field=name, lazy_join=field)
+            if isinstance(field, LazyTable):
+                return LazyTableType(table=field)
+            if isinstance(field, FieldTraverser):
+                return FieldTraverserType(table_type=self, chain=field.chain)
+            if isinstance(field, VirtualTable):
+                return VirtualTableType(table_type=self, field=name, virtual_table=field)
+            if isinstance(field, ExpressionField):
+                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
+            return FieldType(name=name, table_type=self)
         if self.select_query_type.has_child(name, context):
             return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
@@ -575,6 +589,7 @@ class SelectQuery(Expr):
     limit_with_ties: Optional[bool] = None
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None
+    view_name: Optional[str] = None
 
 
 @dataclass(kw_only=True)
