@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from ee.models.rbac.access_control import AccessControl
 from posthog.models.scopes import API_SCOPE_OBJECTS
 from posthog.rbac.user_access_control import (
+    ACCESS_CONTROL_LEVELS_RESOURCE,
     UserAccessControl,
     default_access_level,
     highest_access_level,
@@ -129,7 +130,10 @@ class AccessControlViewSetMixin:
         return Response(
             {
                 "access_controls": serializer.data,
-                "available_access_levels": ordered_access_levels(resource),
+                # NOTE: For Role based controls we are always configuring resource level items
+                "available_access_levels": ACCESS_CONTROL_LEVELS_RESOURCE
+                if role_based
+                else ordered_access_levels(resource),
                 "default_access_level": "editor" if role_based else default_access_level(resource),
                 "user_access_level": user_access_level,
                 "user_can_edit_access_levels": self.user_access_control.check_can_modify_access_levels_for_object(obj),
