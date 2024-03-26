@@ -6,7 +6,10 @@ import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartit
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
-import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
+import {
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+} from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { PluginsServerConfig, RedisPool, TeamId } from '../../../types'
@@ -41,6 +44,7 @@ require('@sentry/tracing')
 
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
+const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'session-recordings-blob-overflow'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
@@ -152,6 +156,7 @@ export class SessionRecordingIngester {
         private globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage,
+        private consumeOverflow: boolean,
         captureRedis: Redis | undefined
     ) {
         this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
@@ -165,7 +170,7 @@ export class SessionRecordingIngester {
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 
-        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis) {
+        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis && !consumeOverflow) {
             this.overflowDetection = new OverflowManager(
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
@@ -467,8 +472,10 @@ export class SessionRecordingIngester {
 
         this.batchConsumer = await startBatchConsumer({
             connectionConfig,
-            groupId: KAFKA_CONSUMER_GROUP_ID,
-            topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+            groupId: this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID,
+            topic: this.consumeOverflow
+                ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
+                : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             autoCommit: false,
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,

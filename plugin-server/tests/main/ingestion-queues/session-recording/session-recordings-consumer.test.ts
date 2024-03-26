@@ -114,7 +114,7 @@ describe('ingester', () => {
 
         await deleteKeysWithPrefix(hub)
 
-        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, redisConn)
+        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, false, redisConn)
         await ingester.start()
 
         mockConsumer.assignments.mockImplementation(() => [createTP(0), createTP(1)])
@@ -162,7 +162,7 @@ describe('ingester', () => {
             KAFKA_HOSTS: 'localhost:9092',
         } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, undefined)
+        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, false, undefined)
         expect(ingester['debugPartition']).toEqual(103)
     })
 
@@ -171,7 +171,7 @@ describe('ingester', () => {
             KAFKA_HOSTS: 'localhost:9092',
         } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, undefined)
+        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, false, undefined)
         expect(ingester['debugPartition']).toBeUndefined()
     })
 
@@ -436,7 +436,7 @@ describe('ingester', () => {
         jest.setTimeout(5000) // Increased to cover lock delay
 
         beforeEach(async () => {
-            otherIngester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, undefined)
+            otherIngester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, false, undefined)
             await otherIngester.start()
         })
 
