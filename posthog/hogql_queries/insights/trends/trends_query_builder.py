@@ -296,6 +296,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 breakdown_expr = breakdown.column_expr()
                 default_query.select.append(breakdown_expr)
                 default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
+                default_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC")]
         # Just session duration math property
         elif self._aggregation_operation.aggregating_on_session_duration():
             default_query.select = [
