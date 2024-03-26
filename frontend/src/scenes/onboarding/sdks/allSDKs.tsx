@@ -59,6 +59,13 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/bubble',
     },
     {
+        name: 'Django',
+        key: SDKKey.DJANGO,
+        tags: [SDKTag.SERVER],
+        image: require('./logos/django.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/django',
+    },
+    {
         name: 'Elixir',
         key: SDKKey.ELIXIR,
         tags: [SDKTag.SERVER],

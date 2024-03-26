@@ -3744,6 +3744,7 @@ export enum SDKKey {
     ASTRO = 'astro',
     API = 'api',
     BUBBLE = 'bubble',
+    DJANGO = 'django',
     DOCUSAURUS = 'docusaurus',
     ELIXIR = 'elixir',
     FRAMER = 'framer',
