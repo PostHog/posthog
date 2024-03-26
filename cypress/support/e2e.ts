@@ -47,7 +47,7 @@ beforeEach(() => {
     )
 
     if (Cypress.spec.name.includes('Premium')) {
-        cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
+        cy.intercept('/api/users/@me/', { fixture: 'api/users/user-enterprise' })
 
         cy.request('POST', '/api/login/', {
             email: 'test@posthog.com',

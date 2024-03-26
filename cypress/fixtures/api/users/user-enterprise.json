@@ -14,8 +14,8 @@
         "uuid": "01787e47-55d7-0000-6976-b893a03aaba8",
         "organization": "01787e47-5558-0000-bae1-6bc513b42abe",
         "api_token": "dtrwW0uEC7LwVx64RmZmqog_XjU0nXWuEK1d1ZpjteQ",
-        "name": "Hogflix Demo App",
-        "completed_snippet_onboarding": true,
+        "name": "Hogflix Demo App 6",
+        "completed_snippet_onboarding": false,
         "ingested_event": true,
         "is_demo": true,
         "timezone": "UTC"
@@ -33,8 +33,8 @@
                 "uuid": "01787e47-55d7-0000-6976-b893a03aaba8",
                 "organization": "01787e47-5558-0000-bae1-6bc513b42abe",
                 "api_token": "dtrwW0uEC7LwVx64RmZmqog_XjU0nXWuEK1d1ZpjteQ",
-                "name": "Hogflix Demo App",
-                "completed_snippet_onboarding": true,
+                "name": "Hogflix Demo App 6",
+                "completed_snippet_onboarding": false,
                 "ingested_event": true,
                 "is_demo": true,
                 "timezone": "UTC"
