@@ -94,7 +94,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
         query_status = get_query_status(team_id=self.team.pk, query_id=pk)
 
-        http_code = status.HTTP_202_ACCEPTED
+        http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
             if query_status.error_message:
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
