@@ -54,6 +54,15 @@ beforeEach(() => {
             password: '12345678',
         })
         cy.visit('/?no-preloaded-app-context=true')
+    } else if (Cypress.spec.name.includes('before-onboarding')) {
+        cy.intercept('/api/users/@me/', { fixture: 'api/users/user-before-onboarding' })
+
+        cy.request('POST', '/api/login/', {
+            email: 'test@posthog.com',
+            password: '12345678',
+        })
+
+        cy.visit('/?no-preloaded-app-context=true')
     } else {
         cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?/).as('getInsights')
 
