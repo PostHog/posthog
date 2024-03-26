@@ -63,7 +63,10 @@ def create_channel_type_expr(
     gad_source: ast.Expr,
 ) -> ast.Expr:
     def wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
-        return ast.Call(name="nullIf", args=[expr, ast.Constant(value="")])
+        return ast.Call(
+            name="nullIf",
+            args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
+        )
 
     return parse_expr(
         """

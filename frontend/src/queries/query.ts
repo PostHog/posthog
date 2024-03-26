@@ -222,7 +222,7 @@ export async function query<N extends DataNode = DataNode>(
                 if (hogQLInsightsLiveCompareEnabled) {
                     const legacyFunction = (): any => {
                         try {
-                            return legacyUrl ? fetchLegacyUrl : fetchLegacyInsights
+                            return legacyUrl ? fetchLegacyUrl() : fetchLegacyInsights()
                         } catch (e) {
                             console.error('Error fetching legacy insights', e)
                         }
@@ -258,11 +258,17 @@ export async function query<N extends DataNode = DataNode>(
                         res2 = res2[0]?.people.map((n: any) => n.id)
                         res1 = res1.map((n: any) => n[0].id)
                         // Sort, since the order of the results is not guaranteed
+                        const bv = (v: any): string =>
+                            [null, 'null', 'none', '9007199254740990', 9007199254740990].includes(v)
+                                ? '$$_posthog_breakdown_null_$$'
+                                : ['Other', '9007199254740991', 9007199254740991].includes(v)
+                                ? '$$_posthog_breakdown_other_$$'
+                                : String(v)
                         res1.sort((a: any, b: any) =>
-                            (a.breakdown_value ?? a.label ?? a).localeCompare(b.breakdown_value ?? b.label ?? b)
+                            bv(a.breakdown_value ?? a.label ?? a).localeCompare(bv(b.breakdown_value ?? b.label ?? b))
                         )
                         res2.sort((a: any, b: any) =>
-                            (a.breakdown_value ?? a.label ?? a).localeCompare(b.breakdown_value ?? b.label ?? b)
+                            bv(a.breakdown_value ?? a.label ?? a).localeCompare(bv(b.breakdown_value ?? b.label ?? b))
                         )
                     }
 
