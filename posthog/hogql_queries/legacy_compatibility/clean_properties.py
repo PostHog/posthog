@@ -20,16 +20,17 @@ def clean_global_properties(properties: dict | list[dict] | None):
             "values": [{"type": "AND", "values": properties}],
         }
         return PropertyGroupFilter(**clean_property_group_filter(properties))
-    # else if (
-    #         (properties['type'] === 'AND' || properties['type'] === 'OR') &&
-    #         !properties['values'].some((property) => property['type'] === 'AND' || property['type'] === 'OR')
-    #     ) {
-    #         // property group filter value
-    #         properties = {
-    #             type: 'AND',
-    #             values: [properties],
-    #         }
-    #         return cleanPropertyGroupFilter(properties)
+    elif (
+        isinstance(properties, dict)
+        and properties.get("type") in ["AND", "OR"]
+        and not any(property.get("type") in ["AND", "OR"] for property in properties["values"])
+    ):
+        # property group filter value
+        properties = {
+            "type": "AND",
+            "values": [properties],
+        }
+        return PropertyGroupFilter(**clean_property_group_filter(properties))
     else:
         # property group filter
         return PropertyGroupFilter(**clean_property_group_filter(properties))
