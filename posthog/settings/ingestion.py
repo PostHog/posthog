@@ -11,11 +11,10 @@ INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_ID
 # KEEP IN SYNC WITH plugin-server/src/config/config.ts
 BUFFER_CONVERSION_SECONDS = get_from_env("BUFFER_CONVERSION_SECONDS", default=60, type_cast=int)
 
-# Whether or not random partitioning (i.e. overflow routing) should be enabled
-# at all. Enabling this setting this does not cause messages to be randomly
-# partitioned, but only allows them to be be randomly partitioned if other
-# criteria are met. Note that this setting takes precedence over other
-# partition-related settings below, if disabled.
+# Whether or not random partitioning (i.e. overflow routing) should be allowed.
+# (Enabling this setting this does not cause messages to be randomly
+# partitioned.) Note that this setting, if disabled, takes precedence over other
+# partitioning-related settings below.
 CAPTURE_ALLOW_RANDOM_PARTITIONING = get_from_env("CAPTURE_ALLOW_RANDOM_PARTITIONING", True, type_cast=str_to_bool)
 
 # A list of <team_id:distinct_id> pairs (in the format 2:myLovelyId) that we should use
