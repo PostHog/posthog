@@ -1,7 +1,7 @@
 from functools import cached_property, cache
 from django.db.models import Model, Q, QuerySet
 from rest_framework import serializers
-from typing import TYPE_CHECKING, List, Optional, cast
+from typing import TYPE_CHECKING, List, Literal, Optional, Tuple, cast, get_args
 
 from posthog.constants import AvailableFeature
 from posthog.models import (
@@ -26,17 +26,21 @@ try:
 except ImportError:
     pass
 
+AccessControlLevelNone = Literal["none"]
+AccessControlLevelMember = Literal[AccessControlLevelNone, "member", "admin"]
+AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor"]
+AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
 
 NO_ACCESS_LEVEL = "none"
-MEMBER_BASED_ACCESS_LEVELS = [NO_ACCESS_LEVEL, "member", "admin"]
-RESOURCE_BASED_ACCESS_LEVELS = [NO_ACCESS_LEVEL, "viewer", "editor"]
+ACCESS_CONTROL_LEVELS_MEMBER: Tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
+ACCESS_CONTROL_LEVELS_RESOURCE: Tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
 
-def ordered_access_levels(resource: APIScopeObject) -> List[str]:
+def ordered_access_levels(resource: APIScopeObject) -> List[AccessControlLevel]:
     if resource in ["project"]:
-        return MEMBER_BASED_ACCESS_LEVELS
+        return ACCESS_CONTROL_LEVELS_MEMBER
 
-    return RESOURCE_BASED_ACCESS_LEVELS
+    return ACCESS_CONTROL_LEVELS_RESOURCE
 
 
 def default_access_level(resource: APIScopeObject) -> bool:
@@ -49,7 +53,9 @@ def highest_access_level(resource: APIScopeObject) -> bool:
     return ordered_access_levels(resource)[-1]
 
 
-def access_level_satisfied_for_resource(resource: APIScopeObject, current_level: str, required_level: str) -> bool:
+def access_level_satisfied_for_resource(
+    resource: APIScopeObject, current_level: str, required_level: AccessControlLevel
+) -> bool:
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
 
 
@@ -210,7 +216,7 @@ class UserAccessControl:
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
         ).access_level
 
-    def check_access_level_for_object(self, obj: Model, required_level: str) -> Optional[bool]:
+    def check_access_level_for_object(self, obj: Model, required_level: AccessControlLevel) -> Optional[bool]:
         """
         Entry point for all permissions around a specific object.
         If any of the access controls have the same or higher level than the requested level, return True.
@@ -278,7 +284,7 @@ class UserAccessControl:
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
         ).access_level
 
-    def check_access_level_for_resource(self, resource: APIScopeObject, required_level: str) -> bool:
+    def check_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
         access_level = self.access_level_for_resource(resource)
 
         if not access_level:
