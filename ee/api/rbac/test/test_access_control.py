@@ -152,7 +152,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
 
 
-class TestRoleBasedAccessControls(BaseAccessControlTest):
+class TestGlobalAccessControlsPermissions(BaseAccessControlTest):
     def setUp(self):
         super().setUp()
 
@@ -304,6 +304,30 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         # As creator, access to my notebook is still permitted
         assert self._get_notebook(self.notebook.short_id).status_code == status.HTTP_200_OK
         assert self._patch_notebook(id=self.notebook.short_id).status_code == status.HTTP_200_OK
+
+    def test_query_counts(self):
+        # TODO: Optimize this:
+        # - We don't need to load the roles if RBAC is not supported by the organization
+        # - We _could_ perhaps load all ACs at once - the team, global and object. How to do this upfront is tricky...
+        # - We could for sure cache the organization_membership way more effectively (either on the base view or in the user_access_control)
+
+        # Baseline query (triggers any first time cache things)
+        self._get_notebook(self.notebook.short_id)
+        baseline = 8
+
+        # Access controls total 3 extra queries - 1 for the user roles, 1 for the project level check and one for the global resource level
+        with self.assertNumQueries(baseline + 3):
+            self._get_notebook(self.notebook.short_id)
+
+        # Except when accessing a different notebook where we _also_ need to check as we are not the creator
+        with self.assertNumQueries(baseline + 4):
+            self._get_notebook(self.other_user_notebook.short_id)
+
+        # Except when we query the project directly as we cache the lookup
+        baseline = 6  # Baseline is different as there are fewer parts
+        with self.assertNumQueries(baseline + 3):
+            # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
+            self.client.get("/api/projects/@current/is_generating_demo_data")
 
 
 class TestAccessControlFiltering(BaseAccessControlTest):

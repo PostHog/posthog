@@ -45,6 +45,30 @@ def extract_organization(object: Model, view: ViewSet) -> Organization:
     raise ValueError("Object not compatible with organization-based permissions!")
 
 
+def extract_organization_membership(object: Model, view: ViewSet) -> Organization:
+    # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
+    organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
+    if organization_id_rewrite:
+        for part in organization_id_rewrite.split("__"):
+            if part == "organization_id":
+                break
+            object = getattr(object, part)
+
+    if isinstance(object, Organization):
+        return object
+    try:
+        return object.organization  # type: ignore
+    except AttributeError:
+        try:
+            return object.team.organization  # type: ignore
+        except AttributeError:
+            try:
+                return object.project.organization  # type: ignore
+            except AttributeError:
+                pass
+    raise ValueError("Object not compatible with organization-based permissions!")
+
+
 def get_organization_from_view(view) -> Organization:
     try:
         organization = view.organization
@@ -97,10 +121,14 @@ class OrganizationMemberPermissions(BasePermission):
 
         organization = get_organization_from_view(view)
 
+        # TODO: Optimize this - we can get it from view.user_access_control
+
         return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object, view)
+
+        # TODO: Optimize this - we can get it from view.user_access_control
         return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
 
