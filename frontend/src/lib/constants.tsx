@@ -1,15 +1,23 @@
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { ChartDisplayType, Region, SSOProvider } from '../types'
+import { ChartDisplayCategory, ChartDisplayType, Region, SSOProvider } from '../types'
 
-/** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
-export const NON_TIME_SERIES_DISPLAY_TYPES = [
-    ChartDisplayType.ActionsTable,
-    ChartDisplayType.ActionsPie,
-    ChartDisplayType.ActionsBarValue,
-    ChartDisplayType.WorldMap,
-    ChartDisplayType.BoldNumber,
-]
+// Sync with backend DISPLAY_TYPES_TO_CATEGORIES
+export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayCategory> = {
+    [ChartDisplayType.ActionsLineGraph]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsBar]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsAreaGraph]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayCategory.CumulativeTimeSeries,
+    [ChartDisplayType.BoldNumber]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ActionsPie]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ActionsBarValue]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ActionsTable]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.WorldMap]: ChartDisplayCategory.TotalValue,
+}
+export const NON_TIME_SERIES_DISPLAY_TYPES = Object.entries(DISPLAY_TYPES_TO_CATEGORIES)
+    .filter(([, category]) => category === ChartDisplayCategory.TotalValue)
+    .map(([displayType]) => displayType as ChartDisplayType)
+
 /** Display types for which `breakdown` is hidden and ignored. Sync with backend NON_BREAKDOWN_DISPLAY_TYPES. */
 export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
 /** Display types which only work with a single series. */
@@ -149,7 +157,7 @@ export const FEATURE_FLAGS = {
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
-    GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
+    SIGNUP_BENEFITS: 'signup-benefits', // experiment, owner: @zlwaterfield
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     WEB_ANALYTICS_SAMPLING: 'web-analytics-sampling', // owner @robbie-c #team-web-analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
@@ -204,6 +212,7 @@ export const FEATURE_FLAGS = {
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
     REVERSE_PROXY_ONBOARDING: 'reverse-proxy-onboarding', // owner: @zlwaterfield
+    SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
