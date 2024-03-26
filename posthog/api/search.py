@@ -10,7 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team, EventDefinition, Survey
+from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, EventDefinition, Survey
 from posthog.models.notebook.notebook import Notebook
 
 LIMIT = 25
