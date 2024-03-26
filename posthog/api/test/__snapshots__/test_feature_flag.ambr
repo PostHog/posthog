@@ -90,7 +90,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.1
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -110,7 +110,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -213,7 +213,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -233,7 +233,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -308,7 +308,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
