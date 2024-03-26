@@ -121,14 +121,14 @@ class ChartAxis(BaseModel):
 
 class ChartDisplayType(str, Enum):
     ActionsLineGraph = "ActionsLineGraph"
-    ActionsLineGraphCumulative = "ActionsLineGraphCumulative"
-    ActionsAreaGraph = "ActionsAreaGraph"
-    ActionsTable = "ActionsTable"
-    ActionsPie = "ActionsPie"
     ActionsBar = "ActionsBar"
-    ActionsBarValue = "ActionsBarValue"
-    WorldMap = "WorldMap"
+    ActionsAreaGraph = "ActionsAreaGraph"
+    ActionsLineGraphCumulative = "ActionsLineGraphCumulative"
     BoldNumber = "BoldNumber"
+    ActionsPie = "ActionsPie"
+    ActionsBarValue = "ActionsBarValue"
+    ActionsTable = "ActionsTable"
+    WorldMap = "WorldMap"
 
 
 class CohortPropertyFilter(BaseModel):

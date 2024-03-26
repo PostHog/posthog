@@ -1838,14 +1838,19 @@ export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'>
 
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
-    ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
-    ActionsAreaGraph = 'ActionsAreaGraph',
-    ActionsTable = 'ActionsTable',
-    ActionsPie = 'ActionsPie',
     ActionsBar = 'ActionsBar',
-    ActionsBarValue = 'ActionsBarValue',
-    WorldMap = 'WorldMap',
+    ActionsAreaGraph = 'ActionsAreaGraph',
+    ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
+    ActionsPie = 'ActionsPie',
+    ActionsBarValue = 'ActionsBarValue',
+    ActionsTable = 'ActionsTable',
+    WorldMap = 'WorldMap',
+}
+export enum ChartDisplayCategory {
+    TimeSeries = 'TimeSeries',
+    CumulativeTimeSeries = 'CumulativeTimeSeries',
+    TotalValue = 'TotalValue',
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql' | 'data_warehouse'
