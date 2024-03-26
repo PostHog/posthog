@@ -47,16 +47,14 @@ beforeEach(() => {
     )
 
     if (Cypress.spec.name.includes('Premium')) {
-        cy.intercept('/api/users/@me/', { fixture: 'api/users/user-enterprise' })
+        cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
 
         cy.request('POST', '/api/login/', {
             email: 'test@posthog.com',
             password: '12345678',
         })
         cy.visit('/?no-preloaded-app-context=true')
-    } else if (Cypress.spec.name.includes('before-onboarding')) {
-        cy.intercept('/api/users/@me/', { fixture: 'api/users/user-before-onboarding' })
-
+    } else if (Cypress.spec.name.includes('before')) {
         cy.request('POST', '/api/login/', {
             email: 'test@posthog.com',
             password: '12345678',

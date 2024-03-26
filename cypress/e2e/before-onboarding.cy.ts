@@ -1,4 +1,13 @@
 describe('Before Onboarding', () => {
+    beforeEach(() => {
+        cy.request({
+            method: 'PATCH',
+            url: '/api/projects/1/',
+            body: { completed_snippet_onboarding: false },
+            headers: { Authorization: 'Bearer e2e_demo_api_key' },
+        })
+    })
+
     it('Navigate to /products when a product has not been set up', () => {
         cy.visit('/project/1/data-management/events')
 
