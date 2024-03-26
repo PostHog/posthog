@@ -129,7 +129,7 @@ async function expectStoryToMatchSnapshot(
         check = expectStoryToMatchComponentSnapshot
     }
 
-   // await waitForPageReady(page)
+   await waitForPageReady(page)
 
     await page.evaluate((layout: string) => {
         // Stop all animations for consistent snapshots, and adjust other styles
