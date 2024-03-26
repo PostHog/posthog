@@ -114,7 +114,7 @@ class TestCleanEntityProperties(BaseTest):
 
         self.assertEqual(
             result,
-            [EventPropertyFilter(key="utm_medium", value="email", operator=PropertyOperator.icontains)],
+            [{"key": "utm_medium", "operator": "icontains", "type": "event", "value": "email"}],
         )
 
     def test_handles_property_filter_lists(self):
@@ -126,7 +126,9 @@ class TestCleanEntityProperties(BaseTest):
 
         self.assertEqual(
             result,
-            [EventPropertyFilter(key="utm_medium", value="email", operator=PropertyOperator.icontains)],
+            [
+                {"key": "$current_url", type: "event", "value": "https://hedgebox.net/signup/", "operator": "exact"},
+            ],
         )
 
     def test_handles_property_group_values(self):
@@ -146,5 +148,12 @@ class TestCleanEntityProperties(BaseTest):
 
         self.assertEqual(
             result,
-            [EventPropertyFilter(key="utm_medium", value="email", operator=PropertyOperator.icontains)],
+            [
+                {
+                    "key": "$current_url",
+                    "operator": "exact",
+                    "type": "event",
+                    "value": "https://hedgebox.net/signup/",
+                },
+            ],
         )

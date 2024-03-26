@@ -43,8 +43,18 @@ def clean_entity_properties(properties: list[dict] | dict | None):
     elif is_old_style_properties(properties):
         # old style properties
         return transform_old_style_properties(properties)
-    else:
+    elif isinstance(properties, list):
+        # list of property filters
         return list(map(clean_property, properties))
+    elif (
+        isinstance(properties, dict)
+        and properties.get("type") in ["AND", "OR"]
+        and not any(property.get("type") in ["AND", "OR"] for property in properties["values"])
+    ):
+        # property group filter value
+        return list(map(clean_property, properties["values"]))
+    else:
+        raise ValueError("Unexpected format of entity properties.")
 
 
 def clean_property_group_filter(properties: dict):
