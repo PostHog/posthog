@@ -39,12 +39,6 @@ export function ExperimentView(): JSX.Element {
                                 <ProgressBar />
                                 <Goal />
                                 <Results />
-                                <SecondaryMetricsTable
-                                    experimentId={experiment.id}
-                                    onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
-                                    initialMetrics={experiment.secondary_metrics}
-                                    defaultAggregationType={experiment.parameters?.aggregation_group_type_index}
-                                />
                                 <ExperimentGoalModal experimentId={experimentId} />
                                 <ExperimentExposureModal experimentId={experimentId} />
                             </>
@@ -55,6 +49,12 @@ export function ExperimentView(): JSX.Element {
                                 {experiment.start_date && <NoResultsEmptyState />}
                             </>
                         )}
+                        <SecondaryMetricsTable
+                            experimentId={experiment.id}
+                            onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
+                            initialMetrics={experiment.secondary_metrics}
+                            defaultAggregationType={experiment.parameters?.aggregation_group_type_index}
+                        />
                         <DistributionTable />
                         <ReleaseConditionsTable />
                     </>

@@ -65,9 +65,14 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     actions({
         // modal
         openModalToCreateSecondaryMetric: true,
-        openModalToEditSecondaryMetric: (metric: SecondaryExperimentMetric, metricIdx: number) => ({
+        openModalToEditSecondaryMetric: (
+            metric: SecondaryExperimentMetric,
+            metricIdx: number,
+            readOnly: boolean = false
+        ) => ({
             metric,
             metricIdx,
+            readOnly,
         }),
         saveSecondaryMetric: true,
         closeModal: true,
@@ -87,6 +92,13 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             {
                 openModalToCreateSecondaryMetric: () => true,
                 openModalToEditSecondaryMetric: () => true,
+                closeModal: () => false,
+            },
+        ],
+        isModalReadOnly: [
+            false,
+            {
+                openModalToEditSecondaryMetric: (_, { readOnly }) => readOnly,
                 closeModal: () => false,
             },
         ],
