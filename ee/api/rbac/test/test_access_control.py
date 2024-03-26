@@ -369,6 +369,21 @@ class TestAccessControlFiltering(BaseAccessControlTest):
         res = self._get_notebooks()
         assert len(res.json()["results"]) == 2
 
+    def test_search_results_exclude_restricted_objects(self):
+        res = self.client.get("/api/projects/@current/search?q=my notebook")
+        assert len(res.json()["results"]) == 2
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert (
+            self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
+
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        res = self.client.get("/api/projects/@current/search?q=my notebook")
+        assert len(res.json()["results"]) == 1
+
 
 class TestAccessControlProjectFiltering(BaseAccessControlTest):
     """

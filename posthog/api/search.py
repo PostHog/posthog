@@ -96,8 +96,8 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # add entities
         for entity_meta in [ENTITY_MAP[entity] for entity in entities]:
             klass_qs, entity_name = class_queryset(
+                view=self,
                 klass=entity_meta.get("klass"),  # type: ignore
-                team=self.team,
                 query=query,
                 search_fields=entity_meta.get("search_fields"),  # type: ignore
                 extra_fields=entity_meta.get("extra_fields"),
@@ -130,8 +130,8 @@ def process_query(query: str):
 
 
 def class_queryset(
+    view: TeamAndOrgViewSetMixin,
     klass: type[Model],
-    team: Team,
     query: str | None,
     search_fields: dict[str, str],
     extra_fields: dict | None,
@@ -140,7 +140,9 @@ def class_queryset(
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields"]
 
-    qs: QuerySet[Any] = klass.objects.filter(team=team)  # filter team
+    qs: QuerySet[Any] = klass.objects.filter(team=view.team)  # filter team
+    qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
+
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
     qs = qs.extra(select={"type": f"'{entity_type}'"})  # entity type
 

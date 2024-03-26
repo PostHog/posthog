@@ -1,6 +1,7 @@
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
+from django.db.models.query import RawQuerySet
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
@@ -101,6 +102,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
 
+        if isinstance(queryset, RawQuerySet):
+            # NOTE: We do this in some places such as the PropertyDefinitionViewSet
+            return queryset
+
         # Filter based on org or project
         queryset = self.filter_queryset_by_parents_lookups(queryset)
 
@@ -109,6 +114,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
             # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
             return queryset
+
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
 
         return queryset
