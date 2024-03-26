@@ -119,8 +119,9 @@ describe('Feature Flags', () => {
         // select "add filter" and "property"
         cy.get('[data-attr=property-select-toggle-0').click()
 
-        // select the third property
+        // select the first property
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').type('is_demo')
         cy.get('[data-attr=taxonomic-tab-person_properties]').click()
         // select numeric $browser_version
         cy.get('[data-attr=prop-filter-person_properties-2]').click({ force: true })
