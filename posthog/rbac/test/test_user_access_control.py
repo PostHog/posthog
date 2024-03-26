@@ -214,9 +214,6 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         )
         assert other_user_filtered_teams == [self.team]
 
-    def test_ac_resource_controls(self):
-        pass
-
 
 class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
     """

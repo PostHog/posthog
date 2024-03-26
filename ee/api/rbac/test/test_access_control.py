@@ -1,6 +1,7 @@
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from ee.models.rbac.role import Role, RoleMembership
 from posthog.constants import AvailableFeature
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
@@ -147,6 +148,59 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
 
 
+class TestRoleBasedAccessControls(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+
+        self.role = Role.objects.create(name="Engineers", organization=self.organization)
+        self.role_membership = RoleMembership.objects.create(user=self.user, role=self.role)
+
+    def _put_rbac(self, data={}):
+        payload = {"access_level": "editor"}
+        payload.update(data)
+
+        return self.client.put(
+            "/api/projects/@current/role_based_access_controls",
+            payload,
+        )
+
+    def test_admin_can_always_access(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert self._put_rbac({"resource": "feature_flag", "access_level": "none"}).status_code == status.HTTP_200_OK
+        assert self.client.get("/api/projects/@current/feature_flags").status_code == status.HTTP_200_OK
+
+    def test_forbidden_access_if_resource_wide_control_in_place(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert self._put_rbac({"resource": "feature_flag", "access_level": "none"}).status_code == status.HTTP_200_OK
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        assert self.client.get("/api/projects/@current/feature_flags").status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.post("/api/projects/@current/feature_flags").status_code == status.HTTP_403_FORBIDDEN
+
+    def test_forbidden_write_access_if_resource_wide_control_in_place(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert self._put_rbac({"resource": "feature_flag", "access_level": "viewer"}).status_code == status.HTTP_200_OK
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        assert self.client.get("/api/projects/@current/feature_flags").status_code == status.HTTP_200_OK
+        assert self.client.post("/api/projects/@current/feature_flags").status_code == status.HTTP_403_FORBIDDEN
+
+    def test_access_granted_with_granted_role(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert self._put_rbac({"resource": "feature_flag", "access_level": "none"}).status_code == status.HTTP_200_OK
+        assert (
+            self._put_rbac({"resource": "feature_flag", "access_level": "viewer", "role": self.role.id}).status_code
+            == status.HTTP_200_OK
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        assert self.client.get("/api/projects/@current/feature_flags").status_code == status.HTTP_200_OK
+        assert self.client.post("/api/projects/@current/feature_flags").status_code == status.HTTP_403_FORBIDDEN
+
+        self.role_membership.delete()
+        assert self.client.get("/api/projects/@current/feature_flags").status_code == status.HTTP_403_FORBIDDEN
+
+
 class TestAccessControlPermissions(BaseAccessControlTest):
     """
     Test actual permissions being applied for a resource (notebooks as an example)
@@ -157,8 +211,10 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         self.other_user = self._create_user("other_user")
 
         self.other_user_notebook = Notebook.objects.create(
-            team=self.team, created_by=self.other_user, title="first notebook"
+            team=self.team, created_by=self.other_user, title="not my notebook"
         )
+
+        self.notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="my notebook")
 
     def _post_notebook(self):
         return self.client.post("/api/projects/@current/notebooks/", {"title": "notebook"})
@@ -224,6 +280,26 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         assert self._get_notebook(self.other_user_notebook.short_id).status_code == status.HTTP_200_OK
         assert self._patch_notebook(id=self.other_user_notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
         assert self._post_notebook().status_code == status.HTTP_201_CREATED
+
+    def test_rejects_view_access_if_not_creator(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Set other notebook to only allow view access by default
+        assert (
+            self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
+        assert (
+            self._put_notebook_access_control(self.notebook.short_id, {"access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        # Access to other notebook is denied
+        assert self._get_notebook(self.other_user_notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
+        assert self._patch_notebook(id=self.other_user_notebook.short_id).status_code == status.HTTP_403_FORBIDDEN
+        # As creator, access to my notebook is still permitted
+        assert self._get_notebook(self.notebook.short_id).status_code == status.HTTP_200_OK
+        assert self._patch_notebook(id=self.notebook.short_id).status_code == status.HTTP_200_OK
 
 
 # TODO: Add tests to check only project admins can edit the project

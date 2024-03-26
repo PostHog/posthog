@@ -45,6 +45,10 @@ def default_access_level(resource: APIScopeObject) -> bool:
     return "editor"
 
 
+def highest_access_level(resource: APIScopeObject) -> bool:
+    return ordered_access_levels(resource)[-1]
+
+
 def access_level_satisfied_for_resource(resource: APIScopeObject, current_level: str, required_level: str) -> bool:
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
 
@@ -186,9 +190,12 @@ class UserAccessControl:
             # NOTE: Technically this is covered by Org Permission check so more of a sanity check
             return None
 
+        if getattr(obj, "created_by", None) == self._user:
+            return highest_access_level(resource)
+
         # Org admins always have object level access
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
-            return ordered_access_levels(resource)[-1]
+            return highest_access_level(resource)
 
         if not self.access_controls_supported:
             # If access controls aren't supported, then we return the default access level
@@ -256,7 +263,7 @@ class UserAccessControl:
 
         # Org admins always have resource level access
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
-            return ordered_access_levels(resource)[-1]
+            return highest_access_level(resource)
 
         if not self.access_controls_supported:
             # If access controls aren't supported, then return the default access level

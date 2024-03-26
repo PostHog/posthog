@@ -381,9 +381,7 @@ class AccessControlPermission(ScopeBasePermission):
     Unified permissions access - controls access to any object based on the user's access controls
     """
 
-    def _get_user_access_control(self, request, view) -> Optional[UserAccessControl]:
-        if not hasattr(view, "user_access_control"):
-            return None
+    def _get_user_access_control(self, request, view) -> UserAccessControl:
         return view.user_access_control
 
     def _get_required_access_level(self, request, view) -> str:
@@ -432,10 +430,6 @@ class AccessControlPermission(ScopeBasePermission):
         # as well as enforcing any global restrictions (e.g. generically only editing of a flag is allowed)
 
         uac = self._get_user_access_control(request, view)
-
-        if not uac:
-            # TODO: IS this corrrect...
-            return True
 
         try:
             is_member = uac.check_access_level_for_object(view.team, required_level="member")

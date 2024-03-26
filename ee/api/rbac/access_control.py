@@ -12,6 +12,7 @@ from posthog.rbac.user_access_control import (
     RESOURCE_BASED_ACCESS_LEVELS,
     UserAccessControl,
     default_access_level,
+    highest_access_level,
     ordered_access_levels,
 )
 
@@ -59,7 +60,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
         resource_id = data.get("resource_id")
 
         # We assume the highest level is required for the given resource to edit access controls
-        required_level = ordered_access_levels(resource)[-1]
+        required_level = highest_access_level(resource)
         team = context["view"].team
         the_object = context["view"].get_object()
 
