@@ -44,7 +44,7 @@ class HobbyTester:
         self.name = name
 
         if not hostname:
-            hostname = f"{name}.{DOMAIN}"
+            hostname = f"{name}"
         self.hostname = hostname
 
         self.region = region
