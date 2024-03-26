@@ -206,7 +206,7 @@ class UserAccessControl:
         # If no access control exists
         return access_level_satisfied_for_resource(resource, access_level, required_level)
 
-    def check_can_modify_access_levels_for_object(self, obj: Model, resource: Optional[str] = None) -> Optional[bool]:
+    def check_can_modify_access_levels_for_object(self, obj: Model) -> Optional[bool]:
         """
         Special case for checking if the user can modify the access levels for an object.
         Unlike check_access_level_for_object, this requires that one of these conditions is true:
