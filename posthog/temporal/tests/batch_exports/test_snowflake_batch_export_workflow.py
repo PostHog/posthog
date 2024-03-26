@@ -697,7 +697,8 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
     run = runs[0]
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
-    assert run.records_completed == 0
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_errors(ateam, snowflake_batch_export):
@@ -744,6 +745,8 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
     run = runs[0]
     assert run.status == "Failed"
     assert run.latest_error == "ForbiddenError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snowflake_batch_export):
