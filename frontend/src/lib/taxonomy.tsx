@@ -921,6 +921,136 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             ),
             examples: ['01:04:12'],
         },
+        $min_timestamp: {
+            label: 'First timestamp',
+            description: <span>The timestamp of the first event from this session.</span>,
+            examples: [new Date().toISOString()],
+        },
+        $max_timestamp: {
+            label: 'Last timestamp',
+            description: <span>The timestamp of the last event from this session</span>,
+            examples: [new Date().toISOString()],
+        },
+        $entry_url: {
+            label: 'Entry URL',
+            description: <span>The first URL visited in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $exit_url: {
+            label: 'Entry URL',
+            description: <span>The last URL visited in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $initial_utm_source: {
+            label: 'Initial UTM source',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
+        },
+        $initial_utm_medium: {
+            label: 'Initial UTM medium',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['Social', 'Organic', 'Paid', 'Email'],
+        },
+        $initial_utm_campaign: {
+            label: 'Initial UTM campaign',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['feature launch', 'discount'],
+        },
+        $initial_utm_content: {
+            label: 'Initial UTM content',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['bottom link', 'second button'],
+        },
+        $initial_utm_term: {
+            label: 'Initial UTM term',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['free goodies'],
+        },
+        $initial_referrer: {
+            label: 'Initial referrer',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['https://google.com/search?q=posthog&rlz=1C...'],
+        },
+        $initial_gclid: {
+            label: 'Initial gclid',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_gad_source: {
+            label: 'Initial gad_source',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_gclsrc: {
+            label: 'Initial gclsrc',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_dclid: {
+            label: 'Initial dclid',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_gbraid: {
+            label: 'Initial gBraid',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_wbraid: {
+            label: 'Initial wBraid',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_fbclid: {
+            label: 'Initial fbclid',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_msclikid: {
+            label: 'Initial msclikid',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_twclid: {
+            label: 'Initial twclid',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_li_fat_id: {
+            label: 'Initial li_fat_id',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_mc_cid: {
+            label: 'Initial mc_cid',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_igshid: {
+            label: 'Initial igshid',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $initial_ttclid: {
+            label: 'Initial ttclid',
+            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
+            examples: ['123xyz'],
+        },
+        $pageview_count: {
+            label: 'Pageview count',
+            description: <span>The number of page view events in this session</span>,
+            examples: ['123'],
+        },
+        $autocapture_count: {
+            label: 'Autocapture count',
+            description: <span>The number of autocapture events in this session</span>,
+            examples: ['123'],
+        },
+        $initial_channel_type: {
+            label: 'Channel type',
+            description: <span>What type of acquisition channel this traffic came from.</span>,
+            examples: ['Paid Search', 'Organic Video', 'Direct'],
+        },
     },
     groups: {
         $group_key: {
