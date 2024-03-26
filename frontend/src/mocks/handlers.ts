@@ -128,6 +128,7 @@ export const defaultMocks: Mocks = {
         '/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/api/projects/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
+        'api/projects/:team_id/query': [200, { results: [] }],
     },
 }
 export const handlers = mocksToHandlers(defaultMocks)
