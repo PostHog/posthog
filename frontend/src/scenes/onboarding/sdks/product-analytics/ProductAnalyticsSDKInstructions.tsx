@@ -23,6 +23,7 @@ import {
     ProductAnalyticsRNInstructions,
     ProductAnalyticsRubyInstructions,
     ProductAnalyticsSvelteJSInstructions,
+    ProductAnalyticsVueInstructions,
     ProductAnalyticsWebflowInstructions,
 } from '.'
 
@@ -49,5 +50,6 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REMIX]: ProductAnalyticsRemixJSInstructions,
     [SDKKey.RUBY]: ProductAnalyticsRubyInstructions,
     [SDKKey.SVELTE]: ProductAnalyticsSvelteJSInstructions,
+    [SDKKey.VUE_JS]: ProductAnalyticsVueInstructions,
     [SDKKey.WEBFLOW]: ProductAnalyticsWebflowInstructions,
 }
