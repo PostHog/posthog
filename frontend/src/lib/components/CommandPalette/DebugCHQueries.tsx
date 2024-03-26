@@ -157,9 +157,7 @@ function DebugCHQueries(): JSX.Element {
                             if (item.status === 1) {
                                 return 'In progress…'
                             }
-                            {
-                                return <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms</>
-                            }
+                            return <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms</>
                         },
                         align: 'right',
                     },
