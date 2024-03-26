@@ -444,7 +444,7 @@ class AccessControlPermission(ScopeBasePermission):
             is_member = uac.check_access_level_for_object(view.team, required_level="member")
 
             if not is_member:
-                self.message = f"You are not a member of this project."
+                self.message = f"You don't have access to the project."
                 return False
 
             scope_object = self._get_scope_object(request, view)
