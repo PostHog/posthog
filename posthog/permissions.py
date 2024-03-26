@@ -414,7 +414,7 @@ class AccessControlPermission(ScopeBasePermission):
             uac = self._get_user_access_control(request, view)
 
         if not uac:
-            # TODO: IS this corrrect...
+            # If the view doesn't have a user_access_control then it is not supported by this permission scheme
             return True
 
         required_level = self._get_required_access_level(request, view)

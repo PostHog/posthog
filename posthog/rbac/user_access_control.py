@@ -1,7 +1,7 @@
 from functools import cached_property
 from django.db.models import Model, Q, QuerySet
 from rest_framework import serializers
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, cast
 
 from posthog.constants import AvailableFeature
 from posthog.models import (
@@ -338,8 +338,14 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
     def user_access_control(self) -> UserAccessControl:
         # NOTE: The user_access_control is typically on the view but in specific cases such as the posthog_app_context it is set at the context level
         if "user_access_control" in self.context:
+            # Get it directly from the context
             return self.context["user_access_control"]
-        return self.context["view"].user_access_control
+        elif hasattr(self.context.get("view", None), "user_access_control"):
+            # Otherwise from the view (the default case)
+            return self.context["view"].user_access_control
+        else:
+            user = cast(User, self.context["request"].user)
+            return UserAccessControl(user, organization=user.current_organization)
 
     def get_user_access_level(self, obj: Model) -> Optional[str]:
         return self.user_access_control.access_level_for_object(obj)
