@@ -246,7 +246,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
     """Activity streams data from ClickHouse to Postgres."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="PostgreSQL")
     logger.info(
-        "Batch exporting range %s - % to PostgreSQL: %s.%s.%s",
+        "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
         inputs.data_interval_start,
         inputs.data_interval_end,
         inputs.database,
