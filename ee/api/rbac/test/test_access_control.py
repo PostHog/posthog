@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
