@@ -26,6 +26,7 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
         TaxonomicFilterGroupType.Elements,
         ...(isTrends ? [TaxonomicFilterGroupType.Sessions] : []),
         TaxonomicFilterGroupType.HogQLExpression,
+        TaxonomicFilterGroupType.DataWarehousePersonProperties,
     ]
 
     return (

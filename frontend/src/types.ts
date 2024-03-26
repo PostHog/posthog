@@ -672,6 +672,7 @@ export interface EventPropertyFilter extends BasePropertyFilter {
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
     operator: PropertyOperator
+    table?: string
 }
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {
@@ -2812,6 +2813,9 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
+
+    // For Data warehouse person properties
+    table?: string
 }
 
 export enum PropertyDefinitionState {

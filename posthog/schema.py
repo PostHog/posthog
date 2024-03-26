@@ -1369,6 +1369,7 @@ class PersonPropertyFilter(BaseModel):
     key: str
     label: Optional[str] = None
     operator: PropertyOperator
+    table: Optional[str] = None
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
