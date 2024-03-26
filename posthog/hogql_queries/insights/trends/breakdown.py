@@ -172,14 +172,17 @@ class Breakdown:
         return self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain))
 
     def _get_breakdown_values_transform(self, node: ast.Expr) -> ast.Call:
-        return parse_expr(
-            "transform(ifNull(nullIf(toString({node}), ''), {null}), {values}, {values}, {other})",
-            placeholders={
-                "node": node,
-                "values": self._breakdown_values_ast,
-                "null": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
-            },
+        return cast(
+            ast.Call,
+            parse_expr(
+                "transform(ifNull(nullIf(toString({node}), ''), {null}), {values}, {values}, {other})",
+                placeholders={
+                    "node": node,
+                    "values": self._breakdown_values_ast,
+                    "null": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                    "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                },
+            ),
         )
 
     @cached_property
