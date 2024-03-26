@@ -28,6 +28,7 @@ export const userLogic = kea<userLogicType>([
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
         switchTeam: (teamId: string | number) => ({ teamId }),
+        __testOnlyOverrideThemeFromCookie: (theme: UserTheme | null) => ({ theme }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -104,6 +105,12 @@ export const userLogic = kea<userLogicType>([
                     first_name: user?.first_name || '',
                     email: user?.email || '',
                 }),
+            },
+        ],
+        themeFromCookie: [
+            getCookie('theme') as UserTheme | null,
+            {
+                __testOnlyOverrideThemeFromCookie: (_, { theme }) => theme,
             },
         ],
     }),
@@ -241,10 +248,10 @@ export const userLogic = kea<userLogicType>([
                     : [],
         ],
 
-        themeMode: [
-            (s) => [s.user],
-            (user): UserTheme => {
-                return user?.theme_mode || (getCookie('theme') as UserTheme) || 'light'
+        userThemeMode: [
+            (s) => [s.user, s.themeFromCookie],
+            (user, themeFromCookie): UserTheme => {
+                return user?.theme_mode || themeFromCookie || 'light'
             },
         ],
     }),
@@ -268,4 +275,16 @@ export const userLogic = kea<userLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        // This is needed to toggle the theme
+        window.__testOnlyOverrideThemeFromCookie = (theme: UserTheme | null) =>
+            actions.__testOnlyOverrideThemeFromCookie(theme)
+    }),
 ])
+
+declare global {
+    interface Window {
+        /** This is needed to change the theme from outside the React tree. */
+        __testOnlyOverrideThemeFromCookie: (theme: UserTheme | null) => void
+    }
+}

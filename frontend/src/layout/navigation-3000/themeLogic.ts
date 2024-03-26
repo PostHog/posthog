@@ -1,4 +1,5 @@
 import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import { userLogic } from 'scenes/userLogic'
 
 import type { themeLogicType } from './themeLogicType'
@@ -6,7 +7,7 @@ import type { themeLogicType } from './themeLogicType'
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
     connect({
-        values: [userLogic, ['themeMode']],
+        values: [userLogic, ['userThemeMode']],
     }),
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
@@ -21,11 +22,16 @@ export const themeLogic = kea<themeLogicType>([
     }),
     selectors({
         isDarkModeOn: [
-            (s) => [s.themeMode, s.darkModeSystemPreference],
-            (themeMode, darkModeSystemPreference) => {
-                return themeMode === 'system' ? darkModeSystemPreference : themeMode === 'dark'
+            (s) => [s.userThemeMode, s.darkModeSystemPreference],
+            (userThemeMode, darkModeSystemPreference) => {
+                return userThemeMode === 'system' ? darkModeSystemPreference : userThemeMode === 'dark'
             },
         ],
+    }),
+    subscriptions({
+        isDarkModeOn: (isDarkModeOn) => {
+            document.cookie = `theme=${isDarkModeOn ? 'dark' : 'light'}; Path=/; Domain=posthog.com`
+        },
     }),
     events(({ cache, actions }) => ({
         afterMount() {

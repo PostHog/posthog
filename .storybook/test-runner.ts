@@ -3,10 +3,10 @@ import { getStoryContext, TestRunnerConfig, TestContext, waitForPageReady } from
 import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/csf'
+import { UserTheme } from '~/types'
 
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
-type SnapshotTheme = 'light' | 'dark'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/types' {
@@ -44,7 +44,7 @@ declare module '@storybook/types' {
     }
 
     interface Globals {
-        theme: SnapshotTheme
+        theme: UserTheme
     }
 }
 
@@ -116,7 +116,7 @@ async function expectStoryToMatchSnapshot(
         page: Page,
         context: TestContext,
         browser: SupportedBrowserName,
-        theme: SnapshotTheme,
+        theme: UserTheme,
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
@@ -129,7 +129,8 @@ async function expectStoryToMatchSnapshot(
         check = expectStoryToMatchComponentSnapshot
     }
 
-    await waitForPageReady(page)
+   // await waitForPageReady(page)
+
     await page.evaluate((layout: string) => {
         // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
@@ -152,18 +153,18 @@ async function expectStoryToMatchSnapshot(
         Array.from(document.querySelectorAll('img')).every((i: HTMLImageElement) => i.complete)
     )
 
-    // snapshot light theme
+    // Light theme snapshot
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'light')
+        window.__testOnlyOverrideThemeFromCookie('light')
     })
-
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
-    // snapshot dark theme
-    await page.evaluate(() => {
+    // Dark theme snapshot
+    await page.evaluate(() =>  {
         document.body.setAttribute('theme', 'dark')
+        window.__testOnlyOverrideThemeFromCookie('dark')
     })
-
     await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
@@ -171,7 +172,7 @@ async function expectStoryToMatchViewportSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: UserTheme
 ): Promise<void> {
     await expectLocatorToMatchStorySnapshot(page, context, browser, theme)
 }
@@ -180,7 +181,7 @@ async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: UserTheme
 ): Promise<void> {
     // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
     // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
@@ -192,7 +193,7 @@ async function expectStoryToMatchComponentSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme,
+    theme: UserTheme,
     targetSelector: string = '#storybook-root'
 ): Promise<void> {
     await page.evaluate(() => {
@@ -228,7 +229,7 @@ async function expectLocatorToMatchStorySnapshot(
     locator: Locator | Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme,
+    theme: UserTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
     const image = await locator.screenshot({ ...options })
