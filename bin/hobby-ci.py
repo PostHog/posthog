@@ -199,7 +199,7 @@ class HobbyTester:
         record_name = self.record["domain_record"]["name"]
         droplet_id = self.droplet.id
 
-        print(f"Exporting the droplet ID: {self.droplet.id} and DNS record ID: {record_id}")
+        print(f"Exporting the droplet ID: {self.droplet.id} and DNS record ID: {record_id} for name {self.name}")
         with open("$GITHUB_ENV", "a") as env_file:
             env_file.write(f"HOBBY_DROPLET_ID={droplet_id}\n")
         with open("$GITHUB_ENV", "a") as env_file:
