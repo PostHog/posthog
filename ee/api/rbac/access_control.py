@@ -106,16 +106,16 @@ class AccessControlViewSetMixin:
         kwargs.setdefault("context", self.get_serializer_context())
         return AccessControlSerializer(*args, **kwargs)
 
-    def _get_access_controls(self, request: Request, role_based=False):
+    def _get_access_controls(self, request: Request, is_global=False):
         resource = getattr(self, "scope_object", None)
 
-        if role_based and resource != "project":
+        if is_global and resource != "project":
             raise exceptions.NotFound("Role based access controls are only available for projects.")
 
         obj = self.get_object()
         resource_id = obj.id
 
-        if role_based:
+        if is_global:
             # If role based then we are getting all controls for the project that aren't specific to a resource
             access_controls = AccessControl.objects.filter(team=self.team, resource_id=None).all()
         else:
@@ -132,9 +132,9 @@ class AccessControlViewSetMixin:
                 "access_controls": serializer.data,
                 # NOTE: For Role based controls we are always configuring resource level items
                 "available_access_levels": ACCESS_CONTROL_LEVELS_RESOURCE
-                if role_based
+                if is_global
                 else ordered_access_levels(resource),
-                "default_access_level": "editor" if role_based else default_access_level(resource),
+                "default_access_level": "editor" if is_global else default_access_level(resource),
                 "user_access_level": user_access_level,
                 "user_can_edit_access_levels": self.user_access_control.check_can_modify_access_levels_for_object(obj),
             }
@@ -189,8 +189,8 @@ class AccessControlViewSetMixin:
             return self._update_access_controls(request)
 
     @action(methods=["GET", "PUT"], detail=True)
-    def role_based_access_controls(self, request: Request, *args, **kwargs):
+    def global_access_controls(self, request: Request, *args, **kwargs):
         if request.method == "GET":
-            return self._get_access_controls(request, role_based=True)
+            return self._get_access_controls(request, is_global=True)
         if request.method == "PUT":
-            return self._update_access_controls(request, role_based=True)
+            return self._update_access_controls(request, is_global=True)

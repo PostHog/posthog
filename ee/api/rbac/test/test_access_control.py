@@ -164,7 +164,7 @@ class TestRoleBasedAccessControls(BaseAccessControlTest):
         payload.update(data)
 
         return self.client.put(
-            "/api/projects/@current/role_based_access_controls",
+            "/api/projects/@current/global_access_controls",
             payload,
         )
 

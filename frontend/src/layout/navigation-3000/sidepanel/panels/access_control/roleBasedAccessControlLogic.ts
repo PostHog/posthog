@@ -61,14 +61,14 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
             {
                 loadRoleBasedAccessControls: async () => {
                     const response = await api.get<AccessControlResponseType>(
-                        'api/projects/@current/role_based_access_controls'
+                        'api/projects/@current/global_access_controls'
                     )
                     return response
                 },
 
                 updateRoleBasedAccessControls: async ({ accessControls }) => {
                     for (const control of accessControls) {
-                        await api.put<AccessControlTypeRole>('api/projects/@current/role_based_access_controls', {
+                        await api.put<AccessControlTypeRole>('api/projects/@current/global_access_controls', {
                             ...control,
                         })
                     }
