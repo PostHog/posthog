@@ -201,6 +201,13 @@ export const allSDKs: SDK[] = [
         image: require('./logos/vue.svg'),
         docsLink: 'https://posthog.com/docs/libraries/vue-js',
     },
+    {
+        name: 'Webflow',
+        key: SDKKey.WEBFLOW,
+        tags: [SDKTag.WEB],
+        image: require('./logos/webflow.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/webflow',
+    },
     // integrations
     {
         name: 'Google Tag Manager',

@@ -12,6 +12,7 @@ import {
     ReactInstructions,
     RemixInstructions,
     SvelteInstructions,
+    WebflowInstructions,
 } from '.'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
@@ -26,4 +27,5 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.REACT]: ReactInstructions,
     [SDKKey.REMIX]: RemixInstructions,
     [SDKKey.SVELTE]: SvelteInstructions,
+    [SDKKey.WEBFLOW]: WebflowInstructions,
 }

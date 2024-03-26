@@ -3773,6 +3773,7 @@ export enum SDKKey {
     SHOPIFY = 'shopify',
     SVELTE = 'svelte',
     VUE_JS = 'vuejs',
+    WEBFLOW = 'webflow',
     WORDPRESS = 'wordpress',
 }
 

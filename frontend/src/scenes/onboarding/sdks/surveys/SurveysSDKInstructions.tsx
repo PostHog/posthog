@@ -12,6 +12,7 @@ import {
     ReactInstructions,
     RemixInstructions,
     SvelteInstructions,
+    WebflowInstructions,
 } from '.'
 
 export const SurveysSDKInstructions: SDKInstructionsMap = {
@@ -26,4 +27,5 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REACT]: ReactInstructions,
     [SDKKey.REMIX]: RemixInstructions,
     [SDKKey.SVELTE]: SvelteInstructions,
+    [SDKKey.WEBFLOW]: WebflowInstructions,
 }

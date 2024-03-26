@@ -22,6 +22,7 @@ import {
     FeatureFlagsRNInstructions,
     FeatureFlagsRubyInstructions,
     FeatureFlagsSvelteInstructions,
+    FeatureFlagsWebflowInstructions,
 } from '.'
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
@@ -46,4 +47,5 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REMIX]: FeatureFlagsRemixJSInstructions,
     [SDKKey.RUBY]: FeatureFlagsRubyInstructions,
     [SDKKey.SVELTE]: FeatureFlagsSvelteInstructions,
+    [SDKKey.WEBFLOW]: FeatureFlagsWebflowInstructions,
 }
