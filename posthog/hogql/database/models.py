@@ -65,15 +65,15 @@ class ExpressionField(DatabaseField):
 class FieldTraverser(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    chain: List[str]
+    chain: List[str | int]
 
 
 class Table(FieldOrTable):
     fields: Dict[str, FieldOrTable]
     model_config = ConfigDict(extra="forbid")
 
-    def has_field(self, name: str) -> bool:
-        return name in self.fields
+    def has_field(self, name: str | int) -> bool:
+        return str(name) in self.fields
 
     def get_field(self, name: str) -> FieldOrTable:
         if self.has_field(name):

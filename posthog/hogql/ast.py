@@ -309,7 +309,7 @@ class AsteriskType(Type):
 
 @dataclass(kw_only=True)
 class FieldTraverserType(Type):
-    chain: List[str | int] | List[str]
+    chain: List[str | int]
     table_type: TableOrSelectType
 
 
