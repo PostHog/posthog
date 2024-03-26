@@ -21,14 +21,18 @@ class BaseUserAccessControlTest(BaseTest):
     def _create_access_control(
         self, resource="project", resource_id=None, access_level="admin", organization_member=None, team=None, role=None
     ):
-        return AccessControl.objects.create(
+        ac, _ = AccessControl.objects.get_or_create(
             team=self.team,
             resource=resource,
             resource_id=resource_id or self.team.id,
-            access_level=access_level,
             organization_member=organization_member,
             role=role,
         )
+
+        ac.access_level = access_level
+        ac.save()
+
+        return ac
 
     def setUp(self):
         super().setUp()
@@ -66,17 +70,30 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         self.organization_membership.save()
 
         assert self.user_access_control.access_level_for_object(self.team) == "admin"
-        assert self.other_user_access_control.access_level_for_object(self.team) == "member"
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
+        assert self.other_user_access_control.access_level_for_object(self.team) == "admin"
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is True
         assert self.user_access_control.access_level_for_resource("project") == "admin"
-        assert self.other_user_access_control.access_level_for_resource("project") == "member"
+        assert self.other_user_access_control.access_level_for_resource("project") == "admin"
+        assert self.user_access_control.check_can_modify_access_levels_for_object(self.team) is True
+        assert self.other_user_access_control.check_can_modify_access_levels_for_object(self.team) is False
 
     def test_ac_object_default_response(self):
-        assert self.user_access_control.access_level_for_object(self.team) == "member"
-        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is False
-        assert self.other_user_access_control.access_level_for_object(self.team) == "member"
-        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        assert self.user_access_control.access_level_for_object(self.team) == "admin"
+        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
+        assert self.other_user_access_control.access_level_for_object(self.team) == "admin"
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is True
+        assert self.user_access_control.access_level_for_resource("project") == "admin"
+        assert self.other_user_access_control.access_level_for_resource("project") == "admin"
+        assert self.user_access_control.check_can_modify_access_levels_for_object(self.team) is True
+        assert self.other_user_access_control.check_can_modify_access_levels_for_object(self.team) is False
 
     def test_ac_object_user_access_control(self):
+        # Setup member access by default
+        self._create_access_control(resource_id=self.team.id, access_level="member")
         ac = self._create_access_control(
             resource="project",
             resource_id=str(self.team.id),
@@ -125,6 +142,8 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is True
 
     def test_ac_object_role_access_control(self):
+        # Setup member access by default
+        self._create_access_control(resource_id=self.team.id, access_level="member")
         ac = self._create_access_control(resource_id=self.team.id, access_level="admin", role=self.role_a)
 
         assert self.user_access_control.access_level_for_object(self.team) == "admin"

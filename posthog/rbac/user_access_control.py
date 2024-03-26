@@ -177,14 +177,11 @@ class UserAccessControl:
         )
 
     # Object level - checking conditions for specific items
-    def access_level_for_object(self, obj: Model, resource: Optional[str] = None) -> Optional[str]:
+    def access_level_for_object(self, obj: Model, resource: Optional[str] = None, explicit=False) -> Optional[str]:
         """
         Access levels are strings - the order of which is determined at run time.
         We find all relevant access controls and then return the highest value
         """
-
-        if not obj:
-            return None
 
         resource = resource or model_to_resource(obj)
         org_membership = self._organization_membership
@@ -202,13 +199,13 @@ class UserAccessControl:
 
         # If access controls aren't supported, then we return the default access level
         if not self.access_controls_supported:
-            return default_access_level(resource)
+            return default_access_level(resource) if not explicit else None
 
         access_controls = self._access_controls_for_object(obj, resource)
 
         # If there is no specified controls on the resource then we return the default access level
         if not access_controls:
-            return default_access_level(resource)
+            return default_access_level(resource) if not explicit else None
 
         # If there are access controls we pick the highest level the user has
         return max(
@@ -216,7 +213,9 @@ class UserAccessControl:
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
         ).access_level
 
-    def check_access_level_for_object(self, obj: Model, required_level: AccessControlLevel) -> Optional[bool]:
+    def check_access_level_for_object(
+        self, obj: Model, required_level: AccessControlLevel, explicit=False
+    ) -> Optional[bool]:
         """
         Entry point for all permissions around a specific object.
         If any of the access controls have the same or higher level than the requested level, return True.
@@ -229,7 +228,7 @@ class UserAccessControl:
             # Permissions do not apply to models without a related scope
             return True
 
-        access_level = self.access_level_for_object(obj, resource)
+        access_level = self.access_level_for_object(obj, resource, explicit=explicit)
 
         if not access_level:
             return False
@@ -252,7 +251,7 @@ class UserAccessControl:
 
         # If they aren't the creator then they need to be a project admin or org admin
         # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
-        return self.check_access_level_for_object(self._team or obj, required_level="admin")
+        return self.check_access_level_for_object(self._team or obj, required_level="admin", explicit=True)
 
     # Resource level - checking conditions for the resource type
     def access_level_for_resource(self, resource: APIScopeObject) -> Optional[str]:
@@ -277,7 +276,7 @@ class UserAccessControl:
 
         access_controls = self._access_controls_for_resource(resource)
         if not access_controls:
-            return None
+            return default_access_level(resource)
 
         return max(
             access_controls,
@@ -286,10 +285,6 @@ class UserAccessControl:
 
     def check_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
         access_level = self.access_level_for_resource(resource)
-
-        if not access_level:
-            # If there are no access controls specified then access is always given
-            return True
 
         return access_level_satisfied_for_resource(resource, access_level, required_level)
 
