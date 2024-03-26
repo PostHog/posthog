@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { initKeaTests } from '~/test/init'
@@ -14,6 +15,7 @@ describe('funnelCorrelationFeedbackLogic', () => {
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.CORRELATION_ANALYSIS])
         initKeaTests(false)
+        teamLogic.mount()
     })
 
     const defaultProps: InsightLogicProps = {
