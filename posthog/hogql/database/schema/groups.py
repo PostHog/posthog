@@ -13,7 +13,6 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from posthog.hogql.errors import HogQLException
-from posthog.schema import HogQLQueryModifiers
 
 GROUPS_TABLE_FIELDS = {
     "index": IntegerDatabaseField(name="group_type_index"),
@@ -83,7 +82,7 @@ class RawGroupsTable(Table):
 class GroupsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
         return select_from_groups_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

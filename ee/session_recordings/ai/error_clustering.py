@@ -6,6 +6,7 @@ from sklearn.cluster import DBSCAN
 import pandas as pd
 import numpy as np
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from datetime import date
 
 CLUSTER_REPLAY_ERRORS_TIMING = Histogram(
     "posthog_session_recordings_cluster_replay_errors",
@@ -30,7 +31,7 @@ def error_clustering(team: Team, user: User):
     if not results:
         return []
 
-    df = pd.DataFrame(results, columns=["session_id", "input", "embeddings"])
+    df = pd.DataFrame(results, columns=["session_id", "error", "embeddings", "timestamp"])
 
     df["cluster"] = cluster_embeddings(df["embeddings"].tolist())
 
@@ -42,7 +43,7 @@ def error_clustering(team: Team, user: User):
 def fetch_error_embeddings(team_id: int):
     query = """
             SELECT
-                session_id, input, embeddings
+                session_id, input, embeddings, generation_timestamp
             FROM
                 session_replay_embeddings
             WHERE
@@ -76,13 +77,21 @@ def construct_response(df: pd.DataFrame, team: Team, user: User):
     clusters = []
     for cluster, rows in df.groupby("cluster"):
         session_ids = rows["session_id"].unique()
-        sample = rows.sample(n=1)[["session_id", "input"]].rename(columns={"input": "error"}).to_dict("records")
+        sample = rows.sample(n=1)[["session_id", "error"]].to_dict("records")[0]
+
+        date_series = (
+            df.groupby([df["timestamp"].dt.date])
+            .size()
+            .reindex(pd.date_range(end=date.today(), periods=7), fill_value=0)
+        )
+        sparkline = dict(zip(date_series.index.astype(str), date_series))
         clusters.append(
             {
                 "cluster": cluster,
-                "sample": sample,
-                "session_ids": session_ids,
+                "sample": sample.get("error"),
+                "session_ids": np.random.choice(session_ids, size=DBSCAN_MIN_SAMPLES - 1),
                 "occurrences": rows.size,
+                "sparkline": sparkline,
                 "unique_sessions": len(session_ids),
                 "viewed": len(np.intersect1d(session_ids, viewed_session_ids, assume_unique=True)),
             }

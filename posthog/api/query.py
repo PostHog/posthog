@@ -67,9 +67,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if data.async_:
             query_status = enqueue_process_query_task(
                 team_id=self.team.pk,
+                user_id=self.request.user.pk,
                 query_json=request.data["query"],
                 query_id=client_query_id,
-                refresh_requested=data.refresh,
+                refresh_requested=data.refresh or False,
             )
             return Response(query_status.model_dump(), status=status.HTTP_202_ACCEPTED)
 

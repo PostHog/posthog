@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import re
-from typing import Dict
+from typing import Dict, Optional
 
 from clickhouse_driver.errors import ServerException
 
@@ -8,9 +8,10 @@ from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QuerySizeExce
 
 
 class InternalCHQueryError(ServerException):
-    code_name: str
+    code_name: Optional[str]
+    """Can be null if re-raised from a thread (see `failhard_threadhook_context`)."""
 
-    def __init__(self, message, *, code=None, nested=None, code_name):
+    def __init__(self, message, *, code=None, nested=None, code_name=None):
         self.code_name = code_name
         super().__init__(message, code, nested)
 

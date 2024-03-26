@@ -163,6 +163,7 @@ export class ConsoleLogsIngester {
                     topic: KAFKA_LOG_ENTRIES,
                     value: Buffer.from(JSON.stringify(cle)),
                     key: event.session_id,
+                    waitForAck: true,
                 })
             )
         } catch (error) {

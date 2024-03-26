@@ -211,6 +211,7 @@ WHERE
                 query=event_count,
                 team=self.team,
                 timings=self.timings,
+                limit_context=self.limit_context,
             )
 
         if not response.results or not response.results[0] or not response.results[0][0]:
