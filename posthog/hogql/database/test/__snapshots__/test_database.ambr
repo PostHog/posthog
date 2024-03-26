@@ -304,6 +304,31 @@
               ]
           }
       ],
+      "person_distinct_id_overrides": [
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "person_id",
+              "type": "string"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified",
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
+              ]
+          }
+      ],
       "person_overrides": [
           {
               "key": "old_person_id",
@@ -784,6 +809,39 @@
           {
               "key": "sign",
               "type": "integer"
+          },
+          {
+              "key": "version",
+              "type": "integer"
+          }
+      ],
+      "raw_person_distinct_id_overrides": [
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "person_id",
+              "type": "string"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified",
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
+              ]
+          },
+          {
+              "key": "is_deleted",
+              "type": "boolean"
           },
           {
               "key": "version",
@@ -1155,6 +1213,31 @@
               ]
           }
       ],
+      "person_distinct_id_overrides": [
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "person_id",
+              "type": "string"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified",
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
+              ]
+          }
+      ],
       "person_overrides": [
           {
               "key": "old_person_id",
@@ -1635,6 +1718,39 @@
           {
               "key": "sign",
               "type": "integer"
+          },
+          {
+              "key": "version",
+              "type": "integer"
+          }
+      ],
+      "raw_person_distinct_id_overrides": [
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "person_id",
+              "type": "string"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons",
+              "fields": [
+                  "id",
+                  "created_at",
+                  "team_id",
+                  "properties",
+                  "is_identified",
+                  "pdi",
+                  "$virt_initial_referring_domain_type",
+                  "$virt_initial_channel_type"
+              ]
+          },
+          {
+              "key": "is_deleted",
+              "type": "boolean"
           },
           {
               "key": "version",

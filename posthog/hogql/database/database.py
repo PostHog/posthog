@@ -31,6 +31,11 @@ from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortP
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
+from posthog.hogql.database.schema.person_distinct_id_overrides import (
+    PersonDistinctIdOverridesTable,
+    RawPersonDistinctIdOverridesTable,
+    join_with_person_distinct_id_overrides_table,
+)
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
@@ -53,7 +58,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
-
 if TYPE_CHECKING:
     from posthog.models import Team
 
@@ -66,6 +70,7 @@ class Database(BaseModel):
     groups: GroupsTable = GroupsTable()
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
+    person_distinct_id_overrides: PersonDistinctIdOverridesTable = PersonDistinctIdOverridesTable()
     person_overrides: PersonOverridesTable = PersonOverridesTable()
 
     session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
@@ -81,6 +86,7 @@ class Database(BaseModel):
     raw_persons: RawPersonsTable = RawPersonsTable()
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
+    raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
     raw_sessions: RawSessionsTable = RawSessionsTable()
 
@@ -186,6 +192,24 @@ def create_hogql_database(
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v3_enabled:
+        database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
+        database.events.fields["override"] = LazyJoin(
+            from_field=["distinct_id"],  # ???
+            join_table=PersonDistinctIdOverridesTable(),
+            join_function=join_with_person_distinct_id_overrides_table,
+        )
+        database.events.fields["person_id"] = ExpressionField(
+            name="person_id",
+            expr=parse_expr(
+                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
+                start=None,
+            ),
+        )
+        database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
+        database.events.fields["person"] = FieldTraverser(chain=["poe"])
+
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
     )
@@ -209,10 +233,22 @@ def create_hogql_database(
                 )
 
             if "timestamp" not in tables[warehouse_modifier.table_name].fields.keys():
-                tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
-                    name="timestamp",
-                    expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
-                )
+                table_model = DataWarehouseTable.objects.filter(
+                    team_id=team.pk, name=warehouse_modifier.table_name
+                ).latest("created_at")
+                timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
+
+                # If field type is none or datetime, we can use the field directly
+                if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
+                    tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                        name="timestamp",
+                        expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
+                    )
+                else:
+                    tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                        name="timestamp",
+                        expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
+                    )
 
             # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
             if "distinct_id" not in tables[warehouse_modifier.table_name].fields.keys():
