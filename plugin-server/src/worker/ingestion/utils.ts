@@ -80,18 +80,21 @@ export async function captureIngestionWarning(
     const limiter_key = `${teamId}:${type}:${debounce?.key || ''}`
     if (!!debounce?.alwaysSend || IngestionWarningLimiter.consume(limiter_key, 1)) {
         await kafkaProducer.queueMessage({
-            topic: KAFKA_INGESTION_WARNINGS,
-            messages: [
-                {
-                    value: JSON.stringify({
-                        team_id: teamId,
-                        type: type,
-                        source: 'plugin-server',
-                        details: JSON.stringify(details),
-                        timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                    }),
-                },
-            ],
+            kafkaMessage: {
+                topic: KAFKA_INGESTION_WARNINGS,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            team_id: teamId,
+                            type: type,
+                            source: 'plugin-server',
+                            details: JSON.stringify(details),
+                            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                        }),
+                    },
+                ],
+            },
+            waitForAck: true,
         })
     } else {
         return Promise.resolve()

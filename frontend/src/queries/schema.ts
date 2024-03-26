@@ -4,6 +4,7 @@ import {
     Breakdown,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
     EventPropertyFilter,
@@ -25,6 +26,8 @@ import {
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
+
+export { ChartDisplayCategory }
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -1179,9 +1182,13 @@ export interface FunnelCorrelationQuery {
     response?: FunnelCorrelationResponse
 }
 
+/**  @format date-time */
+export type DatetimeDay = string
+
 export type BreakdownValueInt = integer
 export interface InsightActorsQueryOptionsResponse {
-    day?: { label: string; value: string | Day }[]
+    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    day?: { label: string; value: string | DatetimeDay | Day }[]
     status?: { label: string; value: string }[]
     interval?: {
         label: string

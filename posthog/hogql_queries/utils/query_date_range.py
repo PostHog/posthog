@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Literal, Optional, Dict, List
+from typing import Literal, Optional, Dict
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import parse
@@ -140,16 +140,15 @@ class QueryDateRange:
             hours=1 if self.interval_name == "hour" else 0,
         )
 
-    def all_values(self) -> List[str]:
+    def all_values(self) -> list[datetime]:
         start = self.align_with_interval(self.date_from())
         end: datetime = self.date_to()
-        values: List[str] = []
+        delta = self.interval_relativedelta()
+
+        values: list[datetime] = []
         while start <= end:
-            if self.interval_name == "hour":
-                values.append(start.strftime("%Y-%m-%d %H:%M:%S"))
-            else:
-                values.append(start.strftime("%Y-%m-%d"))
-            start += self.interval_relativedelta()
+            values.append(start)
+            start += delta
         return values
 
     def date_to_as_hogql(self) -> ast.Expr:

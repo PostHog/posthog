@@ -1,4 +1,6 @@
+import zoneinfo
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Dict, List, Optional
 from unittest.mock import MagicMock, patch
 from django.test import override_settings
@@ -1478,18 +1480,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.to_actors_query_options()
 
         assert response.day == [
-            DayItem(label="2020-01-09", value="2020-01-09"),
-            DayItem(label="2020-01-10", value="2020-01-10"),
-            DayItem(label="2020-01-11", value="2020-01-11"),
-            DayItem(label="2020-01-12", value="2020-01-12"),
-            DayItem(label="2020-01-13", value="2020-01-13"),
-            DayItem(label="2020-01-14", value="2020-01-14"),
-            DayItem(label="2020-01-15", value="2020-01-15"),
-            DayItem(label="2020-01-16", value="2020-01-16"),
-            DayItem(label="2020-01-17", value="2020-01-17"),
-            DayItem(label="2020-01-18", value="2020-01-18"),
-            DayItem(label="2020-01-19", value="2020-01-19"),
-            DayItem(label="2020-01-20", value="2020-01-20"),
+            DayItem(label="9-Jan-2020", value=datetime(2020, 1, 9, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="10-Jan-2020", value=datetime(2020, 1, 10, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="11-Jan-2020", value=datetime(2020, 1, 11, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="12-Jan-2020", value=datetime(2020, 1, 12, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="13-Jan-2020", value=datetime(2020, 1, 13, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="14-Jan-2020", value=datetime(2020, 1, 14, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="15-Jan-2020", value=datetime(2020, 1, 15, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="16-Jan-2020", value=datetime(2020, 1, 16, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="17-Jan-2020", value=datetime(2020, 1, 17, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="18-Jan-2020", value=datetime(2020, 1, 18, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="19-Jan-2020", value=datetime(2020, 1, 19, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="20-Jan-2020", value=datetime(2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
         ]
 
         assert response.breakdown is None
@@ -1513,18 +1515,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.to_actors_query_options()
 
         assert response.day == [
-            DayItem(label="2020-01-09", value="2020-01-09"),
-            DayItem(label="2020-01-10", value="2020-01-10"),
-            DayItem(label="2020-01-11", value="2020-01-11"),
-            DayItem(label="2020-01-12", value="2020-01-12"),
-            DayItem(label="2020-01-13", value="2020-01-13"),
-            DayItem(label="2020-01-14", value="2020-01-14"),
-            DayItem(label="2020-01-15", value="2020-01-15"),
-            DayItem(label="2020-01-16", value="2020-01-16"),
-            DayItem(label="2020-01-17", value="2020-01-17"),
-            DayItem(label="2020-01-18", value="2020-01-18"),
-            DayItem(label="2020-01-19", value="2020-01-19"),
-            DayItem(label="2020-01-20", value="2020-01-20"),
+            DayItem(label="9-Jan-2020", value=datetime(2020, 1, 9, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="10-Jan-2020", value=datetime(2020, 1, 10, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="11-Jan-2020", value=datetime(2020, 1, 11, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="12-Jan-2020", value=datetime(2020, 1, 12, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="13-Jan-2020", value=datetime(2020, 1, 13, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="14-Jan-2020", value=datetime(2020, 1, 14, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="15-Jan-2020", value=datetime(2020, 1, 15, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="16-Jan-2020", value=datetime(2020, 1, 16, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="17-Jan-2020", value=datetime(2020, 1, 17, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="18-Jan-2020", value=datetime(2020, 1, 18, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="19-Jan-2020", value=datetime(2020, 1, 19, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
+            DayItem(label="20-Jan-2020", value=datetime(2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC"))),
         ]
 
         assert response.breakdown is None
