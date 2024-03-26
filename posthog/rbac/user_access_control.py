@@ -71,6 +71,11 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
 
 
 class UserAccessControl:
+    """
+    UserAccessControl provides functions for checking unified access to all resources and objects from a Project level downwards.
+    Typically a Team (Project) is required other than in certain circumstances, particularly when validating which projects a user has access to within an organization.
+    """
+
     def __init__(self, user: User, team: Optional[Team] = None, organization: Optional[Organization] = None):
         self._user = user
         self._team = team
@@ -163,14 +168,15 @@ class UserAccessControl:
         if not resource:
             return None
 
-        if not self.access_controls_supported:
-            return None
-
         org_membership = self._organization_membership
 
         if not org_membership:
             # NOTE: Technically this is covered by Org Permission check so more of a sanity check
             return None
+
+        if not self.access_controls_supported:
+            # If access controls aren't supported, then we return the default access level
+            return default_access_level(resource)
 
         # Org admins always have object level access
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
@@ -224,7 +230,7 @@ class UserAccessControl:
         return self.check_access_level_for_object(self._team or obj, required_level="admin")
 
     # Resource level - checking conditions for the resource type
-    def access_control_for_resource(self, resource: APIScopeObject) -> Optional[_AccessControl]:
+    def access_level_for_resource(self, resource: APIScopeObject) -> Optional[str]:
         """
         Access levels are strings - the order of which is determined at run time.
         We find all relevant access controls and then return the highest value
@@ -232,17 +238,17 @@ class UserAccessControl:
 
         org_membership = self._organization_membership
 
-        if not resource or not self.access_controls_supported or not org_membership:
+        if not resource or not org_membership:
+            # In any of these cases, we can't determine the access level
             return None
+
+        if not self.access_controls_supported:
+            # If access controls aren't supported, then return the default access level
+            return default_access_level(resource)
 
         # Org admins always have resource level access
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
-            return AccessControl(
-                team=self._team,
-                resource=resource,
-                resource_id=None,
-                access_level=ordered_access_levels(resource)[-1],
-            )
+            return ordered_access_levels(resource)[-1]
 
         access_controls = self._access_controls_for_resource(resource)
         if not access_controls:
@@ -251,20 +257,16 @@ class UserAccessControl:
         return max(
             access_controls,
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
-        )
+        ).access_level
 
     def check_access_level_for_resource(self, resource: APIScopeObject, required_level: str) -> bool:
-        access_control = self.access_control_for_resource(resource)
+        access_level = self.access_level_for_resource(resource)
 
-        if not access_control:
+        if not access_level:
             # If there are no access controls specified then access is always given
             return True
 
-        return (
-            False
-            if not access_control
-            else access_level_satisfied_for_resource(resource, access_control.access_level, required_level)
-        )
+        return access_level_satisfied_for_resource(resource, access_level, required_level)
 
     def filter_queryset_by_access_level(self, queryset: QuerySet, resource: Optional[str] = None) -> QuerySet:
         # Find all items related to the queryset model that have access controls such that the effective level for the user is "none"
