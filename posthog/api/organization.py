@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, permissions, serializers, views, viewsets
+from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
 from posthog import settings
