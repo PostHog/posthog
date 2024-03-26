@@ -255,38 +255,34 @@ export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): I
     const reducedMessages: Record<string, IncomingRecordingMessage> = {}
 
     for (const message of messages) {
-        const clonedMessage = cloneObject(message)
-        const key = `${clonedMessage.team_id}-${clonedMessage.session_id}`
+        const key = `${message.team_id}-${message.session_id}`
         if (!reducedMessages[key]) {
-            reducedMessages[key] = clonedMessage
+            reducedMessages[key] = cloneObject(message)
         } else {
             const existingMessage = reducedMessages[key]
-            for (const [windowId, events] of Object.entries(clonedMessage.eventsByWindowId)) {
+            for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
                 if (existingMessage.eventsByWindowId[windowId]) {
                     existingMessage.eventsByWindowId[windowId].push(...events)
                 } else {
                     existingMessage.eventsByWindowId[windowId] = events
                 }
             }
-            existingMessage.metadata.rawSize += clonedMessage.metadata.rawSize
+            existingMessage.metadata.rawSize += message.metadata.rawSize
 
             // Update the events ranges
             existingMessage.metadata.lowOffset = Math.min(
                 existingMessage.metadata.lowOffset,
-                clonedMessage.metadata.lowOffset
+                message.metadata.lowOffset
             )
 
             existingMessage.metadata.highOffset = Math.max(
                 existingMessage.metadata.highOffset,
-                clonedMessage.metadata.highOffset
+                message.metadata.highOffset
             )
 
             // Update the events ranges
-            existingMessage.eventsRange.start = Math.min(
-                existingMessage.eventsRange.start,
-                clonedMessage.eventsRange.start
-            )
-            existingMessage.eventsRange.end = Math.max(existingMessage.eventsRange.end, clonedMessage.eventsRange.end)
+            existingMessage.eventsRange.start = Math.min(existingMessage.eventsRange.start, message.eventsRange.start)
+            existingMessage.eventsRange.end = Math.max(existingMessage.eventsRange.end, message.eventsRange.end)
         }
     }
 
