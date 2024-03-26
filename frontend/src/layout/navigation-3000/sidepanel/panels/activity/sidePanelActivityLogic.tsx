@@ -283,7 +283,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadImportantChanges()
 
-        const activityFilters = values.sceneActivityFilters
+        const activityFilters = values.sceneSidePanelContext
         actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
     }),
 

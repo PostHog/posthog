@@ -107,7 +107,7 @@ export const loginLogic = kea<loginLogicType>([
             submit: async ({ email, password }, breakpoint) => {
                 breakpoint()
                 try {
-                    return await api.create('api/login', { email, password })
+                    return await api.create<any>('api/login', { email, password })
                 } catch (e) {
                     const { code } = e as Record<string, any>
                     let { detail } = e as Record<string, any>

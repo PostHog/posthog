@@ -207,6 +207,7 @@ const teamActionsMapping: Record<
     id: () => null,
     updated_at: () => null,
     uuid: () => null,
+    user_access_level: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
