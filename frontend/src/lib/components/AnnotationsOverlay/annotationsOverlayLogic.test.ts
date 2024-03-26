@@ -143,6 +143,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
             [`/api/projects/:team_id/insights/${MOCK_INSIGHT_NUMERIC_ID}`]: () => {
                 return [200, insight]
             },
+            '/api/users/@me/': [200, {}],
         },
     })
 }
@@ -162,6 +163,7 @@ function useAnnotationsMocks(): void {
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
                 ],
             },
+            '/api/users/@me/': [200, {}],
         },
     })
 }
@@ -171,6 +173,7 @@ describe('annotationsOverlayLogic', () => {
 
     beforeEach(() => {
         useAnnotationsMocks()
+        initKeaTests()
     })
 
     afterEach(() => {
@@ -178,8 +181,6 @@ describe('annotationsOverlayLogic', () => {
     })
 
     it('loads annotations on mount', async () => {
-        initKeaTests()
-
         useInsightMocks()
 
         logic = annotationsOverlayLogic({
@@ -193,8 +194,6 @@ describe('annotationsOverlayLogic', () => {
     })
 
     describe('relevantAnnotations', () => {
-        initKeaTests()
-
         it('returns annotations scoped to the insight for a saved insight', async () => {
             useInsightMocks()
 
@@ -224,8 +223,6 @@ describe('annotationsOverlayLogic', () => {
         })
 
         it('returns annotations scoped to the project for a new insight', async () => {
-            initKeaTests()
-
             useInsightMocks()
 
             logic = annotationsOverlayLogic({
@@ -250,8 +247,6 @@ describe('annotationsOverlayLogic', () => {
         })
 
         it('excludes annotations that are outside of insight date range', async () => {
-            initKeaTests()
-
             useInsightMocks()
 
             logic = annotationsOverlayLogic({
@@ -506,8 +501,6 @@ describe('annotationsOverlayLogic', () => {
         }
 
         it(`merges groups when one tick covers more than one date (UTC)`, async () => {
-            initKeaTests(true, MOCK_DEFAULT_TEAM)
-
             useInsightMocks()
 
             logic = annotationsOverlayLogic({
@@ -572,8 +565,6 @@ describe('annotationsOverlayLogic', () => {
         })
 
         it(`merges groups when one tick covers more than one hour (UTC)`, async () => {
-            initKeaTests(true, MOCK_DEFAULT_TEAM)
-
             useInsightMocks('hour')
 
             logic = annotationsOverlayLogic({

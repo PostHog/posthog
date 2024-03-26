@@ -8,5 +8,4 @@ PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) + [
     "simplify-actions",
     "historical-exports-v2",
     "ingestion-warnings-enabled",
-    "role-based-access",
 ]

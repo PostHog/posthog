@@ -15,6 +15,7 @@ import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
     ingestEventBatchingInputLengthSummary,
+    ingestEventEachBatchKafkaAckWait,
     ingestionOverflowingMessagesTotal,
     ingestionParallelism,
     ingestionParallelismPotential,
@@ -41,7 +42,7 @@ type IngestionSplitBatch = {
 type IngestResult = {
     // Promises that the batch handler should await on before committing offsets,
     // contains the Kafka producer ACKs, to avoid blocking after every message.
-    promises?: Array<Promise<void>>
+    ackPromises?: Array<Promise<void>>
 }
 
 async function handleProcessingError(
@@ -166,7 +167,7 @@ export async function eachBatchParallelIngestion(
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
-                        result.promises?.forEach((promise) =>
+                        result.ackPromises?.forEach((promise) =>
                             processingPromises.push(
                                 promise.catch(async (error) => {
                                     await handleProcessingError(error, message, pluginEvent, queue)
@@ -227,7 +228,9 @@ export async function eachBatchParallelIngestion(
         // impact the success. Delaying ACKs allows the producer to write in big batches for
         // better throughput and lower broker load.
         const awaitSpan = transaction.startChild({ op: 'awaitACKs', data: { promiseCount: processingPromises.length } })
+        const kafkaAckWaitMetric = ingestEventEachBatchKafkaAckWait.startTimer()
         await Promise.all(processingPromises)
+        kafkaAckWaitMetric()
         awaitSpan.finish()
 
         for (const message of messages) {

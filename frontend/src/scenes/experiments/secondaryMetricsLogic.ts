@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightVizNode } from '~/queries/schema'
+import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema'
 import { Experiment, FilterType, FunnelVizType, InsightType, SecondaryExperimentMetric } from '~/types'
 
 import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
@@ -162,7 +162,16 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 })
             }
 
-            actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
+            // This allows switching between insight types. It's necessary as `updateQuerySource` merges
+            // the new query with any existing query and that causes validation problems when there are
+            // unsupported properties in the now merged query.
+            const newQuery = filtersToQueryNode(newInsightFilters)
+            if (filters?.insight === InsightType.FUNNELS) {
+                ;(newQuery as TrendsQuery).trendsFilter = undefined
+            } else {
+                ;(newQuery as FunnelsQuery).funnelsFilter = undefined
+            }
+            actions.updateQuerySource(newQuery)
         },
         // sync form value `filters` with query
         setQuery: ({ query }) => {

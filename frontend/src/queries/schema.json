@@ -501,14 +501,14 @@
         "ChartDisplayType": {
             "enum": [
                 "ActionsLineGraph",
-                "ActionsLineGraphCumulative",
-                "ActionsAreaGraph",
-                "ActionsTable",
-                "ActionsPie",
                 "ActionsBar",
+                "ActionsAreaGraph",
+                "ActionsLineGraphCumulative",
+                "BoldNumber",
+                "ActionsPie",
                 "ActionsBarValue",
-                "WorldMap",
-                "BoldNumber"
+                "ActionsTable",
+                "WorldMap"
             ],
             "type": "string"
         },
@@ -3459,9 +3459,6 @@
                 },
                 "operator": {
                     "$ref": "#/definitions/PropertyOperator"
-                },
-                "table": {
-                    "type": "string"
                 },
                 "type": {
                     "const": "person",

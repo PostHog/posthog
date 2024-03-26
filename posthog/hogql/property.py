@@ -147,10 +147,7 @@ def property_to_expr(
         value = property.value
 
         if property.type == "person" and scope != "person":
-            if property.table:
-                chain = ["person", property.table]
-            else:
-                chain = ["person", "properties"]
+            chain = ["person", "properties"]
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "data_warehouse":

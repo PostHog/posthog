@@ -78,6 +78,7 @@ describe('console log ingester', () => {
                                 timestamp: '1970-01-01 00:00:00.000',
                             })
                         ),
+                        waitForAck: true,
                     },
                 ],
             ])
@@ -122,6 +123,7 @@ describe('console log ingester', () => {
                                 timestamp: '1970-01-01 00:00:00.000',
                             })
                         ),
+                        waitForAck: true,
                     },
                 ],
                 [
@@ -140,6 +142,7 @@ describe('console log ingester', () => {
                                 timestamp: '1970-01-01 00:00:00.000',
                             })
                         ),
+                        waitForAck: true,
                     },
                 ],
             ])
@@ -179,6 +182,7 @@ describe('console log ingester', () => {
                                 timestamp: '1970-01-01 00:00:00.000',
                             })
                         ),
+                        waitForAck: true,
                     },
                 ],
             ])

@@ -1,5 +1,6 @@
 import { IconFeatures } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Sparkline } from 'lib/lemon-ui/Sparkline'
@@ -17,11 +18,7 @@ export function SessionRecordingErrors(): JSX.Element {
     const { errors, errorsLoading } = useValues(sessionRecordingErrorsLogic)
     const { loadErrorClusters, createPlaylist } = useActions(sessionRecordingErrorsLogic)
 
-    if (errorsLoading) {
-        return <Spinner />
-    }
-
-    if (!errors) {
+    if (!errors && !errorsLoading) {
         return (
             <LemonButton size="large" type="primary" icon={<IconFeatures />} onClick={() => loadErrorClusters()}>
                 Automagically find errors
@@ -110,7 +107,8 @@ export function SessionRecordingErrors(): JSX.Element {
                         },
                     },
                 ]}
-                dataSource={errors}
+                loading={errorsLoading}
+                dataSource={errors || []}
                 expandable={{
                     expandedRowRender: (cluster) => <ExpandedError error={cluster.sample} />,
                 }}
@@ -165,5 +163,20 @@ function parseTitle(error: string): string {
         input = error
     }
 
-    return input.split('\n')[0].trim().substring(0, MAX_TITLE_LENGTH)
+    if (!input) {
+        return error
+    }
+
+    try {
+        // TRICKY - after json parsing we might not have a string,
+        // since the JSON parser will helpfully convert to other types too e.g. have seen objects here
+        if (typeof input !== 'string') {
+            input = JSON.stringify(input)
+        }
+
+        return input.split('\n')[0].trim().substring(0, MAX_TITLE_LENGTH) || error
+    } catch (e) {
+        captureException(e, { extra: { error }, tags: { feature: 'replay/error-clustering' } })
+        return error
+    }
 }
