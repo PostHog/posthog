@@ -1,9 +1,18 @@
 describe('Before Onboarding', () => {
-    beforeEach(() => {
+    before(() => {
         cy.request({
             method: 'PATCH',
             url: '/api/projects/1/',
             body: { completed_snippet_onboarding: false },
+            headers: { Authorization: 'Bearer e2e_demo_api_key' },
+        })
+    })
+
+    after(() => {
+        cy.request({
+            method: 'PATCH',
+            url: '/api/projects/1/',
+            body: { completed_snippet_onboarding: true },
             headers: { Authorization: 'Bearer e2e_demo_api_key' },
         })
     })
