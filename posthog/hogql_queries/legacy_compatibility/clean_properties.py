@@ -35,10 +35,12 @@ def clean_global_properties(properties: dict | list[dict] | None):
         return PropertyGroupFilter(**clean_property_group_filter(properties))
 
 
-def clean_entity_properties(properties: list[dict] | None):
-    if properties is None:
+def clean_entity_properties(properties: list[dict] | dict | None):
+    if properties is None or len(properties) == 0:
+        # empty properties
         return None
     elif is_old_style_properties(properties):
+        # old style properties
         return transform_old_style_properties(properties)
     else:
         return list(map(clean_property, properties))

@@ -1,4 +1,4 @@
-from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_global_properties
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.schema import (
     CohortPropertyFilter,
     EventPropertyFilter,
@@ -96,4 +96,55 @@ class TestCleanGlobalProperties(BaseTest):
                     )
                 ],
             ),
+        )
+
+
+class TestCleanEntityProperties(BaseTest):
+    def test_handles_empty_properties(self):
+        properties = {}
+
+        result = clean_entity_properties(properties)
+
+        self.assertEqual(result, None)
+
+    def test_handles_old_style_properties(self):
+        properties = {"utm_medium__icontains": "email"}
+
+        result = clean_entity_properties(properties)
+
+        self.assertEqual(
+            result,
+            [EventPropertyFilter(key="utm_medium", value="email", operator=PropertyOperator.icontains)],
+        )
+
+    def test_handles_property_filter_lists(self):
+        properties = [
+            {"key": "$current_url", type: "event", "value": "https://hedgebox.net/signup/", "operator": "exact"},
+        ]
+
+        result = clean_entity_properties(properties)
+
+        self.assertEqual(
+            result,
+            [EventPropertyFilter(key="utm_medium", value="email", operator=PropertyOperator.icontains)],
+        )
+
+    def test_handles_property_group_values(self):
+        properties = {
+            "type": "AND",
+            "values": [
+                {
+                    "key": "$current_url",
+                    "operator": "exact",
+                    "type": "event",
+                    "value": "https://hedgebox.net/signup/",
+                },
+            ],
+        }
+
+        result = clean_entity_properties(properties)
+
+        self.assertEqual(
+            result,
+            [EventPropertyFilter(key="utm_medium", value="email", operator=PropertyOperator.icontains)],
         )
