@@ -150,10 +150,14 @@ class Breakdown:
                         left=transform_func, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value)
                     )
                 )
+            elif value == BREAKDOWN_NULL_STRING_LABEL:
+                compare_ops.append(
+                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=None))
+                )
+                compare_ops.append(
+                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=""))
+                )
             else:
-                if value == BREAKDOWN_NULL_STRING_LABEL:
-                    value = None
-
                 compare_ops.append(
                     ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value))
                 )
