@@ -65,7 +65,7 @@ class ExpressionField(DatabaseField):
 class FieldTraverser(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    chain: List[str]
+    chain: List[str | int]
 
 
 class Table(FieldOrTable):

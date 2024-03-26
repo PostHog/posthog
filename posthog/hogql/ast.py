@@ -85,6 +85,9 @@ class BaseTableType(Type):
         raise HogQLException(f"Field not found: {name}")
 
 
+TableOrSelectType = Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
+
+
 @dataclass(kw_only=True)
 class TableType(BaseTableType):
     table: Table
@@ -104,7 +107,7 @@ class TableAliasType(BaseTableType):
 
 @dataclass(kw_only=True)
 class LazyJoinType(BaseTableType):
-    table_type: BaseTableType
+    table_type: TableOrSelectType
     field: str
     lazy_join: LazyJoin
 
@@ -122,7 +125,7 @@ class LazyTableType(BaseTableType):
 
 @dataclass(kw_only=True)
 class VirtualTableType(BaseTableType):
-    table_type: BaseTableType
+    table_type: TableOrSelectType
     field: str
     virtual_table: VirtualTable
 
@@ -131,9 +134,6 @@ class VirtualTableType(BaseTableType):
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.virtual_table.has_field(name)
-
-
-TableOrSelectType = Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
 
 
 @dataclass(kw_only=True)
@@ -193,7 +193,11 @@ class SelectQueryAliasType(Type):
         if name == "*":
             return AsteriskType(table_type=self)
         if self.view_name:
+            if context.database is None:
+                raise HogQLException("Database must be set for queries with views")
+
             field = context.database.get_table(self.view_name).get_field(name)
+
             if isinstance(field, LazyJoin):
                 return LazyJoinType(table_type=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):
