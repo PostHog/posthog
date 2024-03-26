@@ -1,5 +1,5 @@
 describe('Before Onboarding', () => {
-    it.only('Navigate back to products when a product has not been set up', () => {
+    it.only('Navigate to /products when a product has not been set up', () => {
         cy.visit('/project/1/data-management/events')
 
         cy.get('[data-attr=top-bar-name] > span').contains('Products')
