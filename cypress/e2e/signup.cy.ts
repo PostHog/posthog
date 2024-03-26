@@ -96,10 +96,10 @@ describe('Signup', () => {
         // we get the expected error that no social session exists.
         cy.visit('/logout')
         cy.location('pathname').should('include', '/login')
-        cy.visit('/organization/confirm-creation?organization_name=&name=Test&email=test%40posthog.com')
+        cy.visit('/organization/confirm-creation?organization_name=&first_name=Test&email=test%40posthog.com')
 
         cy.get('[name=email]').should('have.value', 'test@posthog.com')
-        cy.get('[name=name]').should('have.value', 'Test')
+        cy.get('[name=first_name]').should('have.value', 'Test')
         cy.get('[name=organization_name]').type('Hogflix SpinOff').should('have.value', 'Hogflix SpinOff')
         cy.get('[data-attr=signup-role-at-organization]').click()
         cy.get('.Popover li:first-child').click()
