@@ -7,7 +7,6 @@
     flex-direction: column;
     height: 100vh;
     overflow: scroll;
-    background-color: var(--bg-bridge);
     -ms-overflow-style: none;
 
     &::-webkit-scrollbar {
@@ -46,7 +45,7 @@
         position: relative;
         width: 100%;
         padding: 2rem;
-        background-color: white;
+        background-color: var(--bg-light);
         border-radius: var(--radius);
         box-shadow: var(--shadow-elevation);
 
@@ -87,8 +86,8 @@
             padding: 0.5rem 0.75rem;
             font-size: 0.8em;
             font-weight: 600;
-            color: #fff;
-            background-color: var(--default);
+            color: var(--bg-light);
+            background-color: var(--text-3000);
             border-radius: 0.75rem;
             opacity: 0;
             transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);

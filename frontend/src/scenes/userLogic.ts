@@ -2,7 +2,7 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -244,7 +244,7 @@ export const userLogic = kea<userLogicType>([
         themeMode: [
             (s) => [s.user],
             (user): UserTheme => {
-                return user?.theme_mode || 'light'
+                return user?.theme_mode || (getCookie('theme') as UserTheme) || 'light'
             },
         ],
     }),
