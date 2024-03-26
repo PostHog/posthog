@@ -5,8 +5,8 @@ from posthog.temporal.batch_exports.backfill_batch_export import (
 )
 from posthog.temporal.batch_exports.batch_exports import (
     create_batch_export_backfill_model,
-    create_export_run,
     finish_batch_export_run,
+    start_batch_export_run,
     update_batch_export_backfill_model_status,
 )
 from posthog.temporal.batch_exports.bigquery_batch_export import (
@@ -59,7 +59,7 @@ WORKFLOWS = [
 ACTIVITIES = [
     backfill_schedule,
     create_batch_export_backfill_model,
-    create_export_run,
+    start_batch_export_run,
     create_table,
     drop_table,
     finish_batch_export_run,

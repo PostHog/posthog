@@ -21,9 +21,9 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import BatchExportSchema, BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.batch_exports import (
-    create_export_run,
     finish_batch_export_run,
     iter_records,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
@@ -433,7 +433,7 @@ async def test_bigquery_export_workflow(
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 workflows=[BigQueryBatchExportWorkflow],
                 activities=[
-                    create_export_run,
+                    start_batch_export_run,
                     insert_into_bigquery_activity,
                     finish_batch_export_run,
                 ],
@@ -496,7 +496,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bi
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[BigQueryBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_bigquery_activity_mocked,
                 finish_batch_export_run,
             ],
@@ -547,7 +547,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[BigQueryBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_bigquery_activity_mocked,
                 finish_batch_export_run,
             ],
@@ -596,7 +596,7 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[BigQueryBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 never_finish_activity,
                 finish_batch_export_run,
             ],

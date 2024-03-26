@@ -24,9 +24,9 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
-    create_export_run,
     finish_batch_export_run,
     iter_records,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
     FILE_FORMAT_EXTENSIONS,
@@ -39,6 +39,7 @@ from posthog.temporal.batch_exports.s3_batch_export import (
     s3_default_fields,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import (
     generate_test_events_in_clickhouse,
 )
@@ -411,10 +412,9 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     with override_settings(
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
     ):  # 5MB, the minimum for Multipart uploads
-        records_exported, records_total_count = await activity_environment.run(insert_into_s3_activity, insert_inputs)
+        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     assert records_exported == 10005
-    assert records_total_count == 10005
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
@@ -551,7 +551,7 @@ async def test_s3_export_workflow_with_minio_bucket(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_s3_activity,
                 finish_batch_export_run,
             ],
@@ -691,7 +691,7 @@ async def test_s3_export_workflow_with_s3_bucket(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_s3_activity,
                 finish_batch_export_run,
             ],
@@ -775,7 +775,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_s3_activity,
                 finish_batch_export_run,
             ],
@@ -850,7 +850,7 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_s3_activity,
                 finish_batch_export_run,
             ],
@@ -936,7 +936,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_s3_activity,
                 finish_batch_export_run,
             ],
@@ -1012,7 +1012,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_s3_activity_mocked,
                 finish_batch_export_run,
             ],
@@ -1034,7 +1034,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count is None
+    assert run.records_total_count == 1
 
 
 async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(ateam, s3_batch_export, interval):
@@ -1066,7 +1066,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_s3_activity_mocked,
                 finish_batch_export_run,
             ],
@@ -1118,7 +1118,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 never_finish_activity,
                 finish_batch_export_run,
             ],
@@ -1146,11 +1146,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
 
 
 # We don't care about these for the next test, just need something to be defined.
-base_inputs = {
-    "bucket_name": "test",
-    "region": "test",
-    "team_id": 1,
-}
+base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
 
 
 @pytest.mark.parametrize(

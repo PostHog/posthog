@@ -15,18 +15,22 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import BatchExportField, BatchExportSchema, SnowflakeBatchExportInputs
+from posthog.batch_exports.service import (
+    BatchExportField,
+    BatchExportSchema,
+    SnowflakeBatchExportInputs,
+)
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
-    BatchExportActivityReturnType,
-    CreateBatchExportRunInputs,
     FinishBatchExportRunInputs,
-    create_export_run,
+    RecordsCompleted,
+    StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
+    finish_batch_export_run,
     get_data_interval,
-    get_rows_count,
     iter_records,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
@@ -111,6 +115,7 @@ class SnowflakeInsertInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     batch_export_schema: BatchExportSchema | None = None
+    run_id: str | None = None
 
 
 def use_namespace(connection: SnowflakeConnection, database: str, schema: str) -> None:
@@ -391,16 +396,19 @@ async def copy_loaded_files_to_snowflake_table(
 
 
 @activity.defn
-async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> BatchExportActivityReturnType:
+async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to Snowflake.
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Snowflake")
     logger.info(
-        "Exporting batch %s - %s",
+        "Batch exporting range %s - %s to Snowflake: %s.%s.%s",
         inputs.data_interval_start,
         inputs.data_interval_end,
+        inputs.database,
+        inputs.schema,
+        inputs.table_name,
     )
 
     should_resume, details = await should_resume_from_activity_heartbeat(activity, SnowflakeHeartbeatDetails, logger)
@@ -417,25 +425,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
     async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        count = await get_rows_count(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=data_interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-        )
-
-        if count == 0:
-            logger.info(
-                "Nothing to export in batch %s - %s",
-                inputs.data_interval_start,
-                inputs.data_interval_end,
-            )
-            return 0, 0
-
-        logger.info("BatchExporting %s rows", count)
 
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()
@@ -470,7 +459,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
         record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
+            interval_start=data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -556,7 +545,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
 
             await copy_loaded_files_to_snowflake_table(connection, inputs.table_name)
 
-        return local_results_file.records_total, count
+        return local_results_file.records_total
 
 
 @workflow.defn(name="snowflake-export")
@@ -580,15 +569,17 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Snowflake table."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
-        create_export_run_inputs = CreateBatchExportRunInputs(
+        start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
-        run_id = await workflow.execute_activity(
-            create_export_run,
-            create_export_run_inputs,
+        run_id, records_total_count = await workflow.execute_activity(
+            start_batch_export_run,
+            start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -603,6 +594,20 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
+
+        if records_total_count == 0:
+            await workflow.execute_activity(
+                finish_batch_export_run,
+                finish_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+            return
 
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
@@ -619,6 +624,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             batch_export_schema=inputs.batch_export_schema,
+            run_id=run_id,
         )
 
         await execute_batch_export_insert_activity(

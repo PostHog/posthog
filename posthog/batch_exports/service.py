@@ -417,6 +417,7 @@ def create_batch_export_run(
     data_interval_start: str,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
+    records_total_count: int | None = None,
 ) -> BatchExportRun:
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -434,6 +435,7 @@ def create_batch_export_run(
         status=status,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start),
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
+        records_total_count=records_total_count,
     )
     run.save()
 
