@@ -144,9 +144,9 @@ class HobbyTester:
         print("Failure - we timed out before receiving a heartbeat")
         return False
 
-    def create_dns_entry(self, type, name, data):
+    def create_dns_entry(self, type, name, data, ttl=30):
         self.domain = digitalocean.Domain(token=self.token, name=DOMAIN)
-        self.record = self.domain.create_new_domain_record(type=type, name=name, data=data)
+        self.record = self.domain.create_new_domain_record(type=type, name=name, data=data, ttl=ttl)
         return self.record
 
     def create_dns_entry_for_instance(self):
