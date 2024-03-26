@@ -42,6 +42,9 @@ function AndroidSetupSnippet({ includeReplay }: AndroidSetupProps): JSX.Element 
         ${
             includeReplay
                 ? `
+        // check https://posthog.com/docs/session-replay/mobile#installation
+        // for more config and to learn about how we capture sessions on mobile
+        // and what to expect
         config.sessionReplay = true
         // choose whether to mask images or text
         config.sessionReplayConfig.maskAllImages = false
