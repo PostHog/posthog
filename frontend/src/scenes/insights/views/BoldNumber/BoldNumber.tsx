@@ -99,7 +99,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
 
     const isTrendsQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
         isTrends &&
         query &&
         isInsightVizNode(query) &&
@@ -178,7 +178,7 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
             : 'No change from'
 
     const isTrendsQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
         isTrends &&
         query &&
         isInsightVizNode(query) &&
