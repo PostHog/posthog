@@ -4,6 +4,7 @@ import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -151,34 +152,38 @@ export function SecondaryMetricsTable({
         countDataForVariant,
         exposureCountDataForVariant,
         conversionRateForVariant,
+        experimentMathAggregationForTrends,
     } = useValues(experimentLogic({ experimentId }))
 
-    const columns: LemonTableColumns<TabularSecondaryMetricResults> = [
+    const columns: LemonTableColumns<any> = [
         {
-            key: 'variant',
-            title: 'Variant',
-            render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
-                return (
-                    <div className="flex items-center">
-                        <div
-                            className="w-2 h-2 rounded-full mr-2"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                backgroundColor: getExperimentInsightColour(
-                                    getIndexForVariant(experimentResults, item.variant)
-                                ),
-                            }}
-                        />
-                        <span className="font-semibold">{capitalizeFirstLetter(item.variant)}</span>
-                    </div>
-                )
-            },
+            children: [
+                {
+                    title: <div className="py-2">Variant</div>,
+                    render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                        return (
+                            <div className="flex items-center py-2">
+                                <div
+                                    className="w-2 h-2 rounded-full mr-2"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        backgroundColor: getExperimentInsightColour(
+                                            getIndexForVariant(experimentResults, item.variant)
+                                        ),
+                                    }}
+                                />
+                                <span className="font-semibold">{capitalizeFirstLetter(item.variant)}</span>
+                            </div>
+                        )
+                    },
+                },
+            ],
         },
     ]
 
     experiment.secondary_metrics?.forEach((metric, idx) => {
         const Header = (): JSX.Element => (
-            <div className="py-4 px-2 border-l border-r border-b">
+            <div className="">
                 <div className="flex">
                     <div className="w-3/4 truncate">{capitalizeFirstLetter(metric.name)}</div>
                     <div className="w-1/4 flex flex-col justify-end">
@@ -203,92 +208,88 @@ export function SecondaryMetricsTable({
             </div>
         )
 
+        const targetResults = secondaryMetricResults?.[idx]
+        const targetResultFilters = targetResults?.filters
+        const winningVariant = findKeyWithHighestNumber(targetResults?.probability || null)
+
         if (metric.filters.insight === InsightType.TRENDS) {
             columns.push({
-                key: `results_${idx}`,
-                title: (
-                    <div className="w-80">
-                        <Header />
-                        <div className="w-80 inline-flex">
-                            <div className="w-1/3 py-1 flex items-center justify-center border-l text-xs">Count</div>
-                            <div className="w-1/3 py-1 flex items-center justify-center border-l text-xs">Exposure</div>
-                            <div className="w-1/3 py-1 flex items-center justify-center text-center border-l border-r text-xs text-wrap">
-                                Win probability
+                title: <Header />,
+                children: [
+                    {
+                        title: (
+                            <div className="flex">
+                                [
+                                {targetResults &&
+                                    targetResults.insight?.[0] &&
+                                    'action' in targetResults.insight[0] && (
+                                        <EntityFilterInfo filter={targetResults.insight[0].action} />
+                                    )}
+                                ]
+                                <span className="pl-1">
+                                    {experimentMathAggregationForTrends(targetResultFilters) ? 'metric' : 'count'}
+                                </span>
                             </div>
-                        </div>
-                    </div>
-                ),
-                render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
-                    const targetResults = secondaryMetricResults?.[idx]
-
-                    const { variant } = item
-                    const winningVariant = findKeyWithHighestNumber(targetResults?.probability || null)
-
-                    return (
-                        <div className="w-80 py-0 inline-flex">
-                            <div className="w-1/3 leading-10 text-center border-l text-xs">
-                                {targetResults ? countDataForVariant(targetResults, variant) : '--'}
-                            </div>
-                            <div className="w-1/3 leading-10 text-center border-l text-xs">
-                                {targetResults ? exposureCountDataForVariant(targetResults, variant) : '--'}
-                            </div>
-                            <div
-                                className={`w-1/3 leading-10 text-center border-l border-r text-xs ${
-                                    variant === winningVariant ? 'text-success' : ''
-                                }`}
-                            >
-                                <b>
-                                    {targetResults?.probability?.[variant] != undefined
-                                        ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
-                                        : '--'}
-                                </b>
-                            </div>
-                        </div>
-                    )
-                },
+                        ),
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const { variant } = item
+                            return <div>{targetResults ? countDataForVariant(targetResults, variant) : '--'}</div>
+                        },
+                    },
+                    {
+                        title: 'Exposure',
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const { variant } = item
+                            return (
+                                <div>{targetResults ? exposureCountDataForVariant(targetResults, variant) : '--'}</div>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Win probability',
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const { variant } = item
+                            return (
+                                <div className={variant === winningVariant ? 'text-success' : ''}>
+                                    <b>
+                                        {targetResults?.probability?.[variant] != undefined
+                                            ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
+                                            : '--'}
+                                    </b>
+                                </div>
+                            )
+                        },
+                    },
+                ],
             })
         } else {
             columns.push({
-                key: `results_${idx}`,
-                title: (
-                    <div className="w-80">
-                        <Header />
-                        <div className="w-80 inline-flex">
-                            <div className="w-1/2 py-3 flex items-center justify-center border-l text-xs">
-                                Conversion rate
-                            </div>
-                            <div className="w-1/2 py-3 flex items-center justify-center text-center border-l border-r text-xs text-wrap">
-                                Win probability
-                            </div>
-                        </div>
-                    </div>
-                ),
-                render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
-                    const targetResults = secondaryMetricResults?.[idx]
-
-                    const { variant } = item
-                    const winningVariant = findKeyWithHighestNumber(targetResults?.probability || null)
-
-                    const conversionRate = conversionRateForVariant(targetResults || null, variant)
-                    return (
-                        <div className="w-80 h-10 py-0 inline-flex">
-                            <div className="w-1/2 leading-10 text-center border-l text-xs">
-                                {conversionRate === '--' ? conversionRate : `${conversionRate}%`}
-                            </div>
-                            <div
-                                className={`w-1/2 leading-10 text-center border-l border-r text-xs ${
-                                    variant === winningVariant ? 'text-success' : ''
-                                }`}
-                            >
-                                <b>
-                                    {targetResults?.probability?.[variant] != undefined
-                                        ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
-                                        : '--'}
-                                </b>
-                            </div>
-                        </div>
-                    )
-                },
+                title: <Header />,
+                children: [
+                    {
+                        title: 'Conversion rate',
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const { variant } = item
+                            const conversionRate = conversionRateForVariant(targetResults || null, variant)
+                            return <div>{conversionRate === '--' ? conversionRate : `${conversionRate}%`}</div>
+                        },
+                    },
+                    {
+                        title: 'Win probability',
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const { variant } = item
+                            return (
+                                <div className={variant === winningVariant ? 'text-success' : ''}>
+                                    <b>
+                                        {targetResults?.probability?.[variant] != undefined
+                                            ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
+                                            : '--'}
+                                    </b>
+                                </div>
+                            )
+                        },
+                    },
+                ],
             })
         }
     })
