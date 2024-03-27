@@ -6,6 +6,7 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -96,6 +97,9 @@ export const signupLogic = kea<signupLogicType>([
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
                     })
+                    if (!payload.organization_name) {
+                        posthog.capture('sign up organization name not provided')
+                    }
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     actions.setSignupPanel2ManualErrors({
