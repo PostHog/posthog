@@ -8,7 +8,6 @@ jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/kafka/producer')
 
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
-const TIMESTAMP_IN_2017 = 1511220335
 
 describe('overflow manager', () => {
     let hub: Hub
@@ -64,24 +63,40 @@ describe('overflow manager', () => {
     })
 
     test('it does not update existing values', async () => {
-        await redis.zadd(CAPTURE_OVERFLOW_REDIS_KEY, TIMESTAMP_IN_2017, 'key1')
+        const timestamp = 1711280335000
+        const oldTimestamp = timestamp / 1000 - 200
+        await redis.zadd(CAPTURE_OVERFLOW_REDIS_KEY, oldTimestamp, 'key1')
 
-        await overflowManager.observe('key1', 11)
+        await overflowManager.observe('key1', 11, timestamp)
         expect(await redis.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1, 'WITHSCORES')).toEqual([
             'key1',
-            TIMESTAMP_IN_2017.toString(),
+            oldTimestamp.toString(),
         ])
     })
 
     test('it set the expected expiration on new values', async () => {
-        await redis.zadd(CAPTURE_OVERFLOW_REDIS_KEY, TIMESTAMP_IN_2017, 'key1')
-
         const timestamp = 1711280335000
+        const oldTimestamp = timestamp / 1000 - 200
+        await redis.zadd(CAPTURE_OVERFLOW_REDIS_KEY, oldTimestamp, 'key1')
+
         const expectedExpiration = timestamp / 1000 + 3600
         await overflowManager.observe('key2', 11, timestamp)
         expect(await redis.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1, 'WITHSCORES')).toEqual([
             'key1',
-            TIMESTAMP_IN_2017.toString(),
+            oldTimestamp.toString(),
+            'key2',
+            expectedExpiration.toString(),
+        ])
+    })
+
+    test('it removes old values when adding one', async () => {
+        const timestamp = 1711280335000
+        const oldTimestamp = timestamp / 1000 - 8000
+        await redis.zadd(CAPTURE_OVERFLOW_REDIS_KEY, oldTimestamp, 'key1')
+
+        const expectedExpiration = timestamp / 1000 + 3600
+        await overflowManager.observe('key2', 11, timestamp)
+        expect(await redis.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1, 'WITHSCORES')).toEqual([
             'key2',
             expectedExpiration.toString(),
         ])
