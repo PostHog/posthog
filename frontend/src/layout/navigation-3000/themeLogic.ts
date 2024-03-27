@@ -44,8 +44,11 @@ export const themeLogic = kea<themeLogicType>([
             },
         ],
         isDarkModeOn: [
-            (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig],
-            (themeMode, darkModeSystemPreference, sceneConfig) => {
+            (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme],
+            (themeMode, darkModeSystemPreference, sceneConfig, theme) => {
+                if (theme) {
+                    return !!theme?.dark
+                }
                 // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
                 if (
                     sceneConfig?.layout === 'plain' ||
