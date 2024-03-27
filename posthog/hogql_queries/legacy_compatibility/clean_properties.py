@@ -1,6 +1,3 @@
-from posthog.schema import PropertyGroupFilter
-
-
 def clean_global_properties(properties: dict | list[dict] | None):
     if properties is None or len(properties) == 0:
         # empty properties
@@ -12,14 +9,14 @@ def clean_global_properties(properties: dict | list[dict] | None):
             "type": "AND",
             "values": [{"type": "AND", "values": properties}],
         }
-        return PropertyGroupFilter(**clean_property_group_filter(properties))
+        return clean_property_group_filter(properties)
     elif isinstance(properties, list):
         # list of property filters
         properties = {
             "type": "AND",
             "values": [{"type": "AND", "values": properties}],
         }
-        return PropertyGroupFilter(**clean_property_group_filter(properties))
+        return clean_property_group_filter(properties)
     elif (
         isinstance(properties, dict)
         and properties.get("type") in ["AND", "OR"]
@@ -30,10 +27,10 @@ def clean_global_properties(properties: dict | list[dict] | None):
             "type": "AND",
             "values": [properties],
         }
-        return PropertyGroupFilter(**clean_property_group_filter(properties))
+        return clean_property_group_filter(properties)
     else:
         # property group filter
-        return PropertyGroupFilter(**clean_property_group_filter(properties))
+        return clean_property_group_filter(properties)
 
 
 def clean_entity_properties(properties: list[dict] | dict | None):

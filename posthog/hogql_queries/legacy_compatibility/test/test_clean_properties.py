@@ -1,12 +1,4 @@
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
-from posthog.schema import (
-    CohortPropertyFilter,
-    EventPropertyFilter,
-    FilterLogicalOperator,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
-    PropertyOperator,
-)
 from posthog.test.base import BaseTest
 
 
@@ -25,17 +17,15 @@ class TestCleanGlobalProperties(BaseTest):
 
         self.assertEqual(
             result,
-            PropertyGroupFilter(
-                type=FilterLogicalOperator.AND,
-                values=[
-                    PropertyGroupFilterValue(
-                        type=FilterLogicalOperator.AND,
-                        values=[
-                            EventPropertyFilter(key="utm_medium", value="email", operator=PropertyOperator.icontains)
-                        ],
-                    )
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "utm_medium", "operator": "icontains", "type": "event", "value": "email"}],
+                    }
                 ],
-            ),
+            },
         )
 
     def test_handles_property_filter_lists(self):
@@ -45,15 +35,15 @@ class TestCleanGlobalProperties(BaseTest):
 
         self.assertEqual(
             result,
-            PropertyGroupFilter(
-                type=FilterLogicalOperator.AND,
-                values=[
-                    PropertyGroupFilterValue(
-                        type=FilterLogicalOperator.AND,
-                        values=[CohortPropertyFilter(key="id", value=636)],
-                    )
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "id", "type": "cohort", "value": 636}],
+                    }
                 ],
-            ),
+            },
         )
 
     def test_handles_property_group_filters(self):
@@ -66,15 +56,15 @@ class TestCleanGlobalProperties(BaseTest):
 
         self.assertEqual(
             result,
-            PropertyGroupFilter(
-                type=FilterLogicalOperator.AND,
-                values=[
-                    PropertyGroupFilterValue(
-                        type=FilterLogicalOperator.AND,
-                        values=[CohortPropertyFilter(key="id", value=850)],
-                    )
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "id", "type": "cohort", "value": 850}],
+                    }
                 ],
-            ),
+            },
         )
 
     def test_handles_property_group_filters_values(self):
@@ -87,15 +77,15 @@ class TestCleanGlobalProperties(BaseTest):
 
         self.assertEqual(
             result,
-            PropertyGroupFilter(
-                type=FilterLogicalOperator.AND,
-                values=[
-                    PropertyGroupFilterValue(
-                        type=FilterLogicalOperator.AND,
-                        values=[CohortPropertyFilter(key="id", value=850)],
-                    )
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "id", "type": "cohort", "value": 850}],
+                    }
                 ],
-            ),
+            },
         )
 
 
