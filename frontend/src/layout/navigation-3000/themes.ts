@@ -24,4 +24,20 @@ export const themes: Theme[] = [
             background: 'linear-gradient(rgba(255,255,255,0.7),rgba(255,255,255,0.7))',
         },
     },
+    {
+        id: 'developers',
+        name: 'Developers, Developers, Developers, Developers',
+        dark: false,
+        sidebarStyle: {
+            background:
+                'linear-gradient(rgba(255,255,255,0.7),rgba(255,255,255,0.7)),url(https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOWM2eDhveXRrNTJrdGZ5bmdhaGJrZWNqczFiZzUzMXF5aXc5azljNSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/2yuiXIlW8TwY2raAPB/giphy-downsized-large.gif)',
+        },
+        mainStyle: {
+            background:
+                'linear-gradient(rgba(255,255,255,0.7),rgba(255,255,255,0.7)),url(https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExa3ljdm5mczV3dnQza3lqY3E1czEyd3J0d3A4ZmtqbGE3a2JybTJlMyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/l3q2zbskZp2j8wniE/giphy-downsized-large.gif)',
+        },
+        boxStyle: {
+            background: 'linear-gradient(rgba(255,255,255,0.7),rgba(255,255,255,0.7))',
+        },
+    },
 ]
