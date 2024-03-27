@@ -16,6 +16,7 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -204,6 +205,7 @@ class PathsQueryRunner(QueryRunner):
             limit_context=self.limit_context,
         )
 
+        assert isinstance(actors_query_runner.source_runner, FunnelsQueryRunner)
         assert actors_query_runner.source_runner.context is not None
         actors_query_runner.source_runner.context.includeTimestamp = funnelPathType in (
             FunnelPathType.funnel_path_after_step,
@@ -530,7 +532,7 @@ class PathsQueryRunner(QueryRunner):
             if funnelSourceFilter.funnelWindowInterval:
                 interval = funnelSourceFilter.funnelWindowInterval
                 unit = funnelSourceFilter.funnelWindowIntervalUnit
-                interval_unit = funnel_window_interval_unit_to_sql(unit)
+                interval_unit = funnel_window_interval_unit_to_sql(unit)  # type: ignore
 
             return parse_expr(
                 f"arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(_toInt64(x.3)) < toDateTime('2018-01-01') + INTERVAL {interval} {interval_unit}, 0, 1), paths_tuple)"

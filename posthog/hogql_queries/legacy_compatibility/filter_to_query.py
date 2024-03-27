@@ -1,7 +1,7 @@
 import copy
 from enum import Enum
 import json
-from typing import List, Dict, Literal
+from typing import Any, List, Dict, Literal
 from posthog.models.entity.entity import Entity as LegacyEntity
 from posthog.schema import (
     ActionsNode,
@@ -453,7 +453,7 @@ def _insight_filter(filter: Dict):
                 minEdgeWeight=filter.get("min_edge_weight"),
                 maxEdgeWeight=filter.get("max_edge_weight"),
             ),
-            "funnelPathsFilter": filters_to_funnel_paths_query(filter),
+            "funnelPathsFilter": filters_to_funnel_paths_query(filter),  # type: ignore
         }
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {
@@ -480,7 +480,7 @@ def _insight_filter(filter: Dict):
     return insight_filter
 
 
-def filters_to_funnel_paths_query(filter: Dict) -> FunnelPathsFilter | None:
+def filters_to_funnel_paths_query(filter: Dict[str, Any]) -> FunnelPathsFilter | None:
     funnel_paths = filter.get("funnel_paths")
     funnel_filter = filter.get("funnel_filter")
 
