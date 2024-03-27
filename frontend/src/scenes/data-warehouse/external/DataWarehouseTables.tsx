@@ -5,6 +5,7 @@ import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/Da
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { urls } from 'scenes/urls'
 
@@ -17,8 +18,16 @@ import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import SourceModal from './SourceModal'
 
 export const DataWarehouseTables = (): JSX.Element => {
-    const { isSourceModalOpen, externalTables, posthogTables, savedQueriesFormatted, allTables, selectedRow } =
-        useValues(dataWarehouseSceneLogic)
+    const {
+        isSourceModalOpen,
+        externalTablesBySourceType,
+        dataWarehouseLoading,
+        posthogTables,
+        savedQueriesFormatted,
+        allTables,
+        selectedRow,
+        dataWarehouseSavedQueriesLoading,
+    } = useValues(dataWarehouseSceneLogic)
     const { toggleSourceModal, selectRow, deleteDataWarehouseSavedQuery, deleteDataWarehouseTable } =
         useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -63,12 +72,15 @@ export const DataWarehouseTables = (): JSX.Element => {
     }
 
     const treeItems = (): TreeItem[] => {
-        const items = [
+        const items: TreeItem[] = [
             {
                 name: 'External',
-                items: externalTables.map((table) => ({
-                    table: table,
-                    icon: <IconDatabase />,
+                items: Object.keys(externalTablesBySourceType).map((source_type) => ({
+                    name: source_type,
+                    items: externalTablesBySourceType[source_type].map((table) => ({
+                        table: table,
+                        icon: <IconDatabase />,
+                    })),
                 })),
                 emptyLabel: (
                     <span className="text-muted">
@@ -82,6 +94,7 @@ export const DataWarehouseTables = (): JSX.Element => {
                         </Link>
                     </span>
                 ),
+                isLoading: dataWarehouseLoading,
             },
             {
                 name: 'PostHog',
@@ -99,6 +112,8 @@ export const DataWarehouseTables = (): JSX.Element => {
                     table: table,
                     icon: <IconBrackets />,
                 })),
+                emptyLabel: <span className="text-muted">No views found</span>,
+                isLoading: dataWarehouseSavedQueriesLoading,
             })
         }
 
@@ -108,7 +123,7 @@ export const DataWarehouseTables = (): JSX.Element => {
     return (
         <>
             <div className="grid md:grid-cols-3">
-                <div className="sm:col-span-3 md:col-span-1">
+                <div className="sm:col-span-3 md:col-span-1 max-h-160">
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </div>
                 {selectedRow ? (
@@ -149,6 +164,19 @@ export const DataWarehouseTables = (): JSX.Element => {
                         </div>
                         {selectedRow.type == DataWarehouseRowType.ExternalTable && (
                             <div className="flex flex-col">
+                                <>
+                                    <span className="card-secondary mt-2">Last Synced At</span>
+                                    <span>
+                                        {selectedRow.payload.external_schema?.last_synced_at
+                                            ? humanFriendlyDetailedTime(
+                                                  selectedRow.payload.external_schema?.last_synced_at,
+                                                  'MMMM DD, YYYY',
+                                                  'h:mm A'
+                                              )
+                                            : 'Not yet synced'}
+                                    </span>
+                                </>
+
                                 <>
                                     <span className="card-secondary mt-2">Files URL pattern</span>
                                     <span>{selectedRow.payload.url_pattern}</span>

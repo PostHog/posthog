@@ -18,7 +18,7 @@ import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PeriodicTask } from '../utils/periodic-task'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { delay } from '../utils/utils'
+import { createRedisClient, delay } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { DeferredPersonOverrideWorker, FlatPersonOverrideWriter } from '../worker/ingestion/person-state'
@@ -243,6 +243,12 @@ export async function startPluginsServer(
     // be super lightweight and ideally not do any IO.
     const healthChecks: { [service: string]: () => Promise<boolean> | boolean } = {}
 
+    // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
+    // and cloud deploys don't have concurrent uses. We should abstract multi-Redis into a router util.
+    const captureRedis = serverConfig.CAPTURE_CONFIG_REDIS_HOST
+        ? await createRedisClient(serverConfig.CAPTURE_CONFIG_REDIS_HOST)
+        : undefined
+
     try {
         // Based on the mode the plugin server was started, we start a number of
         // different services. Mostly this is reasonably obvious from the name.
@@ -440,7 +446,7 @@ export async function startPluginsServer(
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3)
+            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, captureRedis)
             await ingester.start()
 
             const batchConsumer = ingester.batchConsumer
