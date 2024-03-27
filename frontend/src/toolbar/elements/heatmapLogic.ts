@@ -112,7 +112,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                             ],
                             ...values.heatmapFilter,
                         }
-                        const includeEventsParams = '&include=$autocapture&include=$rageclick'
+                        const includeEventsParams = '&include=["$autocapture", "$rageclick"]'
                         defaultUrl = `/api/element/stats/${encodeParams(
                             { ...params, paginate_response: true },
                             '?'

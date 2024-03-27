@@ -4,6 +4,7 @@ from typing import Dict, List
 
 from django.test import override_settings
 from freezegun import freeze_time
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Element, ElementGroup, Organization
@@ -246,10 +247,11 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert results == expected_all_data_response_results
 
-    def test_element_stats_can_load_only_rageclick_data(self) -> None:
+    @parameterized.expand(["&include=$rageclick", '&include=["$rageclick"]'])
+    def test_element_stats_can_load_only_rageclick_data(self, include_params) -> None:
         self._setup_events()
 
-        response = self.client.get(f"/api/element/stats/?paginate_response=true&include=$rageclick")
+        response = self.client.get(f"/api/element/stats/?paginate_response=true{include_params}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
@@ -258,12 +260,11 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert results == expected_rage_click_data_response_results
 
-    def test_element_stats_can_load_rageclick_and_autocapture_data(self) -> None:
+    @parameterized.expand(["&include=$rageclick&include=$autocapture", '&include=["$rageclick", "$autocapture"]'])
+    def test_element_stats_can_load_rageclick_and_autocapture_data(self, include_params) -> None:
         self._setup_events()
 
-        response = self.client.get(
-            f"/api/element/stats/?paginate_response=true&include=$rageclick&include=$autocapture"
-        )
+        response = self.client.get(f"/api/element/stats/?paginate_response=true{include_params}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
