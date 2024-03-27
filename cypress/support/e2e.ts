@@ -54,13 +54,6 @@ beforeEach(() => {
             password: '12345678',
         })
         cy.visit('/?no-preloaded-app-context=true')
-    } else if (Cypress.spec.name.includes('before')) {
-        cy.request('POST', '/api/login/', {
-            email: 'test@posthog.com',
-            password: '12345678',
-        })
-
-        cy.visit('/?no-preloaded-app-context=true')
     } else {
         cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?/).as('getInsights')
 
@@ -68,10 +61,15 @@ beforeEach(() => {
             email: 'test@posthog.com',
             password: '12345678',
         })
-        cy.visit('/insights')
-        cy.wait('@getInsights').then(() => {
-            cy.get('.saved-insights tr').should('exist')
-        })
+
+        if (Cypress.spec.name.includes('before-onboarding')) {
+            cy.visit('/?no-preloaded-app-context=true')
+        } else {
+            cy.visit('/insights')
+            cy.wait('@getInsights').then(() => {
+                cy.get('.saved-insights tr').should('exist')
+            })
+        }
     }
 })
 
