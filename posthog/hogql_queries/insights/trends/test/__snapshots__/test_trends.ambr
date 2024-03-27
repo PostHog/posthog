@@ -3589,7 +3589,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC))
+        ORDER BY day_start ASC, breakdown_value ASC)
+     ORDER BY day_start ASC)
   GROUP BY breakdown_value
   ORDER BY sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
@@ -3653,7 +3654,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC))
+        ORDER BY day_start ASC, breakdown_value ASC)
+     ORDER BY day_start ASC)
   GROUP BY breakdown_value
   ORDER BY sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
@@ -4036,7 +4038,8 @@
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))), equals(e.event, 'viewed video'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
            GROUP BY e.`$group_0`)
         GROUP BY day_start
-        ORDER BY day_start ASC))
+        ORDER BY day_start ASC)
+     ORDER BY day_start ASC)
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
@@ -4066,7 +4069,8 @@
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY day_start)
         GROUP BY day_start
-        ORDER BY day_start ASC))
+        ORDER BY day_start ASC)
+     ORDER BY day_start ASC)
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
@@ -4103,7 +4107,8 @@
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
            GROUP BY e__pdi.person_id)
         GROUP BY day_start
-        ORDER BY day_start ASC))
+        ORDER BY day_start ASC)
+     ORDER BY day_start ASC)
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
