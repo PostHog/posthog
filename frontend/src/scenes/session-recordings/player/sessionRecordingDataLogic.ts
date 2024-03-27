@@ -67,9 +67,10 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
-    withMobileTransformer: boolean
+    // this is only kept so that we can export the untransformed data for debugging
+    withMobileTransformer: boolean = true
 ): Promise<RecordingSnapshot[]> => {
-    if (!postHogEEModule && withMobileTransformer) {
+    if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
     }
     const lineCount = items.length
@@ -239,11 +240,7 @@ async function processEncodedResponse(
     let untransformed: RecordingSnapshot[] | null = null
 
     const transformed = deduplicateSnapshots(
-        await parseEncodedSnapshots(
-            encodedResponse,
-            props.sessionRecordingId,
-            !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE]
-        ),
+        await parseEncodedSnapshots(encodedResponse, props.sessionRecordingId),
         existingData?.snapshots ?? []
     )
 

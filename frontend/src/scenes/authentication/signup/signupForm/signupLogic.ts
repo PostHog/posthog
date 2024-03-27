@@ -6,6 +6,7 @@ import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -22,7 +23,7 @@ export interface AccountResponse {
 export interface SignupForm {
     email: string
     password: string
-    first_name: string
+    name: string
     organization_name: string
     role_at_organization: string
     referral_source: string
@@ -78,19 +79,27 @@ export const signupLogic = kea<signupLogicType>([
             alwaysShowErrors: true,
             showErrorsOnTouch: true,
             defaults: {
-                first_name: '',
+                name: '',
                 organization_name: '',
                 role_at_organization: '',
                 referral_source: '',
             } as SignupForm,
-            errors: ({ first_name, organization_name }) => ({
-                first_name: !first_name ? 'Please enter your name' : undefined,
-                organization_name: !organization_name ? 'Please enter your organization name' : undefined,
+            errors: ({ name }) => ({
+                name: !name ? 'Please enter your name' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 breakpoint()
                 try {
-                    const res = await api.create('api/signup/', { ...values.signupPanel1, ...payload })
+                    const res = await api.create('api/signup/', {
+                        ...values.signupPanel1,
+                        ...payload,
+                        first_name: payload.name.split(' ')[0],
+                        last_name: payload.name.split(' ')[1] || undefined,
+                        organization_name: payload.organization_name || undefined,
+                    })
+                    if (!payload.organization_name) {
+                        posthog.capture('sign up organization name not provided')
+                    }
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     actions.setSignupPanel2ManualErrors({
@@ -142,7 +151,7 @@ export const signupLogic = kea<signupLogicType>([
                         email,
                     })
                     actions.setSignupPanel2Values({
-                        first_name: 'X',
+                        name: 'X',
                         organization_name: 'Y',
                     })
                     actions.submitSignupPanel2()

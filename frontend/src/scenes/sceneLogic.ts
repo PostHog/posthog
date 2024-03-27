@@ -202,7 +202,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         !teamLogic.values.currentTeam.is_demo &&
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.onboarding('')) &&
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
+                        !removeProjectIdIfPresent(location.pathname).startsWith('/settings')
                     ) {
                         const allProductUrls = Object.values(productUrlMapping).flat()
                         if (

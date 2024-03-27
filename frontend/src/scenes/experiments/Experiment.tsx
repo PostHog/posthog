@@ -840,7 +840,13 @@ export function Experiment(): JSX.Element {
     )
 }
 
-const ResetButton = ({ experiment, onConfirm }: { experiment: ExperimentType; onConfirm: () => void }): JSX.Element => {
+export const ResetButton = ({
+    experiment,
+    onConfirm,
+}: {
+    experiment: ExperimentType
+    onConfirm: () => void
+}): JSX.Element => {
     const onClickReset = (): void => {
         LemonDialog.open({
             title: 'Reset this experiment?',

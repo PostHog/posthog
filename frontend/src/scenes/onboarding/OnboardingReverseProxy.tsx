@@ -46,12 +46,7 @@ const proxyDocs = [
 
 export const OnboardingReverseProxy = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
     return (
-        <OnboardingStep
-            title="Reverse proxy (optional)"
-            stepKey={stepKey}
-            continueText="I've already done this"
-            showSkip
-        >
+        <OnboardingStep title="Reverse proxy (optional)" stepKey={stepKey} showSkip>
             <div className="mb-6 mt-6">
                 <p>A reverse proxy allows you to send events to PostHog Cloud using your own domain.</p>
                 <p>

@@ -150,10 +150,14 @@ class Breakdown:
                         left=transform_func, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value)
                     )
                 )
+            elif value == BREAKDOWN_NULL_STRING_LABEL:
+                compare_ops.append(
+                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=None))
+                )
+                compare_ops.append(
+                    ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=""))
+                )
             else:
-                if value == BREAKDOWN_NULL_STRING_LABEL:
-                    value = None
-
                 compare_ops.append(
                     ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=value))
                 )
@@ -172,21 +176,17 @@ class Breakdown:
         return self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain))
 
     def _get_breakdown_values_transform(self, node: ast.Expr) -> ast.Call:
-        breakdown_values = self._breakdown_values_ast
-        return ast.Call(
-            name="transform",
-            args=[
-                ast.Call(
-                    name="ifNull",
-                    args=[
-                        hogql_to_string(node),
-                        ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                    ],
-                ),
-                breakdown_values,
-                breakdown_values,
-                ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
-            ],
+        return cast(
+            ast.Call,
+            parse_expr(
+                "transform(ifNull(nullIf(toString({node}), ''), {nil}), {values}, {values}, {other})",
+                placeholders={
+                    "node": node,
+                    "values": self._breakdown_values_ast,
+                    "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                    "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                },
+            ),
         )
 
     @cached_property

@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
+import { Redis } from 'ioredis'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
+import { Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
@@ -12,10 +13,14 @@ import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
 
 const SESSION_RECORDING_REDIS_PREFIX = '@posthog-tests/replay/'
+const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
 
 const config: PluginsServerConfig = {
     ...defaultConfig,
     SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: true,
+    SESSION_RECORDING_OVERFLOW_ENABLED: true,
+    SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 1_000_000, // 1MB burst
+    SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 1_000, // 1kB/s replenish
     SESSION_RECORDING_REDIS_PREFIX,
 }
 
@@ -68,6 +73,7 @@ describe('ingester', () => {
     let teamToken = ''
     let mockOffsets: Record<number, number> = {}
     let mockCommittedOffsets: Record<number, number> = {}
+    let redisConn: Redis
 
     beforeAll(async () => {
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
@@ -103,9 +109,12 @@ describe('ingester', () => {
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
         teamToken = team.api_token
+        redisConn = await hub.redisPool.acquire(0)
+        await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
+
         await deleteKeysWithPrefix(hub)
 
-        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
+        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, redisConn)
         await ingester.start()
 
         mockConsumer.assignments.mockImplementation(() => [createTP(0), createTP(1)])
@@ -113,6 +122,8 @@ describe('ingester', () => {
 
     afterEach(async () => {
         jest.setTimeout(10000)
+        await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
+        await hub.redisPool.release(redisConn)
         await deleteKeysWithPrefix(hub)
         await ingester.stop()
         await closeHub()
@@ -128,7 +139,7 @@ describe('ingester', () => {
         await ingester.commitAllOffsets(ingester.partitionMetrics, Object.values(ingester.sessions))
     }
 
-    const createMessage = (session_id: string, partition = 1) => {
+    const createMessage = (session_id: string, partition = 1, messageOverrides: Partial<Message> = {}) => {
         mockOffsets[partition] = mockOffsets[partition] ?? 0
         mockOffsets[partition]++
 
@@ -137,6 +148,7 @@ describe('ingester', () => {
             {
                 partition,
                 offset: mockOffsets[partition],
+                ...messageOverrides,
             },
             {
                 $session_id: session_id,
@@ -150,7 +162,7 @@ describe('ingester', () => {
             KAFKA_HOSTS: 'localhost:9092',
         } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
+        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, undefined)
         expect(ingester['debugPartition']).toEqual(103)
     })
 
@@ -159,7 +171,7 @@ describe('ingester', () => {
             KAFKA_HOSTS: 'localhost:9092',
         } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
+        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, undefined)
         expect(ingester['debugPartition']).toBeUndefined()
     })
 
@@ -424,7 +436,7 @@ describe('ingester', () => {
         jest.setTimeout(5000) // Increased to cover lock delay
 
         beforeEach(async () => {
-            otherIngester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
+            otherIngester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, undefined)
             await otherIngester.start()
         })
 
@@ -558,6 +570,62 @@ describe('ingester', () => {
                 partition: 1,
                 topic: 'session_recording_snapshot_item_events_test',
             })
+        })
+    })
+
+    describe('overflow detection', () => {
+        const ingestBurst = async (count: number, size_bytes: number, timestamp_delta: number) => {
+            const first_timestamp = Date.now() - 2 * timestamp_delta * count
+
+            // Because messages from the same batch are reduced into a single one, we call handleEachBatch
+            // with individual messages to have better control on the message timestamp
+            for (let n = 0; n < count; n++) {
+                const message = createMessage('sid1', 1, {
+                    size: size_bytes,
+                    timestamp: first_timestamp + n * timestamp_delta,
+                })
+                await ingester.handleEachBatch([message], noop)
+            }
+        }
+
+        it('should not trigger overflow if under threshold', async () => {
+            await ingestBurst(10, 100, 10)
+            expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
+        })
+
+        it('should trigger overflow during bursts', async () => {
+            const expected_expiration = Math.floor(Date.now() / 1000) + 24 * 3600 // 24 hours from now, in seconds
+            await ingestBurst(10, 150_000, 10)
+
+            expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
+            expect(
+                await redisConn.zrangebyscore(
+                    CAPTURE_OVERFLOW_REDIS_KEY,
+                    expected_expiration - 10,
+                    expected_expiration + 10
+                )
+            ).toEqual([`${team.id}:sid1`])
+        })
+
+        it('should not trigger overflow during backfills', async () => {
+            await ingestBurst(10, 150_000, 150_000)
+            expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
+        })
+
+        it('should cleanup older entries when triggering', async () => {
+            await redisConn.zadd(CAPTURE_OVERFLOW_REDIS_KEY, 'NX', Date.now() / 1000 - 7000, 'expired:session')
+            await redisConn.zadd(CAPTURE_OVERFLOW_REDIS_KEY, 'NX', Date.now() / 1000 - 1000, 'not_expired:session')
+            expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
+                'expired:session',
+                'not_expired:session',
+            ])
+
+            await ingestBurst(10, 150_000, 10)
+            expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
+            expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
+                'not_expired:session',
+                `${team.id}:sid1`,
+            ])
         })
     })
 
