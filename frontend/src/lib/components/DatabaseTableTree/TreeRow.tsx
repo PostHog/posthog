@@ -59,13 +59,13 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                         depth={depth + 1}
                         onSelectRow={onClick}
                         selectedRow={selectedRow}
-                        style={{ marginLeft: `${2 * depth}rem`, padding: 0 }}
+                        style={{ marginLeft: `2rem`, padding: 0 }}
                     />
                 ) : (
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            marginLeft: `${3 * depth}rem`,
+                            marginLeft: `${2 * depth}rem`,
                         }}
                     >
                         {item.isLoading ? (

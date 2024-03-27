@@ -15,7 +15,7 @@ export type TreeItem = TreeItemFolder | TreeItemLeaf
 
 export interface TreeItemFolder {
     name: string
-    items: TreeItemLeaf[]
+    items: TreeItem[]
     emptyLabel?: JSX.Element
     isLoading?: boolean
 }
@@ -34,7 +34,7 @@ export function DatabaseTableTree({
     ...props
 }: TreeProps): JSX.Element {
     return (
-        <ul className={`bg-bg-light p-4 rounded-lg ${className}`} {...props}>
+        <ul className={`bg-bg-light ${depth == 1 ? 'p-4' : ''} rounded-lg ${className}`} {...props}>
             {items.map((item, index) => {
                 if ('items' in item) {
                     return (

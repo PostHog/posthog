@@ -20,7 +20,7 @@ import SourceModal from './SourceModal'
 export const DataWarehouseTables = (): JSX.Element => {
     const {
         isSourceModalOpen,
-        externalTables,
+        externalTablesBySourceType,
         dataWarehouseLoading,
         posthogTables,
         savedQueriesFormatted,
@@ -72,12 +72,15 @@ export const DataWarehouseTables = (): JSX.Element => {
     }
 
     const treeItems = (): TreeItem[] => {
-        const items = [
+        const items: TreeItem[] = [
             {
                 name: 'External',
-                items: externalTables.map((table) => ({
-                    table: table,
-                    icon: <IconDatabase />,
+                items: Object.keys(externalTablesBySourceType).map((source_type) => ({
+                    name: source_type,
+                    items: externalTablesBySourceType[source_type].map((table) => ({
+                        table: table,
+                        icon: <IconDatabase />,
+                    })),
                 })),
                 emptyLabel: (
                     <span className="text-muted">
