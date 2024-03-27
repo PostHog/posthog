@@ -24,7 +24,7 @@ export function Login2FA(): JSX.Element {
             }
         >
             <div className="space-y-2">
-                <h2>Two-Factor Authentication</h2>
+                <h2>Two-factor authentication</h2>
                 <p>Enter a token from your authenticator app.</p>
 
                 <Form logic={login2FALogic} formKey="twofactortoken" enableFormOnSubmit className="space-y-4">

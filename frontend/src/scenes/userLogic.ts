@@ -2,7 +2,7 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -28,6 +28,7 @@ export const userLogic = kea<userLogicType>([
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
         switchTeam: (teamId: string | number) => ({ teamId }),
+        __testOnlyOverrideThemeFromCookie: (theme: UserTheme | null) => ({ theme }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -106,6 +107,12 @@ export const userLogic = kea<userLogicType>([
                     last_name: user?.last_name || '',
                     email: user?.email || '',
                 }),
+            },
+        ],
+        themeFromCookie: [
+            getCookie('theme') as UserTheme | null,
+            {
+                __testOnlyOverrideThemeFromCookie: (_, { theme }) => theme,
             },
         ],
     }),
@@ -243,10 +250,10 @@ export const userLogic = kea<userLogicType>([
                     : [],
         ],
 
-        themeMode: [
-            (s) => [s.user],
-            (user): UserTheme => {
-                return user?.theme_mode || 'light'
+        userThemeMode: [
+            (s) => [s.user, s.themeFromCookie],
+            (user, themeFromCookie): UserTheme => {
+                return user?.theme_mode || themeFromCookie || 'light'
             },
         ],
     }),
@@ -270,4 +277,16 @@ export const userLogic = kea<userLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        // This is needed to toggle the theme
+        window.__testOnlyOverrideThemeFromCookie = (theme: UserTheme | null) =>
+            actions.__testOnlyOverrideThemeFromCookie(theme)
+    }),
 ])
+
+declare global {
+    interface Window {
+        /** This is needed to change the theme from outside the React tree. */
+        __testOnlyOverrideThemeFromCookie: (theme: UserTheme | null) => void
+    }
+}
