@@ -69,7 +69,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                         }}
                     >
                         {item.isLoading ? (
-                            <Spinner style={{ fontSize: 20, marginTop: 2 }} />
+                            <Spinner className="mt-2" />
                         ) : emptyLabel ? (
                             emptyLabel
                         ) : (

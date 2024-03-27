@@ -108,6 +108,7 @@ export const DataWarehouseTables = (): JSX.Element => {
                     table: table,
                     icon: <IconBrackets />,
                 })),
+                emptyLabel: <span className="text-muted">No views found</span>,
                 isLoading: dataWarehouseSavedQueriesLoading,
             })
         }
