@@ -1,6 +1,7 @@
 import './TreeRow.scss'
 
 import { IconChevronDown } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { useCallback, useState } from 'react'
@@ -64,10 +65,16 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            marginLeft: `${2 * depth}rem`,
+                            marginLeft: `${3 * depth}rem`,
                         }}
                     >
-                        {emptyLabel ? emptyLabel : <span className="text-muted">No tables found</span>}
+                        {item.isLoading ? (
+                            <Spinner style={{ fontSize: 20, marginTop: 2 }} />
+                        ) : emptyLabel ? (
+                            emptyLabel
+                        ) : (
+                            <span className="text-muted">No tables found</span>
+                        )}
                     </div>
                 ))}
         </li>

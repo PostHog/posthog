@@ -17,8 +17,16 @@ import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import SourceModal from './SourceModal'
 
 export const DataWarehouseTables = (): JSX.Element => {
-    const { isSourceModalOpen, externalTables, posthogTables, savedQueriesFormatted, allTables, selectedRow } =
-        useValues(dataWarehouseSceneLogic)
+    const {
+        isSourceModalOpen,
+        externalTables,
+        dataWarehouseLoading,
+        posthogTables,
+        savedQueriesFormatted,
+        allTables,
+        selectedRow,
+        dataWarehouseSavedQueriesLoading,
+    } = useValues(dataWarehouseSceneLogic)
     const { toggleSourceModal, selectRow, deleteDataWarehouseSavedQuery, deleteDataWarehouseTable } =
         useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -82,6 +90,7 @@ export const DataWarehouseTables = (): JSX.Element => {
                         </Link>
                     </span>
                 ),
+                isLoading: dataWarehouseLoading,
             },
             {
                 name: 'PostHog',
@@ -99,6 +108,7 @@ export const DataWarehouseTables = (): JSX.Element => {
                     table: table,
                     icon: <IconBrackets />,
                 })),
+                isLoading: dataWarehouseSavedQueriesLoading,
             })
         }
 

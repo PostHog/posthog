@@ -17,6 +17,7 @@ export interface TreeItemFolder {
     name: string
     items: TreeItemLeaf[]
     emptyLabel?: JSX.Element
+    isLoading?: boolean
 }
 
 export interface TreeItemLeaf {
