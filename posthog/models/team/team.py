@@ -358,6 +358,25 @@ class Team(UUIDClassicModel):
         return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
 
     @property
+    def person_on_events_v3_querying_enabled(self) -> bool:
+        if settings.PERSON_ON_EVENTS_V3_OVERRIDE is not None:
+            return settings.PERSON_ON_EVENTS_V3_OVERRIDE
+
+        return posthoganalytics.feature_enabled(
+            "persons-on-events-v3-reads-enabled",
+            str(self.uuid),
+            groups={"organization": str(self.organization_id)},
+            group_properties={
+                "organization": {
+                    "id": str(self.organization_id),
+                    "created_at": self.organization.created_at,
+                }
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+
+    @property
     def strict_caching_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
