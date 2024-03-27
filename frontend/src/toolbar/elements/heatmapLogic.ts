@@ -119,14 +119,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         )}${includeEventsParams}`
                     }
 
-                    // toolbar fetch collapses URL query params to an object
-                    // but this URL has multiple with the same name,
-                    // so we must pass it through only-add-token
+                    // toolbar fetch collapses queryparams but this URL has multiple with the same name
                     const response = await toolbarFetch(
                         url || defaultUrl,
                         'GET',
                         undefined,
-                        url ? 'use-as-provided' : 'only-add-token'
+                        url ? 'use-as-provided' : 'full'
                     )
 
                     if (response.status === 403) {
