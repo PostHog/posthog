@@ -33,6 +33,7 @@ from posthog.temporal.batch_exports.bigquery_batch_export import (
     insert_into_bigquery_activity,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -496,7 +497,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bi
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[BigQueryBatchExportWorkflow],
             activities=[
-                start_batch_export_run,
+                mocked_start_batch_export_run,
                 insert_into_bigquery_activity_mocked,
                 finish_batch_export_run,
             ],
@@ -547,7 +548,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[BigQueryBatchExportWorkflow],
             activities=[
-                start_batch_export_run,
+                mocked_start_batch_export_run,
                 insert_into_bigquery_activity_mocked,
                 finish_batch_export_run,
             ],
@@ -568,7 +569,8 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
     run = runs[0]
     assert run.status == "Failed"
     assert run.latest_error == "RefreshError: A useful error message"
-    assert run.records_completed == 0
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_batch_export, interval):
@@ -596,7 +598,7 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[BigQueryBatchExportWorkflow],
             activities=[
-                start_batch_export_run,
+                mocked_start_batch_export_run,
                 never_finish_activity,
                 finish_batch_export_run,
             ],
