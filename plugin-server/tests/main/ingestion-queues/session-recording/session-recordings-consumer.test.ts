@@ -64,7 +64,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
 
 jest.setTimeout(1000)
 
-describe('ingester', () => {
+describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOverflow) => {
     let ingester: SessionRecordingIngester
 
     let hub: Hub
@@ -114,7 +114,7 @@ describe('ingester', () => {
 
         await deleteKeysWithPrefix(hub)
 
-        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, false, redisConn)
+        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow, redisConn)
         await ingester.start()
 
         mockConsumer.assignments.mockImplementation(() => [createTP(0), createTP(1)])
@@ -573,61 +573,76 @@ describe('ingester', () => {
         })
     })
 
-    describe('overflow detection', () => {
-        const ingestBurst = async (count: number, size_bytes: number, timestamp_delta: number) => {
-            const first_timestamp = Date.now() - 2 * timestamp_delta * count
+    describe(
+        'overflow detection',
+        consumeOverflow
+            ? () => {} // Skip these tests when running with consumeOverflow (it's disabled)
+            : () => {
+                  const ingestBurst = async (count: number, size_bytes: number, timestamp_delta: number) => {
+                      const first_timestamp = Date.now() - 2 * timestamp_delta * count
 
-            // Because messages from the same batch are reduced into a single one, we call handleEachBatch
-            // with individual messages to have better control on the message timestamp
-            for (let n = 0; n < count; n++) {
-                const message = createMessage('sid1', 1, {
-                    size: size_bytes,
-                    timestamp: first_timestamp + n * timestamp_delta,
-                })
-                await ingester.handleEachBatch([message], noop)
-            }
-        }
+                      // Because messages from the same batch are reduced into a single one, we call handleEachBatch
+                      // with individual messages to have better control on the message timestamp
+                      for (let n = 0; n < count; n++) {
+                          const message = createMessage('sid1', 1, {
+                              size: size_bytes,
+                              timestamp: first_timestamp + n * timestamp_delta,
+                          })
+                          await ingester.handleEachBatch([message], noop)
+                      }
+                  }
 
-        it('should not trigger overflow if under threshold', async () => {
-            await ingestBurst(10, 100, 10)
-            expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
-        })
+                  it('should not trigger overflow if under threshold', async () => {
+                      await ingestBurst(10, 100, 10)
+                      expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
+                  })
 
-        it('should trigger overflow during bursts', async () => {
-            const expected_expiration = Math.floor(Date.now() / 1000) + 24 * 3600 // 24 hours from now, in seconds
-            await ingestBurst(10, 150_000, 10)
+                  it('should trigger overflow during bursts', async () => {
+                      const expected_expiration = Math.floor(Date.now() / 1000) + 24 * 3600 // 24 hours from now, in seconds
+                      await ingestBurst(10, 150_000, 10)
 
-            expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
-            expect(
-                await redisConn.zrangebyscore(
-                    CAPTURE_OVERFLOW_REDIS_KEY,
-                    expected_expiration - 10,
-                    expected_expiration + 10
-                )
-            ).toEqual([`${team.id}:sid1`])
-        })
+                      expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
+                      expect(
+                          await redisConn.zrangebyscore(
+                              CAPTURE_OVERFLOW_REDIS_KEY,
+                              expected_expiration - 10,
+                              expected_expiration + 10
+                          )
+                      ).toEqual([`${team.id}:sid1`])
+                  })
 
-        it('should not trigger overflow during backfills', async () => {
-            await ingestBurst(10, 150_000, 150_000)
-            expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
-        })
+                  it('should not trigger overflow during backfills', async () => {
+                      await ingestBurst(10, 150_000, 150_000)
+                      expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
+                  })
 
-        it('should cleanup older entries when triggering', async () => {
-            await redisConn.zadd(CAPTURE_OVERFLOW_REDIS_KEY, 'NX', Date.now() / 1000 - 7000, 'expired:session')
-            await redisConn.zadd(CAPTURE_OVERFLOW_REDIS_KEY, 'NX', Date.now() / 1000 - 1000, 'not_expired:session')
-            expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
-                'expired:session',
-                'not_expired:session',
-            ])
+                  it('should cleanup older entries when triggering', async () => {
+                      await redisConn.zadd(
+                          CAPTURE_OVERFLOW_REDIS_KEY,
+                          'NX',
+                          Date.now() / 1000 - 7000,
+                          'expired:session'
+                      )
+                      await redisConn.zadd(
+                          CAPTURE_OVERFLOW_REDIS_KEY,
+                          'NX',
+                          Date.now() / 1000 - 1000,
+                          'not_expired:session'
+                      )
+                      expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
+                          'expired:session',
+                          'not_expired:session',
+                      ])
 
-            await ingestBurst(10, 150_000, 10)
-            expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
-            expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
-                'not_expired:session',
-                `${team.id}:sid1`,
-            ])
-        })
-    })
+                      await ingestBurst(10, 150_000, 10)
+                      expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
+                      expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
+                          'not_expired:session',
+                          `${team.id}:sid1`,
+                      ])
+                  })
+              }
+    )
 
     describe('lag reporting', () => {
         it('should return the latest offsets', async () => {
