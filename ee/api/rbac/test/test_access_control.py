@@ -313,7 +313,7 @@ class TestAccessControlPermissions(BaseAccessControlTest):
 
         # Baseline query (triggers any first time cache things)
         self._get_notebook(self.notebook.short_id)
-        baseline = 8
+        baseline = 7
 
         # Access controls total 3 extra queries - 1 for the user roles, 1 for the project level check and one for the global resource level
         with self.assertNumQueries(baseline + 3):
@@ -324,13 +324,13 @@ class TestAccessControlPermissions(BaseAccessControlTest):
             self._get_notebook(self.other_user_notebook.short_id)
 
         # Except when we query the project directly as we cache the lookup
-        baseline = 6  # Baseline is different as there are fewer parts
+        baseline = 5  # Baseline is different as there are fewer parts
         with self.assertNumQueries(baseline + 3):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 9
+        baseline = 8
         with self.assertNumQueries(baseline + 4):  # 1 roles, 1 project, 1 global, 1 for listing what to filter out
             self.client.get("/api/projects/@current/notebooks/")
 

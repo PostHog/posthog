@@ -86,17 +86,17 @@ class UserAccessControl:
     Typically a Team (Project) is required other than in certain circumstances, particularly when validating which projects a user has access to within an organization.
     """
 
-    def __init__(self, user: User, team: Optional[Team] = None, organization: Optional[Organization] = None):
+    def __init__(self, user: User, team: Optional[Team] = None, organization_id: Optional[str] = None):
         self._user = user
         self._team = team
 
-        if not organization and team:
-            organization = team.organization
+        if not organization_id and team:
+            organization_id = str(team.organization_id)
 
-        if not organization:
-            raise ValueError("Organization must be provided either directly or via the team")
+        if not organization_id:
+            raise ValueError("Organization ID must be provided either directly or via the team")
 
-        self._organization: Organization = organization
+        self._organization_id = organization_id
 
     def _clear_cache(self):
         # Primarily intended for tests
@@ -105,19 +105,34 @@ class UserAccessControl:
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
+        # NOTE: This is optimized to reduce queries - we get the users membership _with_ the organization
         try:
-            return OrganizationMembership.objects.get(organization=self._organization, user=self._user)
+            return OrganizationMembership.objects.select_related("organization").get(
+                organization_id=self._organization_id, user=self._user
+            )
         except OrganizationMembership.DoesNotExist:
             return None
 
     @cached_property
+    def _organization(self) -> Optional[Organization]:
+        if self._organization_membership:
+            return self._organization_membership.organization
+        return None
+
+    @cached_property
     def _user_role_ids(self):
-        # TODO: Make this more efficient
+        if not self.rbac_supported:
+            # Early return to prevent an unnecessary lookup
+            return []
+
         role_memberships = cast(Any, self._user).role_memberships.select_related("role").all()
-        return [membership.role.id for membership in role_memberships] if self.rbac_supported else []
+        return [membership.role.id for membership in role_memberships]
 
     @property
     def rbac_supported(self) -> bool:
+        if not self._organization:
+            return False
+
         return self._organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
 
     @property
@@ -125,6 +140,10 @@ class UserAccessControl:
         # NOTE: This is a proxy feature. We may want to consider making it explicit later
         # ADVANCED_PERMISSIONS was only for dashboard collaborators, PROJECT_BASED_PERMISSIONING for project permissions
         # both now apply to this generic access control
+
+        if not self._organization:
+            return False
+
         return self._organization.is_feature_available(
             AvailableFeature.PROJECT_BASED_PERMISSIONING
         ) or self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
@@ -378,7 +397,7 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             return self.context["view"].user_access_control
         else:
             user = cast(User, self.context["request"].user)
-            return UserAccessControl(user, organization=user.current_organization)
+            return UserAccessControl(user, organization_id=user.current_organization_id)
 
     def get_user_access_level(self, obj: Model) -> Optional[str]:
         return self.user_access_control.access_level_for_object(obj)

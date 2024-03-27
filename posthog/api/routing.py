@@ -265,7 +265,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except (Team.DoesNotExist, KeyError):
             pass
 
-        return UserAccessControl(user=cast(User, self.request.user), team=team, organization=self.organization)
+        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
 
     # Stdout tracing to see what legacy endpoints (non-project-nested) are still requested by the frontend
     # TODO: Delete below when no legacy endpoints are used anymore
