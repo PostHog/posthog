@@ -135,8 +135,6 @@ def traces_sampler(sampling_context: dict) -> float:
 
 def sentry_init() -> None:
     if not TEST and os.getenv("SENTRY_DSN"):
-        sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
-
         # Setting this on enables more visibility, at the risk of capturing personal information we should not:
         #   - standard sentry "client IP" field, through send_default_pii
         #   - django access logs (info level)
@@ -160,18 +158,17 @@ def sentry_init() -> None:
                 RedisIntegration(),
                 sentry_logging,
             ],
-            request_bodies="always" if send_pii else "never",
+            max_request_body_size="always" if send_pii else "never",
             sample_rate=1.0,
             # Configures the sample rate for error events, in the range of 0.0 to 1.0 (default).
             # If set to 0.1 only 10% of error events will be sent. Events are picked randomly.
             traces_sampler=traces_sampler,
             before_send=before_send,
             before_send_transaction=before_send_transaction,
-            _experiments={
-                # https://docs.sentry.io/platforms/python/profiling/
-                # The profiles_sample_rate setting is relative to the traces_sample_rate setting.
-                "profiles_sample_rate": profiles_sample_rate,
-            },
+            # https://docs.sentry.io/platforms/python/profiling/
+            # The profiles_sample_rate setting is relative to the traces_sample_rate setting.
+            profiles_sample_rate=profiles_sample_rate,
+            max_value_length=10_000_000,
         )
 
 

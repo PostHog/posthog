@@ -586,7 +586,7 @@ semantic-version==2.8.5
     # via -r requirements.in
 semver==3.0.2
     # via dlt
-sentry-sdk==1.14.0
+sentry-sdk==2.0.0rc2
     # via -r requirements.in
 simplejson==3.19.2
     # via dlt
