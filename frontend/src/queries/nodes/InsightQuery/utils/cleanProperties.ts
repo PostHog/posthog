@@ -38,7 +38,7 @@ export const cleanGlobalProperties = (
         return cleanPropertyGroupFilter(properties)
     } else if (
         (properties['type'] === 'AND' || properties['type'] === 'OR') &&
-        !properties['values'].some((property) => property['type'] === 'AND' || property['type'] === 'OR')
+        !properties['values'].some((property: any) => property['type'] === 'AND' || property['type'] === 'OR')
     ) {
         // property group filter value
         properties = {
@@ -71,7 +71,7 @@ export const cleanEntityProperties = (
         return properties.map(cleanProperty)
     } else if (
         (properties['type'] === 'AND' || properties['type'] === 'OR') &&
-        !properties['values'].some((property) => property['type'] === 'AND' || property['type'] === 'OR')
+        !properties['values'].some((property: any) => property['type'] === 'AND' || property['type'] === 'OR')
     ) {
         // property group filter value
         return properties.values.map(cleanProperty)
