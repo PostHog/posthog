@@ -1,4 +1,3 @@
-import json
 from typing import Literal, Tuple
 
 from rest_framework import request, response, serializers, viewsets
@@ -131,23 +130,14 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _events_filter(self, request) -> Tuple[Literal["$autocapture", "$rageclick"], ...]:
         event_to_filter: Tuple[Literal["$autocapture", "$rageclick"], ...] = ()
+        # when multiple includes are sent expects them as separate parameters
+        # e.g. ?include=a&include=b
         events_to_include = request.query_params.getlist("include", [])
 
-        # we are migrating from sending multiple include parameters
-        # ?include=a&include=b to a single include parameter
-        # ?include=["a", "b"]
-        # some people run old versions of the toolbar code, so we need to support both
-        if events_to_include and len(events_to_include) == 1:
-            if events_to_include[0].startswith("["):
-                # once we are getting no hits on this counter we can stop processing separate include params
-                statsd.incr(
-                    "toolbar_element_stats_separate_include_params_tombstone",
-                    tags={"team_id": self.team_id},
-                )
-                events_to_include = json.loads(events_to_include[0])
-
         if not events_to_include:
+            # sensible default when not provided
             event_to_filter += ("$autocapture",)
+            event_to_filter += ("$rageclick",)
         else:
             if "$rageclick" in events_to_include:
                 events_to_include.remove("$rageclick")
