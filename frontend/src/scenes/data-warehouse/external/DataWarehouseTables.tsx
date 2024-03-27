@@ -5,6 +5,7 @@ import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/Da
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { urls } from 'scenes/urls'
 
@@ -160,6 +161,19 @@ export const DataWarehouseTables = (): JSX.Element => {
                         </div>
                         {selectedRow.type == DataWarehouseRowType.ExternalTable && (
                             <div className="flex flex-col">
+                                <>
+                                    <span className="card-secondary mt-2">Last Synced At</span>
+                                    <span>
+                                        {selectedRow.payload.external_schema?.last_synced_at
+                                            ? humanFriendlyDetailedTime(
+                                                  selectedRow.payload.external_schema?.last_synced_at,
+                                                  'MMMM DD, YYYY',
+                                                  'h:mm A'
+                                              )
+                                            : 'Not yet synced'}
+                                    </span>
+                                </>
+
                                 <>
                                     <span className="card-secondary mt-2">Files URL pattern</span>
                                     <span>{selectedRow.payload.url_pattern}</span>
