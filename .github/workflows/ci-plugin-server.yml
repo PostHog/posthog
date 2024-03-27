@@ -24,7 +24,7 @@ jobs:
     # Job to decide if we should run plugin server ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run plugin server checks
@@ -54,7 +54,7 @@ jobs:
         name: Code quality
         needs: changes
         if: needs.changes.outputs.plugin-server == 'true'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         defaults:
             run:
                 working-directory: 'plugin-server'
@@ -85,7 +85,7 @@ jobs:
     tests:
         name: Plugin Server Tests (${{matrix.shard}})
         needs: changes
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
 
         strategy:
             fail-fast: false
@@ -183,7 +183,7 @@ jobs:
         name: Functional tests (POE=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}},RDK=${{matrix.KAFKA_CONSUMPTION_USE_RDKAFKA}})
         needs: changes
         if: needs.changes.outputs.plugin-server == 'true'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
 
         strategy:
             fail-fast: false
