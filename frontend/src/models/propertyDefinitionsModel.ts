@@ -32,6 +32,30 @@ const localProperties: PropertyDefinitionStorage = {
         is_seen_on_filtered_events: false,
         property_type: PropertyType.Duration,
     },
+    'event/$initial_channel_type': {
+        id: '$initial_channel_type',
+        name: '$initial_channel_type',
+        description: 'Acquisition channel type of the session',
+        is_numerical: false,
+        is_seen_on_filtered_events: false,
+        property_type: PropertyType.Selector,
+    },
+}
+
+const localOptions: Record<string, Option> = {
+    $initial_channel_type: {
+        label: 'Channel Type',
+        status: 'loaded',
+        values: [
+            { id: 0, name: 'Direct' },
+            { id: 1, name: 'Organic' },
+            { id: 2, name: 'Referral' },
+            { id: 3, name: 'Paid' },
+            { id: 4, name: 'Email' },
+            { id: 5, name: 'Social' },
+            { id: 6, name: 'Other' },
+        ],
+    },
 }
 
 export type FormatPropertyValueForDisplayFunction = (
@@ -125,14 +149,20 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         propertyDefinitionStorage: [
             { ...localProperties } as PropertyDefinitionStorage,
             {
-                updatePropertyDefinitions: (state, { propertyDefinitions }) => ({
-                    ...state,
-                    ...propertyDefinitions,
-                }),
+                updatePropertyDefinitions: (state, { propertyDefinitions }) => {
+                    const x = {
+                        ...state,
+                        ...propertyDefinitions,
+                    }
+                    console.log({ x })
+                    console.log({ x })
+
+                    return x
+                },
             },
         ],
         options: [
-            {} as Record<string, Option>,
+            { ...localOptions } as Record<string, Option>,
             {
                 setOptionsLoading: (state, { key }) => ({ ...state, [key]: { ...state[key], status: 'loading' } }),
                 setOptions: (state, { key, values }) => ({

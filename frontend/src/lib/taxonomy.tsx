@@ -1006,13 +1006,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             ),
             examples: ['01:04:12'],
         },
-        $min_timestamp: {
-            label: 'First timestamp',
+        $start_timestamp: {
+            label: 'Start timestamp',
             description: <span>The timestamp of the first event from this session.</span>,
             examples: [new Date().toISOString()],
         },
-        $max_timestamp: {
-            label: 'Last timestamp',
+        $end_timestamp: {
+            label: 'End timestamp',
             description: <span>The timestamp of the last event from this session</span>,
             examples: [new Date().toISOString()],
         },

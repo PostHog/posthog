@@ -55,12 +55,12 @@ def create_initial_channel_type(name: str):
 
 
 def create_channel_type_expr(
-    campaign: ast.Expr,
-    medium: ast.Expr,
-    source: ast.Expr,
-    referring_domain: ast.Expr,
-    gclid: ast.Expr,
-    gad_source: ast.Expr,
+        campaign: ast.Expr,
+        medium: ast.Expr,
+        source: ast.Expr,
+        referring_domain: ast.Expr,
+        gclid: ast.Expr,
+        gad_source: ast.Expr,
 ) -> ast.Expr:
     def wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
         return ast.Call(
@@ -139,3 +139,23 @@ multiIf(
             "gad_source": wrap_with_null_if_empty(gad_source),
         },
     )
+
+
+POSSIBLE_CHANNEL_TYPES = [
+    'Cross Network',
+    'Paid Search',
+    'Paid Video',
+    'Paid Shopping',
+    'Paid Other',
+    'Direct'
+    'Organic Search',
+    'Organic Video',
+    'Organic Shopping',
+    'Push',
+    'SMS'
+    'Audio'
+    "Email",
+    "Referral",
+    "Affiliate",
+    'Other',
+]

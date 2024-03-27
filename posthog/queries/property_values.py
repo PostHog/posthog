@@ -79,3 +79,19 @@ def get_person_property_values_for_key(key: str, team: Team, value: Optional[str
         query_type="get_person_property_values",
         team_id=team.pk,
     )
+
+def get_session_column_values_for_key(key: str, team: Team, value: Optional[str] = None):
+    # the sessions table does not have a properties json object like the events and person tables
+
+    if value:
+        return insight_sync_execute(
+            SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER.format(property_field=property_field),
+            {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
+            query_type="get_session_property_values_with_value",
+            team_id=team.pk,
+        )
+    return insight_sync_execute(
+        SELECT_PERSON_PROP_VALUES_SQL.format(property_field=property_field),
+        {"team_id": team.pk, "key": key},
+        query_type="get_session_property_values",
+        team_id=team.pk,
