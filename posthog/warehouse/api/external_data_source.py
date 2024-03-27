@@ -136,6 +136,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_stripe_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.HUBSPOT:
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.ZENDESK:
+            new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.POSTGRES:
             try:
                 new_source_model, table_names = self._handle_postgres_source(request, *args, **kwargs)
@@ -184,6 +186,33 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_type=source_type,
             job_inputs={
                 "stripe_secret_key": client_secret,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_zendesk_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        api_key = payload.get("api_key")
+        subdomain = payload.get("subdomain")
+        email_address = payload.get("email_address")
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        # TODO: remove dummy vars
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "zendesk_login_method": "api_key",  # We should support the Zendesk OAuth flow in the future, and so with this we can do backwards compatibility
+                "zendesk_api_key": api_key,
+                "zendesk_subdomain": subdomain,
+                "zendesk_email_address": email_address,
             },
             prefix=prefix,
         )

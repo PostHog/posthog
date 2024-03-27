@@ -27,6 +27,9 @@ describe('the authorized urls list logic', () => {
                     return [200, { result: ['result from api'] }]
                 },
             },
+            patch: {
+                '/api/projects/:team': [200, {}],
+            },
         })
         initKeaTests()
         logic = authorizedUrlListLogic({

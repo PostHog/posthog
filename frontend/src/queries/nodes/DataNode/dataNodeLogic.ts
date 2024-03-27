@@ -384,7 +384,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         hogQLInsightsRetentionFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION],
+            (featureFlags) =>
+                !!(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]),
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [

@@ -103,7 +103,7 @@ columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
     | DATE STRING_LITERAL                                                                 # ColumnExprDate
-    | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract
+//    | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract   // Interferes with a function call
     | INTERVAL columnExpr interval                                                        # ColumnExprInterval
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp

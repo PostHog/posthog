@@ -482,6 +482,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "networkPayloadCapture": None,
         }
 
+    def test_user_session_recording_allowed_for_ios(self, *args) -> None:
+        self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
+
+        response = self._post_decide(origin="any.site.com", user_agent="posthog-ios/3.1.0").json()
+        assert response["sessionRecording"] == {
+            "endpoint": "/s/",
+            "recorderVersion": "v2",
+            "consoleLogRecordingEnabled": False,
+            "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
+        }
+
     def test_user_session_recording_allowed_when_permitted_domains_are_not_http_based(self, *args):
         self._update_team(
             {

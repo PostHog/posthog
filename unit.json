@@ -6,7 +6,7 @@
     },
     "listeners": {
         "*:8000": {
-            "pass": "routes/posthog"
+            "pass": "applications/posthog"
         },
         "*:8001": {
             "pass": "routes/metrics"
@@ -16,13 +16,6 @@
         }
     },
     "routes": {
-        "posthog": [
-            {
-                "action": {
-                    "pass": "applications/posthog"
-                }
-            }
-        ],
         "metrics": [
             {
                 "match": {

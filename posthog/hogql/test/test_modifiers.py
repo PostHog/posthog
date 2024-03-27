@@ -7,7 +7,11 @@ from django.test import override_settings
 
 
 class TestModifiers(BaseTest):
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        PERSON_ON_EVENTS_V3_OVERRIDE=False,
+    )
     def test_create_default_modifiers_for_team_init(self):
         assert self.team.person_on_events_mode == "disabled"
         modifiers = create_default_modifiers_for_team(self.team)
@@ -22,6 +26,9 @@ class TestModifiers(BaseTest):
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v2_enabled),
         )
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled
+
+        with override_settings(PERSON_ON_EVENTS_V3_OVERRIDE=True):
+            assert create_default_modifiers_for_team(self.team).personsOnEventsMode == PersonsOnEventsMode.v3_enabled
 
     def test_modifiers_persons_on_events_mode_v1_enabled(self):
         query = "SELECT event, person_id FROM events"
@@ -73,6 +80,13 @@ class TestModifiers(BaseTest):
                 "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",
                 "events.person_properties AS properties",
                 "toTimeZone(events.person_created_at, %(hogql_val_1)s) AS created_at",
+            ),
+            (
+                PersonsOnEventsMode.v3_enabled,
+                "events.event AS event",
+                "if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS id",
+                "events.person_properties AS properties",
+                "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
             ),
         ]
 

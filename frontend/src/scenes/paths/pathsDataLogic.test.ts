@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightType, PathType } from '~/types'
@@ -25,6 +26,7 @@ async function initPathsDataLogic(): Promise<void> {
 describe('pathsDataLogic', () => {
     beforeEach(async () => {
         initKeaTests(false)
+        teamLogic.mount()
         await initPathsDataLogic()
     })
 
