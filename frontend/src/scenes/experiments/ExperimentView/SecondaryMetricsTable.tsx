@@ -300,7 +300,9 @@ export function SecondaryMetricsTable({
                 <div className="flex">
                     <div className="w-1/2">
                         <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
-                        {metrics.length > 0 && <div className="mb-2">Monitor side effects of your experiment.</div>}
+                        {metrics.length > 0 && (
+                            <div className="text-muted text-xs mb-2">Monitor side effects of your experiment.</div>
+                        )}
                     </div>
 
                     <div className="w-1/2 flex flex-col justify-end">
