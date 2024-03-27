@@ -7,7 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery, PathsQuery } from '~/queries/schema'
 import { EditorFilterProps, FunnelPathType } from '~/types'
 
 export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
@@ -38,7 +38,10 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
         updateInsightFilter({ [key]: item })
     }
     const onReset = (): void => {
-        updateQuerySource({ pathsFilter: { ...pathsFilter, [key]: undefined }, funnelPathsFilter: undefined })
+        updateQuerySource({
+            pathsFilter: { ...pathsFilter, [key]: undefined },
+            funnelPathsFilter: undefined,
+        } as Partial<PathsQuery>)
     }
 
     function _getStepNameAtIndex(filters: Record<string, any>, index: number): string {
