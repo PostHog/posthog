@@ -397,7 +397,7 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             return self.context["view"].user_access_control
         else:
             user = cast(User, self.context["request"].user)
-            return UserAccessControl(user, organization_id=user.current_organization_id)
+            return UserAccessControl(user, organization_id=str(user.current_organization_id))
 
     def get_user_access_level(self, obj: Model) -> Optional[str]:
         return self.user_access_control.access_level_for_object(obj)
