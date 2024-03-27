@@ -153,7 +153,7 @@ class PathsQueryRunner(QueryRunner):
             unit = funnelSourceFilter.funnelWindowIntervalUnit
             interval_unit = funnel_window_interval_unit_to_sql(unit)
             operator = ">=" if funnelPathType == FunnelPathType.funnel_path_after_step else "<="
-            default_case = f"events.timestamp {operator} {{target_timestamp}}"
+            default_case = f"events.timestamp {operator} toTimeZone({{target_timestamp}}, 'UTC')"
             if funnelPathType == FunnelPathType.funnel_path_after_step and funnelStep and funnelStep < 0:
                 default_case += f" + INTERVAL {interval} {interval_unit}"
             event_filter = parse_expr(
