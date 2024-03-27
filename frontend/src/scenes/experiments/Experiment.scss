@@ -187,16 +187,4 @@
     .InsightViz .LemonTable__cell--sticky::before {
         background: var(--bg-table);
     }
-
-    .secondary-metrics-table .LemonTable__content > table > {
-        thead > tr > th {
-            padding-top: 0;
-            padding-bottom: 0;
-        }
-
-        tbody > tr > td {
-            padding-top: 0;
-            padding-bottom: 0;
-        }
-    }
 }
