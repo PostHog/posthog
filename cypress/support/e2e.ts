@@ -61,10 +61,15 @@ beforeEach(() => {
             email: 'test@posthog.com',
             password: '12345678',
         })
-        cy.visit('/insights')
-        cy.wait('@getInsights').then(() => {
-            cy.get('.saved-insights tr').should('exist')
-        })
+
+        if (Cypress.spec.name.includes('before-onboarding')) {
+            cy.visit('/?no-preloaded-app-context=true')
+        } else {
+            cy.visit('/insights')
+            cy.wait('@getInsights').then(() => {
+                cy.get('.saved-insights tr').should('exist')
+            })
+        }
     }
 })
 
