@@ -27,3 +27,5 @@ CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT = get_from_env("CLICKHOUSE_MAX_BLOCK_SIZE_DEFA
 CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: Dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES", "").split(",") if o]  # type: ignore
 )
+
+# Test
