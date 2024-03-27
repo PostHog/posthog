@@ -30,6 +30,7 @@ export function ProgressBar(): JSX.Element {
 
     return (
         <div>
+            <h2 className="font-semibold text-lg">Data collection</h2>
             <div className="mb-1 font-semibold">{`${
                 experimentProgressPercent > 100 ? 100 : experimentProgressPercent.toFixed(2)
             }% complete`}</div>

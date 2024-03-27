@@ -1,5 +1,6 @@
 import './Experiment.scss'
 
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { ExperimentForm } from './ExperimentForm'
@@ -36,8 +37,16 @@ export function ExperimentView(): JSX.Element {
                         ) : experimentResults && experimentResults.insight ? (
                             <>
                                 <Overview />
-                                <ProgressBar />
-                                <Goal />
+                                <LemonDivider />
+                                <div className="flex">
+                                    <div className="w-1/2">
+                                        <Goal />
+                                    </div>
+
+                                    <div className="w-1/2 flex flex-col">
+                                        <ProgressBar />
+                                    </div>
+                                </div>
                                 <Results />
                                 <ExperimentGoalModal experimentId={experimentId} />
                                 <ExperimentExposureModal experimentId={experimentId} />
