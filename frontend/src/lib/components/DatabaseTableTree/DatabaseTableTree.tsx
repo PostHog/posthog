@@ -34,7 +34,10 @@ export function DatabaseTableTree({
     ...props
 }: TreeProps): JSX.Element {
     return (
-        <ul className={`bg-bg-light ${depth == 1 ? 'p-4' : ''} rounded-lg ${className}`} {...props}>
+        <ul
+            className={`bg-bg-light ${depth == 1 ? 'p-4 overflow-y-scroll h-full' : ''} rounded-lg ${className}`}
+            {...props}
+        >
             {items.map((item, index) => {
                 if ('items' in item) {
                     return (

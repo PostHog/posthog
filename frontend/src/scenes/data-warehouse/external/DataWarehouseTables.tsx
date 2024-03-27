@@ -123,7 +123,7 @@ export const DataWarehouseTables = (): JSX.Element => {
     return (
         <>
             <div className="grid md:grid-cols-3">
-                <div className="sm:col-span-3 md:col-span-1">
+                <div className="sm:col-span-3 md:col-span-1 max-h-160">
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </div>
                 {selectedRow ? (
