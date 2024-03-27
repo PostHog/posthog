@@ -244,15 +244,17 @@ export const SidePanelSupport = (): JSX.Element => {
                         </ul>
                     </Section>
 
-                    {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
+                    {!hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
                         <Section title="More options">
                             {isEmailFormOpen ? (
                                 <SupportFormBlock onCancel={() => closeEmailForm()} />
                             ) : (
-                                <p>
-                                    Can't find what you need in the docs?{' '}
-                                    <Link onClick={() => openEmailForm()}>Email an engineer</Link>
-                                </p>
+                                <>
+                                    <p>Can't find what you need in the docs? </p>
+                                    <LemonButton onClick={() => openEmailForm()} type="secondary">
+                                        Open a ticket
+                                    </LemonButton>
+                                </>
                             )}
                         </Section>
                     ) : (
