@@ -329,6 +329,11 @@ class TestAccessControlPermissions(BaseAccessControlTest):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
+        # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
+        baseline = 9
+        with self.assertNumQueries(baseline + 4):  # 1 roles, 1 project, 1 global, 1 for listing what to filter out
+            self.client.get("/api/projects/@current/notebooks/")
+
 
 class TestAccessControlFiltering(BaseAccessControlTest):
     def setUp(self):
