@@ -244,7 +244,7 @@ export const SidePanelSupport = (): JSX.Element => {
                         </ul>
                     </Section>
 
-                    {!hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
+                    {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
                         <Section title="More options">
                             {isEmailFormOpen ? (
                                 <SupportFormBlock onCancel={() => closeEmailForm()} />
