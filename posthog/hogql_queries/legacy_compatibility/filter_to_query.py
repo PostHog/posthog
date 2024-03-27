@@ -12,6 +12,7 @@ from posthog.schema import (
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
     LifecycleFilter,
@@ -451,9 +452,8 @@ def _insight_filter(filter: Dict):
                 edgeLimit=filter.get("edge_limit"),
                 minEdgeWeight=filter.get("min_edge_weight"),
                 maxEdgeWeight=filter.get("max_edge_weight"),
-                funnelPaths=filter.get("funnel_paths"),
-                funnelFilter=filter.get("funnel_filter"),
-            )
+            ),
+            "funnelPathsFilter": filters_to_funnel_paths_query(filter),
         }
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {
@@ -478,6 +478,23 @@ def _insight_filter(filter: Dict):
         return {}
 
     return insight_filter
+
+
+def filters_to_funnel_paths_query(filter: Dict) -> FunnelPathsFilter | None:
+    funnel_paths = filter.get("funnel_paths")
+    funnel_filter = filter.get("funnel_filter")
+
+    if funnel_paths is None or funnel_filter is None:
+        return None
+
+    funnel_query = filter_to_query(funnel_filter)
+    assert isinstance(funnel_query, FunnelsQuery)
+
+    return FunnelPathsFilter(
+        funnelPathType=funnel_paths,
+        funnelSource=funnel_query,
+        funnelStep=funnel_filter["funnel_step"],
+    )
 
 
 def _insight_type(filter: Dict) -> INSIGHT_TYPE:
