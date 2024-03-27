@@ -88,6 +88,15 @@ def test_batch_export_temporary_file_write_records_to_jsonl(records):
         assert be_file.records_since_last_reset == 0
 
 
+def test_batch_export_temporary_file_write_records_to_jsonl_invalid_unicode():
+    with BatchExportTemporaryFile() as be_file:
+        be_file.write_records_to_jsonl(["hello\ud83dworld"])
+
+        be_file.seek(0)
+        # Invalid single surrogate is replaced with a question mark.
+        assert json.loads(be_file.readlines()[0]) == "hello?world"
+
+
 @pytest.mark.parametrize(
     "records",
     TEST_RECORDS,

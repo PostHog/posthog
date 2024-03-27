@@ -339,8 +339,12 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
           }
         : undefined
 
-    const redis = new Redis(credentials ? serverConfig.POSTHOG_REDIS_HOST : serverConfig.REDIS_URL, {
-        ...credentials,
+    return createRedisClient(credentials ? serverConfig.POSTHOG_REDIS_HOST : serverConfig.REDIS_URL, credentials)
+}
+
+export async function createRedisClient(url: string, options?: RedisOptions): Promise<Redis.Redis> {
+    const redis = new Redis(url, {
+        ...options,
         maxRetriesPerRequest: -1,
     })
     let errorCounter = 0

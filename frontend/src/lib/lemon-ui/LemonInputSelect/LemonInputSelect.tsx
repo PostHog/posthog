@@ -244,7 +244,7 @@ export function LemonInputSelect({
 
     return (
         <LemonDropdown
-            sameWidth
+            matchWidth
             closeOnClickInside={false}
             actionable
             visible={showPopover}

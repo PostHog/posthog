@@ -16,17 +16,22 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import BatchExportField, BatchExportSchema, S3BatchExportInputs
+from posthog.batch_exports.service import (
+    BatchExportField,
+    BatchExportSchema,
+    S3BatchExportInputs,
+)
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
-    CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
-    create_export_run,
+    FinishBatchExportRunInputs,
+    RecordsCompleted,
+    StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
+    finish_batch_export_run,
     get_data_interval,
-    get_rows_count,
     iter_records,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
@@ -40,7 +45,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     ParquetBatchExportWriter,
     UnsupportedFileFormatError,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
@@ -336,6 +341,7 @@ class S3InsertInputs:
     endpoint_url: str | None = None
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
+    run_id: str | None = None
 
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
@@ -413,7 +419,7 @@ def s3_default_fields() -> list[BatchExportField]:
 
 
 @activity.defn
-async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
+async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
     """Activity to batch export data from PostHog's ClickHouse to S3.
 
     It currently only creates a single file per run, and uploads as a multipart upload.
@@ -425,33 +431,17 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> int:
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
     logger.info(
-        "Exporting batch %s - %s",
+        "Batch exporting range %s - %s to S3: %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
+        get_s3_key(inputs),
     )
+
+    await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
 
     async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        count = await get_rows_count(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-        )
-
-        if count == 0:
-            logger.info(
-                "Nothing to export in batch %s - %s",
-                inputs.data_interval_start,
-                inputs.data_interval_end,
-            )
-            return 0
-
-        logger.info("BatchExporting %s rows to S3", count)
 
         s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
@@ -654,15 +644,17 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
-        create_export_run_inputs = CreateBatchExportRunInputs(
+        start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
-        run_id = await workflow.execute_activity(
-            create_export_run,
-            create_export_run_inputs,
+        run_id, records_total_count = await workflow.execute_activity(
+            start_batch_export_run,
+            start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -672,11 +664,25 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(
+        finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
+
+        if records_total_count == 0:
+            await workflow.execute_activity(
+                finish_batch_export_run,
+                finish_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+            return
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -695,6 +701,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             kms_key_id=inputs.kms_key_id,
             batch_export_schema=inputs.batch_export_schema,
             file_format=inputs.file_format,
+            run_id=run_id,
         )
 
         await execute_batch_export_insert_activity(
@@ -708,5 +715,5 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 # An S3 bucket doesn't exist.
                 "NoSuchBucket",
             ],
-            update_inputs=update_inputs,
+            finish_inputs=finish_inputs,
         )
