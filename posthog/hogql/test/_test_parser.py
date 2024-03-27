@@ -1594,4 +1594,17 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
             )
 
+        def test_select_extract_as_function(self):
+            node = self._select("select extract('string', 'other string') from events")
+
+            assert node == ast.SelectQuery(
+                select=[
+                    ast.Call(
+                        name="extract",
+                        args=[ast.Constant(value="string"), ast.Constant(value="other string")],
+                    )
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            )
+
     return TestParser
