@@ -847,7 +847,7 @@ class _Printer(Visitor):
                 elif node.name == "trimRight" and len(args) == 2:
                     return f"trim(TRAILING {args[1]} FROM {args[0]})"
                 elif node.name == "trim" and len(args) == 2:
-                    return f"trim(BOTH {args[2]} FROM {args[0]})"
+                    return f"trim(BOTH {args[1]} FROM {args[0]})"
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
                 params_part = f"({', '.join(params)})" if params is not None else ""
