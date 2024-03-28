@@ -155,12 +155,16 @@ export const parseKafkaMessage = async (
 
     const headerResult = await readTokenFromHeaders(message.headers, getTeamFn)
     const token: string | undefined = headerResult.token
-    let teamIdWithConfig: null | TeamIDWithConfig = headerResult.teamIdWithConfig
+    const teamIdWithConfig: null | TeamIDWithConfig = headerResult.teamIdWithConfig
+
+    if (!token) {
+        return dropMessage('no_token_in_header')
+    }
 
     // NB `==` so we're comparing undefined and null
     // if token was in the headers but, we could not load team config
     // then, we can return early
-    if (!!token && (teamIdWithConfig == null || teamIdWithConfig.teamId == null)) {
+    if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
         return dropMessage('header_token_present_team_missing_or_disabled', {
             token: token,
         })
@@ -182,31 +186,6 @@ export const parseKafkaMessage = async (
     if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
         return dropMessage('received_non_snapshot_message')
     }
-
-    // TODO this mechanism is deprecated for blobby ingestion, we should remove it
-    // once we're happy that the new mechanism is working
-    // if there was not a token in the header then we try to load one from the message payload
-    if (teamIdWithConfig == null && messagePayload.team_id == null && !messagePayload.token) {
-        return dropMessage('no_token_in_header_or_payload')
-    }
-
-    if (teamIdWithConfig == null) {
-        const token = messagePayload.token
-
-        if (token) {
-            teamIdWithConfig = await getTeamFn(token)
-        }
-    }
-
-    // NB `==` so we're comparing undefined and null
-    if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
-        return dropMessage('token_fallback_team_missing_or_disabled', {
-            token: messagePayload.token,
-            teamId: messagePayload.team_id,
-            payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
-        })
-    }
-    // end of deprecated mechanism
 
     const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
         // we sometimes see events that are null

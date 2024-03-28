@@ -268,10 +268,6 @@ input::-ms-clear {
 
 // Button styles
 
-.btn-close {
-    color: var(--muted);
-}
-
 .info-indicator {
     margin-left: 4px;
     color: var(--primary-alt) !important;
@@ -287,16 +283,6 @@ input::-ms-clear {
     margin-left: 0.375rem;
     font-size: 1rem;
     line-height: 0;
-}
-
-.btn-lg-2x {
-    font-size: 1.5rem !important;
-    line-height: 1 !important;
-
-    svg {
-        width: 1.5rem !important;
-        height: 1.5rem !important;
-    }
 }
 
 // Graph series glyph
