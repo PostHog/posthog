@@ -11,6 +11,7 @@ import {
 } from '@rrweb/types'
 import { captureMessage } from '@sentry/react'
 import { isObject } from 'lib/utils'
+import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'
 
 import {
     attributes,
@@ -277,6 +278,9 @@ export function makePlaceholderElement(
                     horizontalAlign: 'center',
                     backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
                     color: wireframe.style?.color || FOREGROUND,
+                    backgroundImage: PLACEHOLDER_SVG_DATA_IMAGE_URL,
+                    backgroundSize: 'auto',
+                    backgroundRepeat: 'unset',
                     ...context.styleOverride,
                 }),
                 'data-rrweb-id': wireframe.id,

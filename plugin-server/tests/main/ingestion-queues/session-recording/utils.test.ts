@@ -74,7 +74,7 @@ describe('session-recording utils', () => {
 
         it('can parse a message correctly', async () => {
             const parsedMessage = await parseKafkaMessage(
-                validMessage('my-distinct-id'),
+                validMessage('my-distinct-id', [{ token: 'something' }]),
                 () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
                 fakeProducer
             )
@@ -83,7 +83,7 @@ describe('session-recording utils', () => {
         it('can handle numeric distinct_ids', async () => {
             const numericId = 12345
             const parsedMessage = await parseKafkaMessage(
-                validMessage(numericId),
+                validMessage(numericId, [{ token: 'something' }]),
                 () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
                 fakeProducer
             )
@@ -279,7 +279,7 @@ describe('session-recording utils', () => {
                     undefined,
                 ],
                 [
-                    'calls the team id resolver once when token is not in header, even though it is in the body',
+                    'does not call the team id resolver when token is not in header, but is in body',
                     undefined,
                     'the body token',
                     undefined,

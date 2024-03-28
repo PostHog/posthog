@@ -13,7 +13,7 @@ export function createIncomingRecordingMessage(
     // that has properties, and they have $snapshot_data
     // that will have data_items, which are the actual snapshots each individually compressed
 
-    const message: IncomingRecordingMessage = {
+    return {
         team_id: 1,
         distinct_id: 'distinct_id',
         session_id: 'session_id_1',
@@ -33,12 +33,11 @@ export function createIncomingRecordingMessage(
             lowOffset: 1,
             highOffset: 1,
             timestamp: 1,
+            rawSize: 1,
             ...partialIncomingMessage.metadata,
             ...partialMetadata,
         },
     }
-
-    return message
 }
 
 export function createKafkaMessage(

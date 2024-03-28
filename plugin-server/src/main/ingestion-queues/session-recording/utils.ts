@@ -188,12 +188,11 @@ export const parseKafkaMessage = async (
 
     const headerResult = await readTokenFromHeaders(message.headers, getTeamFn)
     const token: string | undefined = headerResult.token
+    const teamIdWithConfig: null | TeamIDWithConfig = headerResult.teamIdWithConfig
 
     if (!token) {
         return dropMessage('no_token_in_header')
     }
-
-    const teamIdWithConfig: null | TeamIDWithConfig = headerResult.teamIdWithConfig
 
     // NB `==` so we're comparing undefined and null
     // if token was in the headers but, we could not load team config

@@ -57,7 +57,7 @@ export function ActionsPie({
     const showAggregation = !pieChartVizOptions?.hideAggregation
 
     const isTrendsQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
         isTrends &&
         query &&
         isInsightVizNode(query) &&

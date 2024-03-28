@@ -499,9 +499,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         return ast.Alias(expr=expr, alias=alias)
 
-    def visitColumnExprExtract(self, ctx: HogQLParser.ColumnExprExtractContext):
-        raise NotImplementedException(f"Unsupported node: ColumnExprExtract")
-
     def visitColumnExprNegate(self, ctx: HogQLParser.ColumnExprNegateContext):
         return ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Sub,
