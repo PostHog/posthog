@@ -138,6 +138,7 @@ def property_to_expr(
         or property.type == "person"
         or property.type == "group"
         or property.type == "data_warehouse"
+        or property.type == "session"
     ):
         if scope == "person" and property.type != "person":
             raise NotImplementedException(
@@ -147,14 +148,21 @@ def property_to_expr(
         value = property.value
 
         if property.type == "person" and scope != "person":
-            chain = ["person", "properties"]
+            chain = ["person", "properties", property.key]
         elif property.type == "group":
-            chain = [f"group_{property.group_type_index}", "properties"]
+            chain = [f"group_{property.group_type_index}", "properties", property.key]
         elif property.type == "data_warehouse":
-            chain = []
+            chain = [property.key]
+        elif property.type == "session":
+            if property.key == "$session_duration":
+                chain = ["session", "duration"]
+            else:
+                raise NotImplementedException(
+                    f"property_to_expr for type session not implemented for key {property.key}"
+                )
         else:
-            chain = ["properties"]
-        field = ast.Field(chain=chain + [property.key])
+            chain = ["properties", property.key]
+        field = ast.Field(chain=chain)
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -334,7 +342,7 @@ def property_to_expr(
             right=ast.Constant(value=cohort.pk),
         )
 
-    # TODO: Add support for these types "recording", "behavioral", and "session" types
+    # TODO: Add support for these types: "recording", "behavioral"
 
     raise NotImplementedException(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
