@@ -1183,7 +1183,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.series,
             [
-                EventsNode(event="$pageview", name="$pageview", properties=[]),
+                EventsNode(event="$pageview", name="$pageview", properties=None),
                 EventsNode(
                     event="$pageview",
                     name="$pageview",

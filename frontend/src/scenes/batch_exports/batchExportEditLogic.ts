@@ -90,6 +90,7 @@ export const batchExportFormFields = (
                   aws_secret_access_key: isNew ? (!config.aws_secret_access_key ? 'This field is required' : '') : '',
                   compression: '',
                   encryption: '',
+                  file_format: isNew ? (!config.file_format ? 'This field is required' : '') : '',
                   kms_key_id: !config.kms_key_id && config.encryption == 'aws:kms' ? 'This field is required' : '',
                   exclude_events: '',
                   include_events: '',

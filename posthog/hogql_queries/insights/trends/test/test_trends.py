@@ -22,7 +22,7 @@ from posthog.constants import (
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_entity_properties,
-    clean_properties,
+    clean_global_properties,
 )
 from posthog.models import (
     Action,
@@ -118,7 +118,7 @@ def _props(dict: Dict):
             "values": [{"type": "AND", "values": [props]}],
         }
 
-    return PropertyGroupFilter(**clean_properties(raw_properties))
+    return PropertyGroupFilter(**clean_global_properties(raw_properties))
 
 
 def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
@@ -5180,7 +5180,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(len(response), 0)
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
+        self.assertEqual(response[0]["count"], 0)
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries

@@ -853,6 +853,7 @@ class PathsQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
         response.results = self.validate_results(response.results)
