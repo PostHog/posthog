@@ -178,7 +178,7 @@ class UserAccessControl:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
-        return dict(team_id=self._team.id, resource=resource, resource_id=resource_id)
+        return dict(team_id=self._team.id, resource=resource, resource_id=resource_id)  # type: ignore
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
         """
@@ -238,7 +238,7 @@ class UserAccessControl:
             if not resource:
                 return
 
-            filter_groups.append(self._access_controls_filters_for_object(resource, str(obj.id)))
+            filter_groups.append(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
 
         q = Q()
         for filters in filter_groups:
@@ -299,7 +299,7 @@ class UserAccessControl:
         if not self.access_controls_supported:
             return default_access_level(resource) if not explicit else None
 
-        filters = self._access_controls_filters_for_object(resource, str(obj.id))
+        filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         access_controls = self._get_access_controls(filters)
 
         # If there is no specified controls on the resource then we return the default access level

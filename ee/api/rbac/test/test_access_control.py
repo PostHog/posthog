@@ -321,6 +321,9 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         assert self._get_notebook(self.notebook.short_id).status_code == status.HTTP_200_OK
         assert self._patch_notebook(id=self.notebook.short_id).status_code == status.HTTP_200_OK
 
+    def test_org_level_endpoints_work(self):
+        assert self.client.get("/api/organizations/@current/plugins").status_code == status.HTTP_200_OK
+
 
 class TestAccessControlQueryCounts(BaseAccessControlTest):
     def setUp(self):
