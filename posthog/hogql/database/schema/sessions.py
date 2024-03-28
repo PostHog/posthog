@@ -17,6 +17,9 @@ from posthog.hogql.database.schema.util.session_where_clause_extractor import Se
 from posthog.hogql.errors import HogQLException
 
 SESSIONS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
+    "id": StringDatabaseField(
+        name="session_id"
+    ),  # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
     "session_id": StringDatabaseField(name="session_id"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
