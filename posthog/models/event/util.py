@@ -79,6 +79,7 @@ def create_event(
         "group2_created_at": format_clickhouse_timestamp(group2_created_at, ZERO_DATE),
         "group3_created_at": format_clickhouse_timestamp(group3_created_at, ZERO_DATE),
         "group4_created_at": format_clickhouse_timestamp(group4_created_at, ZERO_DATE),
+        "person_mode": "full",
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
@@ -153,6 +154,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
                 %(group2_created_at_{i})s,
                 %(group3_created_at_{i})s,
                 %(group4_created_at_{i})s,
+                %(person_mode_{i})s,
                 %(created_at_{i})s,
                 now(),
                 0
@@ -249,6 +251,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             "group4_created_at": event["group4_created_at"]
             if event.get("group4_created_at")
             else datetime64_default_timestamp,
+            "person_mode": "full",
         }
 
         params = {
