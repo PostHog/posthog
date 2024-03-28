@@ -198,31 +198,7 @@ class UserAccessControl:
 
         return common_filters
 
-    def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: Optional[str] = None) -> None:
-        """
-        Checking permissions can involve multiple queries to AccessControl e.g. project level, global resource level, and object level
-        As we can know this upfront, we can optimize this by loading all the controls we will need upfront.
-        """
-        # Question - are we fundamentally loading every access control for the given resource? If so should we accept that fact and just load them all?
-        # doing all additional filtering in memory?
-
-        filter_groups: List[dict] = []
-
-        filter_groups.append(self._access_controls_filters_for_object(resource="project", resource_id=str(team.id)))
-        filter_groups.append(self._access_controls_filters_for_resource(resource))
-
-        if resource_id:
-            filter_groups.append(self._access_controls_filters_for_object(resource, resource_id=resource_id))
-        else:
-            filter_groups.append(self._access_controls_filters_for_queryset(resource))
-
-        q = Q()
-        for filters in filter_groups:
-            q = q | self._filter_options(filters)
-
-        access_controls = list(AccessControl.objects.filter(q))
-
-        # prefill the cache
+    def _fill_filters_cache(self, filter_groups: List[dict], access_controls: List[_AccessControl]) -> None:
         for filters in filter_groups:
             key = json.dumps(filters, sort_keys=True)
 
@@ -247,6 +223,52 @@ class UserAccessControl:
                     matching_access_controls.append(ac)
 
             self._cache[key] = matching_access_controls
+
+    def preload_object_access_controls(self, objects: List[Model]) -> None:
+        """
+        Preload access controls for a list of objects
+        """
+
+        filter_groups: List[dict] = []
+
+        for obj in objects:
+            resource = model_to_resource(obj)
+            if not resource:
+                return
+
+            filter_groups.append(self._access_controls_filters_for_object(resource, str(obj.id)))
+
+        q = Q()
+        for filters in filter_groups:
+            q = q | self._filter_options(filters)
+
+        access_controls = list(AccessControl.objects.filter(q))
+        self._fill_filters_cache(filter_groups, access_controls)
+
+    def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: Optional[str] = None) -> None:
+        """
+        Checking permissions can involve multiple queries to AccessControl e.g. project level, global resource level, and object level
+        As we can know this upfront, we can optimize this by loading all the controls we will need upfront.
+        """
+        # Question - are we fundamentally loading every access control for the given resource? If so should we accept that fact and just load them all?
+        # doing all additional filtering in memory?
+
+        filter_groups: List[dict] = []
+
+        filter_groups.append(self._access_controls_filters_for_object(resource="project", resource_id=str(team.id)))
+        filter_groups.append(self._access_controls_filters_for_resource(resource))
+
+        if resource_id:
+            filter_groups.append(self._access_controls_filters_for_object(resource, resource_id=resource_id))
+        else:
+            filter_groups.append(self._access_controls_filters_for_queryset(resource))
+
+        q = Q()
+        for filters in filter_groups:
+            q = q | self._filter_options(filters)
+
+        access_controls = list(AccessControl.objects.filter(q))
+        self._fill_filters_cache(filter_groups, access_controls)
 
     # Object level - checking conditions for specific items
     def access_level_for_object(
@@ -406,6 +428,10 @@ class UserAccessControl:
 
 
 class UserAccessControlSerializerMixin(serializers.Serializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._preloaded_access_controls = False
+
     user_access_level = serializers.SerializerMethodField(
         read_only=True,
         help_text="The effective access level the user has for this object",
@@ -425,4 +451,9 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             return UserAccessControl(user, organization_id=str(user.current_organization_id))
 
     def get_user_access_level(self, obj: Model) -> Optional[str]:
+        # Check if self.instance is a list - if so we want to preload the user acccess controls
+        if not self._preloaded_access_controls and isinstance(self.instance, list):
+            self.user_access_control.preload_object_access_controls(self.instance)
+            self._preloaded_access_controls = True
+
         return self.user_access_control.access_level_for_object(obj)

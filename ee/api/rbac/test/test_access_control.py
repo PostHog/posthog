@@ -6,6 +6,7 @@ from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role, RoleMembership
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -306,13 +307,28 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         assert self._get_notebook(self.notebook.short_id).status_code == status.HTTP_200_OK
         assert self._patch_notebook(id=self.notebook.short_id).status_code == status.HTTP_200_OK
 
+
+class TestAccessControlQueryCounts(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self.other_user = self._create_user("other_user")
+
+        self.other_user_notebook = Notebook.objects.create(
+            team=self.team, created_by=self.other_user, title="not my notebook"
+        )
+
+        self.notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="my notebook")
+
+        # Baseline call to trigger caching of one off things like instance settings
+        self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+
     def test_query_counts(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
         other_user_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
 
         # Baseline query (triggers any first time cache things)
-        self._get_notebook(self.notebook.short_id)
+        self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
         baseline = 11
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
@@ -326,11 +342,11 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         baseline = 6
         # Getting my own notebook is the same as a dashboard - 2 extra queries
         with self.assertNumQueries(baseline + 3):
-            self._get_notebook(self.notebook.short_id)
+            self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
         with self.assertNumQueries(baseline + 4):
-            self._get_notebook(self.other_user_notebook.short_id)
+            self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
         baseline = 4
         # Project access doesn't double query the object
@@ -342,6 +358,72 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         baseline = 7
         with self.assertNumQueries(baseline + 3):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
+
+    def test_query_counts_with_preload_optimization(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        other_user_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+
+        # Baseline query (triggers any first time cache things)
+        self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+        baseline = 11
+
+        # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
+        with self.assertNumQueries(baseline + 3):
+            self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
+
+        # Accessing a different users dashboard doesn't +1 as the preload works using the pk
+        with self.assertNumQueries(baseline + 3):
+            self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
+
+    def test_query_counts_only_adds_1_for_non_pk_resources(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        # Baseline query (triggers any first time cache things)
+        self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+        baseline = 11
+
+        baseline = 6
+        # Getting my own notebook is the same as a dashboard - 2 extra queries
+        with self.assertNumQueries(baseline + 3):
+            self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+
+        # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
+        with self.assertNumQueries(baseline + 4):
+            self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
+
+    def test_query_counts_stable_for_project_access(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        baseline = 4
+        # Project access doesn't double query the object
+        with self.assertNumQueries(baseline + 3):
+            # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
+            self.client.get("/api/projects/@current/is_generating_demo_data")
+
+        # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
+        baseline = 7
+        with self.assertNumQueries(baseline + 3):  # org, roles, preloaded access controls
+            self.client.get("/api/projects/@current/notebooks/")
+
+    def test_query_counts_stable_when_listing_resources(self):
+        # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
+        baseline = 7
+        with self.assertNumQueries(baseline + 3):  # org, roles, preloaded access controls
+            self.client.get("/api/projects/@current/notebooks/")
+
+    def test_query_counts_stable_when_listing_resources_including_access_control_info(self):
+        for i in range(10):
+            FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
+
+        baseline = 42  # This is a lot! There is currently an n+1 issue with the legacy access control system
+        with self.assertNumQueries(baseline + 4):  # org, roles, preloaded permissions acs, preloaded acs for the list
+            self.client.get("/api/projects/@current/feature_flags/")
+
+        for i in range(10):
+            FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
+
+        baseline = baseline + (10 * 3)  # The existing access control adds 3 queries per item :(
+        with self.assertNumQueries(baseline + 4):  # org, roles, preloaded permissions acs, preloaded acs for the list
+            self.client.get("/api/projects/@current/feature_flags/")
 
 
 class TestAccessControlFiltering(BaseAccessControlTest):
