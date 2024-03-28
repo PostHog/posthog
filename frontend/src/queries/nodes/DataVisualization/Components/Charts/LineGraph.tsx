@@ -4,7 +4,7 @@ import './LineGraph.scss'
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
-import { ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel } from 'chart.js'
+import { BorderOptions, ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel } from 'chart.js'
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import clsx from 'clsx'
@@ -85,15 +85,18 @@ export const LineGraph = (): JSX.Element => {
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
-                weight: '500',
+                weight: 500,
             },
+        }
+
+        const borderOptions: Partial<BorderOptions> = {
+            color: colors.axisLine as Color,
+            dash: [4, 2],
         }
 
         const gridOptions: Partial<GridLineOptions> = {
             color: colors.axisLine as Color,
-            borderColor: colors.axisLine as Color,
             tickColor: colors.axisLine as Color,
-            borderDash: [4, 2],
         }
 
         const options: ChartOptions = {
@@ -243,6 +246,7 @@ export const LineGraph = (): JSX.Element => {
                         drawOnChartArea: false,
                         tickLength: 12,
                     },
+                    border: borderOptions,
                 },
                 y: {
                     display: true,
@@ -254,6 +258,7 @@ export const LineGraph = (): JSX.Element => {
                         precision: 1,
                     },
                     grid: gridOptions,
+                    border: borderOptions,
                 },
             },
         }

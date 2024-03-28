@@ -6,6 +6,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import {
     ActiveElement,
+    BorderOptions,
     Chart,
     ChartDataset,
     ChartEvent,
@@ -381,14 +382,16 @@ export function LineGraph_({
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
-                weight: '500',
+                weight: 500,
             },
+        }
+        const borderOptions: Partial<BorderOptions> = {
+            color: colors.axisLine as Color,
+            dash: [4, 2],
         }
         const gridOptions: Partial<GridLineOptions> = {
             color: colors.axisLine as Color,
-            borderColor: colors.axisLine as Color,
             tickColor: colors.axisLine as Color,
-            borderDash: [4, 2],
         }
 
         const tooltipOptions: Partial<TooltipOptions> = {
@@ -601,12 +604,13 @@ export function LineGraph_({
                                   padding: 10,
                                   font: {
                                       size: 14,
-                                      weight: '600',
+                                      weight: 600,
                                   },
                               }
                             : {}),
                     },
                     grid: inSurveyView ? { display: false } : gridOptions,
+                    border: borderOptions,
                 },
                 y: {
                     display: !hideYAxis,
@@ -621,6 +625,7 @@ export function LineGraph_({
                         },
                     },
                     grid: gridOptions,
+                    border: borderOptions,
                 },
             }
         } else if (type === GraphType.Line) {
@@ -637,6 +642,7 @@ export function LineGraph_({
                         drawOnChartArea: false,
                         tickLength: 12,
                     },
+                    border: borderOptions,
                 },
                 y: {
                     display: !hideYAxis,
@@ -651,6 +657,7 @@ export function LineGraph_({
                         },
                     },
                     grid: gridOptions,
+                    border: borderOptions,
                 },
             }
         } else if (isHorizontal) {
@@ -670,6 +677,7 @@ export function LineGraph_({
                         },
                     },
                     grid: gridOptions,
+                    border: borderOptions,
                 },
                 y: {
                     display: true,
@@ -722,6 +730,7 @@ export function LineGraph_({
                         ...gridOptions,
                         display: !inSurveyView,
                     },
+                    border: borderOptions,
                 },
             }
             options.indexAxis = 'y'
