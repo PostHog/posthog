@@ -64,7 +64,7 @@ export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
                 center
                 sideIcon={<IconCopy />}
                 onClick={() => void copyToClipboard(canvasUrl, 'canvas link')}
-                title={url}
+                title={canvasUrl}
             >
                 <span className="truncate">{canvasUrl}</span>
             </LemonButton>
