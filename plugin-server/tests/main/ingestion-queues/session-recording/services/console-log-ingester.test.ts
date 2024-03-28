@@ -39,6 +39,7 @@ describe('console log ingester', () => {
     beforeEach(() => {
         mockProducer.mockClear()
         mockProducer['connect'] = jest.fn()
+        mockProducer['isConnected'] = () => true
 
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
         consoleLogIngester = new ConsoleLogsIngester(

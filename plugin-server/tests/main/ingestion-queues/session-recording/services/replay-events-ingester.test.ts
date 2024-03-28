@@ -39,6 +39,7 @@ describe('replay events ingester', () => {
     beforeEach(() => {
         mockProducer.mockClear()
         mockProducer['connect'] = jest.fn()
+        mockProducer['isConnected'] = () => true
 
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
         ingester = new ReplayEventsIngester(mockProducer as unknown as HighLevelProducer, mockedHighWaterMarker)
