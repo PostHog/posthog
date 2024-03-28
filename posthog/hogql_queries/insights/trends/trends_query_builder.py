@@ -522,8 +522,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 filters.append(parse_expr("1 = 2"))
 
         # Breakdown
-        if not ignore_breakdowns and breakdown is not None:
-            if breakdown.enabled and not breakdown.is_histogram_breakdown:
+        if not ignore_breakdowns and breakdown is not None and breakdown.enabled:
+            # Only add the filter for non-histogram breakdowns that hide the "other" column.
+            if not breakdown.is_histogram_breakdown and self.query.breakdownFilter.breakdown_hide_other_aggregation:
                 breakdown_filter = breakdown.events_where_filter()
                 if breakdown_filter is not None:
                     filters.append(breakdown_filter)
