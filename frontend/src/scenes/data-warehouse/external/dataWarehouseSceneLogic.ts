@@ -148,6 +148,11 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                             acc[table.payload.external_data_source.source_type] = []
                         }
                         acc[table.payload.external_data_source.source_type].push(table)
+                    } else {
+                        if (!acc['Manual']) {
+                            acc['Manual'] = []
+                        }
+                        acc['Manual'].push(table)
                     }
                     return acc
                 }, {})
