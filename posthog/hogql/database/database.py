@@ -352,7 +352,7 @@ class _SerializedFieldBase(TypedDict):
 class SerializedField(_SerializedFieldBase, total=False):
     fields: List[str]
     table: str
-    chain: List[str]
+    chain: List[str | int]
 
 
 def serialize_database(context: HogQLContext) -> Dict[str, List[SerializedField]]:

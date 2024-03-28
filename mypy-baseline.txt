@@ -16,9 +16,6 @@ posthog/hogql/database/argmax.py:0: error: Unsupported operand types for + ("lis
 posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/numbers.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
-posthog/hogql/ast.py:0: error: Argument "chain" to "FieldTraverserType" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql/ast.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/ast.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql/ast.py:0: error: Incompatible return value type (got "bool | None", expected "bool")  [return-value]
 posthog/hogql/visitor.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "Type | None"; expected "AST"  [arg-type]

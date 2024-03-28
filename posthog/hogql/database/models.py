@@ -65,17 +65,18 @@ class ExpressionField(DatabaseField):
 class FieldTraverser(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    chain: List[str]
+    chain: List[str | int]
 
 
 class Table(FieldOrTable):
     fields: Dict[str, FieldOrTable]
     model_config = ConfigDict(extra="forbid")
 
-    def has_field(self, name: str) -> bool:
-        return name in self.fields
+    def has_field(self, name: str | int) -> bool:
+        return str(name) in self.fields
 
-    def get_field(self, name: str) -> FieldOrTable:
+    def get_field(self, name: str | int) -> FieldOrTable:
+        name = str(name)
         if self.has_field(name):
             return self.fields[name]
         raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')

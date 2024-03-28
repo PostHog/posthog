@@ -207,6 +207,7 @@ class Resolver(CloningVisitor):
             {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
         )
         new_node.settings = node.settings.model_copy() if node.settings is not None else None
+        new_node.view_name = node.view_name
 
         self.scopes.pop()
 
@@ -276,6 +277,10 @@ class Resolver(CloningVisitor):
                         raise ResolverException("Nested views are not supported")
 
                     node.table = parse_select(str(database_table.query))
+
+                    if isinstance(node.table, ast.SelectQuery):
+                        node.table.view_name = database_table.name
+
                     node.alias = table_alias or database_table.name
                     node = self.visit(node)
 
@@ -334,6 +339,9 @@ class Resolver(CloningVisitor):
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
                 node.type = ast.SelectQueryAliasType(alias=node.alias, select_query_type=node.table.type)
+                if isinstance(node.table, ast.SelectQuery):
+                    node.type.view_name = node.table.view_name
+
                 scope.tables[node.alias] = node.type
             else:
                 node.type = node.table.type

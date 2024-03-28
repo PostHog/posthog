@@ -216,9 +216,9 @@ def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table
         current_table_or_field: FieldOrTable = new_table
         for chain in field.chain:
             if isinstance(current_table_or_field, Table):
-                chain_field = current_table_or_field.fields.get(chain)
+                chain_field = current_table_or_field.fields.get(str(chain))
             elif isinstance(current_table_or_field, LazyJoin):
-                chain_field = current_table_or_field.resolve_table(context).fields.get(chain)
+                chain_field = current_table_or_field.resolve_table(context).fields.get(str(chain))
             elif isinstance(current_table_or_field, DatabaseField):
                 chain_field = current_table_or_field
             else:
