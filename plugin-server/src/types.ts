@@ -868,7 +868,14 @@ export interface EventPropertyFilter extends PropertyFilterWithOperator {
 /** Sync with posthog/frontend/src/types.ts */
 export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
-    table?: string
+}
+
+export interface DataWarehousePropertyFilter extends PropertyFilterWithOperator {
+    type: 'data_warehouse'
+}
+
+export interface DataWarehousePersonPropertyFilter extends PropertyFilterWithOperator {
+    type: 'data_warehouse_person_property'
 }
 
 /** Sync with posthog/frontend/src/types.ts */
@@ -886,7 +893,13 @@ export interface CohortPropertyFilter extends PropertyFilterBase {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
-export type PropertyFilter = EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter
+export type PropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | CohortPropertyFilter
+    | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {
