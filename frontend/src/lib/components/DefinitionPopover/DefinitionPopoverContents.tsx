@@ -404,7 +404,7 @@ function DefinitionEdit(): JSX.Element {
                             <ObjectTags
                                 className="definition-popover-edit-form-value"
                                 tags={localDefinition.tags || []}
-                                onChange={(_, tags) => setLocalDefinition({ tags })}
+                                onChange={(tags) => setLocalDefinition({ tags })}
                                 saving={false}
                             />
                         </div>

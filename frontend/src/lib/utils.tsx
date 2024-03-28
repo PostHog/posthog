@@ -3,7 +3,6 @@ import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { AlignType } from 'rc-trigger/lib/interface'
 import { CSSProperties } from 'react'
 
 import {
@@ -26,43 +25,6 @@ import { getAppContext } from './utils/getAppContext'
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
  * Preferably create a dedicated file in utils/..
  */
-
-export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
-    // `@yiminghe/dom-align` objects
-    // https://github.com/react-component/select/blob/dade915d81069b8d3b3b5679bb9daee7e992faba/src/SelectTrigger.jsx#L11-L28
-    bottomLeft: {
-        points: ['tl', 'bl'],
-        offset: [0, 4],
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
-    bottomRight: {
-        points: ['tr', 'br'],
-        offset: [0, 4],
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
-    topLeft: {
-        points: ['bl', 'tl'],
-        offset: [0, -4],
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
-    horizontalPreferRight: {
-        points: ['cl', 'cr'],
-        offset: [4, 0],
-        overflow: {
-            adjustX: true,
-            adjustY: false,
-        },
-    },
-}
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
