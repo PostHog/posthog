@@ -137,23 +137,25 @@ export async function readTokenFromHeaders(
 }
 
 function readLibVersionFromHeaders(headers: MessageHeader[] | undefined): string | undefined {
-    const libVersionHeader = headers?.find((header: MessageHeader) => {
+    const libVersionHeader = headers?.find((header) => {
         return header['lib_version']
     })?.['lib_version']
     return typeof libVersionHeader === 'string' ? libVersionHeader : libVersionHeader?.toString()
 }
 
-function minorVersionFrom(libVersion: string | undefined): number | undefined {
+function majorAndMinorVersionFrom(libVersion: string | undefined): number | undefined {
     try {
+        let majorString: string | undefined = undefined
         let minorString: string | undefined = undefined
         if (libVersion && libVersion.includes('.')) {
             const splat = libVersion.split('.')
             // very loose check for three part semantic version number
             if (splat.length === 3) {
+                majorString = splat[0]
                 minorString = splat[1]
             }
         }
-        return minorString ? parseInt(minorString) : undefined
+        return majorString && minorString ? parseFloat(`${majorString}.${minorString}`) : undefined
     } catch (e) {
         status.warn('⚠️', 'could_not_read_minor_lib_version', { libVersion })
         return undefined
@@ -206,14 +208,14 @@ export const parseKafkaMessage = async (
     // this has to be ahead of the payload parsing in case we start dropping traffic from older versions
     if (!!ingestionWarningProducer && !!teamIdWithConfig.teamId) {
         const libVersion = readLibVersionFromHeaders(message.headers)
-        const minorVersion = minorVersionFrom(libVersion)
+        const parsedVersion = majorAndMinorVersionFrom(libVersion)
         /**
          * We introduced SVG mutation throttling in version 1.74.0 fix: Recording throttling for SVG-like things (#758)
          * and improvements like jitter on retry and better batching in session recording in earlier versions
          * So, versions older than 1.75.0 can cause ingestion pressure or incidents
          * because they send much more information and more messages for the same recording
          */
-        if (minorVersion && minorVersion <= 74) {
+        if (parsedVersion && parsedVersion <= 1.74) {
             counterLibVersionWarning.inc()
 
             await captureIngestionWarning(
@@ -222,9 +224,9 @@ export const parseKafkaMessage = async (
                 'replay_lib_version_too_old',
                 {
                     libVersion,
-                    minorVersion,
+                    minorVersion: parsedVersion,
                 },
-                { key: libVersion || minorVersion.toString() }
+                { key: libVersion || parsedVersion.toString() }
             )
         }
     }
