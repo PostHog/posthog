@@ -17,6 +17,7 @@ import { SimilarRecordings } from './SimilarRecordings'
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState } = useValues(sessionRecordingPlayerLogic)
+
     let content = null
     const pausedState =
         currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
