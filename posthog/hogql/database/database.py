@@ -210,6 +210,17 @@ def create_hogql_database(
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.no_persons:
+        database.events.fields["person_id"] = ExpressionField(
+            name="person_id", expr=parse_expr("toUUID('00000000-0000-0000-0000-000000000000')")
+        )
+        database.events.fields["person"] = FieldTraverser(chain=["poe"])
+        database.events.fields["poe"].fields["id"] = ExpressionField(
+            name="person_id", expr=parse_expr("toUUID('00000000-0000-0000-0000-000000000000')")
+        )
+        database.events.fields["poe"].fields["properties"] = ExpressionField(name="properties", expr=parse_expr("null"))
+        database.events.fields["poe"].fields["created_at"] = ExpressionField(name="created_at", expr=parse_expr("null"))
+
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
     )

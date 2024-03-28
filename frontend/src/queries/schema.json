@@ -2571,7 +2571,7 @@
                     "type": "string"
                 },
                 "personsOnEventsMode": {
-                    "enum": ["disabled", "v1_enabled", "v1_mixed", "v2_enabled", "v3_enabled"],
+                    "enum": ["disabled", "v1_enabled", "v1_mixed", "v2_enabled", "v3_enabled", "no_persons"],
                     "type": "string"
                 }
             },
