@@ -2532,7 +2532,7 @@ export interface FeatureFlagBasicType {
     ensure_experience_continuity: boolean | null
 }
 
-export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'> {
+export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'>, WithAccessControl {
     /** Null means that the flag has never been saved yet (it's new). */
     id: number | null
     created_by: UserBasicType | null
