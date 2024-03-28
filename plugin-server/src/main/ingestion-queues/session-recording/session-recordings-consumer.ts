@@ -256,8 +256,8 @@ export class SessionRecordingIngester {
          */
         this.promises.add(promise)
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        promise.finally(() => this.promises.delete(promise))
+        // we void the promise returned by finally here to avoid the need to await it
+        void promise.finally(() => this.promises.delete(promise))
 
         return promise
     }
@@ -354,11 +354,14 @@ export class SessionRecordingIngester {
 
                             counterKafkaMessageReceived.inc({ partition })
 
-                            const recordingMessage = await parseKafkaMessage(message, (token) =>
-                                this.teamsRefresher.get().then((teams) => ({
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                }))
+                            const recordingMessage = await parseKafkaMessage(
+                                message,
+                                (token) =>
+                                    this.teamsRefresher.get().then((teams) => ({
+                                        teamId: teams[token]?.teamId || null,
+                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                    })),
+                                this.sharedClusterProducerWrapper
                             )
 
                             if (recordingMessage) {
@@ -477,13 +480,12 @@ export class SessionRecordingIngester {
             )
         }
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
-
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
-
+        // the batch consumer reads from the session replay kafka cluster
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
         this.batchConsumer = await startBatchConsumer({
-            connectionConfig,
+            connectionConfig: replayClusterConnectionConfig,
             groupId: this.consumerGroupId,
             topic: this.topic,
             autoCommit: false,
