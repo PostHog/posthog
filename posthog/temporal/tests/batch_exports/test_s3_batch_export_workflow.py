@@ -308,7 +308,6 @@ TEST_S3_SCHEMAS: list[BatchExportSchema | None] = [
     {
         "fields": [
             {"expression": "event", "alias": "my_event_name"},
-            {"expression": "inserted_at", "alias": "inserted_at"},
             {"expression": "1 + 1", "alias": "two"},
         ],
         "values": {},
