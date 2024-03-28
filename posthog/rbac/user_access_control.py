@@ -126,7 +126,6 @@ class UserAccessControl:
             # Early return to prevent an unnecessary lookup
             return []
 
-        # TODO: Optimize this by loading it with the org membership
         role_memberships = cast(Any, self._user).role_memberships.select_related("role").all()
         return [membership.role.id for membership in role_memberships]
 
