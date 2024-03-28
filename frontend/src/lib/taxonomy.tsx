@@ -46,26 +46,26 @@ const PERSON_PROPERTIES_ADAPTED_FROM_EVENT = new Set([
     ...CAMPAIGN_PROPERTIES,
 ])
 
-export const SESSION_PROPERTIES_ADAPTED_FROM_PERSON = new Set([
-    '$initial_referring_domain',
-    '$initial_utm_source',
-    '$initial_utm_campaign',
-    '$initial_utm_medium',
-    '$initial_utm_content',
-    '$initial_utm_term',
-    '$initial_gclid',
-    '$initial_gad_source',
-    '$initial_gclsrc',
-    '$initial_dclid',
-    '$initial_gbraid',
-    '$initial_wbraid',
-    '$initial_fbclid',
-    '$initial_msclkid',
-    '$initial_twclid',
-    '$initial_li_fat_id',
-    '$initial_mc_cid',
-    '$initial_igshid',
-    '$initial_ttclid',
+export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
+    '$referring_domain',
+    'utm_source',
+    'utm_campaign',
+    'utm_medium',
+    'utm_content',
+    'utm_term',
+    'gclid',
+    'gad_source',
+    'gclsrc',
+    'dclid',
+    'gbraid',
+    'wbraid',
+    'fbclid',
+    'msclkid',
+    'twclid',
+    'li_fat_id',
+    'mc_cid',
+    'igshid',
+    'ttclid',
 ])
 
 // If adding event properties with labels, check whether they should be added to
@@ -1078,10 +1078,16 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
     } else {
         CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = value
     }
-}
-
-for (const key of Array.from(SESSION_PROPERTIES_ADAPTED_FROM_PERSON.keys())) {
-    CORE_FILTER_DEFINITIONS_BY_GROUP.sessions[key] = CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key]
+    if (SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS.has(key)) {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.sessions[`$initial_${key.replace(/^\$/, '')}`] = {
+            ...value,
+            label: `Initial ${value.label}`,
+            description:
+                'description' in value
+                    ? `${value.description} Data from the first event in this session.`
+                    : 'Data from the first event in this session.',
+        }
+    }
 }
 
 // We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense

@@ -1,7 +1,7 @@
 import {
     CAMPAIGN_PROPERTIES,
     CORE_FILTER_DEFINITIONS_BY_GROUP,
-    SESSION_PROPERTIES_ADAPTED_FROM_PERSON,
+    SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 } from 'lib/taxonomy'
 
 import { CoreFilterDefinition } from '~/types'
@@ -33,8 +33,8 @@ describe('taxonomy', () => {
             expect(property.label).toEqual('Initial Referring Domain')
         })
         it(`should have every property in SESSION_PROPERTIES_ADAPTED_FROM_PERSON`, () => {
-            for (const property of Array.from(SESSION_PROPERTIES_ADAPTED_FROM_PERSON.keys())) {
-                expect(sessionPropertyNames).toContain(property)
+            for (const property of Array.from(SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS.keys())) {
+                expect(sessionPropertyNames).toContain('$initial_' + property.replace('$', ''))
             }
         })
     })
