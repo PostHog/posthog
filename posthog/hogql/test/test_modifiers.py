@@ -88,6 +88,13 @@ class TestModifiers(BaseTest):
                 "events.person_properties AS properties",
                 "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
             ),
+            (
+                PersonsOnEventsMode.no_persons,
+                "events.event AS event",
+                "toUUIDOrNull(%(hogql_val_0)s) AS id",
+                "NULL AS properties",
+                "NULL AS created_at",
+            ),
         ]
 
         for mode, *expected in test_cases:

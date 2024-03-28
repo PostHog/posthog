@@ -423,6 +423,7 @@ class PersonsOnEventsMode(str, Enum):
     v1_mixed = "v1_mixed"
     v2_enabled = "v2_enabled"
     v3_enabled = "v3_enabled"
+    no_persons = "no_persons"
 
 
 class HogQLQueryModifiers(BaseModel):
