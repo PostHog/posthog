@@ -263,8 +263,24 @@ export class SessionRecordingIngester {
         const overflowKey = `${team_id}:${session_id}`
 
         const { partition, highOffset } = event.metadata
-        if (this.debugPartition === partition) {
+        const isDebug = this.debugPartition === partition
+        if (isDebug) {
             status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', { ...event.metadata })
+        }
+
+        function dropEvent(dropCause: string) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: dropCause,
+                })
+                .inc()
+            if (isDebug) {
+                status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - dropping event', {
+                    ...event.metadata,
+                    dropCause,
+                })
+            }
         }
 
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
@@ -275,24 +291,12 @@ export class SessionRecordingIngester {
                 highOffset
             )
         ) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark_partition',
-                })
-                .inc()
-
+            dropEvent('high_water_mark_partition')
             return
         }
 
         if (await this.sessionHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, highOffset)) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark',
-                })
-                .inc()
-
+            dropEvent('high_water_mark')
             return
         }
 
