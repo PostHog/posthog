@@ -1612,7 +1612,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 "select trim(LEADING 'fish' FROM event), trim(TRAILING 'fish' FROM event), trim(BOTH 'fish' FROM event) from events"
             )
             node2 = self._select(
-                "select trimLeading('fish', event), trimTrailing('fish', event), trimBoth('fish', event) from events"
+                "select trimLeft('fish', event), trimRight('fish', event), trimBoth('fish', event) from events"
             )
             assert node1 == node2
 

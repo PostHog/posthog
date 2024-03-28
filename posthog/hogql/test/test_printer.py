@@ -1574,7 +1574,7 @@ class TestPrinter(BaseTest):
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
         )
         query2 = parse_select(
-            "select trimLeading('social', 'media'), trimTrailing('social', 'media'), trimBoth('social', 'media')"
+            "select trimLeft('social', 'media'), trimRight('social', 'media'), trimBoth('social', 'media')"
         )
         printed2 = print_ast(
             query2,

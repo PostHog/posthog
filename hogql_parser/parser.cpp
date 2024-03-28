@@ -1376,9 +1376,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprTrim) {
     const char* name;
     if (ctx->LEADING()) {
-      name = "trimLeading";
+      name = "trimLeft";
     } else if (ctx->TRAILING()) {
-      name = "trimTrailing";
+      name = "trimRight";
     } else if (ctx->BOTH()) {
       name = "trimBoth";
     } else {

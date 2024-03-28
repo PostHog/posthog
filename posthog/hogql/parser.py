@@ -640,9 +640,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprTrim(self, ctx: HogQLParser.ColumnExprTrimContext):
         args = [ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL())), self.visit(ctx.columnExpr())]
         if ctx.LEADING():
-            return ast.Call(name="trimLeading", args=args)
+            return ast.Call(name="trimLeft", args=args)
         if ctx.TRAILING():
-            return ast.Call(name="trimTrailing", args=args)
+            return ast.Call(name="trimRight", args=args)
         if ctx.BOTH():
             return ast.Call(name="trimBoth", args=args)
         raise NotImplementedException(f"Unsupported modifier for ColumnExprTrim, must be LEADING, TRAILING or BOTH")

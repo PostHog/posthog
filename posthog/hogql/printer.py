@@ -842,11 +842,11 @@ class _Printer(Visitor):
                     # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
                     args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
 
-                if node.name == "trimLeading":
+                if node.name == "trimLeft" and len(args) == 2:
                     return f"trim(LEADING {args[0]} FROM {args[1]})"
-                elif node.name == "trimTrailing":
+                elif node.name == "trimRight" and len(args) == 2:
                     return f"trim(TRAILING {args[0]} FROM {args[1]})"
-                elif node.name == "trimBoth":
+                elif node.name == "trimBoth" and len(args) == 2:
                     return f"trim(BOTH {args[0]} FROM {args[1]})"
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
