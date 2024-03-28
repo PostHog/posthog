@@ -109,6 +109,7 @@ export async function startPluginsServer(
     // meantime.
     let bufferConsumer: Consumer | undefined
     let stopSessionRecordingBlobConsumer: (() => void) | undefined
+    let stopSessionRecordingBlobOverflowConsumer: (() => void) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -151,6 +152,7 @@ export async function startPluginsServer(
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             stopSessionRecordingBlobConsumer?.(),
+            stopSessionRecordingBlobOverflowConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
             personOverridesPeriodicTask?.stop(),
         ])
@@ -446,7 +448,7 @@ export async function startPluginsServer(
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, captureRedis)
+            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, false, captureRedis)
             await ingester.start()
 
             const batchConsumer = ingester.batchConsumer
@@ -455,6 +457,28 @@ export async function startPluginsServer(
                 stopSessionRecordingBlobConsumer = () => ingester.stop()
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
+            }
+        }
+
+        if (capabilities.sessionRecordingBlobOverflowIngestion) {
+            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
+            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
+
+            if (!s3) {
+                throw new Error("Can't start session recording blob ingestion without object storage")
+            }
+            // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
+            // NOTE: We don't pass captureRedis to disable overflow computation on the overflow topic
+            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, true, undefined)
+            await ingester.start()
+
+            const batchConsumer = ingester.batchConsumer
+
+            if (batchConsumer) {
+                stopSessionRecordingBlobOverflowConsumer = () => ingester.stop()
+                shutdownOnConsumerExit(batchConsumer)
+                healthChecks['session-recordings-blob-overflow'] = () => ingester.isHealthy() ?? false
             }
         }
 

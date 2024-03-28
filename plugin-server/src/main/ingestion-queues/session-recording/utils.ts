@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 
-import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
 import { status } from '../../../utils/status'
 import { cloneObject } from '../../../utils/utils'
@@ -28,6 +27,7 @@ export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-f
 
 export const queryWatermarkOffsets = (
     kafkaConsumer: KafkaConsumer | undefined,
+    topic: string,
     partition: number,
     timeout = 10000
 ): Promise<[number, number]> => {
@@ -36,20 +36,15 @@ export const queryWatermarkOffsets = (
             return reject('Not connected')
         }
 
-        kafkaConsumer.queryWatermarkOffsets(
-            KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-            partition,
-            timeout,
-            (err, offsets) => {
-                if (err) {
-                    captureException(err)
-                    status.error('🔥', 'Failed to query kafka watermark offsets', err)
-                    return reject(err)
-                }
-
-                resolve([partition, offsets.highOffset])
+        kafkaConsumer.queryWatermarkOffsets(topic, partition, timeout, (err, offsets) => {
+            if (err) {
+                captureException(err)
+                status.error('🔥', 'Failed to query kafka watermark offsets', err)
+                return reject(err)
             }
-        )
+
+            resolve([partition, offsets.highOffset])
+        })
     })
 }
 
@@ -81,7 +76,7 @@ export const queryCommittedOffsets = (
 
 export const getPartitionsForTopic = (
     kafkaConsumer: KafkaConsumer | undefined,
-    topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+    topic: string
 ): Promise<PartitionMetadata[]> => {
     return new Promise<PartitionMetadata[]>((resolve, reject) => {
         if (!kafkaConsumer) {
