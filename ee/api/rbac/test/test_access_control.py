@@ -5,6 +5,9 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role, RoleMembership
 from posthog.constants import AvailableFeature
+from posthog.models.dashboard import Dashboard
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.insight import Insight
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -307,32 +310,39 @@ class TestAccessControlPermissions(BaseAccessControlTest):
 
     def test_query_counts(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-
-        # TODO: Optimize this:
-        # - We _could_ perhaps load all ACs at once - the team, global and object. How to do this upfront is tricky...
-        # - We could for sure cache the organization_membership way more effectively (either on the base view or in the user_access_control)
+        my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        other_user_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
 
         # Baseline query (triggers any first time cache things)
         self._get_notebook(self.notebook.short_id)
-        baseline = 8
+        baseline = 11
 
-        # Access controls total 3 extra queries - 1 for the user roles, 1 for the project level check and one for the global resource level
+        # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
+        with self.assertNumQueries(baseline + 3):
+            self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
+
+        # Accessing a different users dashboard doesn't +1 as the preload works using the pk
+        with self.assertNumQueries(baseline + 3):
+            self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
+
+        baseline = 6
+        # Getting my own notebook is the same as a dashboard - 2 extra queries
         with self.assertNumQueries(baseline + 3):
             self._get_notebook(self.notebook.short_id)
 
-        # Except when accessing a different notebook where we _also_ need to check as we are not the creator
+        # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
         with self.assertNumQueries(baseline + 4):
             self._get_notebook(self.other_user_notebook.short_id)
 
-        # Except when we query the project directly as we cache the lookup
-        baseline = 5  # Baseline is different as there are fewer parts
+        baseline = 4
+        # Project access doesn't double query the object
         with self.assertNumQueries(baseline + 3):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 8
-        with self.assertNumQueries(baseline + 4):  # 1 roles, 1 project, 1 global, 1 for listing what to filter out
+        baseline = 7
+        with self.assertNumQueries(baseline + 3):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
 

@@ -186,7 +186,7 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         )
 
         matching_acs = self.user_access_control._get_access_controls(
-            self.user_access_control._access_controls_filters_for_object(self.team, "project")
+            self.user_access_control._access_controls_filters_for_object("project", str(self.team.id))
         )
         assert len(matching_acs) == 4
         assert ac_project in matching_acs

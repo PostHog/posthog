@@ -480,13 +480,10 @@ class AccessControlPermission(ScopeBasePermission):
             # TODO: Does this means its okay because there is no team level thing?
             return True
 
-        try:
-            obj = view.get_object()
-        except Exception:
-            # This is not required and is an optimization
-            pass
-
-        uac.preload_access_levels(team=team, obj=obj, resource=cast(APIScopeObject, scope_object))
+        # NOTE: This isn't perfect as it will only optimize for endpoints where the pk matches the obj.id
+        # We can't load the actual object as get_object in turn calls the permissions check
+        pk = view.kwargs.get("pk")
+        uac.preload_access_levels(team=team, resource=cast(APIScopeObject, scope_object), resource_id=pk)
 
         is_member = uac.check_access_level_for_object(team, required_level="member")
 

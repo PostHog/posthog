@@ -172,11 +172,11 @@ class UserAccessControl:
 
         return self._cache[key]
 
-    def _access_controls_filters_for_object(self, obj: Model, resource: APIScopeObject) -> dict:
+    def _access_controls_filters_for_object(self, resource: APIScopeObject, resource_id: str) -> dict:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
-        return dict(team_id=self._team.id, resource=resource, resource_id=str(obj.id))  # type: ignore
+        return dict(team_id=self._team.id, resource=resource, resource_id=resource_id)
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
         """
@@ -198,7 +198,7 @@ class UserAccessControl:
 
         return common_filters
 
-    def preload_access_levels(self, team: Team, resource: APIScopeObject, obj: Optional[Model] = None) -> None:
+    def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: Optional[str] = None) -> None:
         """
         Checking permissions can involve multiple queries to AccessControl e.g. project level, global resource level, and object level
         As we can know this upfront, we can optimize this by loading all the controls we will need upfront.
@@ -206,27 +206,47 @@ class UserAccessControl:
         # Question - are we fundamentally loading every access control for the given resource? If so should we accept that fact and just load them all?
         # doing all additional filtering in memory?
 
-        return
+        filter_groups: List[dict] = []
 
-        # filter_groups: List[dict] = []
+        filter_groups.append(self._access_controls_filters_for_object(resource="project", resource_id=str(team.id)))
+        filter_groups.append(self._access_controls_filters_for_resource(resource))
 
-        # filter_groups.append(self._access_controls_filters_for_object(team, resource="project"))
-        # filter_groups.append(self._access_controls_filters_for_resource(resource))
+        if resource_id:
+            filter_groups.append(self._access_controls_filters_for_object(resource, resource_id=resource_id))
+        else:
+            filter_groups.append(self._access_controls_filters_for_queryset(resource))
 
-        # if obj:
-        #     filter_groups.append(self._access_controls_filters_for_object(obj, resource))
-        # else:
-        #     filter_groups.append(self._access_controls_filters_for_queryset(resource))
+        q = Q()
+        for filters in filter_groups:
+            q = q | self._filter_options(filters)
 
-        # q = Q()
-        # for filters in filter_groups:
-        #     q = q | self._filter_options(filters)
-        #     self._mark_filters_as_loaded(filters)
+        access_controls = list(AccessControl.objects.filter(q))
 
-        # acs = list(AccessControl.objects.filter(q))
-        # self._access_controls.extend(acs)
+        # prefill the cache
+        for filters in filter_groups:
+            key = json.dumps(filters, sort_keys=True)
 
-        # pass
+            # TRICKY: We have to simulate the entire DB query here:
+            matching_access_controls = []
+
+            for ac in access_controls:
+                matches = True
+                for key, value in filters.items():
+                    if key == "resource_id__isnull":
+                        if (ac.resource_id is None) != value:
+                            matches = False
+                            break
+                    elif key == "team__organization_id":
+                        if ac.team.organization_id != value:
+                            matches = False
+                            break
+                    elif getattr(ac, key) != value:
+                        matches = False
+                        break
+                if matches:
+                    matching_access_controls.append(ac)
+
+            self._cache[key] = matching_access_controls
 
     # Object level - checking conditions for specific items
     def access_level_for_object(
@@ -255,7 +275,7 @@ class UserAccessControl:
         if not self.access_controls_supported:
             return default_access_level(resource) if not explicit else None
 
-        filters = self._access_controls_filters_for_object(obj, resource)
+        filters = self._access_controls_filters_for_object(resource, str(obj.id))
         access_controls = self._get_access_controls(filters)
 
         # If there is no specified controls on the resource then we return the default access level
