@@ -150,8 +150,11 @@ def property_to_expr(
         if property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "data_warehouse_person_property":
-            table, value = property.value.split(": ")
-            chain = ["person", table]
+            if isinstance(property.value, str):
+                table, value = property.value.split(": ")
+                chain = ["person", table]
+            else:
+                raise NotImplementedException("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "data_warehouse":
