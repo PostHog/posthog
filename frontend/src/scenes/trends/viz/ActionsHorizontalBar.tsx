@@ -42,7 +42,11 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         setData([
             {
                 labels: _data.map((item) =>
-                    isOtherBreakdown(item.label) ? 'Other' : isNullBreakdown(item.label) ? 'None' : item.label
+                    isOtherBreakdown(item.label)
+                        ? 'Other (i.e. all remaining values)'
+                        : isNullBreakdown(item.label)
+                        ? 'None (i.e. no value)'
+                        : item.label
                 ),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
