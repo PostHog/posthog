@@ -216,6 +216,7 @@
               "type": "lazy_table",
               "table": "sessions",
               "fields": [
+                  "id",
                   "session_id",
                   "team_id",
                   "distinct_id",
@@ -589,6 +590,10 @@
       ],
       "sessions": [
           {
+              "key": "id",
+              "type": "string"
+          },
+          {
               "key": "session_id",
               "type": "string"
           },
@@ -894,6 +899,10 @@
           }
       ],
       "raw_sessions": [
+          {
+              "key": "id",
+              "type": "string"
+          },
           {
               "key": "session_id",
               "type": "string"
@@ -1144,6 +1153,7 @@
               "type": "lazy_table",
               "table": "sessions",
               "fields": [
+                  "id",
                   "session_id",
                   "team_id",
                   "distinct_id",
@@ -1517,6 +1527,10 @@
       ],
       "sessions": [
           {
+              "key": "id",
+              "type": "string"
+          },
+          {
               "key": "session_id",
               "type": "string"
           },
@@ -1822,6 +1836,10 @@
           }
       ],
       "raw_sessions": [
+          {
+              "key": "id",
+              "type": "string"
+          },
           {
               "key": "session_id",
               "type": "string"
