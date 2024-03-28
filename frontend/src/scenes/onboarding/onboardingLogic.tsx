@@ -316,9 +316,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
     actionToUrl(({ values }) => ({
         setStepKey: ({ stepKey }) => {
             if (stepKey) {
-                return [`/onboarding/${values.productKey}`, { step: stepKey }]
+                return [`/onboarding/${values.productKey}`, { ...router.values.searchParams, step: stepKey }]
             } else {
-                return [`/onboarding/${values.productKey}`]
+                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
         },
         goToNextStep: () => {
@@ -327,9 +327,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             )
             const nextStep = values.allOnboardingSteps[currentStepIndex + 1]
             if (nextStep) {
-                return [`/onboarding/${values.productKey}`, { step: nextStep.props.stepKey }]
+                return [
+                    `/onboarding/${values.productKey}`,
+                    { ...router.values.searchParams, step: nextStep.props.stepKey },
+                ]
             } else {
-                return [`/onboarding/${values.productKey}`]
+                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
         },
         goToPreviousStep: () => {
@@ -338,9 +341,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             )
             const previousStep = values.allOnboardingSteps[currentStepIndex - 1]
             if (previousStep) {
-                return [`/onboarding/${values.productKey}`, { step: previousStep.props.stepKey }]
+                return [
+                    `/onboarding/${values.productKey}`,
+                    { ...router.values.searchParams, step: previousStep.props.stepKey },
+                ]
             } else {
-                return [`/onboarding/${values.productKey}`]
+                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
         },
         updateCurrentTeamSuccess(val) {

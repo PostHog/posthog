@@ -28,8 +28,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { updateListOfPropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 import {
     ActionType,
@@ -77,7 +76,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     props({} as TaxonomicFilterLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
-    connect((props: TaxonomicFilterLogicProps) => ({
+    connect({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -87,13 +86,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['allGroupProperties'],
             dataWarehouseSceneLogic,
             ['externalTables'],
-            personPropertiesModel({
-                propertyAllowList: props.propertyAllowList,
-                taxonomicFilterLogicKey: props.taxonomicFilterLogicKey,
-            }),
-            ['combinedPersonProperties'],
         ],
-    })),
+    }),
     actions(() => ({
         moveUp: true,
         moveDown: true,
@@ -141,6 +135,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
     })),
     selectors({
+        selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
@@ -170,7 +165,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
-                s.taxonomicFilterLogicKey,
             ],
             (
                 teamId,
@@ -180,8 +174,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 schemaColumns,
                 metadataSource,
                 excludedProperties,
-                propertyAllowList,
-                taxonomicFilterLogicKey
+                propertyAllowList
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -218,7 +211,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         logic: dataWarehouseSceneLogic,
                         value: 'externalTables',
                         getName: (table: DataWarehouseTableType) => table.name,
-                        getValue: (table: DataWarehouseTableType) => table.id,
+                        getValue: (table: DataWarehouseTableType) => table.name,
                         getPopoverHeader: () => 'Data Warehouse Table',
                         getIcon: () => <IconServer />,
                     },
@@ -332,15 +325,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Person properties',
                         searchPlaceholder: 'person properties',
                         type: TaxonomicFilterGroupType.PersonProperties,
-                        logic: personPropertiesModel({ propertyAllowList, taxonomicFilterLogicKey }),
-                        value: 'combinedPersonProperties',
+                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                            type: 'person',
+                            properties: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]
+                                ? propertyAllowList[TaxonomicFilterGroupType.PersonProperties].join(',')
+                                : undefined,
+                        }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
-                        getValue: (personProperty: PersonProperty) => {
-                            if (personProperty.table) {
-                                return personProperty.id
-                            }
-                            return personProperty.name
-                        },
+                        getValue: (personProperty: PersonProperty) => personProperty.name,
                         propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties],
                         ...propertyTaxonomicGroupProps(true),
                     },
@@ -706,7 +698,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     groupType === TaxonomicFilterGroupType.NumericalEventProperties)
             ) {
                 const propertyDefinitions: PropertyDefinition[] = results.results as PropertyDefinition[]
-                updateListOfPropertyDefinitions(propertyDefinitions, groupType)
+                const apiType = groupType === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
+                const newPropertyDefinitions = Object.fromEntries(
+                    propertyDefinitions.map((propertyDefinition) => [
+                        `${apiType}/${propertyDefinition.name}`,
+                        propertyDefinition,
+                    ])
+                )
+                updatePropertyDefinitions(newPropertyDefinitions)
             }
         },
     })),

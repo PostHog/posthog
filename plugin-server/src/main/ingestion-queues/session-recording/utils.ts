@@ -155,12 +155,16 @@ export const parseKafkaMessage = async (
 
     const headerResult = await readTokenFromHeaders(message.headers, getTeamFn)
     const token: string | undefined = headerResult.token
-    let teamIdWithConfig: null | TeamIDWithConfig = headerResult.teamIdWithConfig
+    const teamIdWithConfig: null | TeamIDWithConfig = headerResult.teamIdWithConfig
+
+    if (!token) {
+        return dropMessage('no_token_in_header')
+    }
 
     // NB `==` so we're comparing undefined and null
     // if token was in the headers but, we could not load team config
     // then, we can return early
-    if (!!token && (teamIdWithConfig == null || teamIdWithConfig.teamId == null)) {
+    if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
         return dropMessage('header_token_present_team_missing_or_disabled', {
             token: token,
         })
@@ -183,31 +187,6 @@ export const parseKafkaMessage = async (
         return dropMessage('received_non_snapshot_message')
     }
 
-    // TODO this mechanism is deprecated for blobby ingestion, we should remove it
-    // once we're happy that the new mechanism is working
-    // if there was not a token in the header then we try to load one from the message payload
-    if (teamIdWithConfig == null && messagePayload.team_id == null && !messagePayload.token) {
-        return dropMessage('no_token_in_header_or_payload')
-    }
-
-    if (teamIdWithConfig == null) {
-        const token = messagePayload.token
-
-        if (token) {
-            teamIdWithConfig = await getTeamFn(token)
-        }
-    }
-
-    // NB `==` so we're comparing undefined and null
-    if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
-        return dropMessage('token_fallback_team_missing_or_disabled', {
-            token: messagePayload.token,
-            teamId: messagePayload.team_id,
-            payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
-        })
-    }
-    // end of deprecated mechanism
-
     const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
         // we sometimes see events that are null
         // there will always be some unexpected data but, we should try to filter out the worst of it
@@ -225,6 +204,7 @@ export const parseKafkaMessage = async (
         metadata: {
             partition: message.partition,
             topic: message.topic,
+            rawSize: message.size,
             lowOffset: message.offset,
             highOffset: message.offset,
             timestamp: message.timestamp,
@@ -254,37 +234,34 @@ export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): I
     const reducedMessages: Record<string, IncomingRecordingMessage> = {}
 
     for (const message of messages) {
-        const clonedMessage = cloneObject(message)
-        const key = `${clonedMessage.team_id}-${clonedMessage.session_id}`
+        const key = `${message.team_id}-${message.session_id}`
         if (!reducedMessages[key]) {
-            reducedMessages[key] = clonedMessage
+            reducedMessages[key] = cloneObject(message)
         } else {
             const existingMessage = reducedMessages[key]
-            for (const [windowId, events] of Object.entries(clonedMessage.eventsByWindowId)) {
+            for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
                 if (existingMessage.eventsByWindowId[windowId]) {
                     existingMessage.eventsByWindowId[windowId].push(...events)
                 } else {
                     existingMessage.eventsByWindowId[windowId] = events
                 }
             }
+            existingMessage.metadata.rawSize += message.metadata.rawSize
 
             // Update the events ranges
             existingMessage.metadata.lowOffset = Math.min(
                 existingMessage.metadata.lowOffset,
-                clonedMessage.metadata.lowOffset
+                message.metadata.lowOffset
             )
 
             existingMessage.metadata.highOffset = Math.max(
                 existingMessage.metadata.highOffset,
-                clonedMessage.metadata.highOffset
+                message.metadata.highOffset
             )
 
             // Update the events ranges
-            existingMessage.eventsRange.start = Math.min(
-                existingMessage.eventsRange.start,
-                clonedMessage.eventsRange.start
-            )
-            existingMessage.eventsRange.end = Math.max(existingMessage.eventsRange.end, clonedMessage.eventsRange.end)
+            existingMessage.eventsRange.start = Math.min(existingMessage.eventsRange.start, message.eventsRange.start)
+            existingMessage.eventsRange.end = Math.max(existingMessage.eventsRange.end, message.eventsRange.end)
         }
     }
 

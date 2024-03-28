@@ -408,7 +408,7 @@ describe('eachBatchX', () => {
             const batch = createBatch(captureEndpointEvent)
             runEventPipeline.mockImplementationOnce(() =>
                 Promise.resolve({
-                    promises: [Promise.resolve(), Promise.reject('deferred nopes out')],
+                    ackPromises: [Promise.resolve(), Promise.reject('deferred nopes out')],
                 })
             )
             const tokenBlockList = buildStringMatcher('another_token,more_token', false)

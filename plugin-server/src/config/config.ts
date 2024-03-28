@@ -134,6 +134,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_FOR_TEAMS: '',
         RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
         RUSTY_HOOK_URL: '',
+        CAPTURE_CONFIG_REDIS_HOST: null,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,
@@ -163,6 +164,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_DEBUG_PARTITION: undefined,
         SESSION_RECORDING_KAFKA_DEBUG: undefined,
         SESSION_RECORDING_MAX_PARALLEL_FLUSHES: 10,
+        SESSION_RECORDING_OVERFLOW_ENABLED: false,
+        SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 5_000_000, // 5MB/second uncompressed, sustained
+        SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 200_000_000, // 200MB burst
     }
 }
 

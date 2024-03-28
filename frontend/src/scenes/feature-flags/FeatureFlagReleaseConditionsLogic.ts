@@ -2,8 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, propsCh
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -32,14 +30,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     props({} as FeatureFlagReleaseConditionsLogicProps),
     key(({ id }) => id ?? 'unknown'),
     connect({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            groupsModel,
-            ['groupTypes', 'aggregationLabel'],
-            enabledFeaturesLogic,
-            ['featureFlags as enabledFeatures'],
-        ],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'aggregationLabel']],
     }),
     actions({
         setFilters: (filters: FeatureFlagFilters) => ({ filters }),
@@ -210,35 +201,28 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     })),
     selectors({
         taxonomicGroupTypes: [
-            (s) => [s.filters, s.groupTypes, s.enabledFeatures],
-            (filters, groupTypes, enabledFeatures): TaxonomicFilterGroupType[] => {
-                const baseGroupTypes = []
-                const additionalGroupTypes = []
-                const newFlagOperatorsEnabled = enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]
+            (s) => [s.filters, s.groupTypes],
+            (filters, groupTypes): TaxonomicFilterGroupType[] => {
+                const targetGroupTypes = []
                 const targetGroup =
                     filters?.aggregation_group_type_index != null
                         ? groupTypes.get(filters.aggregation_group_type_index as GroupTypeIndex)
                         : undefined
                 if (targetGroup) {
-                    baseGroupTypes.push(
+                    targetGroupTypes.push(
                         `${TaxonomicFilterGroupType.GroupsPrefix}_${targetGroup?.group_type_index}` as unknown as TaxonomicFilterGroupType
                     )
 
-                    if (newFlagOperatorsEnabled) {
-                        additionalGroupTypes.push(
-                            `${TaxonomicFilterGroupType.GroupNamesPrefix}_${filters.aggregation_group_type_index}` as unknown as TaxonomicFilterGroupType
-                        )
-                    }
+                    targetGroupTypes.push(
+                        `${TaxonomicFilterGroupType.GroupNamesPrefix}_${filters.aggregation_group_type_index}` as unknown as TaxonomicFilterGroupType
+                    )
                 } else {
-                    baseGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
-                    baseGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
-
-                    if (newFlagOperatorsEnabled) {
-                        additionalGroupTypes.push(TaxonomicFilterGroupType.Metadata)
-                    }
+                    targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
+                    targetGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
+                    targetGroupTypes.push(TaxonomicFilterGroupType.Metadata)
                 }
 
-                return [...baseGroupTypes, ...additionalGroupTypes]
+                return targetGroupTypes
             },
         ],
         aggregationTargetName: [
