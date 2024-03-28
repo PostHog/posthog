@@ -33,21 +33,21 @@ class Command(BaseCommand):
             old_migrations.sort()
 
             for index, name in old_migrations:
-                logger.info(f"old ClickHouse migration with index {index} and name {name} found")
+                logger.warn(f"old ClickHouse migration with index {index} and name {name} found")
 
             try:
                 should_fail = False
                 app, index, name = re.findall(
                     r"([a-z]+)\/clickhouse\/migrations\/([0-9]+)_([a-zA-Z_0-9]+)\.py", new_migration
                 )[0]
-                logger.info(f"new ClickHouse migration for app {app} with index {index} and name {name} found")
+                logger.warn(f"new ClickHouse migration for app {app} with index {index} and name {name} found")
 
                 matching_migration_indexes = []
                 for old_index, old_name in old_migrations:
                     if old_index == index:
                         matching_migration_indexes.append((old_index, old_name))
 
-                if len(matching_migration_indexes) > 1:
+                if len(matching_migration_indexes) > 0:
                     logger.error(f"Found an existing matching migrations with index {index} - PaNiC!")
                     logger.error("Colliding migrations are:")
                     for old_index, old_name in matching_migration_indexes:
