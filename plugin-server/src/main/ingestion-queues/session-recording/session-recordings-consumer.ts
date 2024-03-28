@@ -145,7 +145,8 @@ export class SessionRecordingIngester {
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     latestOffsetsRefresher: BackgroundRefresher<Record<number, number | undefined>>
     config: PluginsServerConfig
-    topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+    topic: string
+    consumerGroupId: string
     totalNumPartitions = 0
     isStopping = false
 
@@ -166,6 +167,10 @@ export class SessionRecordingIngester {
         this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
             ? parseInt(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION)
             : undefined
+        this.topic = consumeOverflow
+            ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
+            : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
 
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
@@ -272,11 +277,7 @@ export class SessionRecordingIngester {
 
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
         if (
-            await this.persistentHighWaterMarker.isBelowHighWaterMark(
-                event.metadata,
-                KAFKA_CONSUMER_GROUP_ID,
-                highOffset
-            )
+            await this.persistentHighWaterMarker.isBelowHighWaterMark(event.metadata, this.consumerGroupId, highOffset)
         ) {
             eventDroppedCounter
                 .labels({
@@ -483,10 +484,8 @@ export class SessionRecordingIngester {
 
         this.batchConsumer = await startBatchConsumer({
             connectionConfig,
-            groupId: this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID,
-            topic: this.consumeOverflow
-                ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
-                : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+            groupId: this.consumerGroupId,
+            topic: this.topic,
             autoCommit: false,
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
@@ -819,7 +818,7 @@ export class SessionRecordingIngester {
                 })
 
                 // Store the committed offset to the persistent store to avoid rebalance issues
-                await this.persistentHighWaterMarker.add(tp, KAFKA_CONSUMER_GROUP_ID, highestOffsetToCommit)
+                await this.persistentHighWaterMarker.add(tp, this.consumerGroupId, highestOffsetToCommit)
                 // Clear all session offsets below the committed offset (as we know they have been flushed)
                 await this.sessionHighWaterMarker.clear(tp, highestOffsetToCommit)
                 gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
