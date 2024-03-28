@@ -177,6 +177,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
 
         stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
         account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
+        # Cludge: account_id should be checked here too but can deal with nulls
+        # until we require re update of account_ids in stripe so they're all store
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
         source = stripe_source(
