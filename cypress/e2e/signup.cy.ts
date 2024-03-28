@@ -12,7 +12,7 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-email]').type('test@posthog.com').should('have.value', 'test@posthog.com')
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
         cy.get('[data-attr=signup-start]').click()
-        cy.get('[data-attr=signup-first-name]').type('Jane').should('have.value', 'Jane')
+        cy.get('[data-attr=signup-name]').type('Jane Doe').should('have.value', 'Jane Doe')
         cy.get('[data-attr=signup-organization-name]').type('Hogflix Movies').should('have.value', 'Hogflix Movies')
         cy.get('[data-attr=signup-role-at-organization]').click()
         cy.get('.Popover li:first-child').click()
@@ -39,17 +39,52 @@ describe('Signup', () => {
         cy.get('.text-danger').should('not.contain', 'Password must be at least 8 characters') // Validation error removed on keystroke
     })
 
-    it('Can create user account', () => {
+    it('Can create user account with first name, last name and organization name', () => {
+        cy.intercept('POST', '/api/signup/').as('signupRequest')
+
         const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
         cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
         cy.get('[data-attr=signup-start]').click()
-        cy.get('[data-attr=signup-first-name]').type('Alice').should('have.value', 'Alice')
+        cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
         cy.get('[data-attr=signup-organization-name]').type('Hogflix SpinOff').should('have.value', 'Hogflix SpinOff')
         cy.get('[data-attr=signup-role-at-organization]').click()
         cy.get('.Popover li:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
+
+        cy.wait('@signupRequest').then((interception) => {
+            expect(interception.request.body).to.have.property('first_name')
+            expect(interception.request.body.first_name).to.equal('Alice')
+            expect(interception.request.body).to.have.property('last_name')
+            expect(interception.request.body.last_name).to.equal('Bob')
+            expect(interception.request.body).to.have.property('organization_name')
+            expect(interception.request.body.organization_name).to.equal('Hogflix SpinOff')
+        })
+
+        // lazy regex for a guid
+        cy.location('pathname').should('match', /\/verify_email\/[a-zA-Z0-9_.-]*/)
+    })
+
+    it('Can create user account with just a first name', () => {
+        cy.intercept('POST', '/api/signup/').as('signupRequest')
+
+        const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
+        cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
+        cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
+        cy.get('[data-attr=signup-start]').click()
+        cy.get('[data-attr=signup-name]').type('Alice').should('have.value', 'Alice')
+        cy.get('[data-attr=signup-role-at-organization]').click()
+        cy.get('.Popover li:first-child').click()
+        cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
+        cy.get('[data-attr=signup-submit]').click()
+
+        cy.wait('@signupRequest').then((interception) => {
+            expect(interception.request.body).to.have.property('first_name')
+            expect(interception.request.body.first_name).to.equal('Alice')
+            expect(interception.request.body).to.not.have.property('last_name')
+            expect(interception.request.body).to.not.have.property('organization_name')
+        })
 
         // lazy regex for a guid
         cy.location('pathname').should('match', /\/verify_email\/[a-zA-Z0-9_.-]*/)
@@ -75,7 +110,7 @@ describe('Signup', () => {
     })
 
     it('Shows redirect notice if redirecting for maintenance', () => {
-        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
+        cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({
                     'redirect-signups-to-instance': 'us',

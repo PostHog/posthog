@@ -1,7 +1,7 @@
 from copy import copy, deepcopy
 from typing import Callable, Dict, List, Optional, cast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -205,7 +205,7 @@ def get_tables_aliases(query: ast.SelectQuery, context: HogQLContext) -> Dict[st
 
 
 # Replaces all ast.FieldTraverser with the underlying node
-def resolve_table_field_traversers(table: Table) -> Table:
+def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table:
     new_table = deepcopy(table)
     new_fields: Dict[str, FieldOrTable] = {}
     for key, field in list(new_table.fields.items()):
@@ -218,7 +218,7 @@ def resolve_table_field_traversers(table: Table) -> Table:
             if isinstance(current_table_or_field, Table):
                 chain_field = current_table_or_field.fields.get(chain)
             elif isinstance(current_table_or_field, LazyJoin):
-                chain_field = current_table_or_field.join_table.fields.get(chain)
+                chain_field = current_table_or_field.resolve_table(context).fields.get(chain)
             elif isinstance(current_table_or_field, DatabaseField):
                 chain_field = current_table_or_field
             else:
@@ -239,6 +239,10 @@ def append_table_field_to_response(table: Table, suggestions: List[AutocompleteC
     details: List[str | None] = []
     table_fields = list(table.fields.items())
     for field_name, field_or_table in table_fields:
+        # Skip over hidden fields
+        if isinstance(field_or_table, ast.DatabaseField) and field_or_table.hidden:
+            continue
+
         keys.append(field_name)
         details.append(convert_field_or_table_to_type_string(field_or_table))
 
@@ -278,11 +282,17 @@ PROPERTY_DEFINITION_LIMIT = 220
 
 
 # TODO: Support ast.SelectUnionQuery nodes
-def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocompleteResponse:
+def get_hogql_autocomplete(
+    query: HogQLAutocomplete, team: Team, database_arg: Optional[Database] = None
+) -> HogQLAutocompleteResponse:
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
 
-    database = create_hogql_database(team_id=team.pk, team_arg=team)
+    if database_arg is not None:
+        database = database_arg
+    else:
+        database = create_hogql_database(team_id=team.pk, team_arg=team)
+
     context = HogQLContext(team_id=team.pk, team=team, database=database)
 
     original_query_select = copy(query.select)
@@ -368,7 +378,7 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                         is_last_part = index >= (chain_len - 2)
 
                         # Replaces all ast.FieldTraverser with the underlying node
-                        last_table = resolve_table_field_traversers(last_table)
+                        last_table = resolve_table_field_traversers(last_table, context)
 
                         if is_last_part:
                             if last_table.fields.get(str(chain_part)) is None:
@@ -421,7 +431,7 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                                     details=[convert_field_or_table_to_type_string(field) for key, field in fields],
                                 )
                             elif isinstance(field, LazyJoin):
-                                fields = list(field.join_table.fields.items())
+                                fields = list(field.resolve_table(context).fields.items())
 
                                 extend_responses(
                                     keys=[key for key, field in fields],
@@ -434,7 +444,7 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                             if isinstance(field, Table):
                                 last_table = field
                             elif isinstance(field, LazyJoin):
-                                last_table = field.join_table
+                                last_table = field.resolve_table(context)
             elif isinstance(node, ast.Field) and isinstance(parent_node, ast.JoinExpr):
                 # Handle table names
                 with timings.measure("table_name"):

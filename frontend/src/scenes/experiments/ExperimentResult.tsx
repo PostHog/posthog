@@ -3,7 +3,6 @@ import './Experiment.scss'
 import { IconInfo } from '@posthog/icons'
 import { LemonTable, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelLayout } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -16,10 +15,8 @@ import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightTyp
 
 import { LoadingState } from './Experiment'
 import { experimentLogic } from './experimentLogic'
+import { getExperimentInsightColour } from './utils'
 
-export function getExperimentInsightColour(variantIndex: number | null): string {
-    return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
-}
 interface ExperimentResultProps {
     secondaryMetricId?: number
 }

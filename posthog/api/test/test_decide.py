@@ -277,9 +277,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["linkedFlag"], "my-flag")
 
-    @pytest.mark.skip(
-        reason="functionality was implicated in an incident, re-releasing without the decide change at first"
-    )
     def test_session_recording_linked_flag_variant(self, *args):
         # :TRICKY: Test for regression around caching
 
@@ -475,6 +472,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
 
         response = self._post_decide(origin="any.site.com", user_agent="posthog-android/3.1.0").json()
+        assert response["sessionRecording"] == {
+            "endpoint": "/s/",
+            "recorderVersion": "v2",
+            "consoleLogRecordingEnabled": False,
+            "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
+        }
+
+    def test_user_session_recording_allowed_for_ios(self, *args) -> None:
+        self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
+
+        response = self._post_decide(origin="any.site.com", user_agent="posthog-ios/3.1.0").json()
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",

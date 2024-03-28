@@ -19,6 +19,9 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     query_type = WebOverviewQuery
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if self.query.useSessionsTable:
+            return self.to_query_with_session_table()
+
         with self.timings.measure("date_expr"):
             start = self.query_date_range.previous_period_date_from_as_hogql()
             mid = self.query_date_range.date_from_as_hogql()
@@ -168,6 +171,113 @@ CROSS JOIN sessions_query
                     },
                 )
 
+    def to_query_with_session_table(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        with self.timings.measure("date_expr"):
+            start = self.query_date_range.previous_period_date_from_as_hogql()
+            mid = self.query_date_range.date_from_as_hogql()
+            end = self.query_date_range.date_to_as_hogql()
+
+        if self.query.compare:
+            return parse_select(
+                """
+SELECT
+    uniq(if(min_timestamp >= {mid} AND min_timestamp < {end}, person_id, NULL)) AS unique_users,
+    uniq(if(min_timestamp >= {start} AND min_timestamp < {mid}, person_id, NULL)) AS previous_unique_users,
+    sumIf(filtered_pageview_count, min_timestamp >= {mid} AND min_timestamp < {end}) AS current_pageviews,
+    sumIf(filtered_pageview_count, min_timestamp >= {start} AND min_timestamp < {mid}) AS previous_pageviews,
+    uniq(if(min_timestamp >= {mid} AND min_timestamp < {end}, session_id, NULL)) AS unique_sessions,
+    uniq(if(min_timestamp >= {start} AND min_timestamp < {mid}, session_id, NULL)) AS previous_unique_sessions,
+    avg(if(min_timestamp >= {mid}, duration, NULL)) AS avg_duration_s,
+    avg(if(min_timestamp < {mid}, duration, NULL)) AS prev_avg_duration_s,
+    avg(if(min_timestamp >= {mid}, is_bounce, NULL)) AS bounce_rate,
+    avg(if(min_timestamp < {mid}, is_bounce, NULL)) AS prev_bounce_rate
+FROM (
+    SELECT
+        any(events.person_id) as person_id,
+        events.`$session_id` as session_id,
+        min(sessions.min_timestamp) as min_timestamp,
+        any(sessions.duration) as duration,
+        any(sessions.pageview_count) as session_pageview_count,
+        any(sessions.autocapture_count) as session_autocapture_count,
+        count() as filtered_pageview_count,
+        and(
+             duration < 30,
+             session_pageview_count = 1,
+            session_autocapture_count = 0
+         ) as is_bounce
+    FROM events
+    JOIN sessions
+    ON events.`$session_id` = sessions.session_id
+    WHERE and(
+        `$session_id` IS NOT NULL,
+        event = '$pageview',
+        timestamp >= {start},
+        timestamp < {end},
+        {event_properties}
+    )
+    GROUP BY `$session_id`
+    HAVING and(
+        min_timestamp >= {start},
+        min_timestamp < {end}
+    )
+)
+
+    """,
+                placeholders={
+                    "start": start,
+                    "mid": mid,
+                    "end": end,
+                    "event_properties": self.event_properties(),
+                },
+            )
+        else:
+            return parse_select(
+                """
+                SELECT
+    uniq(person_id) AS unique_users,
+    NULL as previous_unique_users,
+    sum(filtered_pageview_count) AS current_pageviews,
+    NULL as previous_pageviews,
+    uniq(session_id) AS unique_sessions,
+    NULL as previous_unique_sessions,
+    avg(duration) AS avg_duration_s,
+    NULL as prev_avg_duration_s,
+    avg(is_bounce) AS bounce_rate,
+    NULL as prev_bounce_rate
+FROM (
+    SELECT
+        any(events.person_id) as person_id,
+        events.`$session_id` as session_id,
+        min(sessions.min_timestamp) as min_timestamp,
+        any(sessions.duration) as duration,
+        any(sessions.pageview_count) as session_pageview_count,
+        any(sessions.autocapture_count) as session_autocapture_count,
+        count() as filtered_pageview_count,
+        and(
+             duration < 30,
+             session_pageview_count = 1,
+            session_autocapture_count = 0
+         ) as is_bounce
+    FROM events
+    JOIN sessions
+    ON events.`$session_id` = sessions.session_id
+    WHERE and(
+        `$session_id` IS NOT NULL,
+        event = '$pageview',
+        timestamp >= {mid},
+        timestamp < {end},
+        {event_properties}
+    )
+    GROUP BY `$session_id`
+    HAVING and(
+        min_timestamp >= {mid},
+        min_timestamp < {end}
+    )
+)
+                """,
+                placeholders={"mid": mid, "end": end, "event_properties": self.event_properties()},
+            )
+
     def calculate(self):
         response = execute_hogql_query(
             query_type="overview_stats_pages_query",
@@ -175,6 +285,7 @@ CROSS JOIN sessions_query
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
         assert response.results
 

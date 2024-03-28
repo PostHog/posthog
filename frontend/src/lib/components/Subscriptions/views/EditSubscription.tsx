@@ -8,13 +8,10 @@ import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import {
-    LemonSelectMultiple,
-    LemonSelectMultipleOptionItem,
-} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect, useMemo } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -61,7 +58,7 @@ export function EditSubscription({
         dashboardId,
     })
 
-    const { members, membersLoading } = useValues(membersLogic)
+    const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, isMemberOfSlackChannel } =
         useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
@@ -86,7 +83,7 @@ export function EditSubscription({
     }, [subscription?.target_type, slackIntegration])
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const slackChannelOptions: LemonSelectMultipleOptionItem[] = useMemo(
+    const slackChannelOptions: LemonInputSelectOption[] = useMemo(
         () => getSlackChannelOptions(subscription?.target_value, slackChannels),
         [slackChannels, subscription?.target_value]
     )
@@ -199,13 +196,14 @@ export function EditSubscription({
                                     help="Enter the email addresses of the users you want to share with"
                                 >
                                     {({ value, onChange }) => (
-                                        <LemonSelectMultiple
-                                            onChange={(val: string[]) => onChange(val.join(','))}
+                                        <LemonInputSelect
+                                            onChange={(val) => onChange(val.join(','))}
                                             value={value?.split(',').filter(Boolean)}
                                             disabled={emailDisabled}
-                                            mode="multiple-custom"
+                                            mode="multiple"
+                                            allowCustomValues
                                             data-attr="subscribed-emails"
-                                            options={usersLemonSelectOptions(members.map((x) => x.user))}
+                                            options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
                                             loading={membersLoading}
                                             placeholder="Enter an email address"
                                         />
@@ -268,10 +266,7 @@ export function EditSubscription({
                                             help={
                                                 <>
                                                     Private channels are only shown if you have{' '}
-                                                    <Link
-                                                        to="https://posthog.com/docs/integrate/third-party/slack"
-                                                        target="_blank"
-                                                    >
+                                                    <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
                                                         added the PostHog Slack App
                                                     </Link>{' '}
                                                     to them
@@ -279,12 +274,13 @@ export function EditSubscription({
                                             }
                                         >
                                             {({ value, onChange }) => (
-                                                <LemonSelectMultiple
-                                                    onChange={(val: string) => onChange(val)}
-                                                    value={value}
+                                                <LemonInputSelect
+                                                    onChange={(val) => onChange(val[0] ?? null)}
+                                                    value={value ? [value] : []}
                                                     disabled={slackDisabled}
                                                     mode="single"
                                                     data-attr="select-slack-channel"
+                                                    placeholder="Select a channel..."
                                                     options={slackChannelOptions}
                                                     loading={slackChannelsLoading}
                                                 />
@@ -300,7 +296,7 @@ export function EditSubscription({
                                                             to the channel otherwise Subscriptions will fail to be
                                                             delivered.{' '}
                                                             <Link
-                                                                to="https://posthog.com/docs/integrate/third-party/slack"
+                                                                to="https://posthog.com/docs/webhooks/slack"
                                                                 target="_blank"
                                                             >
                                                                 See the Docs for more information

@@ -26,14 +26,14 @@ PERSONS_FIELDS: Dict[str, FieldOrTable] = {
     "properties": StringJSONDatabaseField(name="properties"),
     "is_identified": BooleanDatabaseField(name="is_identified"),
     "pdi": LazyJoin(
-        from_field="id",
+        from_field=["id"],
         join_table=PersonsPDITable(),
         join_function=persons_pdi_join,
     ),
 }
 
 
-def select_from_persons_table(requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
+def select_from_persons_table(requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
     version = modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.auto:
         version = PersonsArgMaxVersion.v1
@@ -85,7 +85,7 @@ def select_from_persons_table(requested_fields: Dict[str, List[str]], modifiers:
 def join_with_persons_table(
     from_table: str,
     to_table: str,
-    requested_fields: Dict[str, List[str]],
+    requested_fields: Dict[str, List[str | int]],
     context: HogQLContext,
     node: SelectQuery,
 ):
@@ -123,8 +123,8 @@ class RawPersonsTable(Table):
 class PersonsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = PERSONS_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
-        return select_from_persons_table(requested_fields, modifiers)
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
+        return select_from_persons_table(requested_fields, context.modifiers)
 
     def to_printed_clickhouse(self, context):
         return "person"

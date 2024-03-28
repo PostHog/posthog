@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import re
-from typing import Dict
+from typing import Dict, Optional
 
 from clickhouse_driver.errors import ServerException
 
@@ -8,9 +8,10 @@ from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QuerySizeExce
 
 
 class InternalCHQueryError(ServerException):
-    code_name: str
+    code_name: Optional[str]
+    """Can be null if re-raised from a thread (see `failhard_threadhook_context`)."""
 
-    def __init__(self, message, *, code=None, nested=None, code_name):
+    def __init__(self, message, *, code=None, nested=None, code_name=None):
         self.code_name = code_name
         super().__init__(message, code, nested)
 
@@ -151,7 +152,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     60: ErrorCodeMeta("UNKNOWN_TABLE"),
     61: ErrorCodeMeta("ONLY_FILTER_COLUMN_IN_BLOCK"),
     62: ErrorCodeMeta("SYNTAX_ERROR"),
-    63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION"),
+    63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION", user_safe=True),
     64: ErrorCodeMeta("CANNOT_READ_AGGREGATE_FUNCTION_FROM_TEXT"),
     65: ErrorCodeMeta("CANNOT_WRITE_AGGREGATE_FUNCTION_AS_TEXT"),
     66: ErrorCodeMeta("NOT_A_COLUMN"),

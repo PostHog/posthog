@@ -46,7 +46,6 @@ describe('definitionEditLogic', () => {
             logic.actions.saveDefinition(mockEventDefinitions[0])
         }).toDispatchActionsInAnyOrder([
             'saveDefinition',
-            'setPageMode',
             'setDefinition',
             eventDefinitionsTableLogic.actionCreators.setLocalEventDefinition(mockEventDefinitions[0]),
         ])

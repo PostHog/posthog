@@ -87,12 +87,7 @@ class TestProperty(BaseTest):
             self._parse_expr("group_0.properties.a = 'b' OR group_0.properties.a = 'c'"),
         )
 
-        with self.assertRaises(Exception) as e:
-            self._property_to_expr({"type": "group", "key": "a", "value": "b"})
-        self.assertEqual(
-            str(e.exception),
-            "Missing required attr group_type_index for property type group with key a",
-        )
+        self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
 
     def test_property_to_expr_event(self):
         self.assertEqual(
@@ -154,6 +149,14 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}),
             self._parse_expr("true"),
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr({"type": "event", "key": "a", "operator": "icontains"}),  # value missing
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr({}),  # incomplete event
         )
 
     def test_property_to_expr_boolean(self):
@@ -428,37 +431,39 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(elements_chain_match('div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')),
+            clear_locations(elements_chain_match('(^|;)div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
                 elements_chain_match(
-                    'div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
+                    '(^|;)div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
                 )
             ),
         )
         self.assertEqual(
             self._selector_to_expr("a[href='boo']"),
             clear_locations(
-                elements_chain_match('a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+                elements_chain_match('(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
             ),
         )
         self.assertEqual(
             self._selector_to_expr(".class"),
-            clear_locations(elements_chain_match('.*?\\.class([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')),
+            clear_locations(
+                elements_chain_match('(^|;).*?\\.class([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("#withid"),
             clear_locations(
-                elements_chain_match('.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+                elements_chain_match('(^|;).*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
             ),
         )
         self.assertEqual(
             self._selector_to_expr("#with-dashed-id"),
             clear_locations(
                 elements_chain_match(
-                    '.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    '(^|;).*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -470,7 +475,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("#with\\slashed\\id"),
             clear_locations(
                 elements_chain_match(
-                    '.*?attr_id="with\\\\slashed\\\\id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    '(^|;).*?attr_id="with\\\\slashed\\\\id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -523,7 +528,7 @@ class TestProperty(BaseTest):
                 "event = '$autocapture' and elements_chain =~ {regex1} and elements_chain =~ {regex2}",
                 {
                     "regex1": ast.Constant(
-                        value='a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        value='(^|;)a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                     ),
                     "regex2": ast.Constant(value="(^|;)a(\\.|$|;|:)"),
                 },

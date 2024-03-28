@@ -807,7 +807,7 @@ class _Printer(Visitor):
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if func_meta.overloads:
                     first_arg_constant_type = (
-                        node.args[0].type.resolve_constant_type()
+                        node.args[0].type.resolve_constant_type(self.context)
                         if len(node.args) > 0 and node.args[0].type is not None
                         else None
                     )
@@ -822,11 +822,21 @@ class _Printer(Visitor):
                                 break  # Found an overload matching the first function org
 
                 if func_meta.tz_aware:
-                    if (relevant_clickhouse_name == "now64" and len(node.args) == 0) or (
-                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
+                    has_tz_override = len(node.args) == func_meta.max_args
+
+                    if not has_tz_override:
+                        args.append(self.visit(ast.Constant(value=self._get_timezone())))
+
+                    if (
+                        relevant_clickhouse_name == "now64"
+                        and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
+                    ) or (
+                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
+                        and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
-                        args.append("6")  # These two CH functions require the precision argument before timezone
-                    args.append(self.visit(ast.Constant(value=self._get_timezone())))
+                        # These two CH functions require a precision argument before timezone
+                        args = args[:-1] + ["6"] + args[-1:]
+
                 if node.name == "toStartOfWeek" and len(node.args) == 1:
                     # If week mode hasn't been specified, use the project's default.
                     # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
@@ -903,7 +913,9 @@ class _Printer(Visitor):
     def visit_field_type(self, type: ast.FieldType):
         try:
             last_select = self._last_select()
-            type_with_name_in_scope = lookup_field_by_name(last_select.type, type.name) if last_select else None
+            type_with_name_in_scope = (
+                lookup_field_by_name(last_select.type, type.name, self.context) if last_select else None
+            )
         except ResolverException:
             type_with_name_in_scope = None
 
@@ -912,7 +924,7 @@ class _Printer(Visitor):
             or isinstance(type.table_type, ast.TableAliasType)
             or isinstance(type.table_type, ast.VirtualTableType)
         ):
-            resolved_field = type.resolve_database_field()
+            resolved_field = type.resolve_database_field(self.context)
             if resolved_field is None:
                 raise HogQLException(f'Can\'t resolve field "{type.name}" on table.')
             if isinstance(resolved_field, Table):
@@ -976,7 +988,7 @@ class _Printer(Visitor):
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
         field_type = type.field_type
-        field = field_type.resolve_database_field()
+        field = field_type.resolve_database_field(self.context)
 
         # check for a materialised column
         table = field_type.table_type
@@ -1173,7 +1185,7 @@ class _Printer(Visitor):
         elif isinstance(node.type, ast.PropertyType):
             return True
         elif isinstance(node.type, ast.FieldType):
-            return node.type.is_nullable()
+            return node.type.is_nullable(self.context)
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
 

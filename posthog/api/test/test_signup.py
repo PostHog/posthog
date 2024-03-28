@@ -43,6 +43,7 @@ class TestSignupAPI(APIBaseTest):
             "/api/signup/",
             {
                 "first_name": "John",
+                "last_name": "Doe",
                 "email": "hedgehog@posthog.com",
                 "password": "notsecure",
                 "organization_name": "Hedgehogs United, LLC",
@@ -62,8 +63,8 @@ class TestSignupAPI(APIBaseTest):
                 "id": user.pk,
                 "uuid": str(user.uuid),
                 "distinct_id": user.distinct_id,
-                "last_name": "",
                 "first_name": "John",
+                "last_name": "Doe",
                 "email": "hedgehog@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": False,
@@ -72,13 +73,14 @@ class TestSignupAPI(APIBaseTest):
 
         # Assert that the user was properly created
         self.assertEqual(user.first_name, "John")
+        self.assertEqual(user.last_name, "Doe")
         self.assertEqual(user.email, "hedgehog@posthog.com")
         self.assertFalse(user.email_opt_in)
         self.assertTrue(user.is_staff)  # True because this is the first user in the instance
         self.assertFalse(user.is_email_verified)
 
         # Assert that the team was properly created
-        self.assertEqual(team.name, "Default Project")
+        self.assertEqual(team.name, "Default project")
 
         # Assert that the org was properly created
         self.assertEqual(organization.name, "Hedgehogs United, LLC")
@@ -223,7 +225,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "hedgehog2@posthog.com")
         self.assertTrue(user.email_opt_in)  # Defaults to True
-        self.assertEqual(organization.name, "Jane")
+        self.assertEqual(organization.name, f"{user.first_name}'s Organization")
         self.assertTrue(user.is_staff)  # True because this is the first user in the instance
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics

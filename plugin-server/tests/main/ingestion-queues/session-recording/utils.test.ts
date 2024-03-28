@@ -57,7 +57,7 @@ describe('session-recording utils', () => {
                 })
             ),
             timestamp: 1,
-            size: 1,
+            size: 42,
             topic: 'the_topic',
             offset: 1,
             partition: 1,
@@ -65,14 +65,15 @@ describe('session-recording utils', () => {
 
     describe('parsing the message', () => {
         it('can parse a message correctly', async () => {
-            const parsedMessage = await parseKafkaMessage(validMessage('my-distinct-id'), () =>
-                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            const parsedMessage = await parseKafkaMessage(
+                validMessage('my-distinct-id', [{ token: 'something' }]),
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
             )
             expect(parsedMessage).toMatchSnapshot()
         })
         it('can handle numeric distinct_ids', async () => {
             const numericId = 12345
-            const parsedMessage = await parseKafkaMessage(validMessage(numericId), () =>
+            const parsedMessage = await parseKafkaMessage(validMessage(numericId, [{ token: 'something' }]), () =>
                 Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
             )
             expect(parsedMessage).toMatchObject({
@@ -91,6 +92,7 @@ describe('session-recording utils', () => {
 
             const createMessage = ($snapshot_items: unknown[]) => {
                 return {
+                    headers: [{ token: 'the_token' }],
                     value: Buffer.from(
                         JSON.stringify({
                             uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
@@ -191,10 +193,10 @@ describe('session-recording utils', () => {
                     undefined,
                 ],
                 [
-                    'calls the team id resolver twice when token is not in header, and is in body',
+                    'does not call the team id resolver when token is not in header, but is in body',
                     undefined,
                     'the body token',
-                    ['the body token'],
+                    undefined,
                 ],
             ])('%s', async (_name, headerToken, payloadToken, expectedCalls) => {
                 await parseKafkaMessage(
@@ -257,7 +259,7 @@ describe('session-recording utils', () => {
                 distinct_id: '1',
                 eventsRange: { start: 1, end: 1 },
                 eventsByWindowId: { window_1: [{ timestamp: 1, type: 1, data: {} }] },
-                metadata: { lowOffset: 1, highOffset: 1, partition: 1, timestamp: 1, topic: 'the_topic' },
+                metadata: { lowOffset: 1, highOffset: 1, partition: 1, timestamp: 1, topic: 'the_topic', rawSize: 5 },
                 session_id: '1',
                 team_id: 1,
                 snapshot_source: null,
@@ -266,7 +268,7 @@ describe('session-recording utils', () => {
                 distinct_id: '1',
                 eventsRange: { start: 2, end: 2 },
                 eventsByWindowId: { window_1: [{ timestamp: 2, type: 2, data: {} }] },
-                metadata: { lowOffset: 2, highOffset: 2, partition: 1, timestamp: 2, topic: 'the_topic' },
+                metadata: { lowOffset: 2, highOffset: 2, partition: 1, timestamp: 2, topic: 'the_topic', rawSize: 4 },
                 session_id: '1',
                 team_id: 1,
                 snapshot_source: null,
@@ -276,7 +278,7 @@ describe('session-recording utils', () => {
                 distinct_id: '1',
                 eventsRange: { start: 3, end: 3 },
                 eventsByWindowId: { window_2: [{ timestamp: 3, type: 3, data: {} }] },
-                metadata: { lowOffset: 3, highOffset: 3, partition: 1, timestamp: 3, topic: 'the_topic' },
+                metadata: { lowOffset: 3, highOffset: 3, partition: 1, timestamp: 3, topic: 'the_topic', rawSize: 3 },
                 session_id: '1',
                 team_id: 1,
                 snapshot_source: null,
@@ -286,7 +288,7 @@ describe('session-recording utils', () => {
                 distinct_id: '1',
                 eventsRange: { start: 4, end: 4 },
                 eventsByWindowId: { window_1: [{ timestamp: 4, type: 4, data: {} }] },
-                metadata: { lowOffset: 4, highOffset: 4, partition: 1, timestamp: 4, topic: 'the_topic' },
+                metadata: { lowOffset: 4, highOffset: 4, partition: 1, timestamp: 4, topic: 'the_topic', rawSize: 30 },
                 session_id: '1',
                 team_id: 2,
                 snapshot_source: null,
@@ -296,7 +298,7 @@ describe('session-recording utils', () => {
                 distinct_id: '1',
                 eventsRange: { start: 5, end: 5 },
                 eventsByWindowId: { window_1: [{ timestamp: 5, type: 5, data: {} }] },
-                metadata: { lowOffset: 5, highOffset: 5, partition: 1, timestamp: 5, topic: 'the_topic' },
+                metadata: { lowOffset: 5, highOffset: 5, partition: 1, timestamp: 5, topic: 'the_topic', rawSize: 31 },
                 session_id: '2',
                 team_id: 1,
                 snapshot_source: null,

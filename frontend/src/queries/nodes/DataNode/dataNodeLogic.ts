@@ -41,7 +41,14 @@ import {
     PersonsNode,
     QueryTiming,
 } from '~/queries/schema'
-import { isActorsQuery, isEventsQuery, isInsightActorsQuery, isInsightQueryNode, isPersonsNode } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isEventsQuery,
+    isFunnelsQuery,
+    isInsightActorsQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+} from '~/queries/utils'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
@@ -65,11 +72,22 @@ const LOAD_MORE_ROWS_LIMIT = 10000
 
 const concurrencyController = new ConcurrencyController(Infinity)
 
+/** Compares two queries for semantic equality to prevent double-fetching of data. */
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
         return compareInsightQuery(a, b, true)
     } else {
         return objectsEqual(a, b)
+    }
+}
+
+/** Tests wether a query is valid to prevent unnecessary requests.  */
+const queryValid = (q: DataNode): boolean => {
+    if (isFunnelsQuery(q)) {
+        // funnels require at least two steps
+        return q.series.length >= 2
+    } else {
+        return true
     }
 }
 
@@ -149,6 +167,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     if (props.query === undefined || Object.keys(props.query).length === 0) {
                         // no need to try and load a query before properly initialized
+                        return null
+                    }
+
+                    if (!queryValid(props.query)) {
                         return null
                     }
 
@@ -362,7 +384,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         hogQLInsightsRetentionFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION],
+            (featureFlags) =>
+                !!(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]),
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [

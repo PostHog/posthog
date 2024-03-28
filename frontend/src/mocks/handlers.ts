@@ -10,6 +10,7 @@ import {
     MOCK_PERSON_PROPERTIES,
     MOCK_SECOND_ORGANIZATION_MEMBER,
 } from 'lib/api.mock'
+import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
 import { getAvailableFeatures } from '~/mocks/features'
 import { SharingConfigurationType } from '~/types'
@@ -24,6 +25,19 @@ export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESP
     next: null,
     previous: null,
 })
+
+// this really returns MaybePromise<ResponseFunction<any>>
+// but MSW doesn't export MaybePromise 🤷
+function posthogCORSResponse(req: RestRequest, res: ResponseComposition, ctx: RestContext): any {
+    return res(
+        ctx.status(200),
+        ctx.json('ok'),
+        // some of our tests try to make requests via posthog-js e.g. userLogic calls identify
+        // they have to have CORS allowed, or they pass but print noise to the console
+        ctx.set('Access-Control-Allow-Origin', req.referrer.length ? req.referrer : 'http://localhost'),
+        ctx.set('Access-Control-Allow-Credentials', 'true')
+    )
+}
 
 export const defaultMocks: Mocks = {
     get: {
@@ -60,6 +74,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/explicit_members/': [],
         '/api/projects/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
@@ -99,7 +114,7 @@ export const defaultMocks: Mocks = {
         // We don't want to show the "new version available" banner in tests
         'https://api.github.com/repos/posthog/posthog-js/tags': () => [200, []],
         'https://www.gravatar.com/avatar/:gravatar_id': () => [404, ''],
-        'https://app.posthog.com/api/early_access_features': {
+        'https://us.i.posthog.com/api/early_access_features': {
             earlyAccessFeatures: [],
         },
         '/api/billing-v2/': {
@@ -107,12 +122,13 @@ export const defaultMocks: Mocks = {
         },
     },
     post: {
-        'https://app.posthog.com/e/': (): MockSignature => [200, 'ok'],
-        '/e/': (): MockSignature => [200, 'ok'],
-        'https://app.posthog.com/decide/': (): MockSignature => [200, 'ok'],
-        '/decide/': (): MockSignature => [200, 'ok'],
-        'https://app.posthog.com/engage/': (): MockSignature => [200, 'ok'],
+        'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/api/projects/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
+        'api/projects/:team_id/query': [200, { results: [] }],
     },
 }
 export const handlers = mocksToHandlers(defaultMocks)

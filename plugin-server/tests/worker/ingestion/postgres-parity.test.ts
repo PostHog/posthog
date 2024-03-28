@@ -339,7 +339,7 @@ describe('postgres parity', () => {
         // move distinct ids from person to to anotherPerson
 
         const kafkaMessages = await hub.db.moveDistinctIds(person, anotherPerson)
-        await hub.db!.kafkaProducer!.queueMessages(kafkaMessages)
+        await hub.db!.kafkaProducer!.queueMessages({ kafkaMessages, waitForAck: true })
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
 
         // it got added
@@ -395,7 +395,7 @@ describe('postgres parity', () => {
         // delete person
         await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
-            await hub.db!.kafkaProducer!.queueMessage(deletePersonMessage[0])
+            await hub.db!.kafkaProducer!.queueMessage({ kafkaMessage: deletePersonMessage[0], waitForAck: true })
         })
 
         await delayUntilEventIngested(async () =>

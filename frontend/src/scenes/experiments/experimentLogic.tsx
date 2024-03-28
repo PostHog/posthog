@@ -4,11 +4,11 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { toParams } from 'lib/utils'
+import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ReactElement } from 'react'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightVizNode } from '~/queries/schema'
+import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema'
 import {
     ActionFilter as ActionFilterType,
     Breadcrumb,
@@ -46,8 +46,6 @@ import {
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
-
-export const DEFAULT_DURATION = 14 // days
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -143,6 +141,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentGoalModal: true,
         openExperimentExposureModal: true,
         closeExperimentExposureModal: true,
+        setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
+        moveToNextFormStep: true,
     }),
     reducers({
         experiment: [
@@ -278,6 +278,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 updateExperiment: () => false,
             },
         ],
+        currentFormStep: [
+            0,
+            {
+                setCurrentFormStep: (_, { stepIndex }) => stepIndex,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, runningTime, sampleSize }) => {
@@ -350,7 +356,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 newInsightFilters = cleanFilters({
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
                     aggregation_group_type_index: aggregationGroupTypeIndex,
@@ -367,14 +373,23 @@ export const experimentLogic = kea<experimentLogicType>([
                         : { events: [{ ...getDefaultEvent(), ...groupAggregation }] }
                 newInsightFilters = cleanFilters({
                     insight: InsightType.TRENDS,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     ...eventAddition,
                     ...filters,
                 })
             }
 
-            actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
+            // This allows switching between insight types. It's necessary as `updateQuerySource` merges
+            // the new query with any existing query and that causes validation problems when there are
+            // unsupported properties in the now merged query.
+            const newQuery = filtersToQueryNode(newInsightFilters)
+            if (filters?.insight === InsightType.FUNNELS) {
+                ;(newQuery as TrendsQuery).trendsFilter = undefined
+            } else {
+                ;(newQuery as FunnelsQuery).funnelsFilter = undefined
+            }
+            actions.updateQuerySource(newQuery)
         },
         // sync form value `filters` with query
         setQuery: ({ query }) => {
@@ -383,7 +398,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentExposureInsight: async ({ filters }) => {
             const newInsightFilters = cleanFilters({
                 insight: InsightType.TRENDS,
-                date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                 date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                 ...filters,
             })
@@ -549,6 +564,20 @@ export const experimentLogic = kea<experimentLogicType>([
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
         },
+        moveToNextFormStep: async () => {
+            const { currentFormStep } = values
+            if (currentFormStep === 0) {
+                actions.touchExperimentField('name')
+                actions.touchExperimentField('feature_flag_key')
+                values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
+                    actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
+                )
+            }
+
+            if (!hasFormErrors(values.experimentErrors)) {
+                actions.setCurrentFormStep(currentFormStep + 1)
+            }
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -648,6 +677,16 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment): boolean => {
                 return !!experiment?.start_date
+            },
+        ],
+        isExperimentStopped: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return (
+                    !!experiment?.end_date &&
+                    dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                    !experiment.archived
+                )
             },
         ],
         breadcrumbs: [
@@ -779,7 +818,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     return parseFloat(
                         (
                             4 /
-                            Math.pow(Math.sqrt(lambda1 / DEFAULT_DURATION) - Math.sqrt(lambda2 / DEFAULT_DURATION), 2)
+                            Math.pow(
+                                Math.sqrt(lambda1 / EXPERIMENT_DEFAULT_DURATION) -
+                                    Math.sqrt(lambda2 / EXPERIMENT_DEFAULT_DURATION),
+                                2
+                            )
                         ).toFixed(1)
                     )
                 },
@@ -787,7 +830,7 @@ export const experimentLogic = kea<experimentLogicType>([
         expectedRunningTime: [
             () => [],
             () =>
-                (entrants: number, sampleSize: number, duration: number = DEFAULT_DURATION): number => {
+                (entrants: number, sampleSize: number, duration: number = EXPERIMENT_DEFAULT_DURATION): number => {
                     // recommended people / (actual people / day) = expected days
                     return parseFloat((sampleSize / (entrants / duration)).toFixed(1))
                 },
@@ -992,12 +1035,29 @@ export const experimentLogic = kea<experimentLogicType>([
                 return variantsWithResults
             },
         ],
+        sortedConversionRates: [
+            (s) => [s.experimentResults, s.variants, s.conversionRateForVariant],
+            (
+                experimentResults: any,
+                variants: any,
+                conversionRateForVariant: any
+            ): { key: string; conversionRate: number; index: number }[] => {
+                const conversionRates = []
+                for (let index = 0; index < variants.length; index++) {
+                    const variant = variants[index].key
+                    const conversionRate = parseFloat(conversionRateForVariant(experimentResults, variant))
+                    conversionRates.push({ key: variant, conversionRate, index })
+                }
+                return conversionRates.sort((a, b) => b.conversionRate - a.conversionRate)
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         experiment: {
+            options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
             errors: ({ name, feature_flag_key, parameters }) => ({
-                name: !name && 'You have to enter a name.',
+                name: !name && 'Please enter a name',
                 feature_flag_key: validateFeatureFlagKey(feature_flag_key),
                 parameters: {
                     feature_flag_variants: parameters.feature_flag_variants?.map(({ key }) => ({

@@ -37,6 +37,9 @@ services:
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+        depends_on:
+            - kafka
+            - zookeeper
 
     zookeeper:
         extends:
@@ -49,6 +52,8 @@ services:
             service: kafka
         ports:
             - '9092:9092'
+        depends_on:
+            - zookeeper
 
     object_storage:
         extends:
@@ -88,6 +93,12 @@ services:
             - .:/app/posthog
         environment:
             - DEBUG=1
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
 
     capture:
         extends:
@@ -97,6 +108,9 @@ services:
             - 3000:3000
         environment:
             - DEBUG=1
+        depends_on:
+            - redis
+            - kafka
 
     plugins:
         extends:
@@ -108,6 +122,12 @@ services:
         environment:
             - DEBUG=1
             - DOCKER=1
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
 
     migrate:
         extends:
@@ -136,12 +156,19 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal-admin-tools
+        depends_on:
+            - temporal
     temporal-ui:
         extends:
             file: docker-compose.base.yml
             service: temporal-ui
         ports:
             - 8081:8080
+        depends_on:
+            temporal:
+                condition: service_started
+            db:
+                condition: service_healthy
     temporal-django-worker:
         extends:
             file: docker-compose.base.yml
@@ -149,3 +176,10 @@ services:
         build: .
         volumes:
             - .:/app/posthog
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
+            - temporal

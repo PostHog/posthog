@@ -1,7 +1,7 @@
 import '~/styles'
 import '~/toolbar/styles.scss'
 
-import { Meta } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
@@ -14,11 +14,12 @@ import { listHeatmapStatsAPIResponse } from './__mocks__/list-heatmap-stats-resp
 import { listMyFlagsAPIResponse } from './__mocks__/list-my-flags-response'
 import { MenuState, toolbarLogic } from './bar/toolbarLogic'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
+import { TOOLBAR_ID } from './utils'
 
 function useToolbarStyles(): void {
     useEffect(() => {
         const head = document.getElementsByTagName('head')[0]
-        const shadowRoot = window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
+        const shadowRoot = window.document.getElementById(TOOLBAR_ID)?.shadowRoot
         const styleTags: HTMLStyleElement[] = Array.from(head.getElementsByTagName('style'))
         styleTags.forEach((tag) => {
             const style = document.createElement('style')
@@ -46,7 +47,7 @@ type ToolbarStoryProps = {
     theme?: 'light' | 'dark'
 }
 
-const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
+const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
     const toolbarParams: ToolbarParams = {
         temporaryToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
         actionId: undefined,
@@ -94,7 +95,7 @@ const BasicTemplate = (props: ToolbarStoryProps): JSX.Element => {
     }, [Object.values(props)])
 
     return (
-        <div>
+        <div className="min-h-[32rem]">
             <div>The toolbar should show up now! Click it to open.</div>
             <button>Click Me</button>
             <ToolbarApp {...toolbarParams} disableExternalStyles />

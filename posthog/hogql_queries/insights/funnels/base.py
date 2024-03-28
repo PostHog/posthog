@@ -54,6 +54,28 @@ class FunnelBase(ABC):
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
 
+        # validate exclusions
+        if self.context.funnelsFilter.exclusions is not None:
+            for exclusion in self.context.funnelsFilter.exclusions:
+                if exclusion.funnelFromStep >= exclusion.funnelToStep:
+                    raise ValidationError(
+                        "Exclusion event range is invalid. End of range should be greater than start."
+                    )
+
+                if exclusion.funnelFromStep >= len(self.context.query.series) - 1:
+                    raise ValidationError(
+                        "Exclusion event range is invalid. Start of range is greater than number of steps."
+                    )
+
+                if exclusion.funnelToStep > len(self.context.query.series) - 1:
+                    raise ValidationError(
+                        "Exclusion event range is invalid. End of range is greater than number of steps."
+                    )
+
+                for entity in self.context.query.series[exclusion.funnelFromStep : exclusion.funnelToStep + 1]:
+                    if is_equal(entity, exclusion) or is_superset(entity, exclusion):
+                        raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
+
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
@@ -247,6 +269,8 @@ class FunnelBase(ABC):
             self.context.breakdownFilter,
         )
 
+        assert breakdown is not None
+
         if breakdownType == "person":
             properties_column = "person.properties"
             return get_breakdown_expr(breakdown, properties_column)
@@ -260,9 +284,10 @@ class FunnelBase(ABC):
             properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "hogql":
+            assert isinstance(breakdown, list)
             return ast.Alias(
                 alias="value",
-                expr=parse_expr(str(breakdown)),
+                expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
             )
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
@@ -408,8 +433,8 @@ class FunnelBase(ABC):
 
         extra_fields: List[str] = []
 
-        # for prop in self._include_properties:
-        #     extra_fields.append(prop)
+        for prop in self.context.includeProperties:
+            extra_fields.append(prop)
 
         funnel_events_query = FunnelEventQuery(
             context=self.context,
@@ -506,6 +531,7 @@ class FunnelBase(ABC):
             # so just select that. Except for the empty case, where we select the default.
 
             if self._query_has_array_breakdown():
+                assert isinstance(breakdown, list)
                 default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
                 # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
                 breakdown_selector = parse_expr(
@@ -589,7 +615,7 @@ class FunnelBase(ABC):
             event_expr = ast.Constant(value=True)
         else:
             # event
-            event_expr = parse_expr(f"event = '{entity.event}'")
+            event_expr = parse_expr("event = {event}", {"event": ast.Constant(value=entity.event)})
 
         if entity.properties is not None and entity.properties != []:
             # add property filters
@@ -599,13 +625,12 @@ class FunnelBase(ABC):
             return event_expr
 
     def _get_timestamp_outer_select(self) -> List[ast.Expr]:
-        return []
-        # if self._include_preceding_timestamp:
-        #     return ", max_timestamp, min_timestamp"
-        # elif self._include_timestamp:
-        #     return ", timestamp"
-        # else:
-        #     return ""
+        if self.context.includePrecedingTimestamp:
+            return [ast.Field(chain=["max_timestamp"]), ast.Field(chain=["min_timestamp"])]
+        elif self.context.includeTimestamp:
+            return [ast.Field(chain=["timestamp"])]
+        else:
+            return []
 
     def _get_funnel_person_step_condition(self) -> ast.Expr:
         actorsQuery, breakdownType, max_steps = (
@@ -634,11 +659,15 @@ class FunnelBase(ABC):
             raise ValueError("Missing both funnelStep and funnelCustomSteps")
 
         if funnelStepBreakdown is not None:
-            breakdown_prop_value = funnelStepBreakdown
-            if isinstance(breakdown_prop_value, int) and breakdownType != "cohort":
-                breakdown_prop_value = str(breakdown_prop_value)
+            if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
+                funnelStepBreakdown = str(funnelStepBreakdown)
 
-            conditions.append(parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array({breakdown_prop_value}))"))
+            conditions.append(
+                parse_expr(
+                    "arrayFlatten(array(prop)) = arrayFlatten(array({funnelStepBreakdown}))",
+                    {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                )
+            )
 
         return ast.And(exprs=conditions)
 
@@ -649,10 +678,9 @@ class FunnelBase(ABC):
             and self.context.actorsQuery.includeRecordings
         ):
             step_num = self.context.actorsQuery.funnelStep
-            # if self._filter.include_final_matching_events:
-            if False:  # TODO: Implement with correlations
+            if self.context.includeFinalMatchingEvents:
                 # Always returns the user's final step of the funnel
-                return [parse_expr("final_matching_events as matching_events")]  # type: ignore
+                return [parse_expr("final_matching_events as matching_events")]
             elif step_num is None:
                 raise ValueError("Missing funnelStep actors query property")
             if step_num >= 0:
@@ -748,45 +776,56 @@ class FunnelBase(ABC):
         Returns timestamp selectors for the target step and optionally the preceding step.
         In the former case, always returns the timestamp for the first and last step as well.
         """
-        # actorsQuery, max_steps = (
-        #     self.context.actorsQuery,
-        #     self.context.max_steps,
-        # )
-        # assert actorsQuery is not None
+        actorsQuery, max_steps = (
+            self.context.actorsQuery,
+            self.context.max_steps,
+        )
+        if not actorsQuery:
+            return [], []
 
-        # target_step = actorsQuery.funnelStep
-        # final_step = max_steps - 1
-        # first_step = 0
+        target_step = actorsQuery.funnelStep
+        final_step = max_steps - 1
+        first_step = 0
 
-        # if not target_step:
-        #     return [], []
+        if not target_step:
+            return [], []
 
-        # if target_step < 0:
-        #     # the first valid dropoff argument for funnel_step is -2
-        #     # -2 refers to persons who performed the first step but never made it to the second
-        #     if target_step == -1:
-        #         raise ValueError("To request dropoff of initial step use -2")
+        if target_step < 0:
+            # the first valid dropoff argument for funnel_step is -2
+            # -2 refers to persons who performed the first step but never made it to the second
+            if target_step == -1:
+                raise ValueError("To request dropoff of initial step use -2")
 
-        #     target_step = abs(target_step) - 2
-        # else:
-        #     target_step -= 1
+            target_step = abs(target_step) - 2
+        else:
+            target_step -= 1
 
-        # if self._include_preceding_timestamp:
-        #     if target_step == 0:
-        #         raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
+        if self.context.includePrecedingTimestamp:
+            if target_step == 0:
+                raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
 
-        #     return (
-        #         f", latest_{target_step}, latest_{target_step - 1}",
-        #         f", argMax(latest_{target_step}, steps) as max_timestamp, argMax(latest_{target_step - 1}, steps) as min_timestamp",
-        #     )
-        # elif self._include_timestamp:
-        #     return (
-        #         f", latest_{target_step}, latest_{final_step}, latest_{first_step}",
-        #         f", argMax(latest_{target_step}, steps) as timestamp, argMax(latest_{final_step}, steps) as final_timestamp, argMax(latest_{first_step}, steps) as first_timestamp",
-        #     )
-        # else:
-        #     return [], []
-        return [], []
+            return (
+                [ast.Field(chain=[f"latest_{target_step}"]), ast.Field(chain=[f"latest_{target_step - 1}"])],
+                [
+                    parse_expr(f"argMax(latest_{target_step}, steps) as max_timestamp"),
+                    parse_expr(f"argMax(latest_{target_step - 1}, steps) as min_timestamp"),
+                ],
+            )
+        elif self.context.includeTimestamp:
+            return (
+                [
+                    ast.Field(chain=[f"latest_{target_step}"]),
+                    ast.Field(chain=[f"latest_{final_step}"]),
+                    ast.Field(chain=[f"latest_{first_step}"]),
+                ],
+                [
+                    parse_expr(f"argMax(latest_{target_step}, steps) as timestamp"),
+                    parse_expr(f"argMax(latest_{final_step}, steps) as final_timestamp"),
+                    parse_expr(f"argMax(latest_{first_step}, steps) as first_timestamp"),
+                ],
+            )
+        else:
+            return [], []
 
     def _get_step_times(self, max_steps: int) -> List[ast.Expr]:
         windowInterval = self.context.funnelWindowInterval
@@ -797,7 +836,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
                 ),
             )
 
@@ -865,7 +904,12 @@ class FunnelBase(ABC):
                 BreakdownType.group,
             ]:
                 breakdown_values = self._get_breakdown_conditions()
-                return [parse_expr(f"if(has({breakdown_values}, prop), prop, {other_aggregation}) as prop")]
+                return [
+                    parse_expr(
+                        f"if(has({{breakdown_values}}, prop), prop, {other_aggregation}) as prop",
+                        {"breakdown_values": ast.Constant(value=breakdown_values)},
+                    )
+                ]
             else:
                 # Cohorts don't have "Other" aggregation
                 return [ast.Field(chain=["prop"])]
@@ -926,7 +970,7 @@ class FunnelBase(ABC):
             to_time = f"latest_{exclusion.funnelToStep}"
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
             condition = parse_expr(
-                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), {from_time} + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 
@@ -955,7 +999,11 @@ class FunnelBase(ABC):
             duplicate_event = is_equal(series[i], series[i - 1]) or is_superset(series[i], series[i - 1])
 
             conditions.append(parse_expr(f"latest_{i - 1} {'<' if duplicate_event else '<='} latest_{i}"))
-            conditions.append(parse_expr(f"latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}"))
+            conditions.append(
+                parse_expr(
+                    f"latest_{i} <= toTimeZone(latest_0, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}"
+                )
+            )
 
         return ast.Call(
             name="if",
@@ -966,10 +1014,10 @@ class FunnelBase(ABC):
             ],
         )
 
-    def _get_person_and_group_properties(self) -> List[ast.Expr]:
+    def _get_person_and_group_properties(self, aggregate: bool = False) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []
 
-        # for prop in self._include_properties:
-        #     exprs.append(f"any({prop}) as {prop}" if aggregate else prop)
+        for prop in self.context.includeProperties:
+            exprs.append(parse_expr(f"any({prop}) as {prop}") if aggregate else parse_expr(prop))
 
         return exprs

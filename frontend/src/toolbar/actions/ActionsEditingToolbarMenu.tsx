@@ -1,8 +1,7 @@
-import { IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { IconPencil, IconPlus, IconSearch, IconTrash, IconX } from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
-import { IconMagnifier } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
@@ -104,7 +103,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                 e.stopPropagation()
                                                 inspectForElementWithIndex(inspectingElement === index ? null : index)
                                             }}
-                                            icon={<IconMagnifier />}
+                                            icon={<IconSearch />}
                                         >
                                             {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
                                         </LemonButton>

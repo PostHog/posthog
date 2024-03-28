@@ -1,6 +1,6 @@
 import { hide } from '@floating-ui/react'
 import { IconInfo, IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -73,27 +73,27 @@ export function VerifiedDefinitionCheckbox({
         : 'Verified events are prioritized in filters and other selection components. Verifying an event is a signal to collaborators that this event should be used in favor of similar events.'
 
     return (
-        <div className="border p-2 rounded">
-            <LemonCheckbox
+        <>
+            {!compact && <p>{copy}</p>}
+
+            <LemonSwitch
                 checked={verified}
                 onChange={() => {
                     onChange(!verified)
                 }}
+                bordered
                 label={
                     <>
-                        <span className="flex items-center font-semibold">
-                            Verified {isProperty ? 'property' : 'event'}
-                            {compact && (
-                                <Tooltip title={copy}>
-                                    <IconInfo className="ml-2 text-muted text-xl shrink-0" />
-                                </Tooltip>
-                            )}
-                        </span>
-                        {!compact && <div className="text-muted mt-1">{copy}</div>}
+                        Mark as verified {isProperty ? 'property' : 'event'}
+                        {compact && (
+                            <Tooltip title={copy}>
+                                <IconInfo className="ml-2 text-muted text-xl shrink-0" />
+                            </Tooltip>
+                        )}
                     </>
                 }
             />
-        </div>
+        </>
     )
 }
 
@@ -111,7 +111,15 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
+    const { selectedItemMeta } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
+
+    // Use effect here to make definition view stateful. TaxonomicFilterLogic won't mount within definitionPopoverLogic
+    useEffect(() => {
+        if (selectedItemMeta && definition.name == selectedItemMeta.id) {
+            setLocalDefinition(selectedItemMeta)
+        }
+    }, [definition])
 
     if (!definition) {
         return <></>
@@ -280,6 +288,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             value: column.key,
         }))
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
+
         return (
             <form className="definition-popover-data-warehouse-schema-form">
                 <div className="flex flex-col justify-between gap-4">
@@ -293,7 +302,18 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             onChange={(value) => setLocalDefinition({ id_field: value })}
                         />
 
-                        <label className="definition-popover-edit-form-label" htmlFor="ID Field">
+                        <label className="definition-popover-edit-form-label" htmlFor="Distinct Id Field">
+                            <span className="label-text">Distinct ID field</span>
+                        </label>
+                        <LemonSelect
+                            value={
+                                'distinct_id_field' in localDefinition ? localDefinition.distinct_id_field : undefined
+                            }
+                            options={columnOptions}
+                            onChange={(value) => setLocalDefinition({ distinct_id_field: value })}
+                        />
+
+                        <label className="definition-popover-edit-form-label" htmlFor="Timestamp Field">
                             <span className="label-text">Timestamp field</span>
                         </label>
                         <LemonSelect
@@ -313,7 +333,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 'id_field' in localDefinition &&
                                 localDefinition.id_field &&
                                 'timestamp_field' in localDefinition &&
-                                localDefinition.timestamp_field
+                                localDefinition.timestamp_field &&
+                                'distinct_id_field' in localDefinition &&
+                                localDefinition.distinct_id_field
                                     ? null
                                     : 'Field mappings must be specified'
                             }
@@ -382,7 +404,7 @@ function DefinitionEdit(): JSX.Element {
                             <ObjectTags
                                 className="definition-popover-edit-form-value"
                                 tags={localDefinition.tags || []}
-                                onChange={(_, tags) => setLocalDefinition({ tags })}
+                                onChange={(tags) => setLocalDefinition({ tags })}
                                 saving={false}
                             />
                         </div>

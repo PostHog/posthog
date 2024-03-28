@@ -6,7 +6,7 @@ import { PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
-import { ConfiguredLimiter, LoggingLimiter, OverflowWarningLimiter } from '../../../utils/token-bucket'
+import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
 import { EventPipelineRunner } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
@@ -15,6 +15,7 @@ import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
     ingestEventBatchingInputLengthSummary,
+    ingestEventEachBatchKafkaAckWait,
     ingestionOverflowingMessagesTotal,
     ingestionParallelism,
     ingestionParallelismPotential,
@@ -41,7 +42,7 @@ type IngestionSplitBatch = {
 type IngestResult = {
     // Promises that the batch handler should await on before committing offsets,
     // contains the Kafka producer ACKs, to avoid blocking after every message.
-    promises?: Array<Promise<void>>
+    ackPromises?: Array<Promise<void>>
 }
 
 async function handleProcessingError(
@@ -143,11 +144,17 @@ export async function eachBatchParallelIngestion(
                 ) {
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
-                    if (team && OverflowWarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
+                    if (team) {
                         processingPromises.push(
-                            captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
-                                overflowDistinctId: distinct_id,
-                            })
+                            captureIngestionWarning(
+                                queue.pluginsServer.db.kafkaProducer,
+                                team.id,
+                                'ingestion_capacity_overflow',
+                                {
+                                    overflowDistinctId: distinct_id,
+                                },
+                                { key: distinct_id }
+                            )
                         )
                     }
                 }
@@ -160,7 +167,7 @@ export async function eachBatchParallelIngestion(
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
-                        result.promises?.forEach((promise) =>
+                        result.ackPromises?.forEach((promise) =>
                             processingPromises.push(
                                 promise.catch(async (error) => {
                                     await handleProcessingError(error, message, pluginEvent, queue)
@@ -221,7 +228,9 @@ export async function eachBatchParallelIngestion(
         // impact the success. Delaying ACKs allows the producer to write in big batches for
         // better throughput and lower broker load.
         const awaitSpan = transaction.startChild({ op: 'awaitACKs', data: { promiseCount: processingPromises.length } })
+        const kafkaAckWaitMetric = ingestEventEachBatchKafkaAckWait.startTimer()
         await Promise.all(processingPromises)
+        kafkaAckWaitMetric()
         awaitSpan.finish()
 
         for (const message of messages) {

@@ -1,15 +1,13 @@
 import { LemonModal } from '@posthog/lemon-ui'
 import { actions, kea, path, reducers, useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
-import { Prompt } from 'lib/logic/newPrompt/Prompt'
+import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
-import { UpgradeModal } from 'scenes/UpgradeModal'
 import { userLogic } from 'scenes/userLogic'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
@@ -67,14 +65,11 @@ export function GlobalModals(): JSX.Element {
                     <Setup2FA
                         onSuccess={() => {
                             userLogic.actions.loadUser()
-                            membersLogic.actions.loadMembers()
+                            membersLogic.actions.loadAllMembers()
                         }}
                     />
                 </LemonModal>
             )}
-            <FlaggedFeature flag="enable-prompts">
-                <Prompt />
-            </FlaggedFeature>
             <HedgehogBuddyWithLogic />
         </>
     )

@@ -7,7 +7,7 @@ import {
     IconLogomark,
     IconNight,
     IconQuestion,
-    IconTarget,
+    IconSearch,
     IconToggle,
     IconX,
 } from '@posthog/icons'
@@ -77,15 +77,18 @@ function MoreMenu(): JSX.Element {
             }
             maxContentWidth={true}
         >
-            <ToolbarButton icon={<IconMenu />} title="More options" />
+            <ToolbarButton title="More options">
+                <IconMenu />
+            </ToolbarButton>
         </LemonMenu>
     )
 }
 
-export function ToolbarInfoMenu(): JSX.Element {
+export function ToolbarInfoMenu(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { visibleMenu, isDragging, menuProperties, minimized } = useValues(toolbarLogic)
+    const { visibleMenu, isDragging, menuProperties, minimized, isBlurred } = useValues(toolbarLogic)
     const { setMenu } = useActions(toolbarLogic)
+    const { isAuthenticated } = useValues(toolbarConfigLogic)
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
@@ -102,12 +105,17 @@ export function ToolbarInfoMenu(): JSX.Element {
         return () => setMenu(null)
     }, [ref.current])
 
+    if (!isAuthenticated) {
+        return null
+    }
+
     return (
         <div
             className={clsx(
                 'ToolbarMenu',
                 !!content && 'ToolbarMenu--visible',
                 isDragging && 'ToolbarMenu--dragging',
+                isBlurred && 'ToolbarMenu--blurred',
                 menuProperties.isBelow && 'ToolbarMenu--below'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -132,7 +140,7 @@ export function ToolbarInfoMenu(): JSX.Element {
 export function Toolbar(): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarLogic)
-    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement } = useActions(toolbarLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
 
@@ -162,11 +170,11 @@ export function Toolbar(): JSX.Element {
                 className={clsx(
                     'Toolbar',
                     minimized && 'Toolbar--minimized',
-                    !isAuthenticated && 'Toolbar--unauthenticated',
                     hedgehogMode && 'Toolbar--hedgehog-mode',
                     isDragging && 'Toolbar--dragging'
                 )}
                 onMouseDown={(e) => onMouseDown(e as any)}
+                onMouseOver={() => setIsBlurred(false)}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
                     {
@@ -176,19 +184,32 @@ export function Toolbar(): JSX.Element {
                 }
             >
                 <ToolbarButton
-                    icon={<IconLogomark />}
                     onClick={isAuthenticated ? toggleMinimized : authenticate}
                     title={isAuthenticated ? 'Minimize' : 'Authenticate the PostHog Toolbar'}
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
-                />
+                >
+                    <IconLogomark />
+                </ToolbarButton>
                 {isAuthenticated ? (
                     <>
-                        <ToolbarButton icon={<IconTarget />} menuId="inspect" />
-                        <ToolbarButton icon={<IconCursorClick />} menuId="heatmap" />
-                        <ToolbarButton icon={<IconBolt />} menuId="actions" />
-                        <ToolbarButton icon={<IconToggle />} menuId="flags" title="Feature flags" />
+                        <ToolbarButton menuId="inspect">
+                            <IconSearch />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="heatmap">
+                            <IconCursorClick />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="actions">
+                            <IconBolt />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="flags" title="Feature flags">
+                            <IconToggle />
+                        </ToolbarButton>
                     </>
-                ) : null}
+                ) : (
+                    <ToolbarButton flex onClick={authenticate}>
+                        Authenticate
+                    </ToolbarButton>
+                )}
 
                 <MoreMenu />
             </div>

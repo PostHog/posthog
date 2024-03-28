@@ -1,14 +1,14 @@
 import './LemonInput.scss'
 
-import { IconX } from '@posthog/icons'
+import { IconEye, IconSearch, IconX } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconEyeHidden, IconEyeVisible, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { useRef, useState } from 'react'
 
 interface LemonInputPropsBase
     extends Pick<
-        // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
+        // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
         React.InputHTMLAttributes<HTMLInputElement>,
         | 'className'
         | 'onFocus'
@@ -42,7 +42,7 @@ interface LemonInputPropsBase
     /** Special case - show a transparent background rather than white */
     transparentBackground?: boolean
     /** Size of the element. Default: `'medium'`. */
-    size?: 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium'
     onPressEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void
     'data-attr'?: string
     'aria-label'?: string
@@ -103,13 +103,13 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
 
     if (type === 'search') {
         allowClear = allowClear ?? true
-        prefix = prefix ?? <IconMagnifier />
+        prefix = prefix ?? <IconSearch />
     } else if (type === 'password') {
         suffix = suffix ?? (
             <LemonButton
                 size="small"
                 noPadding
-                icon={passwordVisible ? <IconEyeHidden /> : <IconEyeVisible />}
+                icon={passwordVisible ? <IconEyeHidden /> : <IconEye />}
                 tooltip={passwordVisible ? 'Hide password' : 'Show password'}
                 onClick={(e) => {
                     e.stopPropagation()

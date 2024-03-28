@@ -1,10 +1,8 @@
 import { IconGraph } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
-import { Select } from 'antd'
-import clsx from 'clsx'
+import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BIN_COUNT_AUTO } from 'lib/constants'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -18,11 +16,11 @@ const NUMBER_PRESETS = new Set([5, 15, 25, 50, 90])
 interface BinOption {
     key?: string
     label: string
-    value: BinCountValue | 'custom'
+    value: BinCountValue
     display: boolean
 }
 
-const options: BinOption[] = [
+const BIN_OPTIONS: BinOption[] = [
     {
         label: 'Auto bins',
         value: BIN_COUNT_AUTO,
@@ -33,83 +31,77 @@ const options: BinOption[] = [
         value: v,
         display: NUMBER_PRESETS.has(v),
     })),
-    {
-        label: 'Custom',
-        value: 'custom',
-        display: true,
-    },
 ]
 
-type FunnelBinsPickerProps = { disabled?: boolean }
-
-export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Element {
+export function FunnelBinsPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { funnelsFilter, numericBinCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const [visible, setVisible] = useState<boolean>(false)
 
     const setBinCount = (binCount: BinCountValue): void => {
         updateInsightFilter({ binCount: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
     }
 
-    return (
-        <Select
-            id="funnel-bin-filter"
-            dropdownClassName="funnel-bin-filter-dropdown"
-            data-attr="funnel-bin-filter"
-            defaultValue={BIN_COUNT_AUTO}
-            value={funnelsFilter?.binCount || BIN_COUNT_AUTO}
-            onSelect={(count) => setBinCount(count)}
-            dropdownRender={(menu) => {
-                return (
-                    <>
-                        {menu}
-                        <div>
-                            <LemonInput
-                                type="number"
-                                className="funnel-bins-custom-picker"
-                                min={MIN}
-                                max={MAX}
-                                value={numericBinCount}
-                                onChange={(count) => {
-                                    const parsedCount = typeof count === 'string' ? parseInt(count) : count
-                                    if (parsedCount) {
-                                        setBinCount(parsedCount)
-                                    }
-                                }}
-                            />{' '}
-                            bins
-                        </div>
-                    </>
-                )
-            }}
-            listHeight={440}
-            bordered={false}
-            dropdownMatchSelectWidth={false}
-            dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
-            optionLabelProp="label"
-            disabled={disabled}
-        >
-            <Select.OptGroup label="Bin Count">
-                {options.map((option) => {
-                    if (option.value === 'custom') {
-                        return null
+    const preferredOptions = BIN_OPTIONS.filter((o) => o.display).map((bin) => {
+        return {
+            value: bin.value as BinCountValue,
+            label: bin.label,
+            icon: <IconGraph />,
+        }
+    })
+
+    const selectedValue = funnelsFilter?.binCount || BIN_COUNT_AUTO
+    const selectedOption = BIN_OPTIONS.find((o) => o.value === selectedValue)
+
+    const overlay = (
+        <div className="space-y-px" onClick={(e) => e.stopPropagation()}>
+            {preferredOptions.map((bin) => (
+                <LemonButton
+                    fullWidth
+                    key={bin.value}
+                    active={bin.value === selectedValue}
+                    onClick={() => {
+                        setVisible(false)
+                        setBinCount(bin.value)
+                    }}
+                >
+                    {bin.label}
+                </LemonButton>
+            ))}
+            <LemonInput
+                type="number"
+                className="funnel-bins-custom-picker"
+                min={MIN}
+                max={MAX}
+                value={numericBinCount}
+                onChange={(count) => {
+                    const parsedCount = typeof count === 'string' ? parseInt(count) : count
+                    if (parsedCount) {
+                        setBinCount(parsedCount)
                     }
-                    return (
-                        <Select.Option
-                            className={clsx({ hidden: !option.display })}
-                            key={option.value}
-                            value={option.value}
-                            label={
-                                <>
-                                    <IconGraph /> {option.label}
-                                </>
-                            }
-                        >
-                            {option.label}
-                        </Select.Option>
-                    )
-                })}
-            </Select.OptGroup>
-        </Select>
+                }}
+                suffix={<>bins</>}
+            />
+        </div>
+    )
+
+    return (
+        <>
+            <LemonDropdown
+                data-attr="funnel-bin-filter"
+                matchWidth
+                visible={visible}
+                closeOnClickInside={false}
+                onClickOutside={() => setVisible(false)}
+                overlay={overlay}
+                className="w-32"
+                placement="bottom-end"
+            >
+                <LemonButton size="small" type="secondary" icon={<IconGraph />} onClick={() => setVisible(true)}>
+                    {selectedOption?.label}
+                </LemonButton>
+            </LemonDropdown>
+        </>
     )
 }

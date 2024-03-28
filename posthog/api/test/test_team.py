@@ -87,7 +87,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_cant_retrieve_project_from_another_org(self):
         org = Organization.objects.create(name="New Org")
-        team = Team.objects.create(organization=org, name="Default Project")
+        team = Team.objects.create(organization=org, name="Default project")
 
         response = self.client.get(f"/api/projects/{team.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -131,9 +131,9 @@ class TestTeamAPI(APIBaseTest):
     def test_cant_create_a_second_project_without_license(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": False})
-
         self.assertEqual(Team.objects.count(), 1)
+
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": False})
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
         self.assertDictContainsSubset(
@@ -144,10 +144,10 @@ class TestTeamAPI(APIBaseTest):
             },
             response_data,
         )
+        self.assertEqual(Team.objects.count(), 1)
 
         # another request without the is_demo parameter
         response = self.client.post("/api/projects/", {"name": "Hedgebox"})
-        self.assertEqual(Team.objects.count(), 1)
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
         self.assertDictContainsSubset(
@@ -158,6 +158,7 @@ class TestTeamAPI(APIBaseTest):
             },
             response_data,
         )
+        self.assertEqual(Team.objects.count(), 1)
 
     @freeze_time("2022-02-08")
     def test_update_project_timezone(self):
@@ -188,7 +189,48 @@ class TestTeamAPI(APIBaseTest):
                                 "type": "Team",
                             },
                         ],
-                        "name": "Default Project",
+                        "name": "Default project",
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(self.team.pk),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ]
+        )
+
+    @freeze_time("2022-02-08")
+    def test_activity_log_tracks_extra_settings(self):
+        self._assert_activity_log_is_empty()
+
+        response = self.client.patch("/api/projects/@current/", {"extra_settings": {"poe_v2_enabled": True}})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["name"], self.team.name)
+        self.assertEqual(response_data["extra_settings"], {"poe_v2_enabled": True})
+
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "updated",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "created",
+                                "after": {"poe_v2_enabled": True},
+                                "before": None,
+                                "field": "extra_settings",
+                                "type": "Team",
+                            },
+                        ],
+                        "name": "Default project",
                         "short_id": None,
                         "trigger": None,
                         "type": None,
@@ -231,7 +273,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_cant_update_project_from_another_org(self):
         org = Organization.objects.create(name="New Org")
-        team = Team.objects.create(organization=org, name="Default Project")
+        team = Team.objects.create(organization=org, name="Default project")
 
         response = self.client.patch(f"/api/projects/{team.pk}/", {"timezone": "Africa/Accra"})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -282,7 +324,7 @@ class TestTeamAPI(APIBaseTest):
                 "created_at": ANY,
                 "detail": {
                     "changes": None,
-                    "name": "Default Project",
+                    "name": "Default project",
                     "short_id": None,
                     "trigger": None,
                     "type": None,
@@ -458,7 +500,7 @@ class TestTeamAPI(APIBaseTest):
                                 "type": "Team",
                             },
                         ],
-                        "name": "Default Project",
+                        "name": "Default project",
                         "short_id": None,
                         "trigger": None,
                         "type": None,
@@ -492,7 +534,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["primary_dashboard"], d.id)
 
     def test_cant_set_primary_dashboard_to_another_teams_dashboard(self):
-        team_2 = Team.objects.create(organization=self.organization, name="Default Project")
+        team_2 = Team.objects.create(organization=self.organization, name="Default project")
         d = Dashboard.objects.create(name="Test", team=team_2)
 
         response = self.client.patch("/api/projects/@current/", {"primary_dashboard": d.id})
@@ -565,7 +607,7 @@ class TestTeamAPI(APIBaseTest):
                                 "type": "Team",
                             },
                         ],
-                        "name": "Default Project",
+                        "name": "Default project",
                         "short_id": None,
                         "trigger": None,
                         "type": None,

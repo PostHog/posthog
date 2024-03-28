@@ -1,11 +1,10 @@
-import { IconBug, IconClock, IconKeyboard, IconPinFilled } from '@posthog/icons'
+import { IconBug, IconClock, IconCursorClick, IconKeyboard, IconMagicWand, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconAutoAwesome, IconAutocapture } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -199,7 +198,7 @@ function ActivityIndicators({
                 title={`Mouse clicks: ${recording.click_count}`}
                 className="flex items-center gap-1  overflow-hidden shrink-0"
             >
-                <IconAutocapture />
+                <IconCursorClick />
                 {recording.click_count}
             </span>
 
@@ -238,8 +237,8 @@ function PinnedIndicator(): JSX.Element | null {
     )
 }
 
-function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
-    return !props.viewed ? (
+function ViewedIndicator({ viewed }: { viewed: boolean }): JSX.Element | null {
+    return !viewed ? (
         <Tooltip title="Indicates the recording has not been watched yet">
             <div className="w-2 h-2 m-1 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
         </Tooltip>
@@ -303,7 +302,7 @@ export function SessionRecordingPreview({
                                     summaryButtonIsVisible ? 'block' : 'hidden',
                                     'absolute right-px top-px'
                                 )}
-                                icon={<IconAutoAwesome />}
+                                icon={<IconMagicWand />}
                                 onClick={(e) => {
                                     e.preventDefault()
                                     e.stopPropagation()

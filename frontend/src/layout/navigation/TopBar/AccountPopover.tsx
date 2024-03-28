@@ -5,14 +5,15 @@ import {
     IconConfetti,
     IconFeatures,
     IconGear,
+    IconLeave,
     IconLive,
     IconPlusSmall,
+    IconReceipt,
     IconServer,
 } from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconBill, IconLogout } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -180,7 +181,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconLogout />} fullWidth data-attr="top-menu-item-logout">
+        <LemonButton onClick={logout} icon={<IconLeave />} fullWidth data-attr="top-menu-item-logout">
             Sign out
         </LemonButton>
     )
@@ -205,7 +206,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                     <LemonButton
                         onClick={closeAccountPopover}
                         to={urls.organizationBilling()}
-                        icon={<IconBill />}
+                        icon={<IconReceipt />}
                         fullWidth
                         data-attr="top-menu-item-billing"
                     >

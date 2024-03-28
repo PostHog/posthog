@@ -2,7 +2,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
@@ -13,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb, ReplayTabs } from '~/types'
 
 import {
-    dedupeRecordingSnapshots,
+    deduplicateSnapshots,
     parseEncodedSnapshots,
     sessionRecordingDataLogic,
 } from '../player/sessionRecordingDataLogic'
@@ -86,7 +85,7 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRe
 }
 
 export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybackLogicType>([
-    path(['scenes', 'session-recordings', 'detail', 'sessionRecordingDetailLogic']),
+    path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackLogic']),
     connect({
         actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
         values: [featureFlagLogic, ['featureFlags']],
@@ -141,12 +140,8 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 return
             }
 
-            const snapshots = dedupeRecordingSnapshots(
-                await parseEncodedSnapshots(
-                    values.sessionRecording.snapshots,
-                    values.sessionRecording.id,
-                    !!values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE]
-                )
+            const snapshots = deduplicateSnapshots(
+                await parseEncodedSnapshots(values.sessionRecording.snapshots, values.sessionRecording.id)
             )
 
             // Simulate a loaded source and sources so that nothing extra gets loaded
@@ -182,7 +177,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             (): Breadcrumb[] => [
                 {
                     key: Scene.Replay,
-                    name: `Session replay`,
+                    name: 'Session replay',
                     path: urls.replay(),
                 },
                 {

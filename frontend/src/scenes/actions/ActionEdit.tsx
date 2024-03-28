@@ -15,7 +15,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { compactNumber, uuid } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, AvailableFeature } from '~/types'
@@ -32,7 +31,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
     const { submitAction, deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
@@ -96,7 +94,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                         className="action-description"
                                         compactButtons
                                         maxLength={600} // No limit on backend model, but enforce shortish description
-                                        paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
+                                        paywallFeature={AvailableFeature.INGESTION_TAXONOMY}
                                     />
                                 )}
                             </LemonField>
@@ -104,7 +102,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 {({ value, onChange }) => (
                                     <ObjectTags
                                         tags={value ?? []}
-                                        onChange={(_, newTags) => onChange(newTags)}
+                                        onChange={(tags) => onChange(tags)}
                                         className="action-tags"
                                         saving={actionLoading}
                                         tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}
@@ -277,7 +275,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                                 />
                                                 <small>
                                                     <Link
-                                                        to="https://posthog.com/docs/integrate/webhooks/message-formatting"
+                                                        to="https://posthog.com/docs/webhooks#message-formatting"
                                                         target="_blank"
                                                     >
                                                         See documentation on how to format webhook messages.

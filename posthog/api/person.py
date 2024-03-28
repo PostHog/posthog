@@ -220,7 +220,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
 
 class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
-    To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
+    To create or update persons, use a PostHog library of your choice and [use an identify call](/product-analytics/identify). This API endpoint is only for reading and deleting.
     """
 
     scope_object = "person"
@@ -646,7 +646,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def create(self, *args, **kwargs):
         raise MethodNotAllowed(
             method="POST",
-            detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/integrate/identifying-user for details.",
+            detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/product-analytics/identify for details.",
         )
 
     def _set_properties(self, properties, user):

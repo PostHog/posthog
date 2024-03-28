@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
+    ExpressionField,
     FieldTraverser,
     StringJSONDatabaseField,
     StringDatabaseField,
@@ -253,6 +254,15 @@ class TestResolver(BaseTest):
         assert pretty_dataclasses(node) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_asterisk_expander_hidden_field(self):
+        self.database.events.fields["hidden_field"] = ExpressionField(
+            name="hidden_field", hidden=True, expr=ast.Field(chain=["event"])
+        )
+        node = self._select("select * from events")
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert pretty_dataclasses(node) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_subquery_alias(self):
         node = self._select("select x.* from (select 1 as a, 2 as b) x")
         node = resolve_types(node, self.context, dialect="clickhouse")
@@ -307,16 +317,16 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # all columns resolve to a type in the end
-        assert cast(ast.FieldType, node.select[0].type).resolve_database_field() == StringDatabaseField(
+        assert cast(ast.FieldType, node.select[0].type).resolve_database_field(self.context) == StringDatabaseField(
             name="event", array=None, nullable=None
         )
-        assert cast(ast.FieldType, node.select[1].type).resolve_database_field() == StringDatabaseField(
+        assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == StringDatabaseField(
             name="person_id", array=None, nullable=None
         )
-        assert cast(ast.FieldType, node.select[2].type).resolve_database_field() == StringJSONDatabaseField(
+        assert cast(ast.FieldType, node.select[2].type).resolve_database_field(self.context) == StringJSONDatabaseField(
             name="person_properties"
         )
-        assert cast(ast.FieldType, node.select[3].type).resolve_database_field() == DateTimeDatabaseField(
+        assert cast(ast.FieldType, node.select[3].type).resolve_database_field(self.context) == DateTimeDatabaseField(
             name="created_at", array=None, nullable=None
         )
 

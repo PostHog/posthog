@@ -6,7 +6,7 @@ import {
     snapshotsAsRealTimeJSONPayload,
 } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import {
-    dedupeRecordingSnapshots,
+    deduplicateSnapshots,
     sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -293,7 +293,7 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
-    describe('prepareRecordingSnapshots', () => {
+    describe('deduplicateSnapshots', () => {
         it('should remove duplicate snapshots and sort by timestamp', () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
             const snapshotsWithDuplicates = snapshots
@@ -303,14 +303,14 @@ describe('sessionRecordingDataLogic', () => {
 
             expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
 
-            expect(dedupeRecordingSnapshots(snapshots)).toEqual(dedupeRecordingSnapshots(snapshotsWithDuplicates))
+            expect(deduplicateSnapshots(snapshots)).toEqual(deduplicateSnapshots(snapshotsWithDuplicates))
         })
 
         it('should cope with two not duplicate snapshots with the same timestamp and delay', () => {
             // these two snapshots are not duplicates but have the same timestamp and delay
             // this regression test proves that we deduplicate them against themselves
             // prior to https://github.com/PostHog/posthog/pull/20019
-            // each time prepareRecordingSnapshots was called with this input
+            // each time deduplicateSnapshots was called with this input
             // the result would be one event longer, introducing, instead of removing, a duplicate
             const verySimilarSnapshots: RecordingSnapshot[] = [
                 {
@@ -327,7 +327,7 @@ describe('sessionRecordingDataLogic', () => {
                 },
             ]
             // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
-            expect(dedupeRecordingSnapshots([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
+            expect(deduplicateSnapshots([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
                 verySimilarSnapshots
             )
         })
@@ -335,7 +335,7 @@ describe('sessionRecordingDataLogic', () => {
         it('should match snapshot', () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
 
-            expect(dedupeRecordingSnapshots(snapshots)).toMatchSnapshot()
+            expect(deduplicateSnapshots(snapshots)).toMatchSnapshot()
         })
     })
 

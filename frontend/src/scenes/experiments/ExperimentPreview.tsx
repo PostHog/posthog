@@ -288,7 +288,7 @@ export function ExperimentPreview({
                                     </LemonButton>
                                 </div>
                                 {experimentInsightType === InsightType.TRENDS &&
-                                    !experimentMathAggregationForTrends && (
+                                    !experimentMathAggregationForTrends(experiment.filters) && (
                                         <>
                                             <div className="card-secondary mb-2 mt-4">
                                                 Exposure metric
@@ -444,7 +444,7 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
                 .map((event: ActionFilterType, idx: number) => (
                     <div key={idx} className="mb-2">
                         <div className="flex mb-1">
-                            <div className="preview-conversion-goal-num">
+                            <div className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt bg-light border rounded">
                                 {experimentInsightType === InsightType.FUNNELS ? (event.order || 0) + 1 : idx + 1}
                             </div>
                             <b>

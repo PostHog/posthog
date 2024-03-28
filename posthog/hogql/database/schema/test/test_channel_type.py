@@ -106,6 +106,36 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_direct_empty_string(self):
+        self.assertEqual(
+            "Direct",
+            self._get_initial_channel_type(
+                {
+                    "$initial_referring_domain": "$direct",
+                    "$initial_utm_source": "",
+                    "$initial_utm_medium": "",
+                    "$initial_utm_campaign": "",
+                    "$initial_gclid": "",
+                    "$initial_gad_source": "",
+                }
+            ),
+        )
+
+    def test_direct_null_string(self):
+        self.assertEqual(
+            "Direct",
+            self._get_initial_channel_type(
+                {
+                    "$initial_referring_domain": "$direct",
+                    "$initial_utm_source": "null",
+                    "$initial_utm_medium": "null",
+                    "$initial_utm_campaign": "null",
+                    "$initial_gclid": "null",
+                    "$initial_gad_source": "null",
+                }
+            ),
+        )
+
     def test_cross_network(self):
         self.assertEqual(
             "Cross Network",
@@ -216,6 +246,19 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             self._get_initial_channel_type(
                 {
                     "$initial_referring_domain": "some-unknown-domain.example.com",
+                }
+            ),
+        )
+
+    def test_doesnt_fail_on_numbers(self):
+        self.assertEqual(
+            "Other",
+            self._get_initial_channel_type(
+                {
+                    "$initial_referring_domain": "example.com",
+                    "$initial_utm_source": 123,
+                    "$initial_utm_medium": 123,
+                    "$initial_utm_campaign": 123,
                 }
             ),
         )

@@ -2,6 +2,7 @@ import './SavedInsights.scss'
 
 import {
     IconBrackets,
+    IconCoffee,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -22,24 +23,15 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import {
-    IconAction,
-    IconCoffee,
-    IconEvent,
-    IconGridView,
-    IconListView,
-    IconSelectEvents,
-    IconTableChart,
-} from 'lib/lemon-ui/icons'
+import { IconAction, IconEvent, IconGridView, IconListView, IconSelectEvents, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Link } from 'lib/lemon-ui/Link'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -75,13 +67,13 @@ export interface InsightTypeMetadata {
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
     [InsightType.TRENDS]: {
         name: 'Trends',
-        description: 'Visualize and break down how actions or events vary over time.',
+        description: 'Visualize and break down how actions or events vary over time.',
         icon: IconTrends,
         inMenu: true,
     },
     [InsightType.FUNNELS]: {
         name: 'Funnel',
-        description: 'Discover how many users complete or drop out of a sequence of actions.',
+        description: 'Discover how many users complete or drop out of a sequence of actions.',
         icon: IconFunnels,
         inMenu: true,
     },
@@ -93,19 +85,19 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.PATHS]: {
         name: 'Paths',
-        description: 'Trace the journeys users take within your product and where they drop off.',
+        description: 'Trace the journeys users take within your product and where they drop off.',
         icon: IconUserPaths,
         inMenu: true,
     },
     [InsightType.STICKINESS]: {
         name: 'Stickiness',
-        description: 'See what keeps users coming back by viewing the interval between repeated actions.',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions.',
         icon: IconStickiness,
         inMenu: true,
     },
     [InsightType.LIFECYCLE]: {
         name: 'Lifecycle',
-        description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
         icon: IconLifecycle,
         inMenu: true,
     },
@@ -126,13 +118,13 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.TrendsQuery]: {
         name: 'Trends',
-        description: 'Visualize and break down how actions or events vary over time',
+        description: 'Visualize and break down how actions or events vary over time',
         icon: IconTrends,
         inMenu: true,
     },
     [NodeKind.FunnelsQuery]: {
         name: 'Funnel',
-        description: 'Discover how many users complete or drop out of a sequence of actions',
+        description: 'Discover how many users complete or drop out of a sequence of actions',
         icon: IconFunnels,
         inMenu: true,
     },
@@ -144,21 +136,27 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
-        description: 'Trace the journeys users take within your product and where they drop off',
+        description: 'Trace the journeys users take within your product and where they drop off',
         icon: IconUserPaths,
         inMenu: true,
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
-        description: 'See what keeps users coming back by viewing the interval between repeated actions',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions',
         icon: IconStickiness,
         inMenu: true,
     },
     [NodeKind.LifecycleQuery]: {
         name: 'Lifecycle',
-        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
         icon: IconLifecycle,
         inMenu: true,
+    },
+    [NodeKind.FunnelCorrelationQuery]: {
+        name: 'Funnel Correlation',
+        description: 'See which events or properties correlate to a funnel result',
+        icon: IconPerson,
+        inMenu: false,
     },
     [NodeKind.EventsNode]: {
         name: 'Events',
@@ -205,6 +203,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.InsightActorsQueryOptions]: {
         name: 'Persons',
         description: 'Options for InsightActorsQueryt',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.FunnelsActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an insight',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.FunnelCorrelationActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an insight',
         icon: IconPerson,
         inMenu: false,
     },
@@ -320,14 +330,14 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
 }
 
-export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
+export function InsightIcon({ insight, className }: { insight: InsightModel; className?: string }): JSX.Element | null {
     let insightType = insight?.filters?.insight || InsightType.TRENDS
     if (!!insight.query && !isInsightVizNode(insight.query)) {
         insightType = InsightType.JSON
     }
     const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
-        return <insightMetadata.icon />
+        return <insightMetadata.icon className={className} />
     }
     return null
 }
@@ -411,10 +421,9 @@ export function SavedInsights(): JSX.Element {
     const columns: LemonTableColumns<InsightModel> = [
         {
             key: 'id',
-            className: 'icon-column',
             width: 32,
             render: function renderType(_, insight) {
-                return <InsightIcon insight={insight} />
+                return <InsightIcon insight={insight} className="text-muted text-2xl" />
             },
         },
         {
@@ -424,37 +433,40 @@ export function SavedInsights(): JSX.Element {
             render: function renderName(name: string, insight) {
                 return (
                     <>
-                        <span className="row-name">
-                            <Link to={urls.insightView(insight.short_id)}>
-                                {name || (
-                                    <i>
-                                        {summarizeInsight(insight.query, insight.filters, {
-                                            aggregationLabel,
-                                            cohortsById,
-                                            mathDefinitions,
-                                        })}
-                                    </i>
-                                )}
-                            </Link>
-                            <LemonButton
-                                className="ml-1"
-                                size="small"
-                                onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
-                                icon={
-                                    insight.favorited ? (
-                                        <IconStarFilled className="text-warning" />
-                                    ) : (
-                                        <IconStar className="text-muted" />
-                                    )
-                                }
-                                tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
-                            />
-                        </span>
-                        {hasDashboardCollaboration && insight.description && (
-                            <LemonMarkdown className="row-description" lowKeyHeadings>
-                                {insight.description}
-                            </LemonMarkdown>
-                        )}
+                        <LemonTableLink
+                            to={urls.insightView(insight.short_id)}
+                            title={
+                                <>
+                                    {name || (
+                                        <i>
+                                            {summarizeInsight(insight.query, insight.filters, {
+                                                aggregationLabel,
+                                                cohortsById,
+                                                mathDefinitions,
+                                            })}
+                                        </i>
+                                    )}
+
+                                    <LemonButton
+                                        className="ml-1"
+                                        size="xsmall"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            updateFavoritedInsight(insight, !insight.favorited)
+                                        }}
+                                        icon={
+                                            insight.favorited ? (
+                                                <IconStarFilled className="text-warning" />
+                                            ) : (
+                                                <IconStar className="text-muted" />
+                                            )
+                                        }
+                                        tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
+                                    />
+                                </>
+                            }
+                            description={hasDashboardCollaboration ? insight.description : undefined}
+                        />
                     </>
                 )
             },

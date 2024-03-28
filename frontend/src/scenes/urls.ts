@@ -16,6 +16,7 @@ import {
     PipelineTab,
     ProductKey,
     ReplayTabs,
+    SDKKey,
 } from '~/types'
 
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -55,8 +56,10 @@ export const urls = {
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
+    eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,
     propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
+    propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     events: (): string => '/events',
@@ -173,8 +176,10 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
-    onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
-        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
+    onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
+        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
+            sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
+        }`,
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,

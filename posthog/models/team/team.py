@@ -13,8 +13,9 @@ from django.core.validators import (
     MaxValueValidator,
     MinValueValidator,
 )
-from django.db import models
+from django.db import models, connection
 from django.db.models.signals import post_delete, post_save
+from django.db import transaction
 from zoneinfo import ZoneInfo
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -98,9 +99,23 @@ class TeamManager(models.Manager):
         return team
 
     def create(self, *args, **kwargs) -> "Team":
-        if kwargs.get("organization") is None and kwargs.get("organization_id") is None:
-            raise ValueError("Creating organization-less projects is prohibited")
-        return super().create(*args, **kwargs)
+        from ..project import Project
+
+        with transaction.atomic():
+            if "id" not in kwargs:
+                kwargs["id"] = self.increment_id_sequence()
+            if kwargs.get("project") is None and kwargs.get("project_id") is None:
+                # If a parent project is not provided for this team, ensure there is one
+                # This should be removed once environments are fully rolled out
+                project_kwargs = {}
+                if organization := kwargs.get("organization"):
+                    project_kwargs["organization"] = organization
+                elif organization_id := kwargs.get("organization_id"):
+                    project_kwargs["organization_id"] = organization_id
+                if name := kwargs.get("name"):
+                    project_kwargs["name"] = name
+                kwargs["project"] = Project.objects.create(id=kwargs["id"], **project_kwargs)
+            return super().create(*args, **kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
         if not token:
@@ -125,6 +140,15 @@ class TeamManager(models.Manager):
         except Team.DoesNotExist:
             return None
 
+    def increment_id_sequence(self) -> int:
+        """Increment the `Team.id` field's sequence and return the latest value.
+
+        Use only when actually neeeded to avoid wasting sequence values."""
+        cursor = connection.cursor()
+        cursor.execute("SELECT nextval('posthog_team_id_seq')")
+        result = cursor.fetchone()
+        return result[0]
+
 
 def get_default_data_attributes() -> List[str]:
     return ["data-attr"]
@@ -146,6 +170,12 @@ class Team(UUIDClassicModel):
         related_name="teams",
         related_query_name="team",
     )
+    project: models.ForeignKey = models.ForeignKey(
+        "posthog.Project",
+        on_delete=models.CASCADE,
+        related_name="teams",
+        related_query_name="team",
+    )
     api_token: models.CharField = models.CharField(
         max_length=200,
         unique=True,
@@ -155,7 +185,7 @@ class Team(UUIDClassicModel):
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
     name: models.CharField = models.CharField(
         max_length=200,
-        default="Default Project",
+        default="Default project",
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
@@ -326,6 +356,25 @@ class Team(UUIDClassicModel):
             )
 
         return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
+
+    @property
+    def person_on_events_v3_querying_enabled(self) -> bool:
+        if settings.PERSON_ON_EVENTS_V3_OVERRIDE is not None:
+            return settings.PERSON_ON_EVENTS_V3_OVERRIDE
+
+        return posthoganalytics.feature_enabled(
+            "persons-on-events-v3-reads-enabled",
+            str(self.uuid),
+            groups={"organization": str(self.organization_id)},
+            group_properties={
+                "organization": {
+                    "id": str(self.organization_id),
+                    "created_at": self.organization.created_at,
+                }
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
 
     @property
     def strict_caching_enabled(self) -> bool:

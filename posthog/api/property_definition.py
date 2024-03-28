@@ -4,14 +4,8 @@ from typing import Any, Dict, List, Optional, Type, cast
 
 from django.db import connection
 from django.db.models import Prefetch
-from rest_framework import (
-    mixins,
-    serializers,
-    viewsets,
-    status,
-    request,
-    response,
-)
+from loginas.utils import is_impersonated_session
+from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -23,10 +17,9 @@ from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import PropertyDefinition, TaggedItem, User, EventProperty
-from posthog.models.activity_logging.activity_log import log_activity, Detail
+from posthog.models import EventProperty, PropertyDefinition, TaggedItem, User
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
-from loginas.utils import is_impersonated_session
 
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
@@ -245,9 +238,11 @@ class QueryContext:
         )
         return dataclasses.replace(
             self,
-            excluded_properties_filter=f"AND {self.property_definition_table}.name NOT IN %(excluded_properties)s"
-            if len(excluded_list) > 0
-            else "",
+            excluded_properties_filter=(
+                f"AND {self.property_definition_table}.name NOT IN %(excluded_properties)s"
+                if len(excluded_list) > 0
+                else ""
+            ),
             params={
                 **self.params,
                 "excluded_properties": excluded_list,
@@ -318,6 +313,7 @@ PROPERTY_NAME_ALIASES = {
     "$group_4": "Group 5",
     "$ip": "IP Address",
     "$lib": "Library",
+    "$lib_custom_api_host": "Library Custom API Host",
     "$lib_version": "Library Version",
     "$lib_version__major": "Library Version (Major)",
     "$lib_version__minor": "Library Version (Minor)",
@@ -580,7 +576,7 @@ class PropertyDefinitionViewSet(
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["property_definition:read"])
     def seen_together(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         """
         Allows a caller to provide a list of event names and a single property name

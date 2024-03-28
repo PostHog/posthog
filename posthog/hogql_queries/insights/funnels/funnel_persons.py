@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from posthog.hogql import ast
 from posthog.hogql_queries.insights.funnels.funnel import Funnel
@@ -7,13 +7,13 @@ from posthog.hogql_queries.insights.funnels.funnel import Funnel
 class FunnelActors(Funnel):
     def actor_query(
         self,
-        # extra_fields: Optional[List[str]] = None,
+        extra_fields: Optional[List[str]] = None,
     ) -> ast.SelectQuery:
         select: List[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),
             *self._get_funnel_person_step_events(),
             *self._get_timestamp_outer_select(),
-            # {extra_fields}
+            *([ast.Field(chain=[field]) for field in extra_fields or []]),
         ]
         select_from = ast.JoinExpr(table=self.get_step_counts_query())
         where = self._get_funnel_person_step_condition()

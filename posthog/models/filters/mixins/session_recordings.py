@@ -19,11 +19,11 @@ class SessionRecordingsMixin(BaseParamMixin):
         return self._data.get("console_search_query", None)
 
     @cached_property
-    def console_logs_filter(self) -> List[Literal["error", "warn", "log"]]:
+    def console_logs_filter(self) -> List[Literal["error", "warn", "info"]]:
         user_value = self._data.get("console_logs", None) or []
         if isinstance(user_value, str):
             user_value = json.loads(user_value)
-        valid_values = [x for x in user_value if x in ["error", "warn", "log"]]
+        valid_values = [x for x in user_value if x in ["error", "warn", "info"]]
         return valid_values
 
     @cached_property

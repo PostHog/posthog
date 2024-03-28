@@ -1,8 +1,9 @@
 from datetime import timedelta
-from typing import cast
+from typing import cast, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
@@ -11,7 +12,15 @@ from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQue
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import FunnelsActorsQuery, InsightActorsQuery, HogQLQueryResponse, StickinessQuery, TrendsQuery
+from posthog.schema import (
+    FunnelCorrelationActorsQuery,
+    FunnelCorrelationQuery,
+    FunnelsActorsQuery,
+    InsightActorsQuery,
+    HogQLQueryResponse,
+    StickinessQuery,
+    TrendsQuery,
+)
 from posthog.types import InsightActorsQueryNode
 
 
@@ -28,7 +37,7 @@ class InsightActorsQueryRunner(QueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
             query = cast(InsightActorsQuery, self.query)
             return trends_runner.to_actors_query(
-                time_frame=query.day,
+                time_frame=cast(Optional[str], query.day),  # Other runner accept day as int, but not this one
                 series_index=query.series or 0,
                 breakdown_value=query.breakdown,
                 compare=query.compare,
@@ -37,6 +46,11 @@ class InsightActorsQueryRunner(QueryRunner):
             funnels_runner = cast(FunnelsQueryRunner, self.source_runner)
             funnels_runner.context.actorsQuery = cast(FunnelsActorsQuery, self.query)
             return funnels_runner.to_actors_query()
+        elif isinstance(self.source_runner, FunnelCorrelationQueryRunner):
+            funnel_correlation_runner = cast(FunnelCorrelationQueryRunner, self.source_runner)
+            assert isinstance(self.query, FunnelCorrelationActorsQuery)
+            funnel_correlation_runner.correlation_actors_query = self.query
+            return funnel_correlation_runner.to_actors_query()
         elif isinstance(self.source_runner, RetentionQueryRunner):
             query = cast(InsightActorsQuery, self.query)
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
@@ -65,6 +79,11 @@ class InsightActorsQueryRunner(QueryRunner):
         if isinstance(self.source_runner, RetentionQueryRunner):
             return cast(RetentionQueryRunner, self.source_runner).group_type_index
 
+        if isinstance(self.source_runner, FunnelCorrelationQueryRunner):
+            assert isinstance(self.query, FunnelCorrelationActorsQuery)
+            assert isinstance(self.query.source, FunnelCorrelationQuery)
+            return self.query.source.source.source.aggregation_group_type_index
+
         if (
             isinstance(self.source_runner, StickinessQueryRunner) and isinstance(self.query.source, StickinessQuery)
         ) or (isinstance(self.source_runner, TrendsQueryRunner) and isinstance(self.query.source, TrendsQuery)):
@@ -83,6 +102,7 @@ class InsightActorsQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
     def _is_stale(self, cached_result_package):

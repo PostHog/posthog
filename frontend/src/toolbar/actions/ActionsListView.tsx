@@ -13,13 +13,10 @@ interface ActionsListViewProps {
 export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element {
     const { allActionsLoading, searchTerm } = useValues(actionsLogic)
     const { selectAction } = useActions(actionsTabLogic)
+
     return (
         <div className="flex flex-col h-full overflow-y-scoll space-y-px">
-            {allActionsLoading ? (
-                <div className="flex items-center">
-                    <Spinner className="text-4xl" />
-                </div>
-            ) : actions.length ? (
+            {actions.length ? (
                 actions.map((action, index) => (
                     <>
                         <Link
@@ -35,6 +32,10 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                         </Link>
                     </>
                 ))
+            ) : allActionsLoading ? (
+                <div className="flex items-center">
+                    <Spinner className="text-4xl" />
+                </div>
             ) : (
                 <div className="p-2">No {searchTerm.length ? 'matching ' : ''}actions found.</div>
             )}

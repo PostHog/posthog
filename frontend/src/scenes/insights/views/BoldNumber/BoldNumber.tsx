@@ -1,11 +1,12 @@
 import './BoldNumber.scss'
 
+import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils'
 import { useLayoutEffect, useRef, useState } from 'react'
@@ -98,7 +99,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
 
     const isTrendsQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
         isTrends &&
         query &&
         isInsightVizNode(query) &&
@@ -118,6 +119,10 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                                       query: {
                                           kind: NodeKind.InsightActorsQuery,
                                           source: query.source,
+                                      },
+                                      additionalSelect: {
+                                          value_at_data_point: 'event_count',
+                                          matched_recordings: 'matched_recordings',
                                       },
                                   })
                               } else if (resultSeries.persons?.url) {
@@ -173,7 +178,7 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
             : 'No change from'
 
     const isTrendsQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
         isTrends &&
         query &&
         isInsightVizNode(query) &&
@@ -185,7 +190,7 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                 percentageDiff === null ? (
                     <IconFlare />
                 ) : percentageDiff > 0 ? (
-                    <IconTrendingUp />
+                    <IconTrending />
                 ) : percentageDiff < 0 ? (
                     <IconTrendingDown />
                 ) : (
@@ -211,6 +216,10 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                                     query: {
                                         kind: NodeKind.InsightActorsQuery,
                                         source: query.source,
+                                    },
+                                    additionalSelect: {
+                                        value_at_data_point: 'event_count',
+                                        matched_recordings: 'matched_recordings',
                                     },
                                 })
                             } else if (previousPeriodSeries.persons?.url) {

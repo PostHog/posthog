@@ -57,11 +57,12 @@ numpy==1.23.3
 openapi-spec-validator==0.7.1
 openpyxl==3.1.2
 orjson==3.9.15
+pandas==2.2.0
 parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5
 Pillow==10.2.0
-posthoganalytics==3.3.4
+posthoganalytics==3.5.0
 prance==23.06.21.0
 psycopg2-binary==2.9.7
 psycopg==3.1.13
@@ -80,8 +81,9 @@ stripe==7.4.0
 selenium==4.1.5
 sentry-sdk==1.14.0
 semantic_version==2.8.5
+scikit-learn==1.4.0
 slack_sdk==3.17.1
-snowflake-connector-python==3.0.4
+snowflake-connector-python==3.6.0
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
 statshog==1.0.6
@@ -99,5 +101,5 @@ phonenumberslite==8.13.6
 openai==1.10.0
 tiktoken==0.6.0
 nh3==0.2.14
-hogql-parser==1.0.3
+hogql-parser==1.0.4
 urllib3[secure,socks]==1.26.18

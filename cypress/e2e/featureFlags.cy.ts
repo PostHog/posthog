@@ -4,15 +4,9 @@ describe('Feature Flags', () => {
     let name
 
     beforeEach(() => {
-        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'new-feature-flag-operators': true,
-                })
-            )
-        )
+        cy.intercept('**/decide/*', (req) => req.reply(decideResponse({})))
 
-        cy.intercept('/api/projects/1/property_definitions?type=person&search*', {
+        cy.intercept('/api/projects/*/property_definitions?type=person*', {
             fixture: 'api/feature-flags/property_definition',
         })
         cy.intercept('/api/person/values/*', {
@@ -116,7 +110,7 @@ describe('Feature Flags', () => {
         cy.get('.Toastify').contains('Undo').should('be.visible')
     })
 
-    it.only('Move between property types smoothly, and support relative dates', () => {
+    it('Move between property types smoothly, and support relative dates', () => {
         // ensure unique names to avoid clashes
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
         cy.get('[data-attr=new-feature-flag]').click()

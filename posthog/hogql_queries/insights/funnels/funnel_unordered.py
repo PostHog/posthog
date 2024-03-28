@@ -62,7 +62,7 @@ class FunnelUnordered(FunnelBase):
         max_steps = self.context.max_steps
         breakdown_exprs = self._get_breakdown_prop_expr()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
-        person_and_group_properties = self._get_person_and_group_properties()
+        person_and_group_properties = self._get_person_and_group_properties(aggregate=True)
 
         group_by_columns: List[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
@@ -168,7 +168,7 @@ class FunnelUnordered(FunnelBase):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= conversion_times[{i}] + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
+                    f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= toTimeZone(conversion_times[{i}], 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
                 )
             )
             # array indices in ClickHouse are 1-based :shrug:
@@ -190,7 +190,7 @@ class FunnelUnordered(FunnelBase):
         basic_conditions: List[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
-                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}, 1, 0)"
+                f"if(latest_0 < latest_{i} AND latest_{i} <= toTimeZone(latest_0, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, 1, 0)"
             )
 
         if basic_conditions:
@@ -214,7 +214,7 @@ class FunnelUnordered(FunnelBase):
             to_time = f"event_times[{exclusion.funnelToStep + 1}]"
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
             condition = parse_expr(
-                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), {from_time} + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 

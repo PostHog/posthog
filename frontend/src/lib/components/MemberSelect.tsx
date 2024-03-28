@@ -1,7 +1,7 @@
 import { LemonButton, LemonDropdown, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { fullName } from 'lib/utils'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
@@ -14,15 +14,11 @@ export type MemberSelectProps = {
 }
 
 export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: MemberSelectProps): JSX.Element {
-    const { meFirstMembers, membersFuse } = useValues(membersLogic)
+    const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
+    const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
-    const [searchTerm, setSearchTerm] = useState('')
 
-    const filteredMembers = useMemo(() => {
-        return searchTerm ? membersFuse.search(searchTerm).map((result) => result.item) : meFirstMembers
-    }, [searchTerm, meFirstMembers])
-
-    const selectedMember = useMemo(() => {
+    const selectedMemberAsUser = useMemo(() => {
         if (!value) {
             return null
         }
@@ -38,11 +34,17 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
         onChange(value)
     }
 
+    useEffect(() => {
+        if (showPopover) {
+            ensureAllMembersLoaded()
+        }
+    }, [showPopover])
+
     return (
         <LemonDropdown
             closeOnClickInside={false}
             visible={showPopover}
-            sameWidth={false}
+            matchWidth={false}
             actionable
             onVisibilityChange={(visible) => setShowPopover(visible)}
             overlay={
@@ -51,8 +53,8 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
                         type="search"
                         placeholder="Search"
                         autoFocus
-                        value={searchTerm}
-                        onChange={setSearchTerm}
+                        value={search}
+                        onChange={setSearch}
                         fullWidth
                     />
                     <ul className="space-y-px">
@@ -81,9 +83,11 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
                             </li>
                         ))}
 
-                        {filteredMembers.length === 0 ? (
+                        {membersLoading ? (
+                            <div className="p-2 text-muted-alt italic truncate border-t">Loading...</div>
+                        ) : filteredMembers.length === 0 ? (
                             <div className="p-2 text-muted-alt italic truncate border-t">
-                                {searchTerm ? <span>No matches</span> : <span>No users</span>}
+                                {search ? <span>No matches</span> : <span>No users</span>}
                             </div>
                         ) : null}
                     </ul>
@@ -91,12 +95,12 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
             }
         >
             <LemonButton size="small" type="secondary">
-                {typeof selectedMember === 'string' ? (
-                    selectedMember
-                ) : selectedMember ? (
+                {typeof selectedMemberAsUser === 'string' ? (
+                    selectedMemberAsUser
+                ) : selectedMemberAsUser ? (
                     <span>
-                        {fullName(selectedMember)}
-                        {meFirstMembers[0].user.uuid === selectedMember.uuid ? ` (you)` : ''}
+                        {fullName(selectedMemberAsUser)}
+                        {meFirstMembers[0].user.uuid === selectedMemberAsUser.uuid ? ` (you)` : ''}
                     </span>
                 ) : (
                     defaultLabel

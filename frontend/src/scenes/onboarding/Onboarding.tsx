@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
+import { AndroidInstructions } from 'scenes/onboarding/sdks/session-replay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ProductKey } from '~/types'
+import { AvailableFeature, ProductKey, SDKKey } from '~/types'
 
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
@@ -13,6 +15,7 @@ import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
+import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
@@ -28,7 +31,8 @@ export const scene: SceneExport = {
  * Wrapper for custom onboarding content. This automatically includes billing, other products, and invite steps.
  */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { currentOnboardingStep, shouldShowBillingStep, product, includeIntro } = useValues(onboardingLogic)
+    const { currentOnboardingStep, shouldShowBillingStep, shouldShowReverseProxyStep, product, includeIntro } =
+        useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
@@ -57,6 +61,10 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         if (includeIntro) {
             const IntroStep = <OnboardingProductIntroduction stepKey={OnboardingStepKey.PRODUCT_INTRO} />
             steps = [IntroStep, ...steps]
+        }
+        if (shouldShowReverseProxyStep) {
+            const ReverseProxyStep = <OnboardingReverseProxy stepKey={OnboardingStepKey.REVERSE_PROXY} />
+            steps = [...steps, ReverseProxyStep]
         }
         if (shouldShowBillingStep) {
             const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.PLANS} />
@@ -100,6 +108,11 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 }
 const SessionReplayOnboarding = (): JSX.Element => {
     const { hasAvailableFeature } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hasAndroidOnBoarding = !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING]
+
     const configOptions: ProductConfigOption[] = [
         {
             type: 'toggle',
@@ -107,7 +120,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Capture console logs as a part of user session recordings. 
                             Use the console logs alongside recordings to debug any issues with your app.`,
             teamProperty: 'capture_console_log_opt_in',
-            value: true,
+            value: currentTeam?.capture_console_log_opt_in ?? true,
         },
         {
             type: 'toggle',
@@ -115,7 +128,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Capture performance and network information alongside recordings. Use the
                             network requests and timings in the recording player to help you debug issues with your app.`,
             teamProperty: 'capture_performance_opt_in',
-            value: true,
+            value: currentTeam?.capture_performance_opt_in ?? true,
         },
     ]
 
@@ -126,16 +139,21 @@ const SessionReplayOnboarding = (): JSX.Element => {
             description: `Only record sessions that are longer than the specified duration. 
                             Start with it low and increase it later if you're getting too many short sessions.`,
             teamProperty: 'session_recording_minimum_duration_milliseconds',
-            value: null,
+            value: currentTeam?.session_recording_minimum_duration_milliseconds || null,
             selectOptions: SESSION_REPLAY_MINIMUM_DURATION_OPTIONS,
         })
+    }
+
+    const sdkInstructionMap = SessionReplaySDKInstructions
+    if (hasAndroidOnBoarding) {
+        sdkInstructionMap[SDKKey.ANDROID] = AndroidInstructions
     }
 
     return (
         <OnboardingWrapper>
             <SDKs
                 usersAction="recording sessions"
-                sdkInstructionMap={SessionReplaySDKInstructions}
+                sdkInstructionMap={sdkInstructionMap}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
             />
@@ -143,6 +161,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         </OnboardingWrapper>
     )
 }
+
 const FeatureFlagsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>

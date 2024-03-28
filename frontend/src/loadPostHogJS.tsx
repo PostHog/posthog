@@ -22,6 +22,7 @@ export function loadPostHogJS(): void {
             window.JS_POSTHOG_API_KEY,
             configWithSentry({
                 api_host: window.JS_POSTHOG_HOST,
+                ui_host: window.JS_POSTHOG_UI_HOST,
                 rageclick: true,
                 persistence: 'localStorage+cookie',
                 bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
@@ -38,10 +39,18 @@ export function loadPostHogJS(): void {
                     }
                 },
                 scroll_root_selector: ['main', 'html'],
+                autocapture: {
+                    capture_copied_text: true,
+                },
+                // Helper to capture events for assertions in Cypress
+                _onCapture: (window as any)._cypress_posthog_captures
+                    ? (_, event) => (window as any)._cypress_posthog_captures.push(event)
+                    : undefined,
             })
         )
 
         const Cypress = (window as any).Cypress
+
         if (Cypress) {
             Object.entries(Cypress.env()).forEach(([key, value]) => {
                 if (key.startsWith('POSTHOG_PROPERTY_')) {

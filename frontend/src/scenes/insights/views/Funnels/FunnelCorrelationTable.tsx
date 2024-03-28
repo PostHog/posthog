@@ -1,9 +1,8 @@
 import './FunnelCorrelationTable.scss'
 
-import { IconCollapse, IconExpand, IconInfo, IconTrending } from '@posthog/icons'
-import { LemonCheckbox } from '@posthog/lemon-ui'
-import { ConfigProvider, Empty, Table } from 'antd'
-import Column from 'antd/lib/table/Column'
+import { IconTrending } from '@posthog/icons'
+import { LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
+import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
@@ -11,7 +10,6 @@ import { IconSelectEvents, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
@@ -86,7 +84,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
 
         return (
             <>
-                <h4>
+                <div className="font-semibold text-default">
                     {is_success ? (
                         <IconTrending className="text-success" />
                     ) : (
@@ -99,7 +97,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                             <PropertyKeyInfo value={second_value} disablePopover />
                         </>
                     )}
-                </h4>
+                </div>
                 <div>
                     {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
                     {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
@@ -113,7 +111,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         ? 'have this event property'
                         : 'do this event'}
                 </div>
-                <CorrelationMatrix />
             </>
         )
     }
@@ -154,67 +151,70 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         }
 
         return (
-            <div>
+            <div className="p-4">
                 <h4 className="pl-4">Correlated properties</h4>
-                <Table
+                <LemonTable
+                    id={`event-correlation__${eventName}`}
                     dataSource={eventWithPropertyCorrelationsValues[eventName]}
-                    rowKey={(record: FunnelCorrelation) => record.event.event}
-                    className="nested-properties-table"
-                    scroll={{ x: 'max-content' }}
+                    rowKey={(record: FunnelCorrelation) => 'nested' + record.event.event}
                     pagination={{
                         pageSize: 5,
                         hideOnSinglePage: true,
-                        onChange: (page, page_size) =>
+                        onBackward: () =>
                             reportCorrelationInteraction(
                                 FunnelCorrelationResultsType.EventWithProperties,
                                 'pagination change',
-                                { page, page_size }
+                                { direction: 'backward', page_size: 5 }
+                            ),
+                        onForward: () =>
+                            reportCorrelationInteraction(
+                                FunnelCorrelationResultsType.EventWithProperties,
+                                'pagination change',
+                                { direction: 'forward', page_size: 5 }
                             ),
                     }}
-                >
-                    <Column
-                        title="Property"
-                        key="eventName"
-                        render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
-                        align="left"
-                    />
-                    <Column
-                        title="Completed"
-                        key="success_count"
-                        render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
-                        width={90}
-                        align="center"
-                    />
-                    <Column
-                        title="Dropped off"
-                        key="failure_count"
-                        render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
-                        width={120}
-                        align="center"
-                    />
-
-                    <Column
-                        title=""
-                        key="actions"
-                        render={(_, record: FunnelCorrelation) => <EventCorrelationActionsCell record={record} />}
-                        align="center"
-                        width={30}
-                    />
-                </Table>
+                    columns={[
+                        {
+                            title: 'Property',
+                            key: 'eventName',
+                            render: (_, record) => renderOddsRatioTextRecord(record),
+                        },
+                        {
+                            title: 'Completed',
+                            key: 'success_count',
+                            render: (_, record) => renderSuccessCount(record),
+                            width: 90,
+                            align: 'center',
+                        },
+                        {
+                            title: 'Dropped off',
+                            key: 'failure_count',
+                            render: (_, record) => renderFailureCount(record),
+                            width: 120,
+                            align: 'center',
+                        },
+                        {
+                            key: 'actions',
+                            width: 30,
+                            align: 'center',
+                            render: (_, record) => <EventCorrelationActionsCell record={record} />,
+                        },
+                    ]}
+                />
             </div>
         )
     }
 
     return steps.length > 1 ? (
         <VisibilitySensor id={correlationPropKey} offset={152}>
-            <div className="funnel-correlation-table">
-                <span className="funnel-correlation-header">
-                    <span className="table-header">
+            <div className="FunnelCorrelationTable mt-4 border rounded overflow-hidden">
+                <span className="flex px-2 py-1 bg-[var(--bg-table)]">
+                    <span className="flex items-center text-xs font-bold">
                         <IconSelectEvents className="mr-1 text-2xl opacity-50" />
                         CORRELATED EVENTS
                     </span>
-                    <span className="table-options">
-                        <p className="title">CORRELATION</p>
+                    <span className="table-options flex grow items-center justify-end">
+                        <p className="flex items-center m-1 font-sans text-xs text-muted font-semibold">CORRELATION</p>
                         <div className="flex">
                             <LemonCheckbox
                                 checked={correlationTypes.includes(FunnelCorrelationType.Success)}
@@ -233,137 +233,97 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         </div>
                     </span>
                 </span>
-                <ConfigProvider
-                    renderEmpty={() =>
-                        loadedEventCorrelationsTableOnce ? (
-                            <Empty />
-                        ) : (
-                            <>
-                                {/* eslint-disable-next-line react/forbid-dom-props */}
-                                <p className="m-auto" style={{ maxWidth: 500 }}>
-                                    Highlight events which are likely to have affected the conversion rate within the
-                                    funnel.{' '}
-                                    <Link to="https://posthog.com/manual/correlation">
-                                        Learn more about correlation analysis.
-                                    </Link>
-                                </p>
-                                <LemonButton
-                                    onClick={() => loadEventCorrelations({})}
-                                    type="secondary"
-                                    className="mx-auto mt-2"
-                                >
-                                    Load results
-                                </LemonButton>
-                            </>
-                        )
-                    }
-                >
-                    <Table
-                        dataSource={correlationValues}
-                        loading={correlationsLoading}
-                        size="small"
-                        scroll={{ x: 'max-content' }}
-                        rowKey={(record: FunnelCorrelation) => record.event.event}
-                        pagination={{
-                            pageSize: 5,
-                            hideOnSinglePage: true,
-                            onChange: () =>
-                                reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'load more'),
-                        }}
-                        expandable={{
-                            expandedRowRender: (record) => renderNestedTable(record.event.event),
-                            expandedRowKeys: nestedTableExpandedKeys,
-                            rowExpandable: () => querySource?.aggregation_group_type_index === undefined,
-                            expandIcon: ({ expanded, onExpand, record, expandable }) => {
-                                if (!expandable) {
-                                    return null
-                                }
-                                return expanded ? (
-                                    <Tooltip title="Collapse">
-                                        <LemonButton
-                                            icon={<IconCollapse />}
-                                            active
-                                            noPadding
-                                            onClick={(e) => {
-                                                removeNestedTableExpandedKey(record.event.event)
-                                                onExpand(record, e)
-                                            }}
-                                        />
-                                    </Tooltip>
+                <CorrelationMatrix />
+
+                <LemonTable
+                    id="event-correlation"
+                    embedded
+                    columns={[
+                        {
+                            title: 'Event',
+                            key: 'eventName',
+                            render: (_, record) => renderOddsRatioTextRecord(record),
+                        },
+                        {
+                            title: 'Completed',
+                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
+                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                            } performed the event and completed the entire funnel.`,
+                            dataIndex: 'success_count',
+                            render: (_, record) => renderSuccessCount(record),
+                            align: 'center',
+                            width: 90,
+                        },
+                        {
+                            title: 'Dropped off',
+                            dataIndex: 'failure_count',
+                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
+                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                            } performed the event and did not complete the entire funnel.`,
+                            render: (_, record) => renderFailureCount(record),
+                            align: 'center',
+                            width: 120,
+                        },
+                        {
+                            key: 'actions',
+                            width: 30,
+                            render: (_, record: FunnelCorrelation) => <EventCorrelationActionsCell record={record} />,
+                        },
+                    ]}
+                    dataSource={correlationValues}
+                    emptyState={
+                        <div className="p-4 m-auto max-w-140">
+                            <div className="flex flex-col items-center justify-self-center text-center">
+                                {loadedEventCorrelationsTableOnce ? (
+                                    <Empty
+                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                        description="No correlated events found."
+                                    />
                                 ) : (
-                                    <Tooltip title="Expand to see correlated properties for this event">
+                                    <>
+                                        <p className="m-auto">
+                                            Highlight events which are likely to have affected the conversion rate
+                                            within the funnel.{' '}
+                                            <Link to="https://posthog.com/manual/correlation">
+                                                Learn more about correlation analysis.
+                                            </Link>
+                                        </p>
                                         <LemonButton
-                                            icon={<IconExpand />}
-                                            noPadding
-                                            onClick={(e) => {
-                                                !eventHasPropertyCorrelations(record.event.event) &&
-                                                    loadEventWithPropertyCorrelations(record.event.event)
-                                                addNestedTableExpandedKey(record.event.event)
-                                                onExpand(record, e)
-                                            }}
-                                        />
-                                    </Tooltip>
-                                )
-                            },
-                        }}
-                    >
-                        <Column
-                            title="Event"
-                            key="eventName"
-                            render={(_, record: FunnelCorrelation) => renderOddsRatioTextRecord(record)}
-                            align="left"
-                            ellipsis
-                        />
-                        <Column
-                            title={
-                                <div className="flex items-center">
-                                    Completed
-                                    <Tooltip
-                                        title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                            querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
-                                        } performed the event and completed the entire funnel.`}
-                                    >
-                                        <IconInfo className="column-info" />
-                                    </Tooltip>
-                                </div>
-                            }
-                            key="success_count"
-                            render={(_, record: FunnelCorrelation) => renderSuccessCount(record)}
-                            width={90}
-                            align="center"
-                        />
-                        <Column
-                            title={
-                                <div className="flex items-center">
-                                    Dropped off
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                                                {querySource?.aggregation_group_type_index != undefined
-                                                    ? 'that'
-                                                    : 'who'}{' '}
-                                                performed the event and did <b>not complete</b> the entire funnel.
-                                            </>
-                                        }
-                                    >
-                                        <IconInfo className="column-info" />
-                                    </Tooltip>
-                                </div>
-                            }
-                            key="failure_count"
-                            render={(_, record: FunnelCorrelation) => renderFailureCount(record)}
-                            width={120}
-                            align="center"
-                        />
-                        <Column
-                            title=""
-                            key="actions"
-                            render={(_, record: FunnelCorrelation) => <EventCorrelationActionsCell record={record} />}
-                            width={30}
-                        />
-                    </Table>
-                </ConfigProvider>
+                                            onClick={() => loadEventCorrelations({})}
+                                            type="secondary"
+                                            className="mx-auto mt-2"
+                                        >
+                                            Load results
+                                        </LemonButton>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    }
+                    loading={correlationsLoading}
+                    size="small"
+                    rowKey={(record) => record.event.event}
+                    pagination={{
+                        pageSize: 5,
+                        hideOnSinglePage: true,
+                        onBackward: () =>
+                            reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'load more'),
+                        onForward: () => reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'load more'),
+                    }}
+                    expandable={{
+                        expandedRowRender: (record) => renderNestedTable(record.event.event),
+                        isRowExpanded: (record) => nestedTableExpandedKeys.includes(record.event.event),
+                        rowExpandable: () => querySource?.aggregation_group_type_index === undefined,
+                        onRowExpand: (record) => {
+                            !eventHasPropertyCorrelations(record.event.event) &&
+                                loadEventWithPropertyCorrelations(record.event.event)
+                            addNestedTableExpandedKey(record.event.event)
+                        },
+                        onRowCollapse: (record) => {
+                            removeNestedTableExpandedKey(record.event.event)
+                        },
+                    }}
+                />
             </div>
         </VisibilitySensor>
     ) : null

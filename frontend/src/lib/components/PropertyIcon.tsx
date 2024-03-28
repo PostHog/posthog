@@ -1,9 +1,9 @@
+import { IconGearFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import {
     IconAndroidOS,
     IconAppleIOS,
     IconChrome,
-    IconCogBox,
     IconDevices,
     IconFirefox,
     IconInternetExplorer,
@@ -30,7 +30,7 @@ const osIcons = {
     ['linux']: <IconLinux />,
     ['android']: <IconAndroidOS />,
     ['ios']: <IconAppleIOS />,
-    ['other']: <IconCogBox />,
+    ['other']: <IconGearFilled />,
 }
 
 export const PROPERTIES_ICON_MAP = {

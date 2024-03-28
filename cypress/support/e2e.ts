@@ -16,6 +16,8 @@ const E2E_TESTING = Cypress.env('E2E_TESTING')
 Cypress.on('window:before:load', (win) => {
     cy.spy(win.console, 'error')
     cy.spy(win.console, 'warn')
+
+    win._cypress_posthog_captures = []
 })
 
 beforeEach(() => {
@@ -24,13 +26,12 @@ beforeEach(() => {
     Cypress.env('POSTHOG_PROPERTY_GITHUB_ACTION_RUN_URL', process.env.GITHUB_ACTION_RUN_URL)
     cy.useSubscriptionStatus('subscribed')
 
-    cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
+    cy.intercept('**/decide/*', (req) =>
         req.reply(
             decideResponse({
                 // set feature flags here e.g.
                 // 'toolbar-launch-side-action': true,
                 'surveys-new-creation-flow': true,
-                'surveys-results-visualizations': true,
                 'auto-redirect': true,
                 hogql: true,
                 'data-exploration-insights': true,
@@ -60,10 +61,15 @@ beforeEach(() => {
             email: 'test@posthog.com',
             password: '12345678',
         })
-        cy.visit('/insights')
-        cy.wait('@getInsights').then(() => {
-            cy.get('.saved-insights tr').should('exist')
-        })
+
+        if (Cypress.spec.name.includes('before-onboarding')) {
+            cy.visit('/?no-preloaded-app-context=true')
+        } else {
+            cy.visit('/insights')
+            cy.wait('@getInsights').then(() => {
+                cy.get('.saved-insights tr').should('exist')
+            })
+        }
     }
 })
 

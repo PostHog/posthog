@@ -126,7 +126,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
         return InsightActorsQueryOptionsResponse(
-            day=[{"label": day, "value": day} for day in self.query_date_range.all_values()],
+            day=[{"label": format_label_date(value), "value": value} for value in self.query_date_range.all_values()],
             status=[
                 {
                     "label": "Dormant",
@@ -157,6 +157,7 @@ class LifecycleQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
         # TODO: can we move the data conversion part into the query as well? It would make it easier to swap
@@ -283,7 +284,7 @@ class LifecycleQueryRunner(QueryRunner):
             events_query = parse_select(
                 """
                     SELECT
-                        events.person.id as person_id,
+                        events.person_id as person_id,
                         min(events.person.created_at) AS created_at,
                         arraySort(groupUniqArray({trunc_timestamp})) AS all_activity,
                         arrayPopBack(arrayPushFront(all_activity, {trunc_created_at})) as previous_activity,
