@@ -471,7 +471,6 @@ class AccessControlPermission(ScopeBasePermission):
         required_level = self._get_required_access_level(request, view)
 
         team: Team
-        obj: Optional[Model] = None
 
         try:
             team = view.team

@@ -6,8 +6,6 @@ from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role, RoleMembership
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.insight import Insight
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
