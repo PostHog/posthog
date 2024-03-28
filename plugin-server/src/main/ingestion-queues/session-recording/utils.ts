@@ -143,7 +143,12 @@ function readLibVersionFromHeaders(headers: MessageHeader[] | undefined): string
     return typeof libVersionHeader === 'string' ? libVersionHeader : libVersionHeader?.toString()
 }
 
-function majorAndMinorVersionFrom(libVersion: string | undefined): number | undefined {
+interface LibVersion {
+    major: number
+    minor: number
+}
+
+function parseVersion(libVersion: string | undefined): LibVersion | undefined {
     try {
         let majorString: string | undefined = undefined
         let minorString: string | undefined = undefined
@@ -157,7 +162,12 @@ function majorAndMinorVersionFrom(libVersion: string | undefined): number | unde
         }
         const validMajor = majorString && !isNaN(parseInt(majorString))
         const validMinor = minorString && !isNaN(parseInt(minorString))
-        return validMajor && validMinor ? parseFloat(`${majorString}.${minorString}`) : undefined
+        return validMajor && validMinor
+            ? {
+                  major: parseInt(majorString as string),
+                  minor: parseInt(minorString as string),
+              }
+            : undefined
     } catch (e) {
         status.warn('⚠️', 'could_not_read_minor_lib_version', { libVersion })
         return undefined
@@ -210,14 +220,14 @@ export const parseKafkaMessage = async (
     // this has to be ahead of the payload parsing in case we start dropping traffic from older versions
     if (!!ingestionWarningProducer && !!teamIdWithConfig.teamId) {
         const libVersion = readLibVersionFromHeaders(message.headers)
-        const parsedVersion = majorAndMinorVersionFrom(libVersion)
+        const parsedVersion = parseVersion(libVersion)
         /**
          * We introduced SVG mutation throttling in version 1.74.0 fix: Recording throttling for SVG-like things (#758)
          * and improvements like jitter on retry and better batching in session recording in earlier versions
          * So, versions older than 1.75.0 can cause ingestion pressure or incidents
          * because they send much more information and more messages for the same recording
          */
-        if (parsedVersion && parsedVersion <= 1.74) {
+        if (parsedVersion && parsedVersion.major === 1 && parsedVersion.minor < 75) {
             counterLibVersionWarning.inc()
 
             await captureIngestionWarning(
