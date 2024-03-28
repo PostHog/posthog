@@ -123,6 +123,12 @@ describe('ingester', () => {
         mockConsumer.assignments.mockImplementation(() => [createTP(0), createTP(1)])
     })
 
+    afterEach(async () => {
+        jest.setTimeout(10000)
+        await deleteKeysWithPrefix(hub)
+        await closeHub()
+    })
+
     afterAll(() => {
         rmSync(config.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
         jest.useRealTimers()
@@ -144,34 +150,14 @@ describe('ingester', () => {
         )
     }
 
-    describe('without stop called on teardown', () => {
+    // disconnecting a producer is not safe to call multiple times
+    // in order to let us test stopping the ingester elsewhere
+    // in most tests we automatically stop the ingester during teardown
+    describe('when ingester.stop is called in teardown', () => {
         afterEach(async () => {
-            jest.setTimeout(10000)
-            await deleteKeysWithPrefix(hub)
-            await closeHub()
+            await ingester.stop()
         })
 
-        describe('stop()', () => {
-            const setup = async (): Promise<void> => {
-                const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
-                await ingester.handleEachBatch(partitionMsgs1, noop)
-            }
-
-            it('shuts down without error', async () => {
-                await setup()
-
-                await ingester.start()
-                expect(ingester['mainKafkaClusterProducer']?.producer.isConnected())
-
-                await expect(ingester.stop()).resolves.toMatchObject([
-                    // destroy sessions,
-                    { status: 'fulfilled' },
-                ])
-            })
-        })
-    })
-
-    describe('with stop called on teardown', () => {
         it('can parse debug partition config', () => {
             const config = {
                 SESSION_RECORDING_DEBUG_PARTITION: '103',
@@ -349,6 +335,24 @@ describe('ingester', () => {
                 await ingester.handleEachBatch(partitionMsgs1, heartbeat)
 
                 expect(heartbeat).toBeCalledTimes(5)
+            })
+        })
+    })
+
+    describe('when ingester.stop is not called in teardown', () => {
+        describe('stop()', () => {
+            const setup = async (): Promise<void> => {
+                const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
+                await ingester.handleEachBatch(partitionMsgs1, noop)
+            }
+
+            it('shuts down without error', async () => {
+                await setup()
+
+                await expect(ingester.stop()).resolves.toMatchObject([
+                    // destroy sessions,
+                    { status: 'fulfilled' },
+                ])
             })
         })
     })

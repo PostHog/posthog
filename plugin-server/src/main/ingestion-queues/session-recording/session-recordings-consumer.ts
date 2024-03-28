@@ -149,7 +149,8 @@ export class SessionRecordingIngester {
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
     // this allows us to output more information for that partition
     private debugPartition: number | undefined = undefined
-    private mainKafkaClusterProducer?: KafkaProducerWrapper
+
+    private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
 
     constructor(
         private globalServerConfig: PluginsServerConfig,
@@ -356,7 +357,7 @@ export class SessionRecordingIngester {
                                         teamId: teams[token]?.teamId || null,
                                         consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
                                     })),
-                                this.mainKafkaClusterProducer
+                                this.sharedClusterProducerWrapper
                             )
 
                             if (recordingMessage) {
@@ -452,20 +453,27 @@ export class SessionRecordingIngester {
         // Load teams into memory
         await this.teamsRefresher.refresh()
 
-        // this producer uses the default plugin server config to connect to the main kafka cluster
-        const mainClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
-        const producerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
-        const producer = await createKafkaProducer(mainClusterConnectionConfig, producerConfig)
-        producer.connect()
-        this.mainKafkaClusterProducer = new KafkaProducerWrapper(producer)
-
         // NOTE: This is the only place where we need to use the shared server config
+        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
+        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
+
+        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
+            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
+        )
+        this.sharedClusterProducerWrapper.producer.connect()
+
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
-            this.consoleLogsIngester = new ConsoleLogsIngester(producer, this.persistentHighWaterMarker)
+            this.consoleLogsIngester = new ConsoleLogsIngester(
+                this.sharedClusterProducerWrapper.producer,
+                this.persistentHighWaterMarker
+            )
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
-            this.replayEventsIngester = new ReplayEventsIngester(producer, this.persistentHighWaterMarker)
+            this.replayEventsIngester = new ReplayEventsIngester(
+                this.sharedClusterProducerWrapper.producer,
+                this.persistentHighWaterMarker
+            )
         }
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
@@ -550,11 +558,13 @@ export class SessionRecordingIngester {
 
         const promiseResults = await Promise.allSettled(this.promises)
 
+        if (this.sharedClusterProducerWrapper) {
+            await this.sharedClusterProducerWrapper.disconnect()
+        }
+
         // Finally we clear up redis once we are sure everything else has been handled
         await this.redisPool.drain()
         await this.redisPool.clear()
-
-        await this.mainKafkaClusterProducer?.disconnect()
 
         status.info('👍', 'blob_ingester_consumer - stopped!')
 

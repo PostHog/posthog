@@ -125,7 +125,6 @@ describe('ingester', () => {
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
         await hub.redisPool.release(redisConn)
         await deleteKeysWithPrefix(hub)
-        await ingester.stop()
         await closeHub()
     })
 
@@ -156,52 +155,13 @@ describe('ingester', () => {
         )
     }
 
-    describe('without stop called on teardown', () => {
+    // disconnecting a producer is not safe to call multiple times
+    // in order to let us test stopping the ingester elsewhere
+    // in most tests we automatically stop the ingester during teardown
+    describe('when ingester.stop is called in teardown', () => {
         afterEach(async () => {
-            jest.setTimeout(10000)
-            await deleteKeysWithPrefix(hub)
-            await closeHub()
-        })
-
-        describe('stop()', () => {
-            const setup = async (): Promise<void> => {
-                const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
-                await ingester.handleEachBatch(partitionMsgs1, noop)
-            }
-
-            // NOTE: This test is a sanity check for the follow up test. It demonstrates what happens if we shutdown in the wrong order
-            // It doesn't reliably work though as the onRevoke is called via the kafka lib ending up with dangling promises so rather it is here as a reminder
-            // demonstation for when we need it
-            it.skip('shuts down with error if redis forcefully shutdown', async () => {
-                await setup()
-
-                await ingester.redisPool.drain()
-                await ingester.redisPool.clear()
-
-                // revoke, realtime unsub, replay stop
-                await expect(ingester.stop()).resolves.toMatchObject([
-                    { status: 'rejected' },
-                    { status: 'fulfilled' },
-                    { status: 'fulfilled' },
-                ])
-            })
-            it('shuts down without error', async () => {
-                await setup()
-
-                // revoke, realtime unsub
-                await expect(ingester.stop()).resolves.toMatchObject([{ status: 'fulfilled' }, { status: 'fulfilled' }])
-            })
-        })
-    })
-
-    describe('with stop called on teardown', () => {
-        afterEach(async () => {
-            jest.setTimeout(10000)
-            await deleteKeysWithPrefix(hub)
             await ingester.stop()
-            await closeHub()
         })
-
         it('can parse debug partition config', () => {
             const config = {
                 SESSION_RECORDING_DEBUG_PARTITION: '103',
@@ -670,6 +630,34 @@ describe('ingester', () => {
 
                 // NOTE: the number here can change as we change the code. Important is that it is called a number of times
                 expect(heartbeat).toBeCalledTimes(7)
+            })
+        })
+    })
+
+    describe('when ingester.stop is called in teardown', () => {
+        describe('stop()', () => {
+            const setup = async (): Promise<void> => {
+                const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
+                await ingester.handleEachBatch(partitionMsgs1, noop)
+            }
+
+            // NOTE: This test is a sanity check for the follow up test. It demonstrates what happens if we shutdown in the wrong order
+            // It doesn't reliably work though as the onRevoke is called via the kafka lib ending up with dangling promises so rather it is here as a reminder
+            // demonstation for when we need it
+            it.skip('shuts down with error if redis forcefully shutdown', async () => {
+                await setup()
+
+                await ingester.redisPool.drain()
+                await ingester.redisPool.clear()
+
+                // revoke, realtime unsub, replay stop
+                await expect(ingester.stop()).resolves.toMatchObject([{ status: 'rejected' }, { status: 'fulfilled' }])
+            })
+            it('shuts down without error', async () => {
+                await setup()
+
+                // revoke, realtime unsub, replay stop, console ingestion stop
+                await expect(ingester.stop()).resolves.toMatchObject([{ status: 'fulfilled' }, { status: 'fulfilled' }])
             })
         })
     })
