@@ -3,8 +3,31 @@ import { CoreFilterDefinition, PropertyFilterValue } from '~/types'
 import { TaxonomicFilterGroupType } from './components/TaxonomicFilter/types'
 import { Link } from './lemon-ui/Link'
 
+/** Same as https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts */
+// Ideally this would be imported from posthog-js, we just need to start exporting the list there
+const CAMPAIGN_PROPERTIES: string[] = [
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_content',
+    'utm_term',
+    'gclid', // google ads
+    'gad_source', // google ads
+    'gclsrc', // google ads 360
+    'dclid', // google display ads
+    'gbraid', // google ads, web to app
+    'wbraid', // google ads, app to web
+    'fbclid', // facebook
+    'msclkid', // microsoft
+    'twclid', // twitter
+    'li_fat_id', // linkedin
+    'mc_cid', // mailchimp campaign id
+    'igshid', // instagram
+    'ttclid', // tiktok
+]
+
 // copy from https://github.com/PostHog/posthog/blob/29ac8d6b2ba5de4b65a148136b681b8e52e20429/plugin-server/src/utils/db/utils.ts#L44
-const eventToPersonProperties = new Set([
+const PERSON_PROPERTIES_ADAPTED_FROM_EVENT = new Set([
     // mobile params
     '$app_build',
     '$app_name',
@@ -20,20 +43,10 @@ const eventToPersonProperties = new Set([
     '$os_version',
     '$referring_domain',
     '$referrer',
-    // campaign params - automatically added by posthog-js here https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
-    'utm_source',
-    'utm_medium',
-    'utm_campaign',
-    'utm_content',
-    'utm_name',
-    'utm_term',
-    'gclid',
-    'gad_source',
-    'gbraid',
-    'wbraid',
-    'fbclid',
-    'msclkid',
+    ...CAMPAIGN_PROPERTIES,
 ])
+
+const SESSION_PROPERTIES_ADAPTED_FROM_EVENT = new Set(['$referrering_domain', ...CAMPAIGN_PROPERTIES])
 
 // If adding event properties with labels, check whether they should be added to
 // PROPERTY_NAME_ALIASES in posthog/api/property_definition.py
@@ -941,100 +954,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The last URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
-        $initial_utm_source: {
-            label: 'Initial UTM source',
-            description: <span>The UTM source (if any) of the first URL visited during this session</span>,
-            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
-        },
-        $initial_utm_medium: {
-            label: 'Initial UTM medium',
-            description: <span>The UTM medium (if any) of the first URL visited during this session</span>,
-            examples: ['Social', 'Organic', 'Paid', 'Email'],
-        },
-        $initial_utm_campaign: {
-            label: 'Initial UTM campaign',
-            description: <span>The UTM campaign (if any) of the first URL visited during this session</span>,
-            examples: ['feature launch', 'discount'],
-        },
-        $initial_utm_content: {
-            label: 'Initial UTM content',
-            description: <span>The UTM content (if any) of the first URL visited during this session</span>,
-            examples: ['bottom link', 'second button'],
-        },
-        $initial_utm_term: {
-            label: 'Initial UTM term',
-            description: <span>The UTM term (if any) of the first URL visited during this session</span>,
-            examples: ['free goodies'],
-        },
         $initial_referrering_domain: {
             label: 'Initial referrer',
             description: <span>Domain of where the user came from.</span>,
             examples: ['google.com', 'facebook.com'],
-        },
-        $initial_gclid: {
-            label: 'Initial gclid',
-            description: <span>The gclid (Google Click ID) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_gad_source: {
-            label: 'Initial gad_source',
-            description: <span>The gad_source (Google Ad source) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_gclsrc: {
-            label: 'Initial gclsrc',
-            description: <span>The gclsrc (Google Search Ads 360 click source) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_dclid: {
-            label: 'Initial dclid',
-            description: <span>The dclid (DoubleClick Id) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_gbraid: {
-            label: 'Initial gBraid',
-            description: <span>The gBraid (Google App-to-web Measurement ID ) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_wbraid: {
-            label: 'Initial wBraid',
-            description: <span>The wBraid (Google Web-to-app Measurement ID) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_fbclid: {
-            label: 'Initial fbclid',
-            description: <span>The fbclid (Facebook Click ID) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_msclkid: {
-            label: 'Initial msclkid',
-            description: <span>The msclkid (Microsoft Click ID) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_twclid: {
-            label: 'Initial twclid',
-            description: <span>The twclid (Twitter Click ID) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_li_fat_id: {
-            label: 'Initial li_fat_id',
-            description: <span>The twclid (LinkedIn First-Party Ad Tracking ID) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_mc_cid: {
-            label: 'Initial mc_cid',
-            description: <span>The mc_cid (MailChimp Campaign ID) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_igshid: {
-            label: 'Initial igshid',
-            description: <span>The igshid (Instagram Share ID) of this session</span>,
-            examples: ['123xyz'],
-        },
-        $initial_ttclid: {
-            label: 'Initial ttclid',
-            description: <span>The twclid (Twitter Click ID) of this session</span>,
-            examples: ['123xyz'],
         },
         $pageview_count: {
             label: 'Pageview count',
@@ -1063,36 +986,42 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
 CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
 // add distinct_id to event properties before copying to person properties so it exists in person properties as well
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
-CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = Object.fromEntries(
-    Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties).flatMap(([key, value]) =>
-        eventToPersonProperties.has(key) || key.startsWith('$geoip_')
-            ? [
-                  [
-                      key,
-                      {
-                          ...value,
-                          label: `Latest ${value.label}`,
-                          description:
-                              'description' in value
-                                  ? `${value.description} Data from the last time this user was seen.`
-                                  : 'Data from the last time this user was seen.',
-                      },
-                  ],
-                  [
-                      `$initial_${key.replace(/^\$/, '')}`,
-                      {
-                          ...value,
-                          label: `Initial ${value.label}`,
-                          description:
-                              'description' in value
-                                  ? `${value.description} Data from the first time this user was seen.`
-                                  : 'Data from the first time this user was seen.',
-                      },
-                  ],
-              ]
-            : [[key, value]]
-    )
-)
+
+CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = {}
+
+for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)) {
+    if (PERSON_PROPERTIES_ADAPTED_FROM_EVENT.has(key) || key.startsWith('$geoip_')) {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = {
+            ...value,
+            label: `Latest ${value.label}`,
+            description:
+                'description' in value
+                    ? `${value.description} Data from the last time this user was seen.`
+                    : 'Data from the last time this user was seen.',
+        }
+
+        CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[`$initial_${key.replace(/^\$/, '')}`] = {
+            ...value,
+            label: `Initial ${value.label}`,
+            description:
+                'description' in value
+                    ? `${value.description} Data from the first time this user was seen.`
+                    : 'Data from the first time this user was seen.',
+        }
+    } else {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = value
+    }
+    if (SESSION_PROPERTIES_ADAPTED_FROM_EVENT.has(key)) {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.sessions[`$initial_${key.replace(/^\$/, '')}`] = {
+            ...value,
+            label: `Initial ${value.label}`,
+            description:
+                'description' in value
+                    ? `${value.description} First value seen in the session.`
+                    : 'First value seen in the session.',
+        }
+    }
+}
 // We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.$session_duration =
     CORE_FILTER_DEFINITIONS_BY_GROUP.sessions.$session_duration
