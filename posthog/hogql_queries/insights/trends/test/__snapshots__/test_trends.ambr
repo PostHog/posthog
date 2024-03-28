@@ -3663,6 +3663,145 @@
                        allow_experimental_object_type=1
   '''
 # ---
+# name: TestTrends.test_trends_breakdown_normalize_url
+  '''
+  SELECT toString(if(empty(trim(TRAILING '/?#'
+                                FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
+                                                                                                                                                          FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')))) AS value,
+         count(e.uuid) AS count
+  FROM events AS e
+  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_normalize_url.1
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total,
+         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
+  FROM
+    (SELECT day_start AS day_start,
+            sum(count) OVER (PARTITION BY breakdown_value
+                             ORDER BY day_start ASC) AS count,
+                            breakdown_value AS breakdown_value
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT 0 AS total,
+                  ticks.day_start AS day_start,
+                  sec.breakdown_value AS breakdown_value
+           FROM
+             (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+              FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
+              UNION ALL SELECT toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))) AS day_start) AS ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['http://hogflix/first', 'http://hogflix/second'] AS breakdown_value) ARRAY
+              JOIN breakdown_value AS breakdown_value) AS sec
+           ORDER BY sec.breakdown_value ASC, day_start ASC
+           UNION ALL SELECT count(DISTINCT e__pdi.person_id) AS total,
+                            min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
+                            transform(ifNull(nullIf(toString(if(empty(trim(TRAILING '/?#'
+                                                                           FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
+                                                                                                                                                                                                     FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')))), ''), '$$_posthog_breakdown_null_$$'), ['http://hogflix/first', 'http://hogflix/second'], ['http://hogflix/first', 'http://hogflix/second'], '$$_posthog_breakdown_other_$$') AS breakdown_value
+           FROM events AS e SAMPLE 1
+           INNER JOIN
+             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                     person_distinct_id2.distinct_id AS distinct_id
+              FROM person_distinct_id2
+              WHERE equals(person_distinct_id2.team_id, 2)
+              GROUP BY person_distinct_id2.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+           GROUP BY e__pdi.person_id,
+                    breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY day_start ASC, breakdown_value ASC)
+     ORDER BY day_start ASC)
+  GROUP BY breakdown_value
+  ORDER BY sum(count) DESC, breakdown_value ASC
+  LIMIT 10000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_normalize_url_poe_v2
+  '''
+  SELECT toString(if(empty(trim(TRAILING '/?#'
+                                FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
+                                                                                                                                                          FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')))) AS value,
+         count(e.uuid) AS count
+  FROM events AS e
+  WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_normalize_url_poe_v2.1
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total,
+         ifNull(toString(breakdown_value), '$$_posthog_breakdown_null_$$') AS breakdown_value
+  FROM
+    (SELECT day_start AS day_start,
+            sum(count) OVER (PARTITION BY breakdown_value
+                             ORDER BY day_start ASC) AS count,
+                            breakdown_value AS breakdown_value
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT 0 AS total,
+                  ticks.day_start AS day_start,
+                  sec.breakdown_value AS breakdown_value
+           FROM
+             (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+              FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
+              UNION ALL SELECT toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))) AS day_start) AS ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['http://hogflix/first', 'http://hogflix/second'] AS breakdown_value) ARRAY
+              JOIN breakdown_value AS breakdown_value) AS sec
+           ORDER BY sec.breakdown_value ASC, day_start ASC
+           UNION ALL SELECT count(DISTINCT ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)) AS total,
+                            min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
+                            transform(ifNull(nullIf(toString(if(empty(trim(TRAILING '/?#'
+                                                                           FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
+                                                                                                                                                                                                     FROM replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')))), ''), '$$_posthog_breakdown_null_$$'), ['http://hogflix/first', 'http://hogflix/second'], ['http://hogflix/first', 'http://hogflix/second'], '$$_posthog_breakdown_other_$$') AS breakdown_value
+           FROM events AS e SAMPLE 1
+           LEFT OUTER JOIN
+             (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                     person_overrides.old_person_id AS old_person_id
+              FROM person_overrides
+              WHERE equals(person_overrides.team_id, 2)
+              GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+           GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+                    breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY day_start ASC, breakdown_value ASC)
+     ORDER BY day_start ASC)
+  GROUP BY breakdown_value
+  ORDER BY sum(count) DESC, breakdown_value ASC
+  LIMIT 10000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
   '''
   SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')) AS value,

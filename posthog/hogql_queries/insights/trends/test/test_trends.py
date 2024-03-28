@@ -384,6 +384,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 )
         _create_action(team=self.team, name="sign up")
 
+    def _create_breakdown_url_events(self):
+        freeze_without_time = ["2020-01-02"]
+
+        with freeze_time(freeze_without_time[0]):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "http://hogflix/first"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "http://hogflix/first/"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "http://hogflix/second"},
+            )
+
     def _create_event_count_per_actor_events(self):
         self._create_person(
             team_id=self.team.pk,
@@ -730,6 +753,30 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response[2]["label"], "other_value")
         self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+
+    @also_test_with_person_on_events_v2
+    @snapshot_clickhouse_queries
+    def test_trends_breakdown_normalize_url(self):
+        self._create_breakdown_url_events()
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-7d",
+                        "display": "ActionsLineGraphCumulative",
+                        "events": [{"id": "sign up", "math": "dau"}],
+                        "breakdown": "$current_url",
+                        "breakdown_normalize_url": True,
+                    },
+                ),
+                self.team,
+            )
+
+        labels = [item["label"] for item in response]
+        assert sorted(labels) == ["http://hogflix/first", "http://hogflix/second"]
+        breakdown_values = [item["breakdown_value"] for item in response]
+        assert sorted(breakdown_values) == sorted(labels)
 
     def test_trends_single_aggregate_dau(self):
         self._create_events()
