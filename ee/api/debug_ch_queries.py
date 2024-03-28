@@ -31,8 +31,12 @@ class DebugCHQueries(viewsets.ViewSet):
         response = sync_execute(
             """
             SELECT
-                query_id, argMax(query, type), argMax(query_start_time, type), argMax(exception, type),
-                argMax(query_duration_ms, type), max(type) AS status
+                query_id,
+                argMax(query, type) AS query,
+                argMax(query_start_time, type) AS query_start_time,
+                argMax(exception, type) AS exception,
+                argMax(query_duration_ms, type) AS query_duration_ms,
+                max(type) AS status
             FROM (
                 SELECT
                     query_id, query, query_start_time, exception, query_duration_ms, toInt8(type) AS type
