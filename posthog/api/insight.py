@@ -91,6 +91,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -222,7 +223,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
+class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -292,6 +293,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
             "timezone",
             "is_cached",
         ]
@@ -305,6 +307,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
             "timezone",
             "refreshing",
             "is_cached",
