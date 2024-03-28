@@ -3,10 +3,15 @@ import re
 import sys
 import logging
 
+from git import Repo
+
 from django.core.management.base import BaseCommand, CommandError
 
 
 logger = logging.getLogger(__name__)
+repo_path = os.getcwd()
+repo = Repo(repo_path)
+current_branch = repo.active_branch.name
 
 
 class Command(BaseCommand):
@@ -14,8 +19,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         def run_and_check_migration(new_migration):
+            repo.git.checkout("master")
             old_migration_files = os.listdir("posthog/clickhouse/migrations")
             old_migrations = []
+            repo.git.checkout(current_branch)
 
             for migration in old_migration_files:
                 match = re.findall(r"([0-9]+)_([a-zA-Z_0-9]+)\.py", migration)
