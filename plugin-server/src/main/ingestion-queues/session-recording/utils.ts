@@ -238,7 +238,7 @@ export const parseKafkaMessage = async (
                     libVersion,
                     parsedVersion,
                 },
-                { key: libVersion || parsedVersion.toString() }
+                { key: libVersion || 'unknown' }
             )
         }
     }
