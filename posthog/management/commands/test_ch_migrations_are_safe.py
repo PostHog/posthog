@@ -45,6 +45,8 @@ class Command(BaseCommand):
                     logger.error(
                         "Please manually resolve this conflict and ensure all migrations are monotonically increasing"
                     )
+                    should_fail = True
+
                 if should_fail:
                     sys.exit(1)
 
@@ -54,7 +56,7 @@ class Command(BaseCommand):
         migrations = sys.stdin.readlines()
 
         if len(migrations) > 1:
-            logger.info(
+            logger.error(
                 f"\n\n\033[91mFound multiple migrations. Please scope PRs to one migration to promote easy debugging and revertability"
             )
             sys.exit(1)
