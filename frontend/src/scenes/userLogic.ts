@@ -39,7 +39,7 @@ export const userLogic = kea<userLogicType>([
                     : null,
                 email: !email
                     ? 'You need to have an email.'
-                    : first_name.length > 254
+                    : email.length > 254
                     ? 'This email is too long. Please keep it under 255 characters.'
                     : null,
             }),
@@ -98,10 +98,12 @@ export const userLogic = kea<userLogicType>([
             {
                 loadUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
+                    last_name: user?.last_name || '',
                     email: user?.email || '',
                 }),
                 updateUserSuccess: (_, { user }) => ({
                     first_name: user?.first_name || '',
+                    last_name: user?.last_name || '',
                     email: user?.email || '',
                 }),
             },

@@ -45,7 +45,7 @@ class HogQLQueryRunner(QueryRunner):
     def calculate(self) -> HogQLQueryResponse:
         query = self.to_query()
         paginator = None
-        if not query.limit:
+        if isinstance(query, ast.SelectQuery) and not query.limit:
             paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
         func = cast(
             Callable[..., HogQLQueryResponse],

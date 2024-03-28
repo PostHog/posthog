@@ -111,7 +111,15 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
+    const { selectedItemMeta } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
+
+    // Use effect here to make definition view stateful. TaxonomicFilterLogic won't mount within definitionPopoverLogic
+    useEffect(() => {
+        if (selectedItemMeta && definition.name == selectedItemMeta.id) {
+            setLocalDefinition(selectedItemMeta)
+        }
+    }, [definition])
 
     if (!definition) {
         return <></>
@@ -280,6 +288,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             value: column.key,
         }))
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
+
         return (
             <form className="definition-popover-data-warehouse-schema-form">
                 <div className="flex flex-col justify-between gap-4">

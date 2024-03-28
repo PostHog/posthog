@@ -40,11 +40,6 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                         `/api/projects/@current/feature_flags/my_flags${encodeParams(params, '?')}`
                     )
 
-                    if (response.status >= 400) {
-                        toolbarConfigLogic.actions.tokenExpired()
-                        return []
-                    }
-
                     breakpoint()
                     if (!response.ok) {
                         return []

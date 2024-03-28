@@ -207,6 +207,7 @@ export interface PluginsServerConfig {
     RUSTY_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
+    CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -230,6 +231,10 @@ export interface PluginsServerConfig {
     // a single partition which will output many more log messages to the console
     // useful when that partition is lagging unexpectedly
     SESSION_RECORDING_DEBUG_PARTITION: string | undefined
+    // overflow detection, updating Redis for capture to move the traffic away
+    SESSION_RECORDING_OVERFLOW_ENABLED: boolean
+    SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
+    SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
@@ -864,7 +869,6 @@ export interface EventPropertyFilter extends PropertyFilterWithOperator {
 /** Sync with posthog/frontend/src/types.ts */
 export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
-    table?: string
 }
 
 /** Sync with posthog/frontend/src/types.ts */

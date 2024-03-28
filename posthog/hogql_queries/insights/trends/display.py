@@ -86,4 +86,5 @@ class TrendsDisplay:
                 ),
             ],
             select_from=ast.JoinExpr(table=inner_query),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC")],
         )

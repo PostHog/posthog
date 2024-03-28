@@ -501,14 +501,14 @@
         "ChartDisplayType": {
             "enum": [
                 "ActionsLineGraph",
-                "ActionsLineGraphCumulative",
-                "ActionsAreaGraph",
-                "ActionsTable",
-                "ActionsPie",
                 "ActionsBar",
+                "ActionsAreaGraph",
+                "ActionsLineGraphCumulative",
+                "BoldNumber",
+                "ActionsPie",
                 "ActionsBarValue",
-                "WorldMap",
-                "BoldNumber"
+                "ActionsTable",
+                "WorldMap"
             ],
             "type": "string"
         },
@@ -948,6 +948,10 @@
                 }
             },
             "type": "object"
+        },
+        "DatetimeDay": {
+            "format": "date-time",
+            "type": "string"
         },
         "Day": {
             "type": "integer"
@@ -2567,7 +2571,7 @@
                     "type": "string"
                 },
                 "personsOnEventsMode": {
-                    "enum": ["disabled", "v1_enabled", "v1_mixed", "v2_enabled"],
+                    "enum": ["disabled", "v1_enabled", "v1_mixed", "v2_enabled", "v3_enabled"],
                     "type": "string"
                 }
             },
@@ -2787,6 +2791,9 @@
                                 "anyOf": [
                                     {
                                         "type": "string"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/DatetimeDay"
                                     },
                                     {
                                         "$ref": "#/definitions/Day"
@@ -3453,9 +3460,6 @@
                 "operator": {
                     "$ref": "#/definitions/PropertyOperator"
                 },
-                "table": {
-                    "type": "string"
-                },
                 "type": {
                     "const": "person",
                     "description": "Person properties",
@@ -3838,6 +3842,9 @@
                                         "anyOf": [
                                             {
                                                 "type": "string"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/DatetimeDay"
                                             },
                                             {
                                                 "$ref": "#/definitions/Day"
