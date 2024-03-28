@@ -1,7 +1,7 @@
 from prometheus_client import Histogram
 from django.conf import settings
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Team, User
+from posthog.models import Team
 from sklearn.cluster import DBSCAN
 import pandas as pd
 import numpy as np
@@ -25,7 +25,7 @@ DBSCAN_EPS = settings.REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_EPS
 DBSCAN_MIN_SAMPLES = settings.REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_MIN_SAMPLES
 
 
-def error_clustering(team: Team, user: User):
+def error_clustering(team: Team):
     results = fetch_error_embeddings(team.pk)
 
     if not results:
@@ -37,7 +37,7 @@ def error_clustering(team: Team, user: User):
 
     CLUSTER_REPLAY_ERRORS_CLUSTER_COUNT.labels(team_id=team.pk).observe(df["cluster"].nunique())
 
-    return construct_response(df, team, user)
+    return construct_response(df, team)
 
 
 def fetch_error_embeddings(team_id: int):
@@ -67,9 +67,9 @@ def cluster_embeddings(embeddings):
     return dbscan.labels_
 
 
-def construct_response(df: pd.DataFrame, team: Team, user: User):
+def construct_response(df: pd.DataFrame, team: Team):
     viewed_session_ids = list(
-        SessionRecordingViewed.objects.filter(team=team, user=user, session_id__in=df["session_id"].unique())
+        SessionRecordingViewed.objects.filter(team=team, session_id__in=df["session_id"].unique())
         .values_list("session_id", flat=True)
         .distinct()
     )
