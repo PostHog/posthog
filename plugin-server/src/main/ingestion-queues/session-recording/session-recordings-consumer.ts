@@ -217,7 +217,7 @@ export class SessionRecordingIngester {
         this.latestOffsetsRefresher = new BackgroundRefresher(async () => {
             const results = await Promise.all(
                 this.assignedTopicPartitions.map(({ partition }) =>
-                    queryWatermarkOffsets(this.connectedBatchConsumer, partition).catch((err) => {
+                    queryWatermarkOffsets(this.connectedBatchConsumer, this.topic, partition).catch((err) => {
                         // NOTE: This can error due to a timeout or the consumer being disconnected, not stop the process
                         // as it is currently only used for reporting lag.
                         captureException(err)
@@ -508,7 +508,7 @@ export class SessionRecordingIngester {
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
 
-        this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer)).length
+        this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer, this.topic)).length
 
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
