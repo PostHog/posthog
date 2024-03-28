@@ -245,9 +245,9 @@ class TrendsQueryRunner(QueryRunner):
                     label = cohort_name
                     value = value
                 elif value == BREAKDOWN_OTHER_STRING_LABEL:
-                    label = "Other (Groups all remaining values)"
+                    label = "Other (i.e. all remaining values)"
                 elif value == BREAKDOWN_NULL_STRING_LABEL:
-                    label = "None (No value)"
+                    label = "None (i.e. no value)"
                 elif is_boolean_breakdown:
                     label = self._convert_boolean(value)
                 else:

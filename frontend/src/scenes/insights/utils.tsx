@@ -277,17 +277,17 @@ export function formatBreakdownLabel(
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
         return isOtherBreakdown(breakdown_value)
-            ? 'Other (Groups all remaining values)'
+            ? 'Other (i.e. all remaining values)'
             : isNullBreakdown(breakdown_value)
-            ? 'None'
+            ? 'None (i.e. no value)'
             : formatPropertyValueForDisplay
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
             : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
-            ? 'Other (Groups all remaining values)'
+            ? 'Other (i.e. all remaining values)'
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
-            ? 'None'
+            ? 'None (i.e. no value)'
             : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
         return breakdown_value
