@@ -173,11 +173,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 initialValues: { name: '' },
                 content: (
                     <LemonField name="name">
-                        <LemonInput
-                            data-attr="insight-name"
-                            placeholder="Please enter the name of the view"
-                            autoFocus
-                        />
+                        <LemonInput placeholder="Please enter the name of the view" autoFocus />
                     </LemonField>
                 ),
                 errors: {
