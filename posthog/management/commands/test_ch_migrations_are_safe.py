@@ -1,0 +1,63 @@
+import os
+import re
+import sys
+import logging
+
+from django.core.management.base import BaseCommand, CommandError
+
+
+logger = logging.getLogger(__name__)
+
+
+class Command(BaseCommand):
+    help = "Automated test to make sure ClickHouse migrations are safe"
+
+    def handle(self, *args, **options):
+        def run_and_check_migration(new_migration):
+            old_migration_files = os.listdir("posthog/clickhouse/migrations")
+            old_migrations = []
+
+            for migration in old_migration_files:
+                match = re.findall(r"([0-9]+)_([a-zA-Z_0-9]+)\.py", migration)
+                if len(match) == 0:
+                    continue
+                index, name = match[0]
+                old_migrations.append((index, name))
+            old_migrations.sort()
+
+            for index, name in old_migrations:
+                logger.info(f"old ClickHouse migration with index {index} and name {name} found")
+
+            try:
+                should_fail = False
+                app, index, name = re.findall(
+                    r"([a-z]+)\/clickhouse\/migrations\/([0-9]+)_([a-zA-Z_0-9]+)\.py", new_migration
+                )[0]
+                logger.info(f"new ClickHouse migration for app {app} with index {index} and name {name} found")
+
+                matching_migration_indexes = []
+                for old_index, old_name in old_migrations:
+                    if old_index == index:
+                        matching_migration_indexes.append((old_index, old_name))
+
+                if len(matching_migration_indexes) > 1:
+                    logger.error(f"Found an existing matching migrations with index {index} - PaNiC!")
+                    logger.error(
+                        "Please manually resolve this conflict and ensure all migrations are monotonically increasing"
+                    )
+                if should_fail:
+                    sys.exit(1)
+
+            except (IndexError, CommandError):
+                pass
+
+        migrations = sys.stdin.readlines()
+
+        if len(migrations) > 1:
+            logger.info(
+                f"\n\n\033[91mFound multiple migrations. Please scope PRs to one migration to promote easy debugging and revertability"
+            )
+            sys.exit(1)
+
+        for data in migrations:
+            run_and_check_migration(data)
