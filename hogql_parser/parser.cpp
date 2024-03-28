@@ -1389,7 +1389,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string text = unquote_string_terminal(string_literal_terminal);
     PyObject* value = build_ast_node("Constant", "{s:s#}", "value", text.data(), text.size());
     if (!value) throw PyInternalException();
-    RETURN_NEW_AST_NODE("Call", "{s:s,s:[NN]}", "name", name, "args", value, visitAsPyObject(ctx->columnExpr()));
+    RETURN_NEW_AST_NODE("Call", "{s:s,s:[NN]}", "name", name, "args", visitAsPyObject(ctx->columnExpr()), value);
   }
 
   VISIT(ColumnExprTuple) {

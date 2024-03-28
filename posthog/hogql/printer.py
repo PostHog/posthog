@@ -843,11 +843,11 @@ class _Printer(Visitor):
                     args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
 
                 if node.name == "trimLeft" and len(args) == 2:
-                    return f"trim(LEADING {args[0]} FROM {args[1]})"
+                    return f"trim(LEADING {args[1]} FROM {args[0]})"
                 elif node.name == "trimRight" and len(args) == 2:
-                    return f"trim(TRAILING {args[0]} FROM {args[1]})"
-                elif node.name == "trimBoth" and len(args) == 2:
-                    return f"trim(BOTH {args[0]} FROM {args[1]})"
+                    return f"trim(TRAILING {args[1]} FROM {args[0]})"
+                elif node.name == "trim" and len(args) == 2:
+                    return f"trim(BOTH {args[2]} FROM {args[0]})"
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
                 params_part = f"({', '.join(params)})" if params is not None else ""

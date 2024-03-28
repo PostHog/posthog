@@ -287,7 +287,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "tryBase64Decode": HogQLFunctionMeta("tryBase64Decode", 1, 1),
     "endsWith": HogQLFunctionMeta("endsWith", 2, 2),
     "startsWith": HogQLFunctionMeta("startsWith", 2, 2),
-    "trim": HogQLFunctionMeta("trimBoth", 1, 2),
+    "trim": HogQLFunctionMeta("trim", 1, 2),
     "trimLeft": HogQLFunctionMeta("trimLeft", 1, 2),
     "trimRight": HogQLFunctionMeta("trimRight", 1, 2),
     "encodeXMLComponent": HogQLFunctionMeta("encodeXMLComponent", 1, 1),

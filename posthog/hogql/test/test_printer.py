@@ -1561,7 +1561,7 @@ class TestPrinter(BaseTest):
 
     def test_trim_leading_trailing_both(self):
         query = parse_select(
-            "select trim(LEADING 'social' FROM 'media'), trim(TRAILING 'social' FROM 'media'), trim(BOTH 'social' FROM 'media')"
+            "select trim(LEADING 'xy' FROM 'media'), trim(TRAILING 'xy' FROM 'media'), trim(BOTH 'xy' FROM 'media')"
         )
         printed = print_ast(
             query,
@@ -1573,9 +1573,7 @@ class TestPrinter(BaseTest):
             "SELECT trim(LEADING %(hogql_val_0)s FROM %(hogql_val_1)s), trim(TRAILING %(hogql_val_2)s FROM %(hogql_val_3)s), trim(BOTH %(hogql_val_4)s FROM %(hogql_val_5)s) LIMIT 10000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
         )
-        query2 = parse_select(
-            "select trimLeft('social', 'media'), trimRight('social', 'media'), trimBoth('social', 'media')"
-        )
+        query2 = parse_select("select trimLeft('media', 'xy'), trimRight('media', 'xy'), trim('media', 'xy')")
         printed2 = print_ast(
             query2,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
