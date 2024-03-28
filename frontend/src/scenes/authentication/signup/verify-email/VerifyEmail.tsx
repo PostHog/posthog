@@ -1,5 +1,4 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
@@ -19,18 +18,16 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { uuid } = useValues(verifyEmailLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const [iNeedHelp, setINeedHelp] = useState(false)
     const [checkListValues, setCheckListValues] = useState<boolean[]>([])
 
-    if (!iNeedHelp) {
-        return (
-            <LemonButton type="secondary" className="mt-2" onClick={() => setINeedHelp(true)}>
-                I need help
-            </LemonButton>
-        )
-    }
-
-    const checklist = ['Checked your spam folder', 'Checked with your IT department (if applicable)']
+    const checklist = [
+        'Wait 5 minutes. Sometimes it takes a bit for ISPs to deliver emails.',
+        'Check your spam folder',
+        'Check any firewalls you may have active',
+        'Ask your company IT department to allow any emails from @posthog.com',
+        "Make sure you can receive other emails to your email address, especially if it's an alias",
+        'Channel your inner hedgehog and take another peek at your inbox',
+    ]
 
     const handleChecklistChange = (index: number): void => {
         const newCheckListValues = [...checkListValues]
@@ -41,17 +38,9 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     const allChecked = checklist.every((_, index) => checkListValues[index])
 
     return (
-        <div className="w-full bg-bg-3000 p-4 rounded relative">
-            <IconX
-                className="absolute top-3 right-3 cursor-pointer"
-                onClick={() => {
-                    setCheckListValues([])
-                    setINeedHelp(false)
-                }}
-            />
+        <div className="bg-bg-3000 p-4 rounded relative w-full">
             <div className="flex flex-col justify-center">
-                <p className="text-left mb-2">Please confirm you've done the following:</p>
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                     {checklist.map((item, index) => (
                         <LemonCheckbox
                             key={index}
@@ -64,32 +53,51 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
                     ))}
                 </div>
             </div>
-            {allChecked && (
-                <div className="mt-4">
-                    <p className="text-left mb-2">Choose one of the following options:</p>
-                    <div className="flex flex-row gap-x-4 justify-start">
+            <div className="mt-4">
+                <p className="text-left mb-2">Choose one of the following options:</p>
+                <div className="flex flex-row gap-x-4 justify-start">
+                    <LemonButton
+                        type="primary"
+                        disabledReason={!allChecked ? "Please confirm you've done all the steps above" : null}
+                        onClick={() => {
+                            openSupportForm({ kind: 'bug', target_area: 'login' })
+                        }}
+                    >
+                        Contact support
+                    </LemonButton>
+                    {uuid && (
                         <LemonButton
                             type="primary"
+                            disabledReason={!allChecked ? "Please confirm you've done all the steps above" : null}
                             onClick={() => {
-                                openSupportForm({ kind: 'bug', target_area: 'login' })
+                                requestVerificationLink(uuid)
                             }}
                         >
-                            Contact support
+                            Request a new link
                         </LemonButton>
-                        {uuid && (
-                            <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    requestVerificationLink(uuid)
-                                }}
-                            >
-                                Request a new link
-                            </LemonButton>
-                        )}
-                    </div>
+                    )}
                 </div>
-            )}
+            </div>
         </div>
+    )
+}
+
+const GetHelp = (): JSX.Element => {
+    const [isOpen, setIsOpen] = useState(false)
+    return (
+        <>
+            <LemonButton type="primary" onClick={() => setIsOpen(true)}>
+                Get help
+            </LemonButton>
+            <LemonModal
+                isOpen={isOpen}
+                onClose={() => setIsOpen(false)}
+                title="Get help"
+                description="Sorry you're having troubles! We're here to help, but first we ask that you check a few things first on your end. Generally any issues with email happen after they leave our hands."
+            >
+                <VerifyEmailHelpLinks />
+            </LemonModal>
+        </>
     )
 }
 
@@ -100,19 +108,15 @@ export function VerifyEmail(): JSX.Element {
         <div className="flex h-full flex-col">
             <div className="flex h-full">
                 <BridgePage view="verifyEmail" fixedWidth={false}>
-                    <div className="px-12 py-8 text-center flex flex-col items-center max-w-160">
+                    <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
                         {view === 'pending' ? (
                             <>
-                                <h1 className="text-xl">Welcome to PostHog!</h1>
                                 <h1 className="text-3xl font-bold">Let's verify your email address.</h1>
                                 <div className="max-w-60 my-10">
                                     <MailHog className="w-full h-full" />
                                 </div>
-                                <p>
-                                    An email has been sent to with a link to verify your email address. If you have not
-                                    received the email in a few minutes, please check your spam folder.
-                                </p>
-                                <VerifyEmailHelpLinks />
+                                <p>An email has been sent with a link to verify your email address.</p>
+                                <GetHelp />
                             </>
                         ) : view === 'verify' ? (
                             <>
@@ -134,7 +138,7 @@ export function VerifyEmail(): JSX.Element {
                                     <SurprisedHog className="w-full h-full" />
                                 </div>
                                 <p>Seems like that link isn't quite right. Try again?</p>
-                                <VerifyEmailHelpLinks />
+                                <GetHelp />
                             </>
                         ) : (
                             <Spinner className="text-4xl" />
