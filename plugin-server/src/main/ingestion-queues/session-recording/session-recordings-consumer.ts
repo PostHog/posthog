@@ -264,8 +264,6 @@ export class SessionRecordingIngester {
 
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
-        // TODO: use this for session key too if it's safe to do so
-        const overflowKey = `${team_id}:${session_id}`
 
         const { partition, highOffset } = event.metadata
         if (this.debugPartition === partition) {
@@ -319,7 +317,7 @@ export class SessionRecordingIngester {
 
         await Promise.allSettled([
             this.sessions[key]?.add(event),
-            this.overflowDetection?.observe(overflowKey, event.metadata.rawSize, event.metadata.timestamp),
+            this.overflowDetection?.observe(session_id, event.metadata.rawSize, event.metadata.timestamp),
         ])
     }
 

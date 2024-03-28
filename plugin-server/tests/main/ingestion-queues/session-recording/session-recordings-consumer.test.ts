@@ -603,7 +603,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                                   expected_expiration - 10,
                                   expected_expiration + 10
                               )
-                          ).toEqual([`${team.id}:sid1`])
+                          ).toEqual([`sid1`])
                       })
 
                       it('should not trigger overflow during backfills', async () => {
@@ -633,7 +633,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                           expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
                           expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
                               'not_expired:session',
-                              `${team.id}:sid1`,
+                              `sid1`,
                           ])
                       })
                   }
