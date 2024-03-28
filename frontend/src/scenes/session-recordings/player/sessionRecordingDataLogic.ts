@@ -473,6 +473,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 pollRecordingSnapshots: async (_, breakpoint: BreakPointFunction) => {
                     const params = {
                         version: values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK] ? '3' : '2',
+                        source: SnapshotSourceType.realtime,
                     }
 
                     await breakpoint(1) // debounce
