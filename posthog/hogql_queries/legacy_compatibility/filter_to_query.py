@@ -1,7 +1,7 @@
 import copy
 from enum import Enum
 import json
-from typing import List, Dict, Literal
+from typing import Any, List, Dict, Literal
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.models.entity.entity import Entity as LegacyEntity
 from posthog.schema import (
@@ -13,6 +13,7 @@ from posthog.schema import (
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
     LifecycleFilter,
@@ -353,9 +354,8 @@ def _insight_filter(filter: Dict):
                 edgeLimit=filter.get("edge_limit"),
                 minEdgeWeight=filter.get("min_edge_weight"),
                 maxEdgeWeight=filter.get("max_edge_weight"),
-                funnelPaths=filter.get("funnel_paths"),
-                funnelFilter=filter.get("funnel_filter"),
-            )
+            ),
+            "funnelPathsFilter": filters_to_funnel_paths_query(filter),  # type: ignore
         }
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {
@@ -380,6 +380,23 @@ def _insight_filter(filter: Dict):
         return {}
 
     return insight_filter
+
+
+def filters_to_funnel_paths_query(filter: Dict[str, Any]) -> FunnelPathsFilter | None:
+    funnel_paths = filter.get("funnel_paths")
+    funnel_filter = filter.get("funnel_filter")
+
+    if funnel_paths is None or funnel_filter is None:
+        return None
+
+    funnel_query = filter_to_query(funnel_filter)
+    assert isinstance(funnel_query, FunnelsQuery)
+
+    return FunnelPathsFilter(
+        funnelPathType=funnel_paths,
+        funnelSource=funnel_query,
+        funnelStep=funnel_filter["funnel_step"],
+    )
 
 
 def _insight_type(filter: Dict) -> INSIGHT_TYPE:
