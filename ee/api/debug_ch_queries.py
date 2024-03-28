@@ -41,10 +41,11 @@ class DebugCHQueries(viewsets.ViewSet):
                     query LIKE %(query)s AND
                     query NOT LIKE %(not_query)s AND
                     query_start_time > %(start_time)s
-                ORDER BY query_start_time desc
+                ORDER BY query_start_time DESC
                 LIMIT 100
             )
-            GROUP BY query_id""",
+            GROUP BY query_id
+            ORDER BY query_start_time DESC""",
             {
                 "query": f"/* user_id:{request.user.pk} %",
                 "start_time": (now() - relativedelta(minutes=10)).timestamp(),
