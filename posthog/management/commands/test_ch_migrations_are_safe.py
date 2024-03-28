@@ -42,6 +42,9 @@ class Command(BaseCommand):
 
                 if len(matching_migration_indexes) > 1:
                     logger.error(f"Found an existing matching migrations with index {index} - PaNiC!")
+                    logger.error("Colliding migrations are:")
+                    for old_index, old_name in matching_migration_indexes:
+                        logger.error(f"  - {old_index}_{old_name}")
                     logger.error(
                         "Please manually resolve this conflict and ensure all migrations are monotonically increasing"
                     )
