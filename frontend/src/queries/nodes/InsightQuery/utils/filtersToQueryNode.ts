@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/react'
-import { objectCleanWithEmpty } from 'lib/utils'
+import { objectCleanWithEmpty, stringToBoolean } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
@@ -226,6 +226,8 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         kind: reverseInsightMap[filters.insight],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
+
+        explicitDate: stringToBoolean(filters.explicit_date),
     }
     if (filters.sampling_factor) {
         query.samplingFactor = filters.sampling_factor

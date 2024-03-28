@@ -1,4 +1,4 @@
-import { objectClean } from 'lib/utils'
+import { objectClean, stringToBoolean } from 'lib/utils'
 import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 import {
@@ -125,6 +125,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_from: query.dateRange?.date_from,
         entity_type: 'events',
         sampling_factor: query.samplingFactor,
+        explicit_date: stringToBoolean(query.explicitDate),
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {

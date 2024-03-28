@@ -2179,6 +2179,9 @@
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
+                "explicitDate": {
+                    "type": "boolean"
+                },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
@@ -3003,6 +3006,9 @@
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
+                "explicitDate": {
+                    "type": "boolean"
+                },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
@@ -3073,6 +3079,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
+                },
+                "explicitDate": {
+                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
@@ -3378,6 +3387,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
+                },
+                "explicitDate": {
+                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
@@ -4631,6 +4643,9 @@
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
+                "explicitDate": {
+                    "type": "boolean"
+                },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
@@ -5010,6 +5025,9 @@
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
+                "explicitDate": {
+                    "type": "boolean"
+                },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
@@ -5328,6 +5346,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
+                },
+                "explicitDate": {
+                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
