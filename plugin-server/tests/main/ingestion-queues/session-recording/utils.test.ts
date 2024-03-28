@@ -216,7 +216,7 @@ describe('session-recording utils', () => {
                                 messages: [
                                     expectedIngestionWarningMessage({
                                         libVersion: '1.74.0',
-                                        minorVersion: 74,
+                                        parsedVersion: 1.74,
                                     }),
                                 ],
                                 topic: 'clickhouse_ingestion_warnings_test',
@@ -236,7 +236,7 @@ describe('session-recording utils', () => {
                                 messages: [
                                     expectedIngestionWarningMessage({
                                         libVersion: '1.32.0',
-                                        minorVersion: 32,
+                                        parsedVersion: 1.32,
                                     }),
                                 ],
                                 topic: 'clickhouse_ingestion_warnings_test',

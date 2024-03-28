@@ -155,7 +155,9 @@ function majorAndMinorVersionFrom(libVersion: string | undefined): number | unde
                 minorString = splat[1]
             }
         }
-        return majorString && minorString ? parseFloat(`${majorString}.${minorString}`) : undefined
+        const validMajor = majorString && !isNaN(parseInt(majorString))
+        const validMinor = minorString && !isNaN(parseInt(minorString))
+        return validMajor && validMinor ? parseFloat(`${majorString}.${minorString}`) : undefined
     } catch (e) {
         status.warn('⚠️', 'could_not_read_minor_lib_version', { libVersion })
         return undefined
@@ -224,7 +226,7 @@ export const parseKafkaMessage = async (
                 'replay_lib_version_too_old',
                 {
                     libVersion,
-                    minorVersion: parsedVersion,
+                    parsedVersion,
                 },
                 { key: libVersion || parsedVersion.toString() }
             )
