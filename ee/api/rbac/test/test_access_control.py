@@ -581,6 +581,4 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         assert app_context["current_team"]["user_access_level"] == "none"
 
 
-# TODO: Add tests to check only project admins can edit the project
 # TODO: Add tests to check that a dashboard can't be edited if the user doesn't have access
-# TODO: Add tests to check the performance of the endpoint in terms of number of queries made
