@@ -65,14 +65,15 @@ describe('session-recording utils', () => {
 
     describe('parsing the message', () => {
         it('can parse a message correctly', async () => {
-            const parsedMessage = await parseKafkaMessage(validMessage('my-distinct-id'), () =>
-                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            const parsedMessage = await parseKafkaMessage(
+                validMessage('my-distinct-id', [{ token: 'something' }]),
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
             )
             expect(parsedMessage).toMatchSnapshot()
         })
         it('can handle numeric distinct_ids', async () => {
             const numericId = 12345
-            const parsedMessage = await parseKafkaMessage(validMessage(numericId), () =>
+            const parsedMessage = await parseKafkaMessage(validMessage(numericId, [{ token: 'something' }]), () =>
                 Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
             )
             expect(parsedMessage).toMatchObject({
@@ -91,6 +92,7 @@ describe('session-recording utils', () => {
 
             const createMessage = ($snapshot_items: unknown[]) => {
                 return {
+                    headers: [{ token: 'the_token' }],
                     value: Buffer.from(
                         JSON.stringify({
                             uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
@@ -191,10 +193,10 @@ describe('session-recording utils', () => {
                     undefined,
                 ],
                 [
-                    'calls the team id resolver twice when token is not in header, and is in body',
+                    'does not call the team id resolver when token is not in header, but is in body',
                     undefined,
                     'the body token',
-                    ['the body token'],
+                    undefined,
                 ],
             ])('%s', async (_name, headerToken, payloadToken, expectedCalls) => {
                 await parseKafkaMessage(
