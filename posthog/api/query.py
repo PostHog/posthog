@@ -92,8 +92,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         },
     )
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
-        status = get_query_status(team_id=self.team.pk, query_id=pk)
-        return JsonResponse(status.__dict__, safe=False)
+        query_status = get_query_status(team_id=self.team.pk, query_id=pk)
+
+        http_code: int = status.HTTP_202_ACCEPTED
+        if query_status.error:
+            if query_status.error_message:
+                http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
+            else:
+                http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise
+        elif query_status.complete:
+            http_code = status.HTTP_200_OK
+
+        return JsonResponse(query_status.model_dump(), safe=False, status=http_code)
 
     @extend_schema(
         description="(Experimental)",

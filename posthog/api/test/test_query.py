@@ -833,7 +833,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "complete": False,
                     "end_time": None,
                     "error": False,
-                    "error_message": "",
+                    "error_message": None,
                     "expiration_time": None,
                     "id": mock.ANY,
                     "query_async": True,
@@ -923,20 +923,33 @@ class TestQueryRetrieve(APIBaseTest):
             }
         ).encode()
         response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         self.assertFalse(response.json()["complete"])
 
-    def test_failed_query(self):
+    def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
             {
                 "id": self.valid_query_id,
                 "team_id": self.team_id,
                 "error": True,
-                "error_message": "Query failed",
+                "error_message": None,
             }
         ).encode()
         response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 500)
+        self.assertTrue(response.json()["error"])
+
+    def test_failed_query_with_exposed_error(self):
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "error": True,
+                "error_message": "Try changing the time range",
+            }
+        ).encode()
+        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 400)
         self.assertTrue(response.json()["error"])
 
     def test_destroy(self):

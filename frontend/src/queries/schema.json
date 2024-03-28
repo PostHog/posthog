@@ -4469,8 +4469,8 @@
                     "type": "boolean"
                 },
                 "error_message": {
-                    "default": "",
-                    "type": "string"
+                    "default": null,
+                    "type": ["string", "null"]
                 },
                 "expiration_time": {
                     "format": "date-time",
