@@ -37,6 +37,7 @@ export function TrendsSeries(): JSX.Element | null {
         ...(isTrends ? [TaxonomicFilterGroupType.Sessions] : []),
         TaxonomicFilterGroupType.HogQLExpression,
         TaxonomicFilterGroupType.DataWarehouseProperties,
+        ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? [TaxonomicFilterGroupType.DataWarehousePersonProperties] : []),
     ]
 
     if (!isInsightQueryNode(querySource)) {

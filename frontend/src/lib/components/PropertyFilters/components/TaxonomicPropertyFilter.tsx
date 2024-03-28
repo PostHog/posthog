@@ -9,6 +9,7 @@ import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilt
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
     isGroupPropertyFilter,
+    isPersonPropertyFilter,
     isPropertyFilterWithOperator,
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     propertyFilterTypeToTaxonomicFilterType,
@@ -63,7 +64,7 @@ export function TaxonomicPropertyFilter({
         value,
         item
     ) => {
-        selectItem(taxonomicGroup, value, item?.propertyFilterType)
+        selectItem(taxonomicGroup, value, item)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts ||
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression
@@ -217,6 +218,7 @@ export function TaxonomicPropertyFilter({
                                             ...(isGroupPropertyFilter(filter)
                                                 ? { group_type_index: filter.group_type_index }
                                                 : {}),
+                                            ...(isPersonPropertyFilter(filter) ? { table: filter?.table } : {}),
                                         } as AnyPropertyFilter)
                                     }
                                     if (
