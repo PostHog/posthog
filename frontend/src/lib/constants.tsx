@@ -1,15 +1,23 @@
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { ChartDisplayType, Region, SSOProvider } from '../types'
+import { ChartDisplayCategory, ChartDisplayType, Region, SSOProvider } from '../types'
 
-/** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
-export const NON_TIME_SERIES_DISPLAY_TYPES = [
-    ChartDisplayType.ActionsTable,
-    ChartDisplayType.ActionsPie,
-    ChartDisplayType.ActionsBarValue,
-    ChartDisplayType.WorldMap,
-    ChartDisplayType.BoldNumber,
-]
+// Sync with backend DISPLAY_TYPES_TO_CATEGORIES
+export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayCategory> = {
+    [ChartDisplayType.ActionsLineGraph]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsBar]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsAreaGraph]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayCategory.CumulativeTimeSeries,
+    [ChartDisplayType.BoldNumber]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ActionsPie]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ActionsBarValue]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ActionsTable]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.WorldMap]: ChartDisplayCategory.TotalValue,
+}
+export const NON_TIME_SERIES_DISPLAY_TYPES = Object.entries(DISPLAY_TYPES_TO_CATEGORIES)
+    .filter(([, category]) => category === ChartDisplayCategory.TotalValue)
+    .map(([displayType]) => displayType as ChartDisplayType)
+
 /** Display types for which `breakdown` is hidden and ignored. Sync with backend NON_BREAKDOWN_DISPLAY_TYPES. */
 export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
 /** Display types which only work with a single series. */
@@ -164,6 +172,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
+    HOGQL_INSIGHTS: 'hogql-insights-preview', // owner: @mariusandra
     HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
     HOGQL_INSIGHTS_PATHS: 'hogql-insights-paths', // owner: @webjunkie
     HOGQL_INSIGHTS_RETENTION: 'hogql-insights-retention', // owner: @webjunkie
@@ -205,6 +214,7 @@ export const FEATURE_FLAGS = {
     ACCESS_CONTROL: 'access-control', // owner: @benjackwhite
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
     REVERSE_PROXY_ONBOARDING: 'reverse-proxy-onboarding', // owner: @zlwaterfield
+    SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
