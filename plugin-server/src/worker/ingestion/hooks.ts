@@ -100,9 +100,24 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
-export function getPersonLink(event: PostIngestionEvent, siteUrl: string): string {
-    return `${siteUrl}/person/${encodeURIComponent(event.distinctId)}`
+function getProjectUrl(team: Team, siteUrl: string): string {
+    return `${siteUrl}/project/${team.id}`
 }
+
+function getPersonLink(team: Team, siteUrl: string, event: PostIngestionEvent): string {
+    return `${getProjectUrl(team, siteUrl)}/person/${encodeURIComponent(event.distinctId)}`
+}
+
+function getActionLink(team: Team, siteUrl: string, action: Action): string {
+    return `${getProjectUrl(team, siteUrl)}/action/${action.id}`
+}
+
+function getEventLink(team: Team, siteUrl: string, event: PostIngestionEvent): string {
+    return `${getProjectUrl(team, siteUrl)}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(
+        event.timestamp
+    )}`
+}
+
 export function getPersonDetails(
     event: PostIngestionEvent,
     siteUrl: string,
@@ -119,25 +134,25 @@ export function getPersonDetails(
 
     const display: string | undefined = (customIdentifier || event.distinctId)?.trim()
 
-    return toWebhookLink(display, getPersonLink(event, siteUrl), webhookType)
+    return toWebhookLink(display, getPersonLink(team, siteUrl, event), webhookType)
 }
 
-export function getActionLink(action: Action, siteUrl: string): string {
-    return `${siteUrl}/action/${action.id}`
-}
-export function getActionDetails(action: Action, siteUrl: string, webhookType: WebhookType): [string, string] {
-    return toWebhookLink(action.name, getActionLink(action, siteUrl), webhookType)
+export function getActionDetails(
+    team: Team,
+    action: Action,
+    siteUrl: string,
+    webhookType: WebhookType
+): [string, string] {
+    return toWebhookLink(action.name, getActionLink(team, siteUrl, action), webhookType)
 }
 
-export function getEventLink(event: PostIngestionEvent, siteUrl: string): string {
-    return `${siteUrl}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(event.timestamp)}`
-}
 export function getEventDetails(
+    team: Team,
     event: PostIngestionEvent,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
-    return toWebhookLink(event.event, getEventLink(event, siteUrl), webhookType)
+    return toWebhookLink(event.event, getEventLink(team, siteUrl, event), webhookType)
 }
 
 const TOKENS_REGEX_BRACKETS_EXCLUDED = /(?<=(?<!\\)\[)(.*?)(?=(?<!\\)\])/g
@@ -178,7 +193,7 @@ export function getValueOfToken(
         if (tokenParts.length === 1) {
             ;[text, markdown] = getPersonDetails(event, siteUrl, webhookType, team)
         } else if (tokenParts[1] === 'link') {
-            markdown = text = webhookEscape(getPersonLink(event, siteUrl), webhookType)
+            markdown = text = webhookEscape(getPersonLink(team, siteUrl, event), webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
             const property = event.person_properties
                 ? getPropertyValueByPath(event.person_properties, tokenParts.slice(2))
@@ -187,15 +202,15 @@ export function getValueOfToken(
         }
     } else if (tokenParts[0] === 'action') {
         if (tokenParts[1] === 'name') {
-            ;[text, markdown] = getActionDetails(action, siteUrl, webhookType)
+            ;[text, markdown] = getActionDetails(team, action, siteUrl, webhookType)
         } else if (tokenParts[1] === 'link') {
-            markdown = text = webhookEscape(getActionLink(action, siteUrl), webhookType)
+            markdown = text = webhookEscape(getActionLink(team, siteUrl, action), webhookType)
         }
     } else if (tokenParts[0] === 'event') {
         if (tokenParts.length === 1) {
-            ;[text, markdown] = getEventDetails(event, siteUrl, webhookType)
+            ;[text, markdown] = getEventDetails(team, event, siteUrl, webhookType)
         } else if (tokenParts[1] === 'link') {
-            markdown = text = webhookEscape(getEventLink(event, siteUrl), webhookType)
+            markdown = text = webhookEscape(getEventLink(team, siteUrl, event), webhookType)
         } else if (tokenParts[1] === 'uuid') {
             markdown = text = webhookEscape(event.eventUuid, webhookType)
         } else if (tokenParts[1] === 'name') {
@@ -245,7 +260,7 @@ export function getFormattedMessage(
         messageText = format(tokenizedMessage, ...values)
         messageMarkdown = format(tokenizedMessage, ...markdownValues)
     } catch (error) {
-        const [actionName, actionMarkdown] = getActionDetails(action, siteUrl, webhookType)
+        const [actionName, actionMarkdown] = getActionDetails(team, action, siteUrl, webhookType)
         messageText = `⚠ Error: There are one or more formatting errors in the message template for action "${actionName}".`
         messageMarkdown = `*⚠ Error: There are one or more formatting errors in the message template for action "${actionMarkdown}".*`
     }
