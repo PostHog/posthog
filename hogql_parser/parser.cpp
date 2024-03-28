@@ -1384,12 +1384,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     } else {
       throw ParsingException("Unsupported value of rule ColumnExprTrim");
     }
-    auto string_literal_terminal = ctx->STRING_LITERAL();
-    string text = unquote_string_terminal(string_literal_terminal);
+    string text = unquote_string_terminal(ctx->STRING_LITERAL());
     PyObject* expr = visitAsPyObject(ctx->columnExpr());
     PyObject* value = build_ast_node("Constant", "{s:s#}", "value", text.data(), text.size());
     if (!value) throw PyInternalException();
-    RETURN_NEW_AST_NODE("Call", "{s:s,s:[NN]}", "name", name, "args", visitAsPyObject(ctx->columnExpr()), value);
+    RETURN_NEW_AST_NODE("Call", "{s:s,s:[NN]}", "name", name, "args", expr, value);
   }
 
   VISIT(ColumnExprTuple) {
