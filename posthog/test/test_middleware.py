@@ -310,6 +310,21 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
+    def test_project_changes_when_accessing_project_by_token(self):
+        assert self.client.get(f"/api/users/@me/").json()["team"]["id"] == self.team.id
+        self.client.get(f"/project/{self.second_team.api_token}/home")
+        assert self.client.get(f"/api/users/@me/").json()["team"]["id"] == self.second_team.id
+
+    def test_project_unchanged_when_accessing_missing_project_by_token(self):
+        assert self.client.get(f"/api/users/@me/").json()["team"]["id"] == self.team.id
+        self.client.get(f"/project/phc_123/home")
+        assert self.client.get(f"/api/users/@me/").json()["team"]["id"] == self.team.id
+
+    def test_project_unchanged_when_accessing_inaccessible_project_by_token(self):
+        assert self.client.get(f"/api/users/@me/").json()["team"]["id"] == self.team.id
+        self.client.get(f"/project/{self.no_access_team.pk}/home")
+        assert self.client.get(f"/api/users/@me/").json()["team"]["id"] == self.team.id
+
 
 @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
 class TestPostHogTokenCookieMiddleware(APIBaseTest):
