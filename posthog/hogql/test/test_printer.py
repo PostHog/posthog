@@ -1558,3 +1558,28 @@ class TestPrinter(BaseTest):
                 "hogql_val_5": "US/Pacific",
             },
         )
+
+    def test_trim_leading_trailing_both(self):
+        query = parse_select(
+            "select trim(LEADING 'social' FROM 'media'), trim(TRAILING 'social' FROM 'media'), trim(BOTH 'social' FROM 'media')"
+        )
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert printed == (
+            "SELECT trim(LEADING %(hogql_val_0)s FROM %(hogql_val_1)s), trim(TRAILING %(hogql_val_2)s FROM %(hogql_val_3)s), trim(BOTH %(hogql_val_4)s FROM %(hogql_val_5)s) LIMIT 10000 SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
+        )
+        query2 = parse_select(
+            "select trimLeading('social', 'media'), trimTrailing('social', 'media'), trimBoth('social', 'media')"
+        )
+        printed2 = print_ast(
+            query2,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert printed2 == printed
