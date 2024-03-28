@@ -5,7 +5,7 @@ import { Link } from './lemon-ui/Link'
 
 /** Same as https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts */
 // Ideally this would be imported from posthog-js, we just need to start exporting the list there
-const CAMPAIGN_PROPERTIES: string[] = [
+export const CAMPAIGN_PROPERTIES: string[] = [
     'utm_source',
     'utm_medium',
     'utm_campaign',
