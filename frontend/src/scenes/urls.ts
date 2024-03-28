@@ -36,7 +36,7 @@ import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
  */
 
 export const urls = {
-    absolute: (url: string, path?: string): string => `${window.location.origin}${url}${path ?? ''}`,
+    absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
