@@ -107,9 +107,11 @@ function getProjectUrl(team: Team, siteUrl: string): string {
 function getPersonLink(team: Team, siteUrl: string, event: PostIngestionEvent): string {
     return `${getProjectUrl(team, siteUrl)}/person/${encodeURIComponent(event.distinctId)}`
 }
+
 function getActionLink(team: Team, siteUrl: string, action: Action): string {
     return `${getProjectUrl(team, siteUrl)}/action/${action.id}`
 }
+
 function getEventLink(team: Team, siteUrl: string, event: PostIngestionEvent): string {
     return `${getProjectUrl(team, siteUrl)}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(
         event.timestamp
