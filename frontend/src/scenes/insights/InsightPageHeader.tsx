@@ -297,7 +297,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <ObjectTags
                                 tags={insight.tags ?? []}
                                 saving={insightSaving}
-                                onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
+                                onChange={(tags) => setInsightMetadata({ tags: tags ?? [] })}
                                 tagsAvailable={tags}
                                 className="mt-2"
                                 data-attr="insight-tags"

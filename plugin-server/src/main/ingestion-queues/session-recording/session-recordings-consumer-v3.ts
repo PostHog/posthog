@@ -8,9 +8,11 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
+import { createKafkaProducer } from '../../../kafka/producer'
 import { PluginsServerConfig, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
@@ -81,6 +83,7 @@ export class SessionRecordingIngesterV3 {
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
     // this allows us to output more information for that partition
     private debugPartition: number | undefined = undefined
+    private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined
 
     constructor(
         private globalServerConfig: PluginsServerConfig,
@@ -274,14 +277,21 @@ export class SessionRecordingIngesterV3 {
         await this.teamsRefresher.refresh()
 
         // NOTE: This is the only place where we need to use the shared server config
+        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
+        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
+
+        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
+            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
+        )
+        this.sharedClusterProducerWrapper.producer.connect()
+
+        // NOTE: This is the only place where we need to use the shared server config
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
-            this.consoleLogsIngester = new ConsoleLogsIngester(this.globalServerConfig)
-            await this.consoleLogsIngester.start()
+            this.consoleLogsIngester = new ConsoleLogsIngester(this.sharedClusterProducerWrapper.producer)
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
-            this.replayEventsIngester = new ReplayEventsIngester(this.globalServerConfig)
-            await this.replayEventsIngester.start()
+            this.replayEventsIngester = new ReplayEventsIngester(this.sharedClusterProducerWrapper.producer)
         }
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
@@ -340,14 +350,11 @@ export class SessionRecordingIngesterV3 {
             )
         )
 
-        if (this.replayEventsIngester) {
-            void this.scheduleWork(this.replayEventsIngester.stop())
-        }
-        if (this.consoleLogsIngester) {
-            void this.scheduleWork(this.consoleLogsIngester!.stop())
-        }
-
         const promiseResults = await Promise.allSettled(this.promises)
+
+        if (this.sharedClusterProducerWrapper) {
+            await this.sharedClusterProducerWrapper.disconnect()
+        }
 
         status.info('👍', 'session-replay-ingestion - stopped!')
 
