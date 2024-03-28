@@ -17,6 +17,7 @@ import {
 import { Hook } from './../../../src/types'
 
 describe('hooks', () => {
+    const team = { id: 123, person_display_name_properties: null } as Team
     beforeEach(() => {
         process.env.NODE_ENV = 'test'
     })
@@ -46,7 +47,6 @@ describe('hooks', () => {
             distinctId: 'WALL-E',
             person_properties: { email: 'test@posthog.com' },
         } as unknown as PostIngestionEvent
-        const team = { person_display_name_properties: null } as Team
 
         test('Slack', () => {
             const [userDetails, userDetailsMarkdown] = getPersonDetails(
@@ -57,7 +57,7 @@ describe('hooks', () => {
             )
 
             expect(userDetails).toBe('test@posthog.com')
-            expect(userDetailsMarkdown).toBe('<http://localhost:8000/person/WALL-E|test@posthog.com>')
+            expect(userDetailsMarkdown).toBe('<http://localhost:8000/project/123/person/WALL-E|test@posthog.com>')
         })
 
         test('Teams', () => {
@@ -69,7 +69,7 @@ describe('hooks', () => {
             )
 
             expect(userDetails).toBe('test@posthog.com')
-            expect(userDetailsMarkdown).toBe('[test@posthog.com](http://localhost:8000/person/WALL-E)')
+            expect(userDetailsMarkdown).toBe('[test@posthog.com](http://localhost:8000/project/123/person/WALL-E)')
         })
     })
 
@@ -78,24 +78,26 @@ describe('hooks', () => {
 
         test('Slack', () => {
             const [actionDetails, actionDetailsMarkdown] = getActionDetails(
+                team,
                 action,
                 'http://localhost:8000',
                 WebhookType.Slack
             )
 
             expect(actionDetails).toBe('action1')
-            expect(actionDetailsMarkdown).toBe('<http://localhost:8000/action/1|action1>')
+            expect(actionDetailsMarkdown).toBe('<http://localhost:8000/project/123/action/1|action1>')
         })
 
         test('Teams', () => {
             const [actionDetails, actionDetailsMarkdown] = getActionDetails(
+                team,
                 action,
                 'http://localhost:8000',
                 WebhookType.Other
             )
 
             expect(actionDetails).toBe('action1')
-            expect(actionDetailsMarkdown).toBe('[action1](http://localhost:8000/action/1)')
+            expect(actionDetailsMarkdown).toBe('[action1](http://localhost:8000/project/123/action/1)')
         })
     })
 
@@ -129,7 +131,6 @@ describe('hooks', () => {
             person_properties: { enjoys_broccoli_on_pizza: false },
             timestamp: '2021-10-31T00:44:00.000Z',
         } as unknown as PostIngestionEvent
-        const team = { person_display_name_properties: null } as Team
 
         test('event', () => {
             const tokenUserName = ['event']
@@ -144,7 +145,9 @@ describe('hooks', () => {
             )
 
             expect(text).toBe('$pageview')
-            expect(markdown).toBe('[$pageview](http://localhost:8000/events/123/2021-10-31T00%3A44%3A00.000Z)')
+            expect(markdown).toBe(
+                '[$pageview](http://localhost:8000/project/123/events/123/2021-10-31T00%3A44%3A00.000Z)'
+            )
         })
 
         test('event UUID', () => {
@@ -224,7 +227,7 @@ describe('hooks', () => {
             )
 
             expect(text).toBe('WALL-E')
-            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
+            expect(markdown).toBe('[WALL-E](http://localhost:8000/project/123/person/WALL-E)')
         })
 
         test('person with email', () => {
@@ -240,7 +243,7 @@ describe('hooks', () => {
             )
 
             expect(text).toBe('wall-e@buynlarge.com')
-            expect(markdown).toBe('[wall-e@buynlarge.com](http://localhost:8000/person/WALL-E)')
+            expect(markdown).toBe('[wall-e@buynlarge.com](http://localhost:8000/project/123/person/WALL-E)')
         })
 
         test('person with custom name property, team-level setting ', () => {
@@ -264,7 +267,7 @@ describe('hooks', () => {
             )
 
             expect(text).toBe('Brzęczyszczykiewicz')
-            expect(markdown).toBe('[Brzęczyszczykiewicz](http://localhost:8000/person/fd)')
+            expect(markdown).toBe('[Brzęczyszczykiewicz](http://localhost:8000/project/123/person/fd)')
         })
 
         test('person prop', () => {
@@ -340,7 +343,7 @@ describe('hooks', () => {
             )
 
             expect(text).toBe('WALL-E')
-            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
+            expect(markdown).toBe('[WALL-E](http://localhost:8000/project/123/person/WALL-E)')
         })
 
         test('user prop (actually event prop)', () => {
@@ -387,7 +390,7 @@ describe('hooks', () => {
 
             expect(text).toBe('text&gt;&lt;new link')
             expect(markdown).toBe(
-                '<http://localhost:8000/events/**%3E)/2021-10-31T00%3A44%3A00.000Z|text&gt;&lt;new link>'
+                '<http://localhost:8000/project/123/events/**%3E)/2021-10-31T00%3A44%3A00.000Z|text&gt;&lt;new link>'
             )
         })
 
@@ -403,7 +406,7 @@ describe('hooks', () => {
 
             expect(text).toBe('text\\]\\(yes\\!\\), \\[new link')
             expect(markdown).toBe(
-                '[text\\]\\(yes\\!\\), \\[new link](http://localhost:8000/events/\\*\\*\\)/2021-10-31T00%3A44%3A00.000Z)'
+                '[text\\]\\(yes\\!\\), \\[new link](http://localhost:8000/project/123/events/\\*\\*\\)/2021-10-31T00%3A44%3A00.000Z)'
             )
         })
     })
@@ -413,7 +416,6 @@ describe('hooks', () => {
             distinctId: '2',
             properties: { $browser: 'Chrome', page_title: 'Pricing', 'with space': 'yes sir' },
         } as unknown as PostIngestionEvent
-        const team = { person_display_name_properties: null } as Team
 
         test('custom format', () => {
             const action = {
@@ -431,7 +433,7 @@ describe('hooks', () => {
             )
             expect(text).toBe('2 from Chrome on Pricing page with undefined, yes sir')
             expect(markdown).toBe(
-                '<https://localhost:8000/person/2|2> from Chrome on Pricing page with undefined, yes sir'
+                '<https://localhost:8000/project/123/person/2|2> from Chrome on Pricing page with undefined, yes sir'
             )
         })
 
@@ -450,7 +452,7 @@ describe('hooks', () => {
                 WebhookType.Slack
             )
             expect(text).toBe('2 did thing from browser undefined')
-            expect(markdown).toBe('<https://localhost:8000/person/2|2> did thing from browser undefined')
+            expect(markdown).toBe('<https://localhost:8000/project/123/person/2|2> did thing from browser undefined')
         })
     })
 
@@ -462,7 +464,6 @@ describe('hooks', () => {
             name: 'action1',
             // slack_message_format: '[user.name] did thing from browser [user.brauzer]',
         } as Action
-        const team = { person_display_name_properties: null } as Team
 
         beforeEach(() => {
             hook = {
