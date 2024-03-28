@@ -2,6 +2,7 @@ import time
 from ipaddress import ip_address, ip_network
 from typing import Any, Callable, List, Optional, cast
 
+from django.shortcuts import redirect
 import structlog
 from corsheaders.middleware import CorsMiddleware
 from django.conf import settings
@@ -155,8 +156,26 @@ class AutoProjectMiddleware:
         if request.user.is_authenticated:
             path_parts = request.path.strip("/").split("/")
             project_id_in_url = None
+            current_team = request.user.team
+
+            if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].startswith("phc_"):
+                try:
+                    new_team = Team.objects.get(api_token=path_parts[1])
+
+                    if not self.can_switch_to_team(new_team, request):
+                        raise Team.DoesNotExist
+
+                    path_parts[1] = str(new_team.pk)
+                    return redirect("/" + "/".join(path_parts))
+
+                except Team.DoesNotExist:
+                    if current_team:
+                        path_parts[1] = str(current_team.pk)
+                        return redirect("/" + "/".join(path_parts))
+
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])
+
             elif (
                 len(path_parts) >= 3
                 and path_parts[0] == "api"
@@ -165,11 +184,7 @@ class AutoProjectMiddleware:
             ):
                 project_id_in_url = int(path_parts[2])
 
-            if (
-                project_id_in_url is not None
-                and request.user.team is not None
-                and request.user.team.pk != project_id_in_url
-            ):
+            if project_id_in_url and current_team and current_team.pk != project_id_in_url:
                 try:
                     new_team = Team.objects.get(pk=project_id_in_url)
                     self.switch_team_if_allowed(new_team, request)
@@ -220,11 +235,8 @@ class AutoProjectMiddleware:
 
     def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
-        user_permissions = UserPermissions(user)
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if user_permissions.team(new_team).effective_membership_level is None:
-            # Do something to indicate that they don't have access to the team...
+
+        if not self.can_switch_to_team(new_team, request):
             return
 
         old_team_id = user.current_team_id
@@ -234,6 +246,17 @@ class AutoProjectMiddleware:
         user.save()
         # Information for POSTHOG_APP_CONTEXT
         request.switched_team = old_team_id  # type: ignore
+
+    def can_switch_to_team(self, new_team: Team, request: HttpRequest):
+        user = cast(User, request.user)
+        user_permissions = UserPermissions(user)
+        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
+        #   However this should be a rare operation!
+        if user_permissions.team(new_team).effective_membership_level is None:
+            # Do something to indicate that they don't have access to the team...
+            return False
+
+        return True
 
 
 class CHQueries:
