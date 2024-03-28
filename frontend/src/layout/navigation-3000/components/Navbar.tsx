@@ -15,12 +15,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccountPopoverOverlay } from '~/layout/navigation/TopBar/AccountPopover'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
 import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {
+    const { theme } = useValues(themeLogic)
     const { user } = useValues(userLogic)
     const { isAccountPopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
@@ -34,7 +36,11 @@ export function Navbar(): JSX.Element {
     return (
         <>
             <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
-                <div className="Navbar3000__content">
+                <div
+                    className="Navbar3000__content"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={theme?.sidebarStyle}
+                >
                     <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
                         {navbarItems.map((section, index) => (
                             <ul key={index}>

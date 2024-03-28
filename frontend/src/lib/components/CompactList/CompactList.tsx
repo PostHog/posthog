@@ -1,8 +1,11 @@
 import './CompactList.scss'
 
+import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
 
@@ -23,8 +26,13 @@ export function CompactList({
     emptyMessage,
     renderRow,
 }: CompactListProps): JSX.Element {
+    const { theme } = useValues(themeLogic)
     return (
-        <div className="CompactList">
+        <div
+            className="CompactList"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={theme?.boxStyle}
+        >
             <div className="CompactList__header">
                 <h3 className="px-2 truncate" title={title}>
                     {title}
