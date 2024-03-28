@@ -31,6 +31,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     can_edit: true,
     tags: [],
     surveys: [],
+    user_access_level: 'editor',
 }
 
 const GROUP_FEATURE_FLAG: FeatureFlagType = {

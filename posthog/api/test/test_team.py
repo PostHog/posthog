@@ -209,7 +209,7 @@ class TestTeamAPI(APIBaseTest):
         self._assert_activity_log_is_empty()
 
         response = self.client.patch("/api/projects/@current/", {"extra_settings": {"poe_v2_enabled": True}})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
         response_data = response.json()
         self.assertEqual(response_data["name"], self.team.name)

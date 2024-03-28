@@ -90,6 +90,8 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -221,7 +223,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
+class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -291,6 +293,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
             "timezone",
             "is_cached",
         ]
@@ -304,6 +307,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
             "timezone",
             "refreshing",
             "is_cached",
@@ -561,6 +565,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
 class InsightViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
@@ -594,13 +599,21 @@ class InsightViewSet(
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
 
-    def get_queryset(self) -> QuerySet:
-        queryset: QuerySet
+    def filter_queryset(self, queryset):
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+            # Special case for sharing tokens - we don't use the common filtering
             queryset = Insight.objects.filter(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
-        elif self.action == "partial_update" and self.request.data.get("deleted") is False:
+            # Disallow access to other teams' insights (this would normally done by the super function)
+            queryset = self.filter_queryset_by_parents_lookups(queryset)
+            return queryset
+
+        return super().filter_queryset(queryset)
+
+    def get_queryset(self) -> QuerySet:
+        queryset: QuerySet
+        if self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
             queryset = Insight.objects_including_soft_deleted.all()
         else:
@@ -608,8 +621,6 @@ class InsightViewSet(
 
         # Optimize tag retrieval
         queryset = self.prefetch_tagged_items_if_available(queryset)
-        # Disallow access to other teams' insights
-        queryset = self.filter_queryset_by_parents_lookups(queryset)
 
         queryset = queryset.prefetch_related(
             Prefetch(

@@ -7,7 +7,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
-import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
+import { APIScopeObject, OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
@@ -28,7 +28,7 @@ export const API_KEY_SCOPE_PRESETS = [
 ]
 
 export type APIScope = {
-    key: string
+    key: APIScopeObject
     info?: string | JSX.Element
     disabledActions?: ('read' | 'write')[]
     disabledWhenProjectScoped?: boolean

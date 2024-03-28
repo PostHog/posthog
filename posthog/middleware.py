@@ -30,6 +30,7 @@ from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
 from posthog.rate_limit import DecideRateThrottle
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import SITE_URL, DEBUG
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
@@ -221,6 +222,14 @@ class AutoProjectMiddleware:
     def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
         user_permissions = UserPermissions(user)
+        user_access_control = UserAccessControl(user=user, team=new_team)
+
+        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
+        #   However this should be a rare operation!
+        if not user_access_control.check_access_level_for_object(new_team, "member"):
+            # Do something to indicate that they don't have access to the team...
+            return
+
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
         if user_permissions.team(new_team).effective_membership_level is None:

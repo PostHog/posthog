@@ -131,6 +131,11 @@
             "name": "PostHog",
             "configurations": ["Backend", "Celery", "Frontend", "Plugin Server", "Temporal Worker"],
             "stopAll": true
+        },
+        {
+            "name": "PostHog web",
+            "configurations": ["Backend", "Frontend"],
+            "stopAll": true
         }
     ]
 }

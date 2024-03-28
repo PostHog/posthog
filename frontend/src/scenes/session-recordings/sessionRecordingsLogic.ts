@@ -5,7 +5,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
 
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
@@ -65,13 +65,13 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
                 return breadcrumbs
             },
         ],
-        activityFilters: [
+        [SIDE_PANEL_CONTEXT_KEY]: [
             () => [router.selectors.searchParams],
-            (searchParams): ActivityFilters | null => {
+            (searchParams): SidePanelSceneContext | null => {
                 return searchParams.sessionRecordingId
                     ? {
-                          scope: ActivityScope.REPLAY,
-                          item_id: searchParams.sessionRecordingId,
+                          activity_scope: ActivityScope.REPLAY,
+                          activity_item_id: searchParams.sessionRecordingId,
                       }
                     : null
             },
