@@ -77,7 +77,7 @@ multiIf(
     'Cross Network',
 
     (
-        {medium} IN ('cpc', 'cpm', `cpv`, `cpa`, 'ppc', 'retargeting') OR
+        {medium} IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting') OR
         startsWith({medium}, 'paid') OR
         {gclid} IS NOT NULL OR
         {gad_source} IS NOT NULL
