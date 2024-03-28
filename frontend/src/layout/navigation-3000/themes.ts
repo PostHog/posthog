@@ -56,4 +56,19 @@ export const themes: Theme[] = [
             background: 'linear-gradient(rgba(255,255,255,0.7),rgba(255,255,255,0.7))',
         },
     },
+    {
+        id: 'herisson',
+        name: 'Live, Laugh, Hog',
+        dark: false,
+        mainStyle: {
+            background:
+                'linear-gradient(rgba(255,255,255,0.5),rgba(255,255,255,0.5)), url(https://i.imgur.com/RrGMCR6.jpeg)',
+            backgroundSize: 'contain',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'repeat',
+        },
+        boxStyle: {
+            background: 'linear-gradient(rgba(255,255,255,0.7),rgba(255,255,255,0.7))',
+        },
+    },
 ]
