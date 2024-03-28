@@ -292,7 +292,7 @@ describe('sessionRecordingDataLogic', () => {
         })
     })
 
-    describe('prepareRecordingSnapshots', () => {
+    describe('deduplicateSnapshots', () => {
         it('should remove duplicate snapshots and sort by timestamp', () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
             const snapshotsWithDuplicates = snapshots
@@ -309,7 +309,7 @@ describe('sessionRecordingDataLogic', () => {
             // these two snapshots are not duplicates but have the same timestamp and delay
             // this regression test proves that we deduplicate them against themselves
             // prior to https://github.com/PostHog/posthog/pull/20019
-            // each time prepareRecordingSnapshots was called with this input
+            // each time deduplicateSnapshots was called with this input
             // the result would be one event longer, introducing, instead of removing, a duplicate
             const verySimilarSnapshots: RecordingSnapshot[] = [
                 {
