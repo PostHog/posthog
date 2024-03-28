@@ -46,7 +46,27 @@ const PERSON_PROPERTIES_ADAPTED_FROM_EVENT = new Set([
     ...CAMPAIGN_PROPERTIES,
 ])
 
-const SESSION_PROPERTIES_ADAPTED_FROM_EVENT = new Set(['$referrering_domain', ...CAMPAIGN_PROPERTIES])
+export const SESSION_PROPERTIES_ADAPTED_FROM_PERSON = new Set([
+    '$initial_referring_domain',
+    '$initial_utm_source',
+    '$initial_utm_campaign',
+    '$initial_utm_medium',
+    '$initial_utm_content',
+    '$initial_utm_term',
+    '$initial_gclid',
+    '$initial_gad_source',
+    '$initial_gclsrc',
+    '$initial_dclid',
+    '$initial_gbraid',
+    '$initial_wbraid',
+    '$initial_fbclid',
+    '$initial_msclkid',
+    '$initial_twclid',
+    '$initial_li_fat_id',
+    '$initial_mc_cid',
+    '$initial_igshid',
+    '$initial_ttclid',
+])
 
 // If adding event properties with labels, check whether they should be added to
 // PROPERTY_NAME_ALIASES in posthog/api/property_definition.py
@@ -918,6 +938,58 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The previous build number for the app',
             examples: ['1'],
         },
+        gclid: {
+            label: 'gclid',
+            description: 'Google Click ID',
+        },
+        gad_source: {
+            label: 'gad_source',
+            description: 'Google Ads Source',
+        },
+        gclsrc: {
+            label: 'gclsrc',
+            description: 'Google Click Source',
+        },
+        dclid: {
+            label: 'dclid',
+            description: 'DoubleClick ID',
+        },
+        gbraid: {
+            label: 'gbraid',
+            description: 'Google Ads, web to app',
+        },
+        wbraid: {
+            label: 'wbraid',
+            description: 'Google Ads, app to web',
+        },
+        fbclid: {
+            label: 'fbclid',
+            description: 'Facebook Click ID',
+        },
+        msclkid: {
+            label: 'msclkid',
+            description: 'Microsoft Click ID',
+        },
+        twclid: {
+            label: 'twclid',
+            description: 'Twitter Click ID',
+        },
+        li_fat_id: {
+            label: 'li_fat_id',
+            description: 'LinkedIn First-Party Ad Tracking ID',
+        },
+        mc_cid: {
+            label: 'mc_cid',
+            description: 'Mailchimp Campaign ID',
+        },
+        igshid: {
+            label: 'igshid',
+            description: 'Instagram Share ID',
+        },
+        ttclid: {
+            label: 'ttclid',
+            description: 'TikTok Click ID',
+        },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below
@@ -953,11 +1025,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Entry URL',
             description: <span>The last URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
-        },
-        $initial_referrering_domain: {
-            label: 'Initial referrer',
-            description: <span>Domain of where the user came from.</span>,
-            examples: ['google.com', 'facebook.com'],
         },
         $pageview_count: {
             label: 'Pageview count',
@@ -1011,17 +1078,12 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
     } else {
         CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = value
     }
-    if (SESSION_PROPERTIES_ADAPTED_FROM_EVENT.has(key)) {
-        CORE_FILTER_DEFINITIONS_BY_GROUP.sessions[`$initial_${key.replace(/^\$/, '')}`] = {
-            ...value,
-            label: `Initial ${value.label}`,
-            description:
-                'description' in value
-                    ? `${value.description} First value seen in the session.`
-                    : 'First value seen in the session.',
-        }
-    }
 }
+
+for (const key of Array.from(SESSION_PROPERTIES_ADAPTED_FROM_PERSON.keys())) {
+    CORE_FILTER_DEFINITIONS_BY_GROUP.sessions[key] = CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key]
+}
+
 // We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.$session_duration =
     CORE_FILTER_DEFINITIONS_BY_GROUP.sessions.$session_duration
