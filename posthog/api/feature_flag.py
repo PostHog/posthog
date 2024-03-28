@@ -139,7 +139,11 @@ class FeatureFlagSerializer(
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         # TODO: make sure this isn't n+1
-        return can_user_edit_feature_flag(self.context["request"], feature_flag)
+
+        return (
+            can_user_edit_feature_flag(self.context["request"], feature_flag)
+            and self.get_user_access_level(feature_flag) == "editor"
+        )
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
