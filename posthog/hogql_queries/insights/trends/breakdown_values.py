@@ -102,7 +102,7 @@ class BreakdownValues:
         if not self.histogram_bin_count:
             if self.normalize_url:
                 select_field.expr = parse_expr(
-                    "empty(trimTrailing('/?#', {node})) ? '/' : trimTrailing('/?#', {node})",
+                    "empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')",
                     placeholders={"node": select_field.expr},
                 )
 
