@@ -71,6 +71,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         result = client.get_query_status(team_id, query_id)
         self.assertFalse(result.error, result.error_message or "<no error message>")
         self.assertTrue(result.complete)
+        assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
 
     def test_async_query_client_errors(self):
@@ -100,6 +101,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         result = client.get_query_status(team_id, query_id)
         self.assertFalse(result.error, result.error_message or "<no error message>")
         self.assertTrue(result.complete)
+        assert result.results is not None
         self.assertEqual(result.results["results"], [["00000000-0000-0000-0000-000000000000"]])
 
     def test_async_query_client_does_not_leak(self):
