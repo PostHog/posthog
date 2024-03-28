@@ -35,6 +35,7 @@ class BreakdownValues:
     histogram_bin_count: Optional[int]
     group_type_index: Optional[int]
     hide_other_aggregation: Optional[bool]
+    normalize_url: Optional[bool]
     breakdown_limit: Optional[int]
     query_date_range: QueryDateRange
     modifiers: HogQLQueryModifiers
@@ -66,6 +67,7 @@ class BreakdownValues:
             else None
         )
         self.hide_other_aggregation = breakdown_filter.breakdown_hide_other_aggregation
+        self.normalize_url = breakdown_filter.breakdown_normalize_url
         self.breakdown_limit = breakdown_filter.breakdown_limit
         self.query_date_range = query_date_range
         self.modifiers = modifiers
@@ -98,6 +100,12 @@ class BreakdownValues:
             )
 
         if not self.histogram_bin_count:
+            if self.normalize_url:
+                select_field.expr = parse_expr(
+                    "empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')",
+                    placeholders={"node": select_field.expr},
+                )
+
             select_field.expr = ast.Call(name="toString", args=[select_field.expr])
 
         if self.chart_display_type == ChartDisplayType.WorldMap:
