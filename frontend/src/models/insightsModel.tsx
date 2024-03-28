@@ -33,7 +33,7 @@ export const insightsModel = kea<insightsModelType>([
                 initialValues: { name: item.name },
                 content: (
                     <LemonField name="name">
-                        <LemonInput placeholder="Please enter the new name" autoFocus />
+                        <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
                     </LemonField>
                 ),
                 errors: {
