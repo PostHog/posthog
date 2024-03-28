@@ -14,7 +14,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthent
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.scopes import APIScopeObjectOrNotSupported
+from posthog.models.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.utils import get_can_create_org
 
@@ -486,7 +486,7 @@ class AccessControlPermission(ScopeBasePermission):
             # This is not required and is an optimization
             pass
 
-        uac.preload_access_levels(team=team, obj=obj, resource=scope_object)
+        uac.preload_access_levels(team=team, obj=obj, resource=cast(APIScopeObject, scope_object))
 
         is_member = uac.check_access_level_for_object(team, required_level="member")
 

@@ -176,15 +176,14 @@ class UserAccessControl:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
-        resource_id = str(obj.id)  # type: ignore
-        return dict(team_id=self._team.id, resource=resource, resource_id=resource_id)
+        return dict(team_id=self._team.id, resource=resource, resource_id=str(obj.id))  # type: ignore
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
         """
         Used when checking overall access to a resource
         """
 
-        return dict(team_id=self._team.id, resource=resource, resource_id=None)
+        return dict(team_id=self._team.id, resource=resource, resource_id=None)  # type: ignore
 
     def _access_controls_filters_for_queryset(self, resource: APIScopeObject) -> dict:
         """
