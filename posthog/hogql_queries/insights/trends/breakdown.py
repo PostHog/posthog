@@ -180,6 +180,10 @@ class Breakdown:
         return self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain))
 
     def _get_breakdown_values_transform(self, node: ast.Expr) -> ast.Call:
+        if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_normalize_url:
+            node = parse_expr(
+                "empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')", placeholders={"node": node}
+            )
         return cast(
             ast.Call,
             parse_expr(
