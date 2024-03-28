@@ -123,7 +123,7 @@
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=120,
                     allow_experimental_object_type=1
   '''
 # ---
@@ -137,7 +137,7 @@
      GROUP BY session_replay_events.session_id) AS session_replay_events
   WHERE ifNull(in(session_replay_events.session_id, ['s1']), 0)
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -265,7 +265,7 @@
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=120,
                     allow_experimental_object_type=1
   '''
 # ---
@@ -279,7 +279,7 @@
      GROUP BY session_replay_events.session_id) AS session_replay_events
   WHERE ifNull(in(session_replay_events.session_id, ['s2']), 0)
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -407,7 +407,7 @@
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=120,
                     allow_experimental_object_type=1
   '''
 # ---
@@ -421,7 +421,7 @@
      GROUP BY session_replay_events.session_id) AS session_replay_events
   WHERE ifNull(in(session_replay_events.session_id, ['s2']), 0)
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---

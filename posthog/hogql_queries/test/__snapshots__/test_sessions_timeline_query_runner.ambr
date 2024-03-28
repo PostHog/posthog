@@ -59,7 +59,7 @@
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -123,7 +123,7 @@
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -187,7 +187,7 @@
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -251,7 +251,7 @@
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -315,7 +315,7 @@
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -379,7 +379,7 @@
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -443,7 +443,7 @@
         GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---

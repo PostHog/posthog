@@ -92,7 +92,7 @@
      ORDER BY start_of_period ASC)
   GROUP BY status
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -164,7 +164,7 @@
      ORDER BY start_of_period ASC)
   GROUP BY status
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -236,7 +236,7 @@
      ORDER BY start_of_period ASC)
   GROUP BY status
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
@@ -308,7 +308,7 @@
      ORDER BY start_of_period ASC)
   GROUP BY status
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=120,
                      allow_experimental_object_type=1
   '''
 # ---
