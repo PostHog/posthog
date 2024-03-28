@@ -43,6 +43,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "email_service_available": False,
             "slack_service": {"available": False, "client_id": None},
             "object_storage": False,
+            "public_egress_ip_addresses": [],
             **options,
         }
 
