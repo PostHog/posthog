@@ -214,10 +214,30 @@
           {
               "key": "session",
               "type": "lazy_table",
-              "table": "events",
+              "table": "sessions",
               "fields": [
                   "id",
-                  "duration"
+                  "session_id",
+                  "team_id",
+                  "distinct_id",
+                  "min_timestamp",
+                  "max_timestamp",
+                  "urls",
+                  "entry_url",
+                  "exit_url",
+                  "initial_utm_source",
+                  "initial_utm_campaign",
+                  "initial_utm_medium",
+                  "initial_utm_term",
+                  "initial_utm_content",
+                  "initial_referring_domain",
+                  "initial_gclid",
+                  "initial_gad_source",
+                  "event_count_map",
+                  "pageview_count",
+                  "autocapture_count",
+                  "duration",
+                  "channel_type"
               ]
           }
       ],
@@ -570,6 +590,10 @@
       ],
       "sessions": [
           {
+              "key": "id",
+              "type": "string"
+          },
+          {
               "key": "session_id",
               "type": "string"
           },
@@ -875,6 +899,10 @@
           }
       ],
       "raw_sessions": [
+          {
+              "key": "id",
+              "type": "string"
+          },
           {
               "key": "session_id",
               "type": "string"
@@ -1123,10 +1151,30 @@
           {
               "key": "session",
               "type": "lazy_table",
-              "table": "events",
+              "table": "sessions",
               "fields": [
                   "id",
-                  "duration"
+                  "session_id",
+                  "team_id",
+                  "distinct_id",
+                  "min_timestamp",
+                  "max_timestamp",
+                  "urls",
+                  "entry_url",
+                  "exit_url",
+                  "initial_utm_source",
+                  "initial_utm_campaign",
+                  "initial_utm_medium",
+                  "initial_utm_term",
+                  "initial_utm_content",
+                  "initial_referring_domain",
+                  "initial_gclid",
+                  "initial_gad_source",
+                  "event_count_map",
+                  "pageview_count",
+                  "autocapture_count",
+                  "duration",
+                  "channel_type"
               ]
           }
       ],
@@ -1479,6 +1527,10 @@
       ],
       "sessions": [
           {
+              "key": "id",
+              "type": "string"
+          },
+          {
               "key": "session_id",
               "type": "string"
           },
@@ -1784,6 +1836,10 @@
           }
       ],
       "raw_sessions": [
+          {
+              "key": "id",
+              "type": "string"
+          },
           {
               "key": "session_id",
               "type": "string"

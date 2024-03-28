@@ -11,15 +11,12 @@ from posthog.hogql.database.models import (
     FieldTraverser,
     FieldOrTable,
 )
-from posthog.hogql.database.schema.event_sessions import (
-    EventsSessionSubTable,
-    join_with_events_table_session_duration,
-)
 from posthog.hogql.database.schema.groups import GroupsTable, join_with_group_n_table
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
+from posthog.hogql.database.schema.sessions import join_events_table_to_sessions_table, SessionsTable
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -116,8 +113,8 @@ class EventsTable(Table):
         ),
         "session": LazyJoin(
             from_field=["$session_id"],
-            join_table=EventsSessionSubTable(),
-            join_function=join_with_events_table_session_duration,
+            join_table=SessionsTable(),
+            join_function=join_events_table_to_sessions_table,
         ),
     }
 
