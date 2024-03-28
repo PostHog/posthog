@@ -507,7 +507,25 @@ describe('filtersToQueryNode', () => {
                 end_point: 'b',
                 path_groupings: ['c', 'd'],
                 funnel_paths: FunnelPathType.between,
-                funnel_filter: { a: 1 },
+                funnel_filter: {
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            order: 0,
+                            type: 'events',
+                        },
+                        {
+                            id: null,
+                            order: 1,
+                            type: 'events',
+                        },
+                    ],
+                    exclusions: [],
+                    funnel_step: 1,
+                    funnel_viz_type: 'steps',
+                    insight: 'FUNNELS',
+                },
                 exclude_events: ['e', 'f'],
                 step_limit: 1,
                 path_start_key: 'g',
@@ -530,7 +548,46 @@ describe('filtersToQueryNode', () => {
                     endPoint: 'b',
                     pathGroupings: ['c', 'd'],
                     funnelPaths: FunnelPathType.between,
-                    funnelFilter: { a: 1 },
+                    funnelFilter: {
+                        events: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                order: 0,
+                                type: 'events',
+                            },
+                            {
+                                id: null,
+                                order: 1,
+                                type: 'events',
+                            },
+                        ],
+                        exclusions: [],
+                        funnel_step: 1,
+                        funnel_viz_type: 'steps',
+                        insight: 'FUNNELS',
+                    },
+                    funnelActorsQuery: {
+                        funnelStep: 1,
+                        kind: NodeKind.FunnelsActorsQuery,
+                        source: {
+                            funnelsFilter: {
+                                funnelVizType: FunnelVizType.Steps,
+                            },
+                            kind: NodeKind.FunnelsQuery,
+                            series: [
+                                {
+                                    event: '$pageview',
+                                    kind: NodeKind.EventsNode,
+                                    name: '$pageview',
+                                },
+                                {
+                                    event: null,
+                                    kind: NodeKind.EventsNode,
+                                },
+                            ],
+                        },
+                    },
                     excludeEvents: ['e', 'f'],
                     stepLimit: 1,
                     pathReplacements: true,
