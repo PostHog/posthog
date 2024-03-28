@@ -801,7 +801,12 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.LifecycleQuery,
                 properties: {
                     type: FilterLogicalOperator.And,
-                    values: [],
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [],
+                        },
+                    ],
                 },
                 filterTestAccounts: true,
                 dateRange: {
@@ -1394,7 +1399,12 @@ describe('filtersToQueryNode', () => {
                 },
                 properties: {
                     type: FilterLogicalOperator.And,
-                    values: [],
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [],
+                        },
+                    ],
                 },
             }
             expect(result).toEqual(query)

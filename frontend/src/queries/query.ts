@@ -146,28 +146,22 @@ export async function query<N extends DataNode = DataNode>(
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
+    const allFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
 
-    const hogQLInsightsLifecycleFlagEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
-    )
-    const hogQLInsightsPathsFlagEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS]
-    )
-    const hogQLInsightsRetentionFlagEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]
-    )
-    const hogQLInsightsTrendsFlagEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
-    )
-    const hogQLInsightsStickinessFlagEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]
-    )
-    const hogQLInsightsFunnelsFlagEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
-    )
-    const hogQLInsightsLiveCompareEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
-    )
+    const hogQLInsightsFlagEnabled = Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS])
+    const hogQLInsightsLifecycleFlagEnabled =
+        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE])
+    const hogQLInsightsPathsFlagEnabled =
+        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS])
+    const hogQLInsightsRetentionFlagEnabled =
+        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION])
+    const hogQLInsightsTrendsFlagEnabled =
+        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS])
+    const hogQLInsightsStickinessFlagEnabled =
+        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS])
+    const hogQLInsightsFunnelsFlagEnabled =
+        hogQLInsightsFlagEnabled || Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS])
+    const hogQLInsightsLiveCompareEnabled = Boolean(allFlags[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE])
 
     async function fetchLegacyUrl(): Promise<Record<string, any>> {
         const response = await api.getResponse(legacyUrl!)

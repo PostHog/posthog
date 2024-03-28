@@ -229,10 +229,13 @@ export function makeBackgroundStyles(wireframe: wireframe, styleOverride?: Style
     }
 
     if (combinedStyles.backgroundImage) {
+        const backgroundImageURL = combinedStyles.backgroundImage.startsWith('url(')
+            ? combinedStyles.backgroundImage
+            : `url('${dataURIOrPNG(combinedStyles.backgroundImage)}')`
         styleParts = styleParts.concat([
-            `background-image: url('${dataURIOrPNG(combinedStyles.backgroundImage)}')`,
+            `background-image: ${backgroundImageURL}`,
             `background-size: ${combinedStyles.backgroundSize || 'contain'}`,
-            'background-repeat: no-repeat',
+            `background-repeat: ${combinedStyles.backgroundRepeat || 'no-repeat'}`,
         ])
     }
 

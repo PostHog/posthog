@@ -11,10 +11,10 @@ from posthog.models import (
     Team,
 )
 from posthog.temporal.batch_exports.batch_exports import (
-    CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
-    create_export_run,
-    update_export_run_status,
+    FinishBatchExportRunInputs,
+    StartBatchExportRunInputs,
+    finish_batch_export_run,
+    start_batch_export_run,
 )
 
 
@@ -74,58 +74,64 @@ def batch_export(destination, team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_create_export_run(activity_environment, team, batch_export):
-    """Test the create_export_run activity.
+async def test_start_batch_export_run(activity_environment, team, batch_export):
+    """Test the 'start_batch_export_run' activity.
 
-    We check if an BatchExportRun is created after the activity runs.
+    We check if a 'BatchExportRun' is created after the activity runs.
     """
     start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
     end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
 
-    inputs = CreateBatchExportRunInputs(
+    inputs = StartBatchExportRunInputs(
         team_id=team.id,
         batch_export_id=str(batch_export.id),
         data_interval_start=start.isoformat(),
         data_interval_end=end.isoformat(),
     )
 
-    run_id = await activity_environment.run(create_export_run, inputs)
+    run_id, records_total_count = await activity_environment.run(start_batch_export_run, inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()  # type:ignore
 
     run = await sync_to_async(runs.first)()  # type:ignore
+    assert run is not None
     assert run.data_interval_start == start
     assert run.data_interval_end == end
+    assert run.records_total_count == records_total_count
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_export_run_status(activity_environment, team, batch_export):
+async def test_finish_batch_export_run(activity_environment, team, batch_export):
     """Test the export_run_status activity."""
     start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
     end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
 
-    inputs = CreateBatchExportRunInputs(
+    inputs = StartBatchExportRunInputs(
         team_id=team.id,
         batch_export_id=str(batch_export.id),
         data_interval_start=start.isoformat(),
         data_interval_end=end.isoformat(),
     )
 
-    run_id = await activity_environment.run(create_export_run, inputs)
+    run_id, records_total_count = await activity_environment.run(start_batch_export_run, inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
     run = await sync_to_async(runs.first)()  # type:ignore
+    assert run is not None
     assert run.status == "Starting"
+    assert run.records_total_count == records_total_count
 
-    update_inputs = UpdateBatchExportRunStatusInputs(
+    finish_inputs = FinishBatchExportRunInputs(
         id=str(run_id),
         status="Completed",
         team_id=inputs.team_id,
     )
-    await activity_environment.run(update_export_run_status, update_inputs)
+    await activity_environment.run(finish_batch_export_run, finish_inputs)
 
     runs = BatchExportRun.objects.filter(id=run_id)
     run = await sync_to_async(runs.first)()  # type:ignore
+    assert run is not None
     assert run.status == "Completed"
+    assert run.records_total_count == records_total_count

@@ -988,20 +988,6 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
-  class  ColumnExprExtractContext : public ColumnExprContext {
-  public:
-    ColumnExprExtractContext(ColumnExprContext *ctx);
-
-    antlr4::tree::TerminalNode *EXTRACT();
-    antlr4::tree::TerminalNode *LPAREN();
-    IntervalContext *interval();
-    antlr4::tree::TerminalNode *FROM();
-    ColumnExprContext *columnExpr();
-    antlr4::tree::TerminalNode *RPAREN();
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-  };
-
   class  ColumnExprNegateContext : public ColumnExprContext {
   public:
     ColumnExprNegateContext(ColumnExprContext *ctx);

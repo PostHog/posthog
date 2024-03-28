@@ -130,9 +130,14 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _events_filter(self, request) -> Tuple[Literal["$autocapture", "$rageclick"], ...]:
         event_to_filter: Tuple[Literal["$autocapture", "$rageclick"], ...] = ()
+        # when multiple includes are sent expects them as separate parameters
+        # e.g. ?include=a&include=b
         events_to_include = request.query_params.getlist("include", [])
+
         if not events_to_include:
+            # sensible default when not provided
             event_to_filter += ("$autocapture",)
+            event_to_filter += ("$rageclick",)
         else:
             if "$rageclick" in events_to_include:
                 events_to_include.remove("$rageclick")

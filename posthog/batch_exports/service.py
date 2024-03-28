@@ -417,6 +417,7 @@ def create_batch_export_run(
     data_interval_start: str,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
+    records_total_count: int | None = None,
 ) -> BatchExportRun:
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -434,6 +435,7 @@ def create_batch_export_run(
         status=status,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start),
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
+        records_total_count=records_total_count,
     )
     run.save()
 
@@ -442,22 +444,18 @@ def create_batch_export_run(
 
 def update_batch_export_run(
     run_id: UUID,
-    status: str,
-    latest_error: str | None,
-    records_completed: int = 0,
+    **kwargs,
 ) -> BatchExportRun:
-    """Update the status of an BatchExportRun with given id.
+    """Update the BatchExportRun with given run_id and provided **kwargs.
 
     Arguments:
-        id: The id of the BatchExportRun to update.
+        run_id: The id of the BatchExportRun to update.
     """
     model = BatchExportRun.objects.filter(id=run_id)
     update_at = dt.datetime.now()
 
     updated = model.update(
-        status=status,
-        latest_error=latest_error,
-        records_completed=records_completed,
+        **kwargs,
         last_updated_at=update_at,
     )
 

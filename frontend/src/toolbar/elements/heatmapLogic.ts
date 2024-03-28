@@ -112,11 +112,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                             ],
                             ...values.heatmapFilter,
                         }
-                        const includeEventsParams = '&include=$autocapture&include=$rageclick'
-                        defaultUrl = `/api/element/stats/${encodeParams(
-                            { ...params, paginate_response: true },
-                            '?'
-                        )}${includeEventsParams}`
+
+                        defaultUrl = `/api/element/stats/${encodeParams({ ...params, paginate_response: true }, '?')}`
                     }
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name

@@ -139,6 +139,7 @@ def property_to_expr(
         or property.type == "group"
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
+        or property.type == "session"
     ):
         if scope == "person" and property.type != "person":
             raise NotImplementedException(
@@ -157,7 +158,13 @@ def property_to_expr(
             chain = []
         else:
             chain = ["properties"]
+
+        properties_field = ast.Field(chain=chain)
         field = ast.Field(chain=chain + [property.key])
+
+        if property.type == "session" and property.key == "$session_duration":
+            field = ast.Field(chain=["session", "duration"])
+            properties_field = field
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -188,8 +195,6 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        properties_field = ast.Field(chain=chain)
-
         if operator == PropertyOperator.is_set:
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.NotEq,
@@ -203,14 +208,20 @@ def property_to_expr(
                         op=ast.CompareOperationOp.Eq,
                         left=field,
                         right=ast.Constant(value=None),
-                    ),
-                    ast.Not(
-                        expr=ast.Call(
-                            name="JSONHas",
-                            args=[properties_field, ast.Constant(value=property.key)],
-                        )
-                    ),
+                    )
                 ]
+                + (
+                    []
+                    if properties_field == field
+                    else [
+                        ast.Not(
+                            expr=ast.Call(
+                                name="JSONHas",
+                                args=[properties_field, ast.Constant(value=property.key)],
+                            )
+                        )
+                    ]
+                )
             )
         elif operator == PropertyOperator.icontains:
             return ast.CompareOperation(
@@ -337,7 +348,7 @@ def property_to_expr(
             right=ast.Constant(value=cohort.pk),
         )
 
-    # TODO: Add support for these types "recording", "behavioral", and "session" types
+    # TODO: Add support for these types: "recording", "behavioral"
 
     raise NotImplementedException(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"

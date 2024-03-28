@@ -23,7 +23,7 @@ from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 SELECT_QUERY_TEMPLATE = Template(
@@ -282,36 +282,74 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
 
 
 @dataclasses.dataclass
-class CreateBatchExportRunInputs:
-    """Inputs to the create_export_run activity.
+class StartBatchExportRunInputs:
+    """Inputs to the 'start_batch_export_run' activity.
 
     Attributes:
         team_id: The id of the team the BatchExportRun belongs to.
         batch_export_id: The id of the BatchExport this BatchExportRun belongs to.
         data_interval_start: Start of this BatchExportRun's data interval.
         data_interval_end: End of this BatchExportRun's data interval.
+        exclude_events: Optionally, any event names that should be excluded.
+        include_events: Optionally, the event names that should only be included in the export.
     """
 
     team_id: int
     batch_export_id: str
     data_interval_start: str
     data_interval_end: str
-    status: str = BatchExportRun.Status.STARTING
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
+
+
+RecordsTotalCount = int
+BatchExportRunId = str
 
 
 @activity.defn
-async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
-    """Activity that creates an BatchExportRun.
+async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[BatchExportRunId, RecordsTotalCount]:
+    """Activity that creates an BatchExportRun and returns the count of records to export.
 
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
+
+    Upon seeing a count of 0 records to export, batch export workflows should finish early
+    (i.e. without running the insert activity), as there will be nothing to export.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     logger.info(
-        "Creating batch export for range %s - %s",
+        "Starting batch export for range %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
+
+    async with get_client(team_id=inputs.team_id) as client:
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
+
+        count = await get_rows_count(
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=inputs.data_interval_start,
+            interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+        )
+
+    if count > 0:
+        logger.info(
+            "Batch export for range %s - %s will export %s rows",
+            inputs.data_interval_start,
+            inputs.data_interval_end,
+            count,
+        )
+    else:
+        logger.info(
+            "Batch export for range %s - %s has no rows to export",
+            inputs.data_interval_start,
+            inputs.data_interval_end,
+        )
+
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
@@ -319,33 +357,51 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
-        status=inputs.status,
+        status=BatchExportRun.Status.STARTING,
+        records_total_count=count,
     )
 
-    return str(run.id)
+    return str(run.id), count
 
 
 @dataclasses.dataclass
-class UpdateBatchExportRunStatusInputs:
-    """Inputs to the update_export_run_status activity."""
+class FinishBatchExportRunInputs:
+    """Inputs to the 'finish_batch_export_run' activity.
+
+    Attributes:
+        id: The id of the batch export run. This should be a valid UUID string.
+        team_id: The team id of the batch export.
+        status: The status this batch export is finishing with.
+        latest_error: The latest error message captured, if any.
+        records_completed: Number of records successfully exported.
+        records_total_count: Total count of records this run noted.
+    """
 
     id: str
-    status: str
     team_id: int
+    status: str
     latest_error: str | None = None
-    records_completed: int = 0
+    records_completed: int | None = None
+    records_total_count: int | None = None
 
 
 @activity.defn
-async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs) -> None:
-    """Activity that updates the status of an BatchExportRun."""
+async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
+    """Activity that finishes a BatchExportRun.
+
+    Finishing means a final update to the status of the BatchExportRun model.
+    """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
+    update_params = {
+        key: value
+        for key, value in dataclasses.asdict(inputs).items()
+        if key not in ("id", "team_id") and value is not None
+    }
     batch_export_run = await sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
-        status=inputs.status,
-        latest_error=inputs.latest_error,
-        records_completed=inputs.records_completed,
+        finished_at=dt.datetime.now(),
+        **update_params,
     )
 
     if batch_export_run.status in (BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE):
@@ -428,11 +484,15 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
         )
 
 
+RecordsCompleted = int
+BatchExportActivity = collections.abc.Callable[..., collections.abc.Awaitable[RecordsCompleted]]
+
+
 async def execute_batch_export_insert_activity(
-    activity,
+    activity: BatchExportActivity,
     inputs,
     non_retryable_error_types: list[str],
-    update_inputs: UpdateBatchExportRunStatusInputs,
+    finish_inputs: FinishBatchExportRunInputs,
     start_to_close_timeout_seconds: int = 3600,
     heartbeat_timeout_seconds: int | None = 120,
     maximum_attempts: int = 10,
@@ -449,7 +509,7 @@ async def execute_batch_export_insert_activity(
         activity: The 'insert_into_*' activity function to execute.
         inputs: The inputs to the activity.
         non_retryable_error_types: A list of errors to not retry on when executing the activity.
-        update_inputs: Inputs to the update_export_run_status to run at the end.
+        finish_inputs: Inputs to the 'finish_batch_export_run' to run at the end.
         start_to_close_timeout: A timeout for the 'insert_into_*' activity function.
         maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
             Assuming the error that triggered the retry is not in non_retryable_error_types.
@@ -472,30 +532,30 @@ async def execute_batch_export_insert_activity(
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )
-        update_inputs.records_completed = records_completed
+        finish_inputs.records_completed = records_completed
 
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
-            update_inputs.status = BatchExportRun.Status.CANCELLED
+            finish_inputs.status = BatchExportRun.Status.CANCELLED
         elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type not in non_retryable_error_types:
-            update_inputs.status = BatchExportRun.Status.FAILED_RETRYABLE
+            finish_inputs.status = BatchExportRun.Status.FAILED_RETRYABLE
         else:
-            update_inputs.status = BatchExportRun.Status.FAILED
+            finish_inputs.status = BatchExportRun.Status.FAILED
 
-        update_inputs.latest_error = str(e.cause)
+        finish_inputs.latest_error = str(e.cause)
         raise
 
     except Exception:
-        update_inputs.status = BatchExportRun.Status.FAILED
-        update_inputs.latest_error = "An unexpected error has ocurred"
+        finish_inputs.status = BatchExportRun.Status.FAILED
+        finish_inputs.latest_error = "An unexpected error has ocurred"
         raise
 
     finally:
-        get_export_finished_metric(status=update_inputs.status.lower()).add(1)
+        get_export_finished_metric(status=finish_inputs.status.lower()).add(1)
 
         await workflow.execute_activity(
-            update_export_run_status,
-            update_inputs,
+            finish_batch_export_run,
+            finish_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),

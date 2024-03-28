@@ -1,5 +1,4 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { eventWithTime } from '@rrweb/types'
 import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
@@ -10,7 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PersonType, RecordingSnapshot, ReplayTabs, SessionRecordingType } from '~/types'
+import { Breadcrumb, ReplayTabs } from '~/types'
 
 import {
     deduplicateSnapshots,
@@ -19,23 +18,7 @@ import {
 } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
 import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
-
-export type ExportedSessionRecordingFileV1 = {
-    version: '2022-12-02'
-    data: {
-        person: PersonType | null
-        snapshotsByWindowId: Record<string, eventWithTime[]>
-    }
-}
-
-export type ExportedSessionRecordingFileV2 = {
-    version: '2023-04-28'
-    data: {
-        id: SessionRecordingType['id']
-        person: SessionRecordingType['person']
-        snapshots: RecordingSnapshot[]
-    }
-}
+import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
 
 export const createExportedSessionRecording = (
     logic: BuiltLogic<sessionRecordingDataLogicType>,
@@ -95,7 +78,7 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
  * in practice, it will only wait for 1-2 retries
  * but a timeout is provided to avoid waiting forever when something breaks
  */
-const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<any>> => {
+const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRecordingDataLogicType>> => {
     const maxRetries = 20 // 2 seconds / 100 ms per retry
     let retries = 0
     let dataLogic = null
