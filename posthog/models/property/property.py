@@ -42,6 +42,7 @@ PropertyType = Literal[
     "session",
     "hogql",
     "data_warehouse",
+    "data_warehouse_person_property",
 ]
 
 PropertyName = str

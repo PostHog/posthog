@@ -652,6 +652,7 @@ export enum PropertyFilterType {
     Group = 'group',
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
+    DataWarehousePersonProperty = 'data_warehouse_person_property',
 }
 
 /** Sync with plugin-server/src/types.ts */

@@ -333,7 +333,7 @@ export function taxonomicFilterTypeToPropertyFilterType(
     }
 
     if (filterType == TaxonomicFilterGroupType.DataWarehousePersonProperties) {
-        return PropertyFilterType.Person
+        return PropertyFilterType.DataWarehousePersonProperty
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
