@@ -1082,8 +1082,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("Alias", "{s:N,s:s#}", "expr", expr, "alias", alias.data(), alias.size());
   }
 
-  VISIT_UNSUPPORTED(ColumnExprExtract)
-
   VISIT(ColumnExprNegate) {
     PyObject* left = build_ast_node("Constant", "{s:i}", "value", 0);
     if (!left) throw PyInternalException();
