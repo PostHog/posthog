@@ -225,6 +225,8 @@ jobs:
                   verbose: true
                   log: true
                   resource: http://localhost:8000
+                  simultaneous: 1
+                  httpTimeout: 5000
 
             - name: Cypress run
               # these are required checks so, we can't skip entire sections
