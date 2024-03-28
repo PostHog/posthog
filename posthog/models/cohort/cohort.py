@@ -194,7 +194,7 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people_ch(self, pending_version):
+    def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
         from posthog.tasks.calculate_cohort import clear_stale_cohort
 
@@ -207,7 +207,7 @@ class Cohort(models.Model):
         start_time = time.monotonic()
 
         try:
-            count = recalculate_cohortpeople(self, pending_version)
+            count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
 
             self.last_calculation = timezone.now()

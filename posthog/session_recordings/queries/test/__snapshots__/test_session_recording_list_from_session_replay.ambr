@@ -3227,7 +3227,7 @@
 # ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_cohort_properties.1
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -3298,7 +3298,7 @@
 # ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_events_and_cohorts.1
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2

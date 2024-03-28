@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestCohort.test_cohortpeople_basic
   '''
-  
+  /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -37,7 +37,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator
   '''
-  
+  /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -71,7 +71,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator.1
   '''
-  
+  /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -184,7 +184,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts
   '''
-  
+  /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -225,7 +225,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts.1
   '''
-  
+  /* cohort_calculation: */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,

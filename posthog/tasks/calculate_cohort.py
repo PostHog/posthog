@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import structlog
 from celery import shared_task
@@ -11,6 +11,7 @@ from django.utils import timezone
 from posthog.models import Cohort
 from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.cohort.util import clear_stale_cohortpeople
+from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -34,9 +35,9 @@ def calculate_cohorts() -> None:
         update_cohort(cohort)
 
 
-def update_cohort(cohort: Cohort) -> None:
+def update_cohort(cohort: Cohort, initiating_user: User) -> None:
     pending_version = get_and_update_pending_version(cohort)
-    calculate_cohort_ch.delay(cohort.id, pending_version)
+    calculate_cohort_ch.delay(cohort.id, pending_version, initiating_user.id)
 
 
 @shared_task(ignore_result=True)
@@ -46,9 +47,9 @@ def clear_stale_cohort(cohort_id: int, before_version: int) -> None:
 
 
 @shared_task(ignore_result=True, max_retries=2)
-def calculate_cohort_ch(cohort_id: int, pending_version: int) -> None:
+def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
-    cohort.calculate_people_ch(pending_version)
+    cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
 
 @shared_task(ignore_result=True, max_retries=1)
