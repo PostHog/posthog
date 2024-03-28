@@ -168,7 +168,13 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 KAFKA_HOSTS: 'localhost:9092',
             } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-            const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, false, undefined)
+            const ingester = new SessionRecordingIngester(
+                config,
+                hub.postgres,
+                hub.objectStorage,
+                consumeOverflow,
+                undefined
+            )
             expect(ingester['debugPartition']).toEqual(103)
         })
 
@@ -177,7 +183,13 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 KAFKA_HOSTS: 'localhost:9092',
             } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-            const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, false, undefined)
+            const ingester = new SessionRecordingIngester(
+                config,
+                hub.postgres,
+                hub.objectStorage,
+                consumeOverflow,
+                undefined
+            )
             expect(ingester['debugPartition']).toBeUndefined()
         })
 
@@ -448,7 +460,13 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             jest.setTimeout(5000) // Increased to cover lock delay
 
             beforeEach(async () => {
-                otherIngester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, false, undefined)
+                otherIngester = new SessionRecordingIngester(
+                    config,
+                    hub.postgres,
+                    hub.objectStorage,
+                    consumeOverflow,
+                    undefined
+                )
                 await otherIngester.start()
             })
 
