@@ -63,7 +63,7 @@ export function TaxonomicPropertyFilter({
         value,
         item
     ) => {
-        selectItem(taxonomicGroup, value, item)
+        selectItem(taxonomicGroup, value, item?.propertyFilterType)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts ||
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression
