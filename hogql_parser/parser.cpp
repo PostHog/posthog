@@ -1380,7 +1380,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     } else if (ctx->TRAILING()) {
       name = "trimRight";
     } else if (ctx->BOTH()) {
-      name = "trimBoth";
+      name = "trim";
     } else {
       throw ParsingException("Unsupported value of rule ColumnExprTrim");
     }
