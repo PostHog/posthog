@@ -740,11 +740,11 @@ class TrendsBreakdown:
         if breakdown_type == "cohort":
             return get_breakdown_cohort_name(breakdown_value)
         elif str(value) == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
-            return "Other"
+            return "Other (i.e. all remaining values)"
         elif str(value) == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:
-            return "none"
+            return "None (i.e. no value)"
         else:
-            return str(value) or "none"
+            return str(value) or "None (i.e. no value)"
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
         if self.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
