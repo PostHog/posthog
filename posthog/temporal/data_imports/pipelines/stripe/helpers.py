@@ -25,6 +25,7 @@ def transform_date(date: Union[str, DateTime, int]) -> int:
 
 async def stripe_get_data(
     api_key: str,
+    account_id: str,
     resource: str,
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
@@ -42,6 +43,7 @@ async def stripe_get_data(
 
     resource_dict = await sync_to_async(_resource.list)(
         api_key=api_key,
+        stripe_account=account_id,
         created={"gte": start_date, "lt": end_date},
         limit=100,
         **kwargs,
@@ -53,6 +55,7 @@ async def stripe_get_data(
 
 async def stripe_pagination(
     api_key: str,
+    account_id: str,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -75,6 +78,7 @@ async def stripe_pagination(
 
         response = await stripe_get_data(
             api_key,
+            account_id,
             endpoint,
             starting_after=starting_after,
         )
@@ -97,7 +101,7 @@ async def stripe_pagination(
 
 @dlt.source(max_table_nesting=0)
 def stripe_source(
-    api_key: str, endpoints: Tuple[str, ...], team_id, job_id, starting_after: Optional[str] = None
+    api_key: str, account_id: str, endpoints: Tuple[str, ...], team_id, job_id, starting_after: Optional[str] = None
 ) -> Iterable[DltResource]:
     for endpoint in endpoints:
         yield dlt.resource(
@@ -106,6 +110,7 @@ def stripe_source(
             write_disposition="append",
         )(
             api_key=api_key,
+            account_id=account_id,
             endpoint=endpoint,
             team_id=team_id,
             job_id=job_id,
