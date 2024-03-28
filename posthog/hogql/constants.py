@@ -77,5 +77,5 @@ class HogQLQuerySettings(BaseModel):
 class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
-    max_execution_time: Optional[int] = 60
+    max_execution_time: Optional[int] = 120
     allow_experimental_object_type: Optional[bool] = True
