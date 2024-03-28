@@ -203,7 +203,7 @@ describe('session-recording utils', () => {
             ],
             [
                 'three-part lib version that is recent enough means no call to capture ingestion warning',
-                [{ lib_version: '1.75.0' }],
+                [{ lib_version: '1.116.0' }],
                 [],
             ],
             [
@@ -216,7 +216,7 @@ describe('session-recording utils', () => {
                                 messages: [
                                     expectedIngestionWarningMessage({
                                         libVersion: '1.74.0',
-                                        parsedVersion: 1.74,
+                                        parsedVersion: { major: 1, minor: 74 },
                                     }),
                                 ],
                                 topic: 'clickhouse_ingestion_warnings_test',
@@ -236,7 +236,7 @@ describe('session-recording utils', () => {
                                 messages: [
                                     expectedIngestionWarningMessage({
                                         libVersion: '1.32.0',
-                                        parsedVersion: 1.32,
+                                        parsedVersion: { major: 1, minor: 32 },
                                     }),
                                 ],
                                 topic: 'clickhouse_ingestion_warnings_test',
