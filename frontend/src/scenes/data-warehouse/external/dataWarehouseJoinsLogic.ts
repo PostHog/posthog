@@ -47,7 +47,7 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
                     if (table) {
                         acc.push(
                             ...table.columns.map((column: DatabaseSchemaQueryResponseField) => ({
-                                id: column.key,
+                                id: join.field_name + ': ' + column.key,
                                 name: join.field_name + ': ' + column.key,
                                 table: join.field_name,
                                 property_type: capitalizeFirstLetter(column.type) as PropertyType,

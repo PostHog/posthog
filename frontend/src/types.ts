@@ -673,11 +673,15 @@ export interface EventPropertyFilter extends BasePropertyFilter {
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
     operator: PropertyOperator
-    table?: string
 }
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.DataWarehouse
+    operator: PropertyOperator
+}
+
+export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.DataWarehousePersonProperty
     operator: PropertyOperator
 }
 
@@ -737,6 +741,7 @@ export type AnyPropertyFilter =
     | HogQLPropertyFilter
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -2814,9 +2819,6 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
-
-    // For Data warehouse person properties
-    table?: string
 }
 
 export enum PropertyDefinitionState {

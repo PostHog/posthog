@@ -138,6 +138,7 @@ def property_to_expr(
         or property.type == "person"
         or property.type == "group"
         or property.type == "data_warehouse"
+        or property.type == "data_warehouse_person_property"
     ):
         if scope == "person" and property.type != "person":
             raise NotImplementedException(
@@ -145,12 +146,11 @@ def property_to_expr(
             )
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
-
         if property.type == "person" and scope != "person":
-            if property.table:
-                chain = ["person", property.table]
-            else:
-                chain = ["person", "properties"]
+            chain = ["person", "properties"]
+        elif property.type == "data_warehouse_person_property":
+            table, value = property.value.split(": ")
+            chain = ["person", table]
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "data_warehouse":
