@@ -306,14 +306,15 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         assert self._patch_notebook(id=self.notebook.short_id).status_code == status.HTTP_200_OK
 
     def test_query_counts(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
         # TODO: Optimize this:
-        # - We don't need to load the roles if RBAC is not supported by the organization
         # - We _could_ perhaps load all ACs at once - the team, global and object. How to do this upfront is tricky...
         # - We could for sure cache the organization_membership way more effectively (either on the base view or in the user_access_control)
 
         # Baseline query (triggers any first time cache things)
         self._get_notebook(self.notebook.short_id)
-        baseline = 7
+        baseline = 8
 
         # Access controls total 3 extra queries - 1 for the user roles, 1 for the project level check and one for the global resource level
         with self.assertNumQueries(baseline + 3):

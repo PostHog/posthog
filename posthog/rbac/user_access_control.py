@@ -1,4 +1,5 @@
-from functools import cached_property, cache
+from functools import cached_property
+import json
 from django.db.models import Model, Q, QuerySet
 from rest_framework import serializers
 from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, cast, get_args
@@ -97,11 +98,11 @@ class UserAccessControl:
             raise ValueError("Organization ID must be provided either directly or via the team")
 
         self._organization_id = organization_id
+        self._cache: dict[str, "List[AccessControl]"] = {}
 
     def _clear_cache(self):
         # Primarily intended for tests
-        self._access_controls_for_object.cache_clear()
-        self._access_controls_for_resource.cache_clear()
+        self._cache = {}
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
@@ -125,6 +126,7 @@ class UserAccessControl:
             # Early return to prevent an unnecessary lookup
             return []
 
+        # TODO: Optimize this by loading it with the org membership
         role_memberships = cast(Any, self._user).role_memberships.select_related("role").all()
         return [membership.role.id for membership in role_memberships]
 
@@ -148,62 +150,85 @@ class UserAccessControl:
             AvailableFeature.PROJECT_BASED_PERMISSIONING
         ) or self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
-    @cache
-    def _access_controls_for_object(self, obj: Model, resource: str) -> List[_AccessControl]:
+    def _filter_options(self, filters: dict[str, Any]) -> Q:
+        """
+        Adds the 3 main filter options to the query
+        """
+        return (
+            Q(  # Access controls applying to this team
+                **filters, organization_member=None, role=None
+            )
+            | Q(  # Access controls applying to this user
+                **filters, organization_member__user=self._user, role=None
+            )
+            | Q(  # Access controls applying to this user's roles
+                **filters, organization_member=None, role__in=self._user_role_ids
+            )
+        )
+
+    def _get_access_controls(self, filters: dict) -> List[_AccessControl]:
+        key = json.dumps(filters, sort_keys=True)
+        if key not in self._cache:
+            self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+
+        return self._cache[key]
+
+    def _access_controls_filters_for_object(self, obj: Model, resource: APIScopeObject) -> dict:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
         resource_id = str(obj.id)  # type: ignore
+        return dict(team_id=self._team.id, resource=resource, resource_id=resource_id)
 
-        return list(
-            AccessControl.objects.filter(
-                Q(  # Access controls applying to this team
-                    team=self._team, resource=resource, resource_id=resource_id, organization_member=None, role=None
-                )
-                | Q(  # Access controls applying to this user
-                    team=self._team,
-                    resource=resource,
-                    resource_id=resource_id,
-                    organization_member__user=self._user,
-                    role=None,
-                )
-                | Q(  # Access controls applying to this user's roles
-                    team=self._team,
-                    resource=resource,
-                    resource_id=resource_id,
-                    organization_member=None,
-                    role__in=self._user_role_ids,
-                )
-            )
-        )
-
-    @cache
-    def _access_controls_for_resource(self, resource: APIScopeObject) -> List[_AccessControl]:
+    def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
         """
-        Used when checking an individual object - gets all access controls for the object and its type
+        Used when checking overall access to a resource
         """
 
-        return list(
-            AccessControl.objects.filter(
-                Q(  # Access controls applying to this team
-                    team=self._team, resource=resource, resource_id=None, organization_member=None, role=None
-                )
-                | Q(  # Access controls applying to this user
-                    team=self._team,
-                    resource=resource,
-                    resource_id=None,
-                    organization_member__user=self._user,
-                    role=None,
-                )
-                | Q(  # Access controls applying to this user's roles
-                    team=self._team,
-                    resource=resource,
-                    resource_id=None,
-                    organization_member=None,
-                    role__in=self._user_role_ids,
-                )
-            )
-        )
+        return dict(team_id=self._team.id, resource=resource, resource_id=None)
+
+    def _access_controls_filters_for_queryset(self, resource: APIScopeObject) -> dict:
+        """
+        Used to filter out IDs from a queryset based on access controls where the specific resource is denied access
+        """
+        common_filters: dict[str, Any] = dict(resource=resource, resource_id__isnull=False)
+
+        if self._team and resource != "project":
+            common_filters["team_id"] = self._team.id
+        else:
+            common_filters["team__organization_id"] = self._organization_id
+
+        return common_filters
+
+    def preload_access_levels(self, team: Team, resource: APIScopeObject, obj: Optional[Model] = None) -> None:
+        """
+        Checking permissions can involve multiple queries to AccessControl e.g. project level, global resource level, and object level
+        As we can know this upfront, we can optimize this by loading all the controls we will need upfront.
+        """
+        # Question - are we fundamentally loading every access control for the given resource? If so should we accept that fact and just load them all?
+        # doing all additional filtering in memory?
+
+        return
+
+        # filter_groups: List[dict] = []
+
+        # filter_groups.append(self._access_controls_filters_for_object(team, resource="project"))
+        # filter_groups.append(self._access_controls_filters_for_resource(resource))
+
+        # if obj:
+        #     filter_groups.append(self._access_controls_filters_for_object(obj, resource))
+        # else:
+        #     filter_groups.append(self._access_controls_filters_for_queryset(resource))
+
+        # q = Q()
+        # for filters in filter_groups:
+        #     q = q | self._filter_options(filters)
+        #     self._mark_filters_as_loaded(filters)
+
+        # acs = list(AccessControl.objects.filter(q))
+        # self._access_controls.extend(acs)
+
+        # pass
 
     # Object level - checking conditions for specific items
     def access_level_for_object(
@@ -232,7 +257,8 @@ class UserAccessControl:
         if not self.access_controls_supported:
             return default_access_level(resource) if not explicit else None
 
-        access_controls = self._access_controls_for_object(obj, resource)
+        filters = self._access_controls_filters_for_object(obj, resource)
+        access_controls = self._get_access_controls(filters)
 
         # If there is no specified controls on the resource then we return the default access level
         if not access_controls:
@@ -305,7 +331,9 @@ class UserAccessControl:
             # If access controls aren't supported, then return the default access level
             return default_access_level(resource)
 
-        access_controls = self._access_controls_for_resource(resource)
+        filters = self._access_controls_filters_for_resource(resource)
+        access_controls = self._get_access_controls(filters)
+
         if not access_controls:
             return default_access_level(resource)
 
@@ -322,41 +350,20 @@ class UserAccessControl:
 
         return access_level_satisfied_for_resource(resource, access_level, required_level)
 
-    def filter_queryset_by_access_level(self, queryset: QuerySet, resource: Optional[str] = None) -> QuerySet:
+    def filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
         # Find all items related to the queryset model that have access controls such that the effective level for the user is "none"
         # and exclude them from the queryset
 
         model = cast(Model, queryset.model)
-        resource = resource or model_to_resource(model)
+        resource = model_to_resource(model)
 
         if not resource:
             return queryset
 
         model_has_creator = hasattr(model, "created_by")
 
-        filter_args: dict[str, Any] = dict(resource=resource, resource_id__isnull=False)
-
-        if self._team and resource != "project":
-            filter_args["team"] = self._team
-        else:
-            filter_args["team__organization"] = self._organization
-
-        # With the resource, we can now filter for the access controls that apply to the user
-        access_controls = AccessControl.objects.filter(
-            Q(  # Access controls applying to this team for specific resources
-                **filter_args, organization_member=None, role=None
-            )
-            | Q(  # Access controls applying to this user for specific resources
-                **filter_args,
-                organization_member__user=self._user,
-                role=None,
-            )
-            | Q(  # Access controls applying to this user's roles
-                **filter_args,
-                organization_member=None,
-                role__in=self._user_role_ids,
-            )
-        )
+        filters = self._access_controls_filters_for_queryset(resource)
+        access_controls = self._get_access_controls(filters)
 
         blocked_resource_ids: set[str] = set()
         resource_id_access_levels: dict[str, list[str]] = {}

@@ -185,7 +185,9 @@ class TestUserAccessControl(BaseUserAccessControlTest):
             resource_id="something else", access_level="admin", organization_member=self.organization_membership
         )
 
-        matching_acs = list(self.user_access_control._access_controls_for_object(self.team, "project"))
+        matching_acs = self.user_access_control._get_access_controls(
+            self.user_access_control._access_controls_filters_for_object(self.team, "project")
+        )
         assert len(matching_acs) == 4
         assert ac_project in matching_acs
         assert ac_user in matching_acs

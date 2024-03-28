@@ -467,31 +467,43 @@ class AccessControlPermission(ScopeBasePermission):
         # as well as enforcing any global restrictions (e.g. generically only editing of a flag is allowed)
 
         uac = self._get_user_access_control(request, view)
+        scope_object = self._get_scope_object(request, view)
+        required_level = self._get_required_access_level(request, view)
+
+        team: Team
+        obj: Optional[Model] = None
 
         try:
-            is_member = uac.check_access_level_for_object(view.team, required_level="member")
-
-            if not is_member:
-                self.message = f"You don't have access to the project."
-                return False
-
-            scope_object = self._get_scope_object(request, view)
-            required_level = self._get_required_access_level(request, view)
-
-            # If the API doesn't have a scope object or a required level for accessing then we can simply allow access
-            # as it isn't under access control
-            if scope_object == "INTERNAL" or not required_level:
-                return True
-
-            # TODO: Scope object should probably be applied against the `required_scopes` attribute
-            has_access = uac.check_access_level_for_resource(scope_object, required_level=required_level)
-
-            if not has_access:
-                self.message = f"You do not have {required_level} access to this resource."
-                return False
-
-            return True
-
+            team = view.team
         except (ValueError, KeyError):
+            # TODO: Change this to a super specific exception...
             # TODO: Does this means its okay because there is no team level thing?
             return True
+
+        try:
+            obj = view.get_object()
+        except Exception:
+            # This is not required and is an optimization
+            pass
+
+        uac.preload_access_levels(team=team, obj=obj, resource=scope_object)
+
+        is_member = uac.check_access_level_for_object(team, required_level="member")
+
+        if not is_member:
+            self.message = f"You don't have access to the project."
+            return False
+
+        # If the API doesn't have a scope object or a required level for accessing then we can simply allow access
+        # as it isn't under access control
+        if scope_object == "INTERNAL" or not required_level:
+            return True
+
+        # TODO: Scope object should probably be applied against the `required_scopes` attribute
+        has_access = uac.check_access_level_for_resource(scope_object, required_level=required_level)
+
+        if not has_access:
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
+
+        return True
