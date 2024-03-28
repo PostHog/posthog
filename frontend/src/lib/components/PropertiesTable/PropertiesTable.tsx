@@ -1,8 +1,8 @@
 import './PropertiesTable.scss'
 
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonDialog, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { Dropdown, Input, Menu } from 'antd'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Input } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
@@ -117,29 +117,24 @@ function ValueDisplay({
             {!editing ? (
                 <>
                     {canEdit && boolNullTypes.includes(valueType) ? (
-                        <Dropdown
-                            overlay={
-                                <Menu
-                                    onClick={({ key }) => {
-                                        let val = null
-                                        if (key === 't') {
-                                            val = true
-                                        } else if (key === 'f') {
-                                            val = false
-                                        }
-                                        handleValueChange(val, true)
-                                    }}
-                                >
-                                    <Menu.Item key="t">true</Menu.Item>
-                                    <Menu.Item key="f">false</Menu.Item>
-                                    <Menu.Item key="n" danger>
-                                        null
-                                    </Menu.Item>
-                                </Menu>
-                            }
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'true',
+                                    onClick: () => handleValueChange(true, true),
+                                },
+                                {
+                                    label: 'false',
+                                    onClick: () => handleValueChange(false, true),
+                                },
+                                {
+                                    label: 'null',
+                                    onClick: () => handleValueChange(null, true),
+                                },
+                            ]}
                         >
                             {valueComponent}
-                        </Dropdown>
+                        </LemonMenu>
                     ) : (
                         valueComponent
                     )}
@@ -159,7 +154,7 @@ function ValueDisplay({
                             }
                         >
                             <LemonTag
-                                className="font-mono uppercase ml-1"
+                                className="ml-1 font-mono uppercase"
                                 type={isTypeMismatched ? 'danger' : 'muted'}
                                 icon={isTypeMismatched ? <IconWarning /> : undefined}
                             >
@@ -382,7 +377,7 @@ export function PropertiesTable({
         return (
             <>
                 {(searchable || filterable) && (
-                    <div className="flex justify-between items-center gap-2 mb-2">
+                    <div className="flex items-center justify-between gap-2 mb-2">
                         <span className="flex justify-between gap-2">
                             {searchable && (
                                 <LemonInput
