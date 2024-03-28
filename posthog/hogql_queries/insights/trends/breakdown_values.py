@@ -97,6 +97,9 @@ class BreakdownValues:
                 ),
             )
 
+        if not self.histogram_bin_count:
+            select_field.expr = ast.Call(name="toString", args=[select_field.expr])
+
         if self.chart_display_type == ChartDisplayType.WorldMap:
             breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
         else:
@@ -211,23 +214,9 @@ class BreakdownValues:
 
             # Add "other" value if "other" is not hidden and we're not bucketing numeric values
             if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
-                all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
-                all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
-                all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values)
-
-                if all_values_are_string_or_none:
-                    values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
-                    if needs_other:
-                        values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
-                elif all_values_are_ints_or_none or all_values_are_floats_or_none:
-                    if all_values_are_ints_or_none:
-                        values = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values]
-                        if needs_other:
-                            values.insert(0, BREAKDOWN_OTHER_NUMERIC_LABEL)
-                    else:
-                        values = [float(BREAKDOWN_NULL_NUMERIC_LABEL) if value is None else value for value in values]
-                        if needs_other:
-                            values.insert(0, float(BREAKDOWN_OTHER_NUMERIC_LABEL))
+                values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
+                if needs_other:
+                    values = [BREAKDOWN_OTHER_STRING_LABEL] + values
 
         if len(values) == 0:
             values.insert(0, None)

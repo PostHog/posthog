@@ -7,4 +7,6 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.HTML_SNIPPET]: HTMLSnippetInstructions,
     [SDKKey.NEXT_JS]: NextJSInstructions,
     [SDKKey.REACT]: ReactInstructions,
+    // added by feature flag in Onboarding.tsx until released
+    //[SDKKey.ANDROID]: AndroidInstructions,
 }

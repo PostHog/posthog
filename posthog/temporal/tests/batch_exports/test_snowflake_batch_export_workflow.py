@@ -26,9 +26,9 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
-    create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
@@ -39,6 +39,7 @@ from posthog.temporal.batch_exports.snowflake_batch_export import (
     snowflake_default_fields,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -407,9 +408,9 @@ async def test_snowflake_export_workflow_exports_events(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -455,6 +456,7 @@ async def test_snowflake_export_workflow_exports_events(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 10
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
@@ -474,9 +476,9 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -557,9 +559,9 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -623,9 +625,9 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -674,9 +676,9 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_snowflake_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -695,6 +697,8 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
     run = runs[0]
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_errors(ateam, snowflake_batch_export):
@@ -720,9 +724,9 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_snowflake_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -741,6 +745,8 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
     run = runs[0]
     assert run.status == "Failed"
     assert run.latest_error == "ForbiddenError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snowflake_batch_export):
@@ -768,9 +774,9 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 never_finish_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -1085,9 +1091,9 @@ async def test_snowflake_export_workflow(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -1170,9 +1176,9 @@ async def test_snowflake_export_workflow_with_many_files(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -1240,9 +1246,9 @@ async def test_snowflake_export_workflow_handles_cancellation(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):

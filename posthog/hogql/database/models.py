@@ -3,7 +3,6 @@ from pydantic import ConfigDict, BaseModel
 
 from posthog.hogql.base import Expr
 from posthog.hogql.errors import HogQLException, NotImplementedException
-from posthog.schema import HogQLQueryModifiers
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -126,12 +125,14 @@ class LazyJoin(FieldOrTable):
 
 class LazyTable(Table):
     """
-    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers)`
+    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers, node: SelectQuery)`
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers) -> Any:
+    def lazy_select(
+        self, requested_fields: Dict[str, List[str | int]], context: "HogQLContext", node: "SelectQuery"
+    ) -> Any:
         raise NotImplementedException("LazyTable.lazy_select not overridden")
 
 
