@@ -41,7 +41,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -103,7 +103,7 @@
   ORDER BY length(source.appearances) DESC, source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=120,
                     allow_experimental_object_type=1
   '''
 # ---
@@ -149,7 +149,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -195,7 +195,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -257,7 +257,7 @@
   ORDER BY length(source.appearances) DESC, source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=120,
                     allow_experimental_object_type=1
   '''
 # ---
@@ -303,7 +303,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -370,7 +370,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -448,7 +448,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -515,7 +515,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -604,7 +604,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -671,7 +671,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -738,7 +738,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -805,7 +805,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
@@ -872,7 +872,7 @@
   ORDER BY breakdown_values ASC,
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
+                       max_execution_time=120,
                        allow_experimental_object_type=1
   '''
 # ---
