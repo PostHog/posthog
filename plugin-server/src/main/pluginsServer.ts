@@ -109,6 +109,7 @@ export async function startPluginsServer(
     // meantime.
     let bufferConsumer: Consumer | undefined
     let stopSessionRecordingBlobConsumer: (() => void) | undefined
+    let stopSessionRecordingBlobOverflowConsumer: (() => void) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -151,6 +152,7 @@ export async function startPluginsServer(
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             stopSessionRecordingBlobConsumer?.(),
+            stopSessionRecordingBlobOverflowConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
             personOverridesPeriodicTask?.stop(),
         ])
@@ -474,7 +476,7 @@ export async function startPluginsServer(
             const batchConsumer = ingester.batchConsumer
 
             if (batchConsumer) {
-                stopSessionRecordingBlobConsumer = () => ingester.stop()
+                stopSessionRecordingBlobOverflowConsumer = () => ingester.stop()
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob-overflow'] = () => ingester.isHealthy() ?? false
             }
