@@ -231,7 +231,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
             () => [],
             (): AccessControlType['resource'][] => {
                 // TODO: Sync this as an enum
-                return ['feature_flag', 'dashboard', 'insight', 'session_recording']
+                return ['feature_flag', 'dashboard', 'insight', 'session_recording', 'plugin']
             },
         ],
     }),

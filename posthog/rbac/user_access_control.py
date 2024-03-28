@@ -74,6 +74,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "project"
     if name == "featureflag":
         return "feature_flag"
+    if name == "plugin_config":
+        return "plugin"
 
     if name not in API_SCOPE_OBJECTS:
         return None
@@ -194,7 +196,7 @@ class UserAccessControl:
         if self._team and resource != "project":
             common_filters["team_id"] = self._team.id
         else:
-            common_filters["team__organization_id"] = self._organization_id
+            common_filters["team__organization_id"] = str(self._organization_id)
 
         return common_filters
 

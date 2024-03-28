@@ -34,6 +34,15 @@ class BaseAccessControlTest(APILicensedTest):
             payload,
         )
 
+    def _put_global_access_control(self, data={}):
+        payload = {"access_level": "editor"}
+        payload.update(data)
+
+        return self.client.put(
+            "/api/projects/@current/global_access_controls",
+            payload,
+        )
+
     def _org_membership(self, level: OrganizationMembership.Level = OrganizationMembership.Level.ADMIN):
         self.organization_membership.level = level
         self.organization_membership.save()
@@ -161,23 +170,20 @@ class TestGlobalAccessControlsPermissions(BaseAccessControlTest):
         self.role = Role.objects.create(name="Engineers", organization=self.organization)
         self.role_membership = RoleMembership.objects.create(user=self.user, role=self.role)
 
-    def _put_rbac(self, data={}):
-        payload = {"access_level": "editor"}
-        payload.update(data)
-
-        return self.client.put(
-            "/api/projects/@current/global_access_controls",
-            payload,
-        )
-
     def test_admin_can_always_access(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        assert self._put_rbac({"resource": "feature_flag", "access_level": "none"}).status_code == status.HTTP_200_OK
+        assert (
+            self._put_global_access_control({"resource": "feature_flag", "access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
         assert self.client.get("/api/projects/@current/feature_flags").status_code == status.HTTP_200_OK
 
     def test_forbidden_access_if_resource_wide_control_in_place(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        assert self._put_rbac({"resource": "feature_flag", "access_level": "none"}).status_code == status.HTTP_200_OK
+        assert (
+            self._put_global_access_control({"resource": "feature_flag", "access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
         assert self.client.get("/api/projects/@current/feature_flags").status_code == status.HTTP_403_FORBIDDEN
@@ -185,7 +191,10 @@ class TestGlobalAccessControlsPermissions(BaseAccessControlTest):
 
     def test_forbidden_write_access_if_resource_wide_control_in_place(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        assert self._put_rbac({"resource": "feature_flag", "access_level": "viewer"}).status_code == status.HTTP_200_OK
+        assert (
+            self._put_global_access_control({"resource": "feature_flag", "access_level": "viewer"}).status_code
+            == status.HTTP_200_OK
+        )
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
         assert self.client.get("/api/projects/@current/feature_flags").status_code == status.HTTP_200_OK
@@ -193,9 +202,14 @@ class TestGlobalAccessControlsPermissions(BaseAccessControlTest):
 
     def test_access_granted_with_granted_role(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        assert self._put_rbac({"resource": "feature_flag", "access_level": "none"}).status_code == status.HTTP_200_OK
         assert (
-            self._put_rbac({"resource": "feature_flag", "access_level": "viewer", "role": self.role.id}).status_code
+            self._put_global_access_control({"resource": "feature_flag", "access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
+        assert (
+            self._put_global_access_control(
+                {"resource": "feature_flag", "access_level": "viewer", "role": self.role.id}
+            ).status_code
             == status.HTTP_200_OK
         )
         self._org_membership(OrganizationMembership.Level.MEMBER)
