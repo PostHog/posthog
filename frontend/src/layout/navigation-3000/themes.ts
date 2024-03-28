@@ -40,4 +40,20 @@ export const themes: Theme[] = [
             background: 'linear-gradient(rgba(255,255,255,0.7),rgba(255,255,255,0.7))',
         },
     },
+    {
+        id: 'livelaughhog',
+        name: 'Live, Laugh, Hog',
+        dark: false,
+        sidebarStyle: {
+            background:
+                'linear-gradient(rgba(255,255,255,0.7),rgba(255,255,255,0.7)), repeat url(https://i.imgur.com/okHCBbPl.png)',
+        },
+        mainStyle: {
+            background:
+                'linear-gradient(rgba(255,255,255,0.7),rgba(255,255,255,0.7)), repeat url(https://i.imgur.com/okHCBbPl.png)',
+        },
+        boxStyle: {
+            background: 'linear-gradient(rgba(255,255,255,0.7),rgba(255,255,255,0.7))',
+        },
+    },
 ]
