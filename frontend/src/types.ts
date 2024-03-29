@@ -1428,7 +1428,6 @@ export interface BillingProductV2AddonType {
     // sometimes addons are included with the base product, but they aren't subscribed individually
     included_with_main_product?: boolean
     inclusion_only: boolean | null
-    included_if: 'no_active_parent_subscription' | 'has_parent_subscription' | null
     contact_support: boolean | null
     unit: string | null
     unit_amount_usd: string | null
