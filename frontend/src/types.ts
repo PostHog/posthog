@@ -2884,7 +2884,7 @@ export interface TrendExperimentVariant {
     absolute_exposure: number
 }
 
-interface BaseExperimentResults {
+export interface BaseExperimentResults {
     probability: Record<string, number>
     fakeInsightId: string
     significant: boolean

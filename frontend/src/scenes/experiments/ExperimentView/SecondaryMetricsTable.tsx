@@ -12,7 +12,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { ExperimentResults, InsightShortId, InsightType } from '~/types'
+import { BaseExperimentResults, InsightShortId, InsightType } from '~/types'
 
 import { SECONDARY_METRIC_INSIGHT_ID } from '../constants'
 import { experimentLogic, TabularSecondaryMetricResults } from '../experimentLogic'
@@ -219,7 +219,7 @@ export function SecondaryMetricsTable({
 
         const targetResults = secondaryMetricResults?.[idx]
         const targetResultFilters = targetResults?.filters
-        const winningVariant = getHighestProbabilityVariant(targetResults as ExperimentResults['result'])
+        const winningVariant = getHighestProbabilityVariant(targetResults as BaseExperimentResults)
 
         if (metric.filters.insight === InsightType.TRENDS) {
             columns.push({

@@ -26,6 +26,7 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema'
 import {
     ActionFilter as ActionFilterType,
+    BaseExperimentResults,
     Breadcrumb,
     CountPerActorMathType,
     Experiment,
@@ -964,7 +965,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         getHighestProbabilityVariant: [
             () => [],
-            () => (results: ExperimentResults['result'] | null) => {
+            () => (results: BaseExperimentResults | null) => {
                 if (results) {
                     const maxValue = Math.max(...Object.values(results.probability))
                     return Object.keys(results.probability).find(
