@@ -17,21 +17,3 @@ export const transformResultFilters = (filters: Partial<FilterType>): Partial<Fi
         display: ChartDisplayType.ActionsLineGraphCumulative,
     }),
 })
-
-export function findKeyWithHighestNumber(obj: Record<string, number> | null): string | null {
-    if (!obj) {
-        return null
-    }
-
-    let highestValue = -Infinity
-    let keyWithHighestValue = null
-
-    Object.keys(obj).forEach((key) => {
-        if (obj[key] > highestValue) {
-            highestValue = obj[key]
-            keyWithHighestValue = key
-        }
-    })
-
-    return keyWithHighestValue
-}

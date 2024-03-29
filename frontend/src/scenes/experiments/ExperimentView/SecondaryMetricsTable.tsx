@@ -12,13 +12,13 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { InsightShortId, InsightType } from '~/types'
+import { ExperimentResults, InsightShortId, InsightType } from '~/types'
 
 import { SECONDARY_METRIC_INSIGHT_ID } from '../constants'
 import { experimentLogic, TabularSecondaryMetricResults } from '../experimentLogic'
 import { MetricSelector } from '../MetricSelector'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from '../secondaryMetricsLogic'
-import { findKeyWithHighestNumber, getExperimentInsightColour, transformResultFilters } from '../utils'
+import { getExperimentInsightColour, transformResultFilters } from '../utils'
 
 export function SecondaryMetricsModal({
     onMetricsChange,
@@ -161,6 +161,7 @@ export function SecondaryMetricsTable({
         exposureCountDataForVariant,
         conversionRateForVariant,
         experimentMathAggregationForTrends,
+        getHighestProbabilityVariant,
     } = useValues(experimentLogic({ experimentId }))
 
     const columns: LemonTableColumns<any> = [
@@ -218,7 +219,7 @@ export function SecondaryMetricsTable({
 
         const targetResults = secondaryMetricResults?.[idx]
         const targetResultFilters = targetResults?.filters
-        const winningVariant = findKeyWithHighestNumber(targetResults?.probability || null)
+        const winningVariant = getHighestProbabilityVariant(targetResults as ExperimentResults['result'])
 
         if (metric.filters.insight === InsightType.TRENDS) {
             columns.push({

@@ -14,7 +14,7 @@ export function Overview(): JSX.Element {
         getIndexForVariant,
         experimentInsightType,
         sortedConversionRates,
-        highestProbabilityVariant,
+        getHighestProbabilityVariant,
         areResultsSignificant,
     } = useValues(experimentLogic)
 
@@ -50,6 +50,7 @@ export function Overview(): JSX.Element {
             )
         }
 
+        const highestProbabilityVariant = getHighestProbabilityVariant(experimentResults)
         const index = getIndexForVariant(experimentResults, highestProbabilityVariant || '')
         if (highestProbabilityVariant && index !== null && experimentResults) {
             const { probability } = experimentResults
