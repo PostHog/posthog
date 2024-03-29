@@ -2884,7 +2884,7 @@ export interface TrendExperimentVariant {
     absolute_exposure: number
 }
 
-export interface BaseExperimentResults {
+interface BaseExperimentResults {
     probability: Record<string, number>
     fakeInsightId: string
     significant: boolean
@@ -2921,7 +2921,7 @@ export interface FunnelExperimentResults {
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
-export type SecondaryMetricResults = Partial<ExperimentResults['result']> & {
+export type SecondaryMetricResults = ExperimentResults['result'] & {
     result?: Record<string, number>
 }
 export interface SecondaryExperimentMetric {
