@@ -1427,6 +1427,7 @@ export interface BillingProductV2AddonType {
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
     included_with_main_product?: boolean
+    inclusion_only: boolean | null
     contact_support: boolean | null
     unit: string | null
     unit_amount_usd: string | null
