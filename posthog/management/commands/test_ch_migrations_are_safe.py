@@ -23,11 +23,14 @@ class Command(BaseCommand):
 
             try:
                 original_state = repo.active_branch.name
+                logger.warn(f"Original branch found: {original_state}.")
             except TypeError:
                 # This means we're in a detached HEAD state
-                was_detached = True
                 original_state = repo.head.commit.hexsha
+                was_detached = True
+                logger.warn(f"Detached HEAD state found at commit {original_state}.")
 
+            logger.warn("Checking out master branch to check for existing migrations")
             repo.git.checkout("master")
             old_migration_files = os.listdir("posthog/clickhouse/migrations")
             old_migrations = []
