@@ -11,7 +11,6 @@ from django.core.management.base import BaseCommand, CommandError
 logger = logging.getLogger(__name__)
 repo_path = os.getcwd()
 repo = Repo(repo_path)
-current_sha = repo.head.object.hexsha
 
 
 class Command(BaseCommand):
@@ -19,10 +18,26 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         def run_and_check_migration(new_migration):
+            original_state = None
+            was_detached = False
+
+            try:
+                original_state = repo.active_branch.name
+            except TypeError:
+                # This means we're in a detached HEAD state
+                was_detached = True
+                original_state = repo.head.commit.hexsha
+
             repo.git.checkout("master")
             old_migration_files = os.listdir("posthog/clickhouse/migrations")
             old_migrations = []
-            repo.git.checkout(current_sha)
+
+            if was_detached:
+                repo.git.checkout(original_state)
+                logger.warn(f"Returned to the original detached HEAD state at commit {original_state}.")
+            else:
+                repo.git.checkout(original_state)
+                logger.warn(f"Returned to the original branch: {original_state}.")
 
             for migration in old_migration_files:
                 match = re.findall(r"([0-9]+)_([a-zA-Z_0-9]+)\.py", migration)
