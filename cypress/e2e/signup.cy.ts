@@ -66,7 +66,7 @@ describe('Signup', () => {
         cy.location('pathname').should('match', /\/verify_email\/[a-zA-Z0-9_.-]*/)
     })
 
-    it.only('Can submit the signup form multiple times if there is a generic email set', () => {
+    it('Can submit the signup form multiple times if there is a generic email set', () => {
         cy.intercept('POST', '/api/signup/').as('signupRequest')
 
         // Create initial account
