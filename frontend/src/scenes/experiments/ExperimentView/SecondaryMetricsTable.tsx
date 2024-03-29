@@ -1,25 +1,24 @@
 import '../Experiment.scss'
 
 import { IconPencil, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
-import { InsightType } from '~/types'
+import { NodeKind } from '~/queries/schema'
+import { InsightShortId, InsightType } from '~/types'
 
 import { SECONDARY_METRIC_INSIGHT_ID } from '../constants'
 import { experimentLogic, TabularSecondaryMetricResults } from '../experimentLogic'
-import { ExperimentInsightCreator, MetricSelector } from '../MetricSelector'
+import { MetricSelector } from '../MetricSelector'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from '../secondaryMetricsLogic'
-import { findKeyWithHighestNumber, getExperimentInsightColour } from '../utils'
+import { findKeyWithHighestNumber, getExperimentInsightColour, transformResultFilters } from '../utils'
 
 export function SecondaryMetricsModal({
     onMetricsChange,
@@ -31,19 +30,15 @@ export function SecondaryMetricsModal({
     const {
         secondaryMetricModal,
         isModalOpen,
-        isModalReadOnly,
+        showResults,
         isSecondaryMetricModalSubmitting,
         existingModalSecondaryMetric,
         metricIdx,
     } = useValues(logic)
 
     const { deleteMetric, closeModal, saveSecondaryMetric, setPreviewInsight } = useActions(logic)
-
-    const { isExperimentRunning } = useValues(experimentLogic({ experimentId }))
-
-    const insightLogicInstance = insightLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID, syncWithUrl: false })
-    const { insightProps } = useValues(insightLogicInstance)
-    const { query } = useValues(insightDataLogic(insightProps))
+    const { secondaryMetricResults, isExperimentRunning } = useValues(experimentLogic({ experimentId }))
+    const targetResults = secondaryMetricResults && secondaryMetricResults[metricIdx]
 
     return (
         <LemonModal
@@ -51,14 +46,14 @@ export function SecondaryMetricsModal({
             onClose={closeModal}
             width={1000}
             title={
-                isModalReadOnly
+                showResults
                     ? secondaryMetricModal.name
                     : existingModalSecondaryMetric
                     ? 'Edit secondary metric'
                     : 'New secondary metric'
             }
             footer={
-                isModalReadOnly ? (
+                showResults ? (
                     <LemonButton form="secondary-metric-modal-form" type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
@@ -93,18 +88,31 @@ export function SecondaryMetricsModal({
                 )
             }
         >
-            {isModalReadOnly ? (
+            {showResults && targetResults ? (
                 <div>
-                    <ExperimentInsightCreator insightProps={insightProps} />
-                    {isExperimentRunning && (
-                        <LemonBanner type="info" className="mt-3 mb-3">
-                            Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can
-                            cause a mismatch between the preview and the actual results.
-                        </LemonBanner>
-                    )}
-                    <BindLogic logic={insightLogic} props={insightProps}>
-                        <Query query={query} context={{ insightProps }} readOnly />
-                    </BindLogic>
+                    <Query
+                        query={{
+                            kind: NodeKind.InsightVizNode,
+                            source: filtersToQueryNode(transformResultFilters(targetResults.filters ?? {})),
+                            showTable: false,
+                            showLastComputation: true,
+                            showLastComputationRefresh: false,
+                        }}
+                        context={{
+                            insightProps: {
+                                dashboardItemId: targetResults.fakeInsightId as InsightShortId,
+                                cachedInsight: {
+                                    short_id: targetResults.fakeInsightId as InsightShortId,
+                                    filters: transformResultFilters(targetResults.filters ?? {}),
+                                    result: targetResults.insight,
+                                    disable_baseline: true,
+                                    last_refresh: targetResults.last_refresh,
+                                },
+                                doNotLoad: true,
+                            },
+                        }}
+                        readOnly
+                    />
                 </div>
             ) : (
                 <Form

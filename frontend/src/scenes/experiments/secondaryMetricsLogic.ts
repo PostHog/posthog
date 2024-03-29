@@ -68,11 +68,11 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         openModalToEditSecondaryMetric: (
             metric: SecondaryExperimentMetric,
             metricIdx: number,
-            readOnly: boolean = false
+            showResults: boolean = false
         ) => ({
             metric,
             metricIdx,
-            readOnly,
+            showResults,
         }),
         saveSecondaryMetric: true,
         closeModal: true,
@@ -95,10 +95,10 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 closeModal: () => false,
             },
         ],
-        isModalReadOnly: [
+        showResults: [
             false,
             {
-                openModalToEditSecondaryMetric: (_, { readOnly }) => readOnly,
+                openModalToEditSecondaryMetric: (_, { showResults }) => showResults,
                 closeModal: () => false,
             },
         ],
