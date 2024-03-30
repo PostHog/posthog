@@ -46,6 +46,8 @@ class HogQLFunctionMeta:
     """Overloads allow for using a different ClickHouse function depending on the type of the first arg."""
     tz_aware: bool = False
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
+    case_sensitive: bool = True
+    """Not all ClickHouse functions are case-insensitive. See https://clickhouse.com/docs/en/sql-reference/syntax#keywords."""
 
 
 HOGQL_COMPARISON_MAPPING: Dict[str, ast.CompareOperationOp] = {
@@ -219,8 +221,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "dateSub": HogQLFunctionMeta("dateSub", 3, 3),
     "timeStampAdd": HogQLFunctionMeta("timeStampAdd", 2, 2),
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
-    "now": HogQLFunctionMeta("now64", 0, 1, tz_aware=True),
-    "NOW": HogQLFunctionMeta("now64", 0, 1, tz_aware=True),
+    "now": HogQLFunctionMeta("now64", 0, 1, tz_aware=True, case_sensitive=False),
     "nowInBlock": HogQLFunctionMeta("nowInBlock", 1, 1),
     "today": HogQLFunctionMeta("today"),
     "yesterday": HogQLFunctionMeta("yesterday"),
@@ -510,7 +511,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     # nullable
     "isNull": HogQLFunctionMeta("isNull", 1, 1),
     "isNotNull": HogQLFunctionMeta("isNotNull", 1, 1),
-    "coalesce": HogQLFunctionMeta("coalesce", 1, None),
+    "coalesce": HogQLFunctionMeta("coalesce", 1, None, case_sensitive=False),
     "ifNull": HogQLFunctionMeta("ifNull", 2, 2),
     "nullIf": HogQLFunctionMeta("nullIf", 2, 2),
     "assumeNotNull": HogQLFunctionMeta("assumeNotNull", 1, 1),
@@ -778,3 +779,19 @@ FIRST_ARG_DATETIME_FUNCTIONS = (
     "hopStart",
     "hopEnd",
 )
+
+
+def find_clickhouse_function(name: str) -> Optional[HogQLFunctionMeta]:
+    func = HOGQL_CLICKHOUSE_FUNCTIONS.get(name)
+    if func is not None:
+        return func
+
+    func = HOGQL_CLICKHOUSE_FUNCTIONS.get(name.lower())
+    if func is None:
+        return None
+    # If we haven't found a function with the case preserved, but we have found it in lowercase,
+    # then the function names are different case-wise only.
+    if func.case_sensitive:
+        return None
+
+    return func

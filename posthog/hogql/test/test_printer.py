@@ -1581,3 +1581,10 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert printed2 == printed
+
+    def test_case_insensitive_functions(self):
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(
+            self._expr("CoALESce(1)", context),
+            "coalesce(1)",
+        )

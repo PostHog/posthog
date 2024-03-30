@@ -1616,4 +1616,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
             assert node1 == node2
 
+        def test_select_coalesce(self):
+            self.assertEqual(
+                self._select("select coalesce(null, 1)"),
+            )
+
     return TestParser
