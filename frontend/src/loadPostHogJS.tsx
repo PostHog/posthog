@@ -82,7 +82,7 @@ export function loadPostHogJS(): void {
             dsn: window.SENTRY_DSN,
             environment: window.SENTRY_ENVIRONMENT,
             ...(location.host.includes('posthog.com') && {
-                integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813)],
+                integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813, undefined, '*')],
             }),
         })
     }
