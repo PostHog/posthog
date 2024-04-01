@@ -1,73 +1,62 @@
 import '../Experiment.scss'
 
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 import { InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { VariantTag } from './components'
 
 export function Overview(): JSX.Element {
     const {
         experimentResults,
         getIndexForVariant,
         experimentInsightType,
-        sortedConversionRates,
         getHighestProbabilityVariant,
         areResultsSignificant,
+        conversionRateForVariant,
     } = useValues(experimentLogic)
 
     function WinningVariantText(): JSX.Element {
+        const winningVariant = getHighestProbabilityVariant(experimentResults)
+
         if (experimentInsightType === InsightType.FUNNELS) {
-            const winningVariant = sortedConversionRates[0]
-            const secondBestVariant = sortedConversionRates[1]
-            const difference = winningVariant.conversionRate - secondBestVariant.conversionRate
+            const winningConversionRate = conversionRateForVariant(experimentResults, winningVariant || '')
+            const controlConversionRate = conversionRateForVariant(experimentResults, 'control')
+            const difference = parseFloat(winningConversionRate) - parseFloat(controlConversionRate)
+
+            if (difference === 0) {
+                return (
+                    <span>
+                        <b>No variant is winning</b> at this moment.&nbsp;
+                    </span>
+                )
+            }
 
             return (
-                <div className="items-center inline-flex">
-                    <div
-                        className="w-2 h-2 rounded-full mr-1"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ backgroundColor: getSeriesColor(winningVariant.index + 1) }}
-                    />
-                    <span className="font-semibold">{capitalizeFirstLetter(winningVariant.key)}</span>
+                <div className="items-center inline-flex flex-wrap">
+                    <VariantTag variantKey={winningVariant || ''} />
                     <span>&nbsp;is winning with a conversion rate&nbsp;</span>
                     <span className="font-semibold text-success items-center">
                         increase of {`${difference.toFixed(2)}%`}
                     </span>
                     <span>&nbsp;percentage points (vs&nbsp;</span>
-                    <div
-                        className="w-2 h-2 rounded-full mr-1"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            backgroundColor: getSeriesColor(secondBestVariant.index + 1),
-                        }}
-                    />
-                    <span className="font-semibold">{capitalizeFirstLetter(secondBestVariant.key)}</span>
+                    <VariantTag variantKey="control" />
                     <span>).&nbsp;</span>
                 </div>
             )
         }
 
-        const highestProbabilityVariant = getHighestProbabilityVariant(experimentResults)
-        const index = getIndexForVariant(experimentResults, highestProbabilityVariant || '')
-        if (highestProbabilityVariant && index !== null && experimentResults) {
+        const index = getIndexForVariant(experimentResults, winningVariant || '')
+        if (winningVariant && index !== null && experimentResults) {
             const { probability } = experimentResults
 
             return (
-                <div className="items-center inline-flex">
-                    <div
-                        className="w-2 h-2 rounded-full mr-1"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            backgroundColor: getSeriesColor(index + 2),
-                        }}
-                    />
-                    <span className="font-semibold">{capitalizeFirstLetter(highestProbabilityVariant)}</span>
+                <div className="items-center inline-flex flex-wrap">
+                    <VariantTag variantKey={winningVariant} />
                     <span>&nbsp;is winning with a&nbsp;</span>
                     <span className="font-semibold text-success items-center">
-                        {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
+                        {`${(probability[winningVariant] * 100).toFixed(2)}% probability`}&nbsp;
                     </span>
                     <span>of being best.&nbsp;</span>
                 </div>
@@ -79,17 +68,17 @@ export function Overview(): JSX.Element {
 
     function SignificanceText(): JSX.Element {
         return (
-            <>
+            <div className="flex-wrap">
                 <span>Your results are&nbsp;</span>
                 <span className="font-semibold">{`${areResultsSignificant ? 'significant' : 'not significant'}`}.</span>
-            </>
+            </div>
         )
     }
 
     return (
         <div>
             <h2 className="font-semibold text-lg">Summary</h2>
-            <div className="items-center inline-flex">
+            <div className="items-center inline-flex flex-wrap">
                 <WinningVariantText />
                 <SignificanceText />
             </div>

@@ -9,16 +9,13 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
-import { InsightShortId, InsightType } from '~/types'
+import { InsightType } from '~/types'
 
 import { SECONDARY_METRIC_INSIGHT_ID } from '../constants'
 import { experimentLogic, TabularSecondaryMetricResults } from '../experimentLogic'
 import { MetricSelector } from '../MetricSelector'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from '../secondaryMetricsLogic'
-import { getExperimentInsightColour, transformResultFilters } from '../utils'
+import { ResultsQuery, VariantTag } from './components'
 
 export function SecondaryMetricsModal({
     onMetricsChange,
@@ -90,29 +87,7 @@ export function SecondaryMetricsModal({
         >
             {showResults && targetResults ? (
                 <div>
-                    <Query
-                        query={{
-                            kind: NodeKind.InsightVizNode,
-                            source: filtersToQueryNode(transformResultFilters(targetResults.filters ?? {})),
-                            showTable: false,
-                            showLastComputation: true,
-                            showLastComputationRefresh: false,
-                        }}
-                        context={{
-                            insightProps: {
-                                dashboardItemId: targetResults.fakeInsightId as InsightShortId,
-                                cachedInsight: {
-                                    short_id: targetResults.fakeInsightId as InsightShortId,
-                                    filters: transformResultFilters(targetResults.filters ?? {}),
-                                    result: targetResults.insight,
-                                    disable_baseline: true,
-                                    last_refresh: targetResults.last_refresh,
-                                },
-                                doNotLoad: true,
-                            },
-                        }}
-                        readOnly
-                    />
+                    <ResultsQuery targetResults={targetResults} showTable={false} />
                 </div>
             ) : (
                 <Form
@@ -152,9 +127,7 @@ export function SecondaryMetricsTable({
     const {
         secondaryMetricResultsLoading,
         isExperimentRunning,
-        getIndexForVariant,
         experiment,
-        experimentResults,
         secondaryMetricResults,
         tabularSecondaryMetricResults,
         countDataForVariant,
@@ -172,16 +145,7 @@ export function SecondaryMetricsTable({
                     render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                         return (
                             <div className="flex items-center py-2">
-                                <div
-                                    className="w-2 h-2 rounded-full mr-2"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        backgroundColor: getExperimentInsightColour(
-                                            getIndexForVariant(experimentResults, item.variant)
-                                        ),
-                                    }}
-                                />
-                                <span className="font-semibold">{capitalizeFirstLetter(item.variant)}</span>
+                                <VariantTag variantKey={item.variant} />
                             </div>
                         )
                     },

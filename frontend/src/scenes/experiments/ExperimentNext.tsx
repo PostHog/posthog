@@ -6,11 +6,15 @@ import { useActions, useValues } from 'kea'
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic } from './experimentLogic'
-import { ExperimentLoader, ExperimentLoadingAnimation, PageHeaderCustom } from './ExperimentView/components'
+import {
+    ExperimentLoader,
+    ExperimentLoadingAnimation,
+    NoResultsEmptyState,
+    PageHeaderCustom,
+} from './ExperimentView/components'
 import { DistributionTable } from './ExperimentView/DistributionTable'
 import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './ExperimentView/Goal'
 import { Info } from './ExperimentView/Info'
-import { NoResultsEmptyState } from './ExperimentView/NoResultsEmptyState'
 import { Overview } from './ExperimentView/Overview'
 import { ProgressBar } from './ExperimentView/ProgressBar'
 import { ReleaseConditionsTable } from './ExperimentView/ReleaseConditionsTable'
@@ -36,14 +40,16 @@ export function ExperimentView(): JSX.Element {
                             <ExperimentLoadingAnimation />
                         ) : experimentResults && experimentResults.insight ? (
                             <>
-                                <Overview />
-                                <LemonDivider />
-                                <div className="flex">
-                                    <div className="w-1/2">
+                                <div>
+                                    <Overview />
+                                    <LemonDivider className="mt-4" />
+                                </div>
+                                <div className="xl:flex">
+                                    <div className="w-1/2 pr-2">
                                         <Goal />
                                     </div>
 
-                                    <div className="w-1/2 flex flex-col">
+                                    <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
                                         <ProgressBar />
                                     </div>
                                 </div>
