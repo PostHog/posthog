@@ -17,6 +17,7 @@ import {
     pipelineStepMsSummary,
     pipelineStepThrowCounter,
 } from './metrics'
+import { normalizeEventStep } from './normalizeEventStep'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
@@ -118,13 +119,21 @@ export class EventPipelineRunner {
             this.poEEmbraceJoin = true
         }
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
-
         if (processedEvent == null) {
+            // A plugin dropped the event.
             return this.registerLastStep('pluginsProcessEventStep', [event])
         }
-        const [normalizedEvent, person] = await this.runStep(processPersonsStep, [this, processedEvent], event.team_id)
 
-        const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent], event.team_id)
+        // Normalizing is sync and doesn't need to run in a full `runStep` span for tracking.
+        const [normalizedEvent, timestamp] = normalizeEventStep(processedEvent)
+
+        const [postPersonEvent, person] = await this.runStep(
+            processPersonsStep,
+            [this, normalizedEvent, timestamp],
+            event.team_id
+        )
+
+        const preparedEvent = await this.runStep(prepareEventStep, [this, postPersonEvent], event.team_id)
 
         const [rawClickhouseEvent, eventAck] = await this.runStep(
             createEventStep,
