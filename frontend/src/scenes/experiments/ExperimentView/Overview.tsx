@@ -12,20 +12,18 @@ export function Overview(): JSX.Element {
         experimentResults,
         getIndexForVariant,
         experimentInsightType,
+        sortedConversionRates,
         getHighestProbabilityVariant,
         areResultsSignificant,
-        conversionRateForVariant,
     } = useValues(experimentLogic)
 
     function WinningVariantText(): JSX.Element {
-        const winningVariant = getHighestProbabilityVariant(experimentResults)
-
         if (experimentInsightType === InsightType.FUNNELS) {
-            const winningConversionRate = conversionRateForVariant(experimentResults, winningVariant || '')
-            const controlConversionRate = conversionRateForVariant(experimentResults, 'control')
-            const difference = parseFloat(winningConversionRate) - parseFloat(controlConversionRate)
+            const winningVariant = sortedConversionRates[0]
+            const secondBestVariant = sortedConversionRates[1]
+            const difference = winningVariant.conversionRate - secondBestVariant.conversionRate
 
-            if (difference === 0) {
+            if (winningVariant.conversionRate === secondBestVariant.conversionRate) {
                 return (
                     <span>
                         <b>No variant is winning</b> at this moment.&nbsp;
@@ -35,28 +33,29 @@ export function Overview(): JSX.Element {
 
             return (
                 <div className="items-center inline-flex flex-wrap">
-                    <VariantTag variantKey={winningVariant || ''} />
+                    <VariantTag variantKey={winningVariant.key} />
                     <span>&nbsp;is winning with a conversion rate&nbsp;</span>
                     <span className="font-semibold text-success items-center">
                         increase of {`${difference.toFixed(2)}%`}
                     </span>
                     <span>&nbsp;percentage points (vs&nbsp;</span>
-                    <VariantTag variantKey="control" />
+                    <VariantTag variantKey={secondBestVariant.key} />
                     <span>).&nbsp;</span>
                 </div>
             )
         }
 
-        const index = getIndexForVariant(experimentResults, winningVariant || '')
-        if (winningVariant && index !== null && experimentResults) {
+        const highestProbabilityVariant = getHighestProbabilityVariant(experimentResults)
+        const index = getIndexForVariant(experimentResults, highestProbabilityVariant || '')
+        if (highestProbabilityVariant && index !== null && experimentResults) {
             const { probability } = experimentResults
 
             return (
                 <div className="items-center inline-flex flex-wrap">
-                    <VariantTag variantKey={winningVariant} />
+                    <VariantTag variantKey={highestProbabilityVariant} />
                     <span>&nbsp;is winning with a&nbsp;</span>
                     <span className="font-semibold text-success items-center">
-                        {`${(probability[winningVariant] * 100).toFixed(2)}% probability`}&nbsp;
+                        {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
                     </span>
                     <span>of being best.&nbsp;</span>
                 </div>
