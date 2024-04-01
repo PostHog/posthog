@@ -100,7 +100,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr^="breadcrumb-Dashboard:"]').should('have.text', TEST_DASHBOARD_NAME + 'UnnamedCancelSave')
     })
 
-    const assertVariableConfigurationScreenIsShown = (): void => {
+    const assertVariablesConfigurationScreenIsShown = (): void => {
         cy.get('[data-attr="new-dashboard-chooser"]').contains('Unique variable name').should('exist')
     }
 
@@ -126,12 +126,12 @@ describe('Dashboard', () => {
 
         cy.get('[data-attr="new-dashboard"]').click()
         cy.get('[data-attr="create-dashboard-from-template"]').click()
-        assertVariableConfigurationScreenIsShown()
+        assertVariablesConfigurationScreenIsShown()
 
         cy.contains('.LemonButton', 'Back').click()
 
         cy.get('[data-attr="create-dashboard-from-template"]').click()
-        assertVariableConfigurationScreenIsShown()
+        assertVariablesConfigurationScreenIsShown()
     })
 
     it('Click on a dashboard item dropdown and view graph', () => {
