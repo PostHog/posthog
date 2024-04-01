@@ -95,7 +95,7 @@ describe('PersonState.update()', () => {
         await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
 
-    function personState(event: Partial<PluginEvent>, customHub?: Hub, maxMergeAttempts?: number) {
+    function personState(event: Partial<PluginEvent>, customHub?: Hub) {
         const fullEvent = {
             team_id: teamId,
             properties: {},
@@ -109,8 +109,7 @@ describe('PersonState.update()', () => {
             timestamp,
             customHub ? customHub.db : hub.db,
             overridesMode?.getWriter(customHub ?? hub),
-            uuid,
-            maxMergeAttempts ?? 3 // the default
+            uuid
         )
     }
 
@@ -1907,8 +1906,7 @@ describe('PersonState.update()', () => {
                                 alias: 'second',
                             },
                         },
-                        hub,
-                        0
+                        hub
                     ).handleIdentifyOrAlias(),
                     personState(
                         {
@@ -1918,8 +1916,7 @@ describe('PersonState.update()', () => {
                                 alias: 'third',
                             },
                         },
-                        hub,
-                        0
+                        hub
                     ).handleIdentifyOrAlias(),
                 ])
 
@@ -1934,8 +1931,7 @@ describe('PersonState.update()', () => {
                                 alias: 'second',
                             },
                         },
-                        hub,
-                        0
+                        hub
                     ).handleIdentifyOrAlias(),
                     personState(
                         {
@@ -1945,8 +1941,7 @@ describe('PersonState.update()', () => {
                                 alias: 'third',
                             },
                         },
-                        hub,
-                        0
+                        hub
                     ).handleIdentifyOrAlias(),
                 ])
 
@@ -2026,8 +2021,7 @@ describe('PersonState.update()', () => {
                             alias: 'third',
                         },
                     },
-                    hub,
-                    0
+                    hub
                 ).handleIdentifyOrAlias()
 
                 await personState(
@@ -2038,8 +2032,7 @@ describe('PersonState.update()', () => {
                             alias: 'second',
                         },
                     },
-                    hub,
-                    0
+                    hub
                 ).handleIdentifyOrAlias()
 
                 // verify Postgres persons
