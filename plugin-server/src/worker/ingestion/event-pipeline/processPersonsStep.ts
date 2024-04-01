@@ -8,7 +8,8 @@ import { EventPipelineRunner } from './runner'
 export async function processPersonsStep(
     runner: EventPipelineRunner,
     event: PluginEvent,
-    timestamp: DateTime
+    timestamp: DateTime,
+    processPerson: boolean
 ): Promise<[PluginEvent, Person]> {
     let overridesWriter: DeferredPersonOverrideWriter | undefined = undefined
     if (runner.poEEmbraceJoin) {
@@ -20,6 +21,7 @@ export async function processPersonsStep(
         event.team_id,
         String(event.distinct_id),
         timestamp,
+        processPerson,
         runner.hub.db,
         overridesWriter
     ).update()

@@ -52,7 +52,8 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
     })
 
     it('creates person', async () => {
-        const [resEvent, resPerson] = await processPersonsStep(runner, pluginEvent, timestamp)
+        const processPerson = true
+        const [resEvent, resPerson] = await processPersonsStep(runner, pluginEvent, timestamp, processPerson)
 
         expect(resEvent).toEqual(pluginEvent)
         expect(resPerson).toEqual(
@@ -82,8 +83,9 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
             },
         }
 
-        const [normalizedEvent, timestamp] = normalizeEventStep(event)
-        const [resEvent, resPerson] = await processPersonsStep(runner, normalizedEvent, timestamp)
+        const processPerson = true
+        const [normalizedEvent, timestamp] = await normalizeEventStep(event, processPerson)
+        const [resEvent, resPerson] = await processPersonsStep(runner, normalizedEvent, timestamp, processPerson)
 
         expect(resEvent).toEqual({
             ...event,

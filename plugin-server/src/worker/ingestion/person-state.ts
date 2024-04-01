@@ -90,6 +90,7 @@ export class PersonState {
         private teamId: number,
         private distinctId: string,
         private timestamp: DateTime,
+        private processPerson: boolean, // $process_person flag from the event
         private db: DB,
         private personOverrideWriter?: DeferredPersonOverrideWriter,
         uuid: UUIDT | undefined = undefined
@@ -103,6 +104,21 @@ export class PersonState {
     }
 
     async update(): Promise<Person> {
+        if (!this.processPerson) {
+            // We don't need to handle any properties for `processPerson=false` events, so we can
+            // short circuit by just finding or creating a person and returning early.
+            //
+            // In the future, we won't even get or create a real Person for these events, and so
+            // the `processPerson` boolean can be removed from this class altogether, as this class
+            // shouldn't even need to be invoked.
+            const [person, _] = await this.createOrGetPerson()
+
+            // Ensure person properties don't propagate elsewhere, such as onto the event itself.
+            person.properties = {}
+
+            return person
+        }
+
         const person: Person | undefined = await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
         if (person) {
             // try to shortcut if we have the person from identify or alias
@@ -141,8 +157,13 @@ export class PersonState {
             return [person, false]
         }
 
-        const properties = this.eventProperties['$set'] || {}
-        const propertiesOnce = this.eventProperties['$set_once'] || {}
+        let properties = {}
+        let propertiesOnce = {}
+        if (this.processPerson) {
+            properties = this.eventProperties['$set']
+            propertiesOnce = this.eventProperties['$set_once']
+        }
+
         person = await this.createPerson(
             this.timestamp,
             properties || {},
