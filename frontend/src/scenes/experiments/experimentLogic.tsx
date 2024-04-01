@@ -970,26 +970,27 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
         ],
-        highestProbabilityVariant: [
-            (s) => [s.experimentResults],
-            (experimentResults: ExperimentResults['result']) => {
-                if (experimentResults) {
-                    const maxValue = Math.max(...Object.values(experimentResults.probability))
-                    return Object.keys(experimentResults.probability).find(
-                        (key) => Math.abs(experimentResults.probability[key] - maxValue) < Number.EPSILON
+        getHighestProbabilityVariant: [
+            () => [],
+            () => (results: ExperimentResults['result'] | null) => {
+                if (results && results.probability) {
+                    const maxValue = Math.max(...Object.values(results.probability))
+                    return Object.keys(results.probability).find(
+                        (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
                     )
                 }
             },
         ],
         areTrendResultsConfusing: [
-            (s) => [s.experimentResults, s.highestProbabilityVariant],
-            (experimentResults, highestProbabilityVariant): boolean => {
+            (s) => [s.experimentResults, s.getHighestProbabilityVariant],
+            (experimentResults, getHighestProbabilityVariant): boolean => {
                 // Results are confusing when the top variant has a lower
                 // absolute count than other variants. This happens because
                 // exposure is invisible to the user
                 if (!experimentResults) {
                     return false
                 }
+
                 // find variant with highest count
                 const variantResults: TrendResult = (experimentResults?.insight as TrendResult[]).reduce(
                     (bestVariant, currentVariant) =>
@@ -1000,7 +1001,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
 
-                return variantResults.breakdown_value !== highestProbabilityVariant
+                return variantResults.breakdown_value !== getHighestProbabilityVariant(experimentResults)
             },
         ],
         sortedExperimentResultVariants: [

@@ -2922,7 +2922,7 @@ export interface FunnelExperimentResults {
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
-export type SecondaryMetricResults = Partial<ExperimentResults['result']> & {
+export type SecondaryMetricResults = ExperimentResults['result'] & {
     result?: Record<string, number>
 }
 export interface SecondaryExperimentMetric {

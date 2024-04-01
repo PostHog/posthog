@@ -2,13 +2,12 @@ import '../Experiment.scss'
 
 import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { VariantTag } from './components'
 
 export function DistributionTable(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
@@ -18,17 +17,8 @@ export function DistributionTable(): JSX.Element {
             className: 'w-1/3',
             key: 'key',
             title: 'Variant',
-            render: function Key(_, item, index): JSX.Element {
-                return (
-                    <div className="flex items-center">
-                        <div
-                            className="w-2 h-2 rounded-full mr-2"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ backgroundColor: getSeriesColor(index + 1) }}
-                        />
-                        <span className="font-semibold">{capitalizeFirstLetter(item.key)}</span>
-                    </div>
-                )
+            render: function Key(_, item): JSX.Element {
+                return <VariantTag variantKey={item.key} />
             },
         },
         {
