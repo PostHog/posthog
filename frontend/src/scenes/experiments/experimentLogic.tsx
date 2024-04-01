@@ -24,6 +24,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema'
+import { isFunnelsQuery } from '~/queries/utils'
 import {
     ActionFilter as ActionFilterType,
     Breadcrumb,
@@ -352,17 +353,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
             const aggregationGroupTypeIndex = values.experiment.parameters?.aggregation_group_type_index
-            if (filters?.insight === InsightType.FUNNELS) {
-                newInsightFilters = cleanFilters({
-                    insight: InsightType.FUNNELS,
-                    funnel_viz_type: FunnelVizType.Steps,
-                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    layout: FunnelLayout.horizontal,
-                    aggregation_group_type_index: aggregationGroupTypeIndex,
-                    ...filters,
-                })
-            } else {
+            if (filters?.insight === InsightType.TRENDS) {
                 const groupAggregation =
                     aggregationGroupTypeIndex !== undefined
                         ? { math: 'unique_group', math_group_type_index: aggregationGroupTypeIndex }
@@ -378,6 +369,16 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...eventAddition,
                     ...filters,
                 })
+            } else {
+                newInsightFilters = cleanFilters({
+                    insight: InsightType.FUNNELS,
+                    funnel_viz_type: FunnelVizType.Steps,
+                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    layout: FunnelLayout.horizontal,
+                    aggregation_group_type_index: aggregationGroupTypeIndex,
+                    ...filters,
+                })
             }
 
             // This allows switching between insight types. It's necessary as `updateQuerySource` merges
@@ -388,6 +389,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 ;(newQuery as TrendsQuery).trendsFilter = undefined
             } else {
                 ;(newQuery as FunnelsQuery).funnelsFilter = undefined
+            }
+
+            // TRICKY: We always know what the group type index should be for funnel queries, so we don't care
+            // what the previous value was. Hence, instead of a partial update with `updateQuerySource`, we always
+            // explicitly set it to what it should be
+            if (isFunnelsQuery(newQuery)) {
+                newQuery.aggregation_group_type_index = aggregationGroupTypeIndex
             }
             actions.updateQuerySource(newQuery)
         },
@@ -670,7 +678,7 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentInsightType: [
             (s) => [s.experiment],
             (experiment): InsightType => {
-                return experiment?.filters?.insight || InsightType.TRENDS
+                return experiment?.filters?.insight || InsightType.FUNNELS
             },
         ],
         isExperimentRunning: [

@@ -499,9 +499,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         return ast.Alias(expr=expr, alias=alias)
 
-    def visitColumnExprExtract(self, ctx: HogQLParser.ColumnExprExtractContext):
-        raise NotImplementedException(f"Unsupported node: ColumnExprExtract")
-
     def visitColumnExprNegate(self, ctx: HogQLParser.ColumnExprNegateContext):
         return ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Sub,
@@ -641,7 +638,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         )
 
     def visitColumnExprTrim(self, ctx: HogQLParser.ColumnExprTrimContext):
-        raise NotImplementedException(f"Unsupported node: ColumnExprTrim")
+        args = [self.visit(ctx.columnExpr()), ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL()))]
+        if ctx.LEADING():
+            return ast.Call(name="trimLeft", args=args)
+        if ctx.TRAILING():
+            return ast.Call(name="trimRight", args=args)
+        if ctx.BOTH():
+            return ast.Call(name="trim", args=args)
+        raise NotImplementedException(f"Unsupported modifier for ColumnExprTrim, must be LEADING, TRAILING or BOTH")
 
     def visitColumnExprTuple(self, ctx: HogQLParser.ColumnExprTupleContext):
         return ast.Tuple(exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [])

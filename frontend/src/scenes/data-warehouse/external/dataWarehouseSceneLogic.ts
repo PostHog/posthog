@@ -8,7 +8,13 @@ import { userLogic } from 'scenes/userLogic'
 import { DataWarehouseTable } from '~/types'
 
 import { dataWarehouseSavedQueriesLogic } from '../saved_queries/dataWarehouseSavedQueriesLogic'
-import { DatabaseTableListRow, DataWarehouseRowType, DataWarehouseSceneTab, DataWarehouseTableType } from '../types'
+import {
+    DatabaseTableListRow,
+    DataWarehouseExternalTableType,
+    DataWarehouseRowType,
+    DataWarehouseSceneTab,
+    DataWarehouseTableType,
+} from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
@@ -18,9 +24,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             userLogic,
             ['user'],
             databaseTableListLogic,
-            ['filteredTables', 'dataWarehouse'],
+            ['filteredTables', 'dataWarehouse', 'dataWarehouseLoading'],
             dataWarehouseSavedQueriesLogic,
-            ['savedQueries'],
+            ['savedQueries', 'dataWarehouseSavedQueriesLoading'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -130,6 +136,26 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.externalTables, s.posthogTables, s.savedQueriesFormatted],
             (externalTables, posthogTables, savedQueriesFormatted): DataWarehouseTableType[] => {
                 return [...externalTables, ...posthogTables, ...savedQueriesFormatted]
+            },
+        ],
+        externalTablesBySourceType: [
+            (s) => [s.externalTables],
+            (externalTables): Record<string, DataWarehouseTableType[]> => {
+                return externalTables.reduce((acc: Record<string, DataWarehouseTableType[]>, table) => {
+                    table = table as DataWarehouseExternalTableType
+                    if (table.payload.external_data_source) {
+                        if (!acc[table.payload.external_data_source.source_type]) {
+                            acc[table.payload.external_data_source.source_type] = []
+                        }
+                        acc[table.payload.external_data_source.source_type].push(table)
+                    } else {
+                        if (!acc['S3']) {
+                            acc['S3'] = []
+                        }
+                        acc['S3'].push(table)
+                    }
+                    return acc
+                }, {})
             },
         ],
     }),
