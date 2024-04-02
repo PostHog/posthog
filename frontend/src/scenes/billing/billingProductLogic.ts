@@ -13,10 +13,6 @@ import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
 
-export interface billingLimitInputForm {
-    input: number | undefined
-}
-
 export interface BillingProductLogicProps {
     product: BillingProductV2Type | BillingProductV2AddonType
     productRef?: React.MutableRefObject<HTMLDivElement | null>
@@ -59,12 +55,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
     }),
     reducers({
         billingLimitInput: [
-            { input: DEFAULT_BILLING_LIMIT } as billingLimitInputForm,
+            { input: DEFAULT_BILLING_LIMIT },
             {
                 setBillingLimitInput: (_, { billingLimitInput }) => {
                     return {
                         input: billingLimitInput,
-                    } as billingLimitInputForm
+                    }
                 },
             },
         ],
