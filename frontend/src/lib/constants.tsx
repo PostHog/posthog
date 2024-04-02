@@ -179,7 +179,6 @@ export const FEATURE_FLAGS = {
     HOGQL_INSIGHTS_FUNNELS: 'hogql-insights-funnels', // owner: @thmsobrmlr
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
     BI_VIZ: 'bi_viz', // owner: @Gilbert09
-    HOGQL_AUTOCOMPLETE: 'hogql-autocomplete', // owner: @Gilbert09
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
