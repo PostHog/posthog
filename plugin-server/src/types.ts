@@ -207,6 +207,7 @@ export interface PluginsServerConfig {
     RUSTY_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
+    CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -868,7 +869,6 @@ export interface EventPropertyFilter extends PropertyFilterWithOperator {
 /** Sync with posthog/frontend/src/types.ts */
 export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
-    table?: string
 }
 
 /** Sync with posthog/frontend/src/types.ts */

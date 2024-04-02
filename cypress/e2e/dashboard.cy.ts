@@ -112,8 +112,8 @@ describe('Dashboard', () => {
         cy.get('.InsightCard [data-attr=more-button]').first().click()
         cy.get('button').contains('Rename').click()
 
-        cy.get('[data-attr=modal-prompt]').clear().type('Test Name')
-        cy.contains('OK').click()
+        cy.get('[data-attr=insight-name]').clear().type('Test Name')
+        cy.contains('Submit').click()
         cy.contains('Test Name').should('exist')
     })
 

@@ -18,7 +18,14 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.funnels import ClickhouseFunnelActors
-from posthog.schema import ActorsQuery, EventsNode, FunnelsActorsQuery, FunnelsQuery
+from posthog.schema import (
+    ActorsQuery,
+    BreakdownFilter,
+    DateRange,
+    EventsNode,
+    FunnelsActorsQuery,
+    FunnelsQuery,
+)
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -3575,6 +3582,72 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[1]["count"], 1)
             self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
             self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
+
+        def test_parses_breakdowns_correctly(self):
+            _create_person(
+                distinct_ids=[f"user_1"],
+                team=self.team,
+            )
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 46),
+                        "properties": {"utm_medium": "test''123"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2024, 3, 22, 13, 47),
+                        "properties": {"utm_medium": "test''123"},
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+                dateRange=DateRange(
+                    date_from="2024-03-22",
+                    date_to="2024-03-22",
+                ),
+                breakdownFilter=BreakdownFilter(breakdown="utm_medium"),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0][1]["breakdown_value"], ["test'123"])
+            self.assertEqual(results[0][1]["count"], 1)
+
+        def test_funnel_parses_event_names_correctly(self):
+            _create_person(
+                distinct_ids=[f"user_1"],
+                team=self.team,
+            )
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "test''1",
+                        "timestamp": datetime(2024, 3, 22, 13, 46),
+                    },
+                    {
+                        "event": "test''2",
+                        "timestamp": datetime(2024, 3, 22, 13, 47),
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[EventsNode(event="test'1"), EventsNode()],
+                dateRange=DateRange(
+                    date_from="2024-03-22",
+                    date_to="2024-03-22",
+                ),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0]["count"], 1)
 
     return TestGetFunnel
 

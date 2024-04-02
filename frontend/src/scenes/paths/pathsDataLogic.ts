@@ -111,7 +111,8 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         ],
         hogQLInsightsPathsFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS],
+            (featureFlags) =>
+                !!(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS]),
         ],
     }),
 

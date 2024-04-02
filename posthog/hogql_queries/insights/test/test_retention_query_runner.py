@@ -1,3 +1,5 @@
+from typing import Optional
+from unittest.mock import MagicMock, patch
 import uuid
 from datetime import datetime
 
@@ -6,11 +8,14 @@ from zoneinfo import ZoneInfo
 from django.test import override_settings
 from rest_framework import status
 
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import (
     RETENTION_FIRST_TIME,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models import Action, ActionStep
@@ -1685,10 +1690,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
-    def run_query(self, query):
+    def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = RetentionQueryRunner(team=self.team, query=query)
+        runner = RetentionQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate().model_dump()["results"]
 
     def run_actors_query(self, interval, query, select=None, actor="person"):
@@ -1920,3 +1925,10 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                 [1],
             ],
         )
+
+    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
+        self.run_query(query={}, limit_context=LimitContext.QUERY_ASYNC)
+
+        mock_sync_execute.assert_called_once()
+        self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])

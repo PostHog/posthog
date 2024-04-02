@@ -2,6 +2,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import posthog from 'posthog-js'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -58,6 +59,8 @@ export const activationLogic = kea<activationLogicType>([
             ['insights'],
             dashboardsModel,
             ['rawDashboards'],
+            reverseProxyCheckerLogic,
+            ['hasReverseProxy'],
         ],
         actions: [
             inviteLogic,
@@ -193,6 +196,7 @@ export const activationLogic = kea<activationLogicType>([
                 s.customEventsCount,
                 s.installedPlugins,
                 s.currentTeamSkippedTasks,
+                s.hasReverseProxy,
             ],
             (
                 currentTeam,
@@ -202,7 +206,8 @@ export const activationLogic = kea<activationLogicType>([
                 dashboards,
                 customEventsCount,
                 installedPlugins,
-                skippedTasks
+                skippedTasks,
+                hasReverseProxy
             ) => {
                 const tasks: ActivationTaskType[] = []
                 for (const task of Object.values(ActivationTasks)) {
@@ -286,7 +291,7 @@ export const activationLogic = kea<activationLogicType>([
                                 id: ActivationTasks.SetUpReverseProxy,
                                 name: 'Set up a reverse proxy',
                                 description: 'Send your events from your own domain to avoid tracking blockers',
-                                completed: false,
+                                completed: hasReverseProxy || false,
                                 canSkip: true,
                                 skipped: skippedTasks.includes(ActivationTasks.SetUpReverseProxy),
                                 url: 'https://posthog.com/docs/advanced/proxy',

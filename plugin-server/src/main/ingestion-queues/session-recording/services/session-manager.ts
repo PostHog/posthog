@@ -158,6 +158,11 @@ export class SessionManager {
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
+            if (this.debug) {
+                status.warn('🚽', '[session-manager] add called but we are in a destroying state', {
+                    ...this.logContext(),
+                })
+            }
             return
         }
 
@@ -200,8 +205,17 @@ export class SessionManager {
         }
 
         // NOTE: This is uncompressed size estimate but that's okay as we currently want to over-flush to see if we can shake out a bug
-        if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
+        const shouldAttemptFlush =
+            this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024
+        if (shouldAttemptFlush) {
             await this.flush('buffer_size')
+        }
+        if (this.debug) {
+            status.info('🚽', `[session-manager] added message`, {
+                ...this.logContext(),
+                metadata: message.metadata,
+                shouldAttemptFlush,
+            })
         }
     }
 

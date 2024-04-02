@@ -13,7 +13,7 @@ export function createIncomingRecordingMessage(
     // that has properties, and they have $snapshot_data
     // that will have data_items, which are the actual snapshots each individually compressed
 
-    const message: IncomingRecordingMessage = {
+    return {
         team_id: 1,
         distinct_id: 'distinct_id',
         session_id: 'session_id_1',
@@ -33,12 +33,11 @@ export function createIncomingRecordingMessage(
             lowOffset: 1,
             highOffset: 1,
             timestamp: 1,
+            rawSize: 1,
             ...partialIncomingMessage.metadata,
             ...partialMetadata,
         },
     }
-
-    return message
 }
 
 export function createKafkaMessage(
@@ -46,12 +45,13 @@ export function createKafkaMessage(
     messageOverrides: Partial<Message> = {},
     eventProperties: Record<string, any> = {}
 ): Message {
-    const message: Message = {
+    return {
         partition: 1,
         topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         offset: 0,
         timestamp: messageOverrides.timestamp ?? Date.now(),
         size: 1,
+        headers: [{ token: token.toString() }],
         ...messageOverrides,
 
         value: Buffer.from(
@@ -70,8 +70,6 @@ export function createKafkaMessage(
             })
         ),
     }
-
-    return message
 }
 
 export function createTP(partition: number, topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS) {

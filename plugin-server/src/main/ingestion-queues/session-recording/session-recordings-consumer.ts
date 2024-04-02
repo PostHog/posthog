@@ -1,5 +1,6 @@
 import { captureException } from '@sentry/node'
 import crypto from 'crypto'
+import { Redis } from 'ioredis'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
@@ -7,9 +8,11 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
+import { createKafkaProducer } from '../../../kafka/producer'
 import { PluginsServerConfig, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { createRedisPool } from '../../../utils/utils'
@@ -20,7 +23,7 @@ import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
 import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
-import { OverflowDetection } from './services/overflow-detection'
+import { OverflowManager } from './services/overflow-manager'
 import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
@@ -42,6 +45,7 @@ require('@sentry/tracing')
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
+const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
 
 const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
@@ -129,7 +133,7 @@ export class SessionRecordingIngester {
     sessionHighWaterMarker: OffsetHighWaterMarker
     persistentHighWaterMarker: OffsetHighWaterMarker
     realtimeManager: RealtimeManager
-    overflowDetection?: OverflowDetection
+    overflowDetection?: OverflowManager
     replayEventsIngester?: ReplayEventsIngester
     consoleLogsIngester?: ConsoleLogsIngester
     batchConsumer?: BatchConsumer
@@ -146,10 +150,13 @@ export class SessionRecordingIngester {
     // this allows us to output more information for that partition
     private debugPartition: number | undefined = undefined
 
+    private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
+
     constructor(
         private globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
-        private objectStorage: ObjectStorage
+        private objectStorage: ObjectStorage,
+        captureRedis: Redis | undefined
     ) {
         this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
             ? parseInt(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION)
@@ -162,11 +169,13 @@ export class SessionRecordingIngester {
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 
-        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED) {
-            this.overflowDetection = new OverflowDetection(
+        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis) {
+            this.overflowDetection = new OverflowManager(
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
-                24 * 3600 // One day
+                24 * 3600, // One day,
+                CAPTURE_OVERFLOW_REDIS_KEY,
+                captureRedis
             )
         }
 
@@ -237,8 +246,8 @@ export class SessionRecordingIngester {
          */
         this.promises.add(promise)
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        promise.finally(() => this.promises.delete(promise))
+        // we void the promise returned by finally here to avoid the need to await it
+        void promise.finally(() => this.promises.delete(promise))
 
         return promise
     }
@@ -250,10 +259,28 @@ export class SessionRecordingIngester {
 
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
+        // TODO: use this for session key too if it's safe to do so
+        const overflowKey = `${team_id}:${session_id}`
 
         const { partition, highOffset } = event.metadata
-        if (this.debugPartition === partition) {
+        const isDebug = this.debugPartition === partition
+        if (isDebug) {
             status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', { ...event.metadata })
+        }
+
+        function dropEvent(dropCause: string) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: dropCause,
+                })
+                .inc()
+            if (isDebug) {
+                status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - dropping event', {
+                    ...event.metadata,
+                    dropCause,
+                })
+            }
         }
 
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
@@ -264,29 +291,14 @@ export class SessionRecordingIngester {
                 highOffset
             )
         ) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark_partition',
-                })
-                .inc()
-
+            dropEvent('high_water_mark_partition')
             return
         }
 
         if (await this.sessionHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, highOffset)) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark',
-                })
-                .inc()
-
+            dropEvent('high_water_mark')
             return
         }
-
-        // TODO: update Redis if this triggers
-        this.overflowDetection?.observe(key, event.metadata.rawSize, event.metadata.timestamp)
 
         if (!this.sessions[key]) {
             const { partition, topic } = event.metadata
@@ -304,7 +316,10 @@ export class SessionRecordingIngester {
             )
         }
 
-        await this.sessions[key]?.add(event)
+        await Promise.allSettled([
+            this.sessions[key]?.add(event),
+            this.overflowDetection?.observe(overflowKey, event.metadata.rawSize, event.metadata.timestamp),
+        ])
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
@@ -339,11 +354,14 @@ export class SessionRecordingIngester {
 
                             counterKafkaMessageReceived.inc({ partition })
 
-                            const recordingMessage = await parseKafkaMessage(message, (token) =>
-                                this.teamsRefresher.get().then((teams) => ({
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                }))
+                            const recordingMessage = await parseKafkaMessage(
+                                message,
+                                (token) =>
+                                    this.teamsRefresher.get().then((teams) => ({
+                                        teamId: teams[token]?.teamId || null,
+                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                    })),
+                                this.sharedClusterProducerWrapper
                             )
 
                             if (recordingMessage) {
@@ -440,26 +458,34 @@ export class SessionRecordingIngester {
         await this.teamsRefresher.refresh()
 
         // NOTE: This is the only place where we need to use the shared server config
+        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
+        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
+
+        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
+            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
+        )
+        this.sharedClusterProducerWrapper.producer.connect()
+
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
-            this.consoleLogsIngester = new ConsoleLogsIngester(this.globalServerConfig, this.persistentHighWaterMarker)
-            await this.consoleLogsIngester.start()
+            this.consoleLogsIngester = new ConsoleLogsIngester(
+                this.sharedClusterProducerWrapper.producer,
+                this.persistentHighWaterMarker
+            )
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
             this.replayEventsIngester = new ReplayEventsIngester(
-                this.globalServerConfig,
+                this.sharedClusterProducerWrapper.producer,
                 this.persistentHighWaterMarker
             )
-            await this.replayEventsIngester.start()
         }
-
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
-
+        // the batch consumer reads from the session replay kafka cluster
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
         this.batchConsumer = await startBatchConsumer({
-            connectionConfig,
+            connectionConfig: replayClusterConnectionConfig,
             groupId: KAFKA_CONSUMER_GROUP_ID,
             topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             autoCommit: false,
@@ -534,14 +560,11 @@ export class SessionRecordingIngester {
         void this.scheduleWork(this.onRevokePartitions(assignedPartitions))
         void this.scheduleWork(this.realtimeManager.unsubscribe())
 
-        if (this.replayEventsIngester) {
-            void this.scheduleWork(this.replayEventsIngester.stop())
-        }
-        if (this.consoleLogsIngester) {
-            void this.scheduleWork(this.consoleLogsIngester.stop())
-        }
-
         const promiseResults = await Promise.allSettled(this.promises)
+
+        if (this.sharedClusterProducerWrapper) {
+            await this.sharedClusterProducerWrapper.disconnect()
+        }
 
         // Finally we clear up redis once we are sure everything else has been handled
         await this.redisPool.drain()

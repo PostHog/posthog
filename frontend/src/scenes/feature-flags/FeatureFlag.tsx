@@ -174,17 +174,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.USAGE,
             content: <UsageTab id={id} featureFlag={featureFlag} />,
         })
-    }
 
-    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS]) {
         tabs.push({
             label: 'Projects',
             key: FeatureFlagsTab.PROJECTS,
             content: <FeatureFlagProjects />,
         })
-    }
 
-    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
         tabs.push({
             label: 'Schedule',
             key: FeatureFlagsTab.SCHEDULE,
@@ -220,7 +216,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit) {
+    if (featureFlag.can_edit) {
         tabs.push({
             label: 'Permissions',
             key: FeatureFlagsTab.PERMISSIONS,
@@ -350,7 +346,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <ObjectTags
                                                     saving={featureFlagLoading}
                                                     tags={value}
-                                                    onChange={(_, tags) => onChange(tags)}
+                                                    onChange={(tags) => onChange(tags)}
                                                     tagsAvailable={tags.filter(
                                                         (tag) => !featureFlag.tags?.includes(tag)
                                                     )}
@@ -431,29 +427,27 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                             <FeatureFlagAutoRollback />
                                         )}
-                                        {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                                            <div className="border rounded bg-bg-light">
-                                                <h3 className="p-2 mb-0">Permissions</h3>
-                                                <LemonDivider className="my-0" />
-                                                <div className="p-3">
-                                                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                                        <ResourcePermission
-                                                            resourceType={Resource.FEATURE_FLAGS}
-                                                            onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                                            rolesToAdd={rolesToAdd}
-                                                            addableRoles={addableRoles}
-                                                            addableRolesLoading={unfilteredAddableRolesLoading}
-                                                            onAdd={() => addAssociatedRoles()}
-                                                            roles={derivedRoles}
-                                                            deleteAssociatedRole={(id) =>
-                                                                deleteAssociatedRole({ roleId: id })
-                                                            }
-                                                            canEdit={featureFlag.can_edit}
-                                                        />
-                                                    </PayGateMini>
-                                                </div>
+                                        <div className="border rounded bg-bg-light">
+                                            <h3 className="p-2 mb-0">Permissions</h3>
+                                            <LemonDivider className="my-0" />
+                                            <div className="p-3">
+                                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                                    <ResourcePermission
+                                                        resourceType={Resource.FEATURE_FLAGS}
+                                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                        rolesToAdd={rolesToAdd}
+                                                        addableRoles={addableRoles}
+                                                        addableRolesLoading={unfilteredAddableRolesLoading}
+                                                        onAdd={() => addAssociatedRoles()}
+                                                        roles={derivedRoles}
+                                                        deleteAssociatedRole={(id) =>
+                                                            deleteAssociatedRole({ roleId: id })
+                                                        }
+                                                        canEdit={featureFlag.can_edit}
+                                                    />
+                                                </PayGateMini>
                                             </div>
-                                        )}
+                                        </div>
                                     </>
                                 )}
                                 <LemonDivider />
@@ -498,7 +492,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             {featureFlag.can_edit ? (
                                                 <ObjectTags
                                                     tags={featureFlag.tags}
-                                                    onChange={(_, tags) => {
+                                                    onChange={(tags) => {
                                                         // TODO: Use an existing function instead of this new one for updates
                                                         triggerFeatureFlagUpdate({ tags })
                                                     }}
@@ -572,15 +566,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         <LemonButton
                                             data-attr="edit-feature-flag"
                                             type="secondary"
-                                            tooltip={
-                                                featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] &&
+                                            disabledReason={
                                                 !featureFlag.can_edit &&
                                                 "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                             }
                                             onClick={() => {
                                                 editFeatureFlag(true)
                                             }}
-                                            disabled={!featureFlag.can_edit}
                                         >
                                             Edit
                                         </LemonButton>

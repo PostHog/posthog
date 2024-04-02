@@ -1,11 +1,9 @@
 import { HighLevelProducer } from 'node-rdkafka'
 
-import { defaultConfig } from '../../../../../src/config/config'
-import { createKafkaProducer, produce } from '../../../../../src/kafka/producer'
+import { produce } from '../../../../../src/kafka/producer'
 import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
-import { PluginsServerConfig } from '../../../../../src/types'
 import { status } from '../../../../../src/utils/status'
 
 jest.mock('../../../../../src/utils/status')
@@ -26,6 +24,7 @@ const makeIncomingMessage = (
             topic: 'topic',
             timestamp: 0,
             consoleLogIngestionEnabled,
+            rawSize: 0,
         },
         session_id: '',
         team_id: 0,
@@ -37,17 +36,16 @@ describe('console log ingester', () => {
     let consoleLogIngester: ConsoleLogsIngester
     const mockProducer: jest.Mock = jest.fn()
 
-    beforeEach(async () => {
+    beforeEach(() => {
         mockProducer.mockClear()
         mockProducer['connect'] = jest.fn()
-
-        jest.mocked(createKafkaProducer).mockImplementation(() =>
-            Promise.resolve(mockProducer as unknown as HighLevelProducer)
-        )
+        mockProducer['isConnected'] = () => true
 
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
-        consoleLogIngester = new ConsoleLogsIngester({ ...defaultConfig } as PluginsServerConfig, mockedHighWaterMarker)
-        await consoleLogIngester.start()
+        consoleLogIngester = new ConsoleLogsIngester(
+            mockProducer as unknown as HighLevelProducer,
+            mockedHighWaterMarker
+        )
     })
     describe('when enabled on team', () => {
         test('it truncates large console logs', async () => {
@@ -80,6 +78,7 @@ describe('console log ingester', () => {
                                 timestamp: '1970-01-01 00:00:00.000',
                             })
                         ),
+                        waitForAck: true,
                     },
                 ],
             ])
@@ -124,6 +123,7 @@ describe('console log ingester', () => {
                                 timestamp: '1970-01-01 00:00:00.000',
                             })
                         ),
+                        waitForAck: true,
                     },
                 ],
                 [
@@ -142,6 +142,7 @@ describe('console log ingester', () => {
                                 timestamp: '1970-01-01 00:00:00.000',
                             })
                         ),
+                        waitForAck: true,
                     },
                 ],
             ])
@@ -181,6 +182,7 @@ describe('console log ingester', () => {
                                 timestamp: '1970-01-01 00:00:00.000',
                             })
                         ),
+                        waitForAck: true,
                     },
                 ],
             ])
