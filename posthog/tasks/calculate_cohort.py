@@ -35,7 +35,7 @@ def calculate_cohorts() -> None:
         update_cohort(cohort, initiating_user=None)
 
 
-def update_cohort(cohort: Cohort, *, initiating_user: User) -> None:
+def update_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
     pending_version = get_and_update_pending_version(cohort)
     calculate_cohort_ch.delay(cohort.id, pending_version, initiating_user.id)
 
