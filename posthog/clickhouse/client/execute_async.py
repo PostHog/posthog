@@ -9,7 +9,9 @@ from rest_framework.exceptions import NotFound
 
 from posthog import celery, redis
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import HogQLException
 from posthog.renderers import SafeJSONRenderer
 from posthog.schema import QueryStatus
 from posthog.tasks.tasks import process_query_task
@@ -105,9 +107,13 @@ def execute_process_query(
         query_status.expiration_time = query_status.end_time + datetime.timedelta(seconds=manager.STATUS_TTL_SECONDS)
         process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
         QUERY_PROCESS_TIME.observe(process_duration)
-    except Exception as err:
+    except (HogQLException, ExposedCHQueryError) as err:  # We can expose the error to the user
         query_status.results = None  # Clear results in case they are faulty
         query_status.error_message = str(err)
+        logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
+        raise err
+    except Exception as err:  # We cannot reveal anything about the error
+        query_status.results = None  # Clear results in case they are faulty
         logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
         raise err
     finally:
@@ -163,7 +169,7 @@ def enqueue_process_query_task(
     return query_status
 
 
-def get_query_status(team_id, query_id):
+def get_query_status(team_id, query_id) -> QueryStatus:
     """
     Abstracts away the manager for any caller and returns a QueryStatus object
     """

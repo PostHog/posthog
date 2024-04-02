@@ -2,14 +2,8 @@ import '../Experiment.scss'
 
 import { useValues } from 'kea'
 
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
-import { InsightShortId } from '~/types'
-
 import { experimentLogic } from '../experimentLogic'
-import { transformResultFilters } from '../utils'
-import { ResultsTag } from './components'
+import { ResultsQuery, ResultsTag } from './components'
 import { SummaryTable } from './SummaryTable'
 
 export function Results(): JSX.Element {
@@ -22,29 +16,7 @@ export function Results(): JSX.Element {
                 <ResultsTag />
             </div>
             <SummaryTable />
-            <Query
-                query={{
-                    kind: NodeKind.InsightVizNode,
-                    source: filtersToQueryNode(transformResultFilters(experimentResults?.filters ?? {})),
-                    showTable: true,
-                    showLastComputation: true,
-                    showLastComputationRefresh: false,
-                }}
-                context={{
-                    insightProps: {
-                        dashboardItemId: experimentResults?.fakeInsightId as InsightShortId,
-                        cachedInsight: {
-                            short_id: experimentResults?.fakeInsightId as InsightShortId,
-                            filters: transformResultFilters(experimentResults?.filters ?? {}),
-                            result: experimentResults?.insight,
-                            disable_baseline: true,
-                            last_refresh: experimentResults?.last_refresh,
-                        },
-                        doNotLoad: true,
-                    },
-                }}
-                readOnly
-            />
+            <ResultsQuery targetResults={experimentResults} showTable={true} />
         </div>
     )
 }

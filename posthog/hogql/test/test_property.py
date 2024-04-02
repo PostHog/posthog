@@ -656,3 +656,12 @@ class TestProperty(BaseTest):
             right=ast.Constant(value="default_event"),
         )
         self.assertEqual(result, expected)
+
+    def test_session_duration(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "session", "key": "$session_duration", "value": 10, "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("session.duration = 10"),
+        )

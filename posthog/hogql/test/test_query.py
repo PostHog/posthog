@@ -1452,7 +1452,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 properties={"$session_id": random_uuid},
             )
 
-        query = "SELECT session.id, session.duration from events WHERE distinct_id={distinct_id} order by timestamp"
+        query = (
+            "SELECT session.session_id, session.duration from events WHERE distinct_id={distinct_id} order by timestamp"
+        )
         response = execute_hogql_query(
             query, team=self.team, placeholders={"distinct_id": ast.Constant(value=random_uuid)}
         )

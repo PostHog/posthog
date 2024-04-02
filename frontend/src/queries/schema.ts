@@ -893,8 +893,8 @@ export type QueryStatus = {
     error: boolean
     /**  @default false */
     complete: boolean
-    /**  @default "" */
-    error_message: string
+    /**  @default null */
+    error_message: string | null
     results?: any
     /**  @format date-time */
     start_time?: string

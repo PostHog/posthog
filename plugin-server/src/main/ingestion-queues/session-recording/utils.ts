@@ -2,14 +2,22 @@ import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
+import { Counter } from 'prom-client'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
+import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../utils/status'
 import { cloneObject } from '../../../utils/utils'
+import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
+
+const counterLibVersionWarning = new Counter({
+    name: 'lib_version_warning_counter',
+    help: 'the number of times we have seen a message with a lib version that is too old, each _might_ cause an ingestion warning if not debounced',
+})
 
 // Helper to return now as a milliseconds timestamp
 export const now = () => DateTime.now().toMillis()
@@ -128,9 +136,48 @@ export async function readTokenFromHeaders(
     return { token, teamIdWithConfig }
 }
 
+function readLibVersionFromHeaders(headers: MessageHeader[] | undefined): string | undefined {
+    const libVersionHeader = headers?.find((header) => {
+        return header['lib_version']
+    })?.['lib_version']
+    return typeof libVersionHeader === 'string' ? libVersionHeader : libVersionHeader?.toString()
+}
+
+interface LibVersion {
+    major: number
+    minor: number
+}
+
+function parseVersion(libVersion: string | undefined): LibVersion | undefined {
+    try {
+        let majorString: string | undefined = undefined
+        let minorString: string | undefined = undefined
+        if (libVersion && libVersion.includes('.')) {
+            const splat = libVersion.split('.')
+            // very loose check for three part semantic version number
+            if (splat.length === 3) {
+                majorString = splat[0]
+                minorString = splat[1]
+            }
+        }
+        const validMajor = majorString && !isNaN(parseInt(majorString))
+        const validMinor = minorString && !isNaN(parseInt(minorString))
+        return validMajor && validMinor
+            ? {
+                  major: parseInt(majorString as string),
+                  minor: parseInt(minorString as string),
+              }
+            : undefined
+    } catch (e) {
+        status.warn('⚠️', 'could_not_read_minor_lib_version', { libVersion })
+        return undefined
+    }
+}
+
 export const parseKafkaMessage = async (
     message: Message,
-    getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
+    getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>,
+    ingestionWarningProducer: KafkaProducerWrapper | undefined
 ): Promise<IncomingRecordingMessage | void> => {
     const dropMessage = (reason: string, extra?: Record<string, any>) => {
         eventDroppedCounter
@@ -168,6 +215,32 @@ export const parseKafkaMessage = async (
         return dropMessage('header_token_present_team_missing_or_disabled', {
             token: token,
         })
+    }
+
+    // this has to be ahead of the payload parsing in case we start dropping traffic from older versions
+    if (!!ingestionWarningProducer && !!teamIdWithConfig.teamId) {
+        const libVersion = readLibVersionFromHeaders(message.headers)
+        const parsedVersion = parseVersion(libVersion)
+        /**
+         * We introduced SVG mutation throttling in version 1.74.0 fix: Recording throttling for SVG-like things (#758)
+         * and improvements like jitter on retry and better batching in session recording in earlier versions
+         * So, versions older than 1.75.0 can cause ingestion pressure or incidents
+         * because they send much more information and more messages for the same recording
+         */
+        if (parsedVersion && parsedVersion.major === 1 && parsedVersion.minor < 75) {
+            counterLibVersionWarning.inc()
+
+            await captureIngestionWarning(
+                ingestionWarningProducer,
+                teamIdWithConfig.teamId,
+                'replay_lib_version_too_old',
+                {
+                    libVersion,
+                    parsedVersion,
+                },
+                { key: libVersion || 'unknown' }
+            )
+        }
     }
 
     let messagePayload: RawEventMessage

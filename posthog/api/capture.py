@@ -602,11 +602,6 @@ def capture_internal(
         token=token,
     )
 
-    # We aim to always partition by {team_id}:{distinct_id} but allow
-    # overriding this to deal with hot partitions in specific cases.
-    # Setting the partition key to None means using random partitioning.
-    kafka_partition_key = None
-
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
         headers = [
@@ -623,13 +618,17 @@ def capture_internal(
             parsed_event, event["event"], partition_key=session_id, headers=headers, overflowing=overflowing
         )
 
+    # We aim to always partition by {team_id}:{distinct_id} but allow
+    # overriding this to deal with hot partitions in specific cases.
+    # Setting the partition key to None means using random partitioning.
     candidate_partition_key = f"{token}:{distinct_id}"
-
     if (
-        distinct_id.lower() not in LIKELY_ANONYMOUS_IDS
-        and not is_randomly_partitioned(candidate_partition_key)
-        or historical
+        not historical
+        and settings.CAPTURE_ALLOW_RANDOM_PARTITIONING
+        and (distinct_id.lower() in LIKELY_ANONYMOUS_IDS or is_randomly_partitioned(candidate_partition_key))
     ):
+        kafka_partition_key = None
+    else:
         kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical)

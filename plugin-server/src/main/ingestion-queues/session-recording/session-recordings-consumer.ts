@@ -246,8 +246,8 @@ export class SessionRecordingIngester {
          */
         this.promises.add(promise)
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        promise.finally(() => this.promises.delete(promise))
+        // we void the promise returned by finally here to avoid the need to await it
+        void promise.finally(() => this.promises.delete(promise))
 
         return promise
     }
@@ -263,8 +263,24 @@ export class SessionRecordingIngester {
         const overflowKey = `${team_id}:${session_id}`
 
         const { partition, highOffset } = event.metadata
-        if (this.debugPartition === partition) {
+        const isDebug = this.debugPartition === partition
+        if (isDebug) {
             status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', { ...event.metadata })
+        }
+
+        function dropEvent(dropCause: string) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: dropCause,
+                })
+                .inc()
+            if (isDebug) {
+                status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - dropping event', {
+                    ...event.metadata,
+                    dropCause,
+                })
+            }
         }
 
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
@@ -275,24 +291,12 @@ export class SessionRecordingIngester {
                 highOffset
             )
         ) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark_partition',
-                })
-                .inc()
-
+            dropEvent('high_water_mark_partition')
             return
         }
 
         if (await this.sessionHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, highOffset)) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark',
-                })
-                .inc()
-
+            dropEvent('high_water_mark')
             return
         }
 
@@ -350,11 +354,14 @@ export class SessionRecordingIngester {
 
                             counterKafkaMessageReceived.inc({ partition })
 
-                            const recordingMessage = await parseKafkaMessage(message, (token) =>
-                                this.teamsRefresher.get().then((teams) => ({
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                }))
+                            const recordingMessage = await parseKafkaMessage(
+                                message,
+                                (token) =>
+                                    this.teamsRefresher.get().then((teams) => ({
+                                        teamId: teams[token]?.teamId || null,
+                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                    })),
+                                this.sharedClusterProducerWrapper
                             )
 
                             if (recordingMessage) {
@@ -473,13 +480,12 @@ export class SessionRecordingIngester {
             )
         }
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
-
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
-
+        // the batch consumer reads from the session replay kafka cluster
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
         this.batchConsumer = await startBatchConsumer({
-            connectionConfig,
+            connectionConfig: replayClusterConnectionConfig,
             groupId: KAFKA_CONSUMER_GROUP_ID,
             topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             autoCommit: false,
