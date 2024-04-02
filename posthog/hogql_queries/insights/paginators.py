@@ -54,8 +54,9 @@ class HogQLHasMorePaginator:
 
     def execute_hogql_query(
         self,
-        query_type: str,
         query: ast.SelectQuery,
+        *,
+        query_type: str,
         **kwargs,
     ) -> HogQLQueryResponse:
         self.response = cast(

@@ -53,6 +53,7 @@ export const OnboardingBillingStep = ({
                         onClick={() => {
                             reportBillingUpgradeClicked(product.type)
                         }}
+                        data-attr="onboarding-subscribe-button"
                     >
                         {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                             ? 'Subscribe to paid plan'
@@ -93,7 +94,11 @@ export const OnboardingBillingStep = ({
                                     <StarHog className="h-full w-full" />
                                 </div>
                             </div>
-                            <LemonButton className="mt-2" onClick={() => setShowPlanComp(!showPlanComp)}>
+                            <LemonButton
+                                data-attr="show-plans"
+                                className="mt-2"
+                                onClick={() => setShowPlanComp(!showPlanComp)}
+                            >
                                 {showPlanComp ? 'Hide' : 'Show'} plans
                             </LemonButton>
                             {currentPlan?.initial_billing_limit && (

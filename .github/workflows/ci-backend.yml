@@ -39,7 +39,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
@@ -90,7 +90,7 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality checks
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
 
         steps:
             # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
@@ -173,8 +173,8 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
 
-        name: Validate Django migrations
-        runs-on: ubuntu-latest
+        name: Validate Django and CH migrations
+        runs-on: depot-ubuntu-latest-4
 
         steps:
             - uses: actions/checkout@v3
@@ -232,12 +232,17 @@ jobs:
                   # run on initial setup where there is no data.
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/migrations/" | awk '{print $2}' | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
 
+            - name: Check CH migrations
+              run: |
+                  # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
+                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | awk '{print $2}' |  python manage.py test_ch_migrations_are_safe
+
     django:
         needs: changes
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
 
         strategy:
             fail-fast: false
@@ -318,7 +323,7 @@ jobs:
             matrix:
                 clickhouse-server-image: ['clickhouse/clickhouse-server:23.11.2.11-alpine']
         if: needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v3
@@ -371,3 +376,38 @@ jobs:
             - name: Run async migrations tests
               run: |
                   pytest -m "async_migrations"
+
+    calculate-running-time:
+        name: Calculate running time
+        needs: [django, async-migrations]
+        runs-on: depot-ubuntu-latest-4
+        if: needs.changes.outputs.backend == 'true'
+        steps:
+            - name: Calculate running time
+              run: |
+                  echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+                  run_id=${GITHUB_RUN_ID}
+                  repo=${GITHUB_REPOSITORY}
+                  run_info=$(gh api repos/${repo}/actions/runs/${run_id})
+                  echo run_info: ${run_info}
+                  # name is the name of the workflow file
+                  # run_started_at is the start time of the workflow
+                  # we want to get the number of seconds between the start time and now
+                  name=$(echo ${run_info} | jq -r '.name')
+                  run_url=$(echo ${run_info} | jq -r '.url')
+                  run_started_at=$(echo ${run_info} | jq -r '.run_started_at')
+                  run_attempt=$(echo ${run_info} | jq -r '.run_attempt')
+                  start_seconds=$(date -d "${run_started_at}" +%s)
+                  now_seconds=$(date +%s)
+                  duration=$((now_seconds-start_seconds))
+                  echo running_time_duration_seconds=${duration} >> $GITHUB_ENV
+                  echo running_time_run_url=${run_url} >> $GITHUB_ENV
+                  echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
+                  echo running_time_run_id=${run_id} >> $GITHUB_ENV
+                  echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
+            - name: Capture running time to PostHog
+              uses: PostHog/posthog-github-action@v0.1
+              with:
+                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-ci-running-time'
+                  properties: '{"duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'

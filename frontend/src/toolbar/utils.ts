@@ -7,6 +7,7 @@ import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
 import { ActionStepType, StringMatching } from '~/types'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
+export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
@@ -326,14 +327,6 @@ export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
         selector: selector_selected ? rest.selector || null : null,
         url: url_selected ? rest.url || null : null,
     }
-}
-
-export function clearSessionToolbarToken(): void {
-    window.sessionStorage?.removeItem('_postHogToolbarParams')
-    window.localStorage?.removeItem('_postHogToolbarParams')
-    // keeping these around for compatibility, should be eventually removed
-    window.sessionStorage?.removeItem('_postHogEditorParams')
-    window.localStorage?.removeItem('_postHogEditorParams')
 }
 
 export function getRectForElement(element: HTMLElement): ElementRect {

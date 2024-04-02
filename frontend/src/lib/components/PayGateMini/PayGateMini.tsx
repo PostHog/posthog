@@ -10,10 +10,10 @@ import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 import { AvailableFeature } from '~/types'
 
+import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateMiniButton } from './PayGateMiniButton'
 import { payGateMiniLogic } from './payGateMiniLogic'
 
@@ -47,7 +47,7 @@ export function PayGateMini({
     const { preflight } = useValues(preflightLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hideUpgradeModal } = useActions(sceneLogic)
+    const { hideUpgradeModal } = useActions(upgradeModalLogic)
 
     useEffect(() => {
         if (gateVariant) {

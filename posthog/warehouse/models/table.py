@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 from django.db import models
 
 from posthog.client import sync_execute
@@ -7,6 +7,7 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
+    FieldOrTable,
     IntegerDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -27,6 +28,7 @@ from .credential import DataWarehouseCredential
 from uuid import UUID
 from sentry_sdk import capture_exception
 from posthog.warehouse.util import database_sync_to_async
+from .external_table_definitions import external_tables
 
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
@@ -98,6 +100,13 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     __repr__ = sane_repr("name")
 
+    def table_name_without_prefix(self) -> str:
+        if self.external_data_source is not None and self.external_data_source.prefix is not None:
+            prefix = self.external_data_source.prefix
+        else:
+            prefix = ""
+        return self.name[len(prefix) :]
+
     def get_columns(self, safe_expose_ch_error=True) -> Dict[str, str]:
         try:
             result = sync_execute(
@@ -126,7 +135,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         if not self.columns:
             raise Exception("Columns must be fetched and saved to use in HogQL.")
 
-        fields = {}
+        fields: Dict[str, FieldOrTable] = {}
         structure = []
         for column, type in self.columns.items():
             # Support for 'old' style columns
@@ -153,6 +162,9 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
             fields[column] = hogql_type(name=column)
 
+        # Replace fields with any redefined fields if they exist
+        fields = external_tables.get(self.table_name_without_prefix(), fields)
+
         return S3Table(
             name=self.name,
             url=self.url_pattern,
@@ -162,6 +174,17 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             fields=fields,
             structure=", ".join(structure),
         )
+
+    def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
+        clickhouse_type = self.columns.get(column_name, None)
+
+        if isinstance(clickhouse_type, dict) and self.columns[column_name].get("clickhouse"):
+            clickhouse_type = self.columns[column_name].get("clickhouse")
+
+            if clickhouse_type.startswith("Nullable("):
+                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+
+        return clickhouse_type
 
     def _safe_expose_ch_error(self, err):
         err = wrap_query_error(err)

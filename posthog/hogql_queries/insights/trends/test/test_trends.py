@@ -22,7 +22,7 @@ from posthog.constants import (
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_entity_properties,
-    clean_properties,
+    clean_global_properties,
 )
 from posthog.models import (
     Action,
@@ -40,6 +40,7 @@ from posthog.models.instance_setting import (
     get_instance_setting,
     override_instance_config,
 )
+from posthog.models.person.util import create_person_distinct_id
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -118,7 +119,7 @@ def _props(dict: Dict):
             "values": [{"type": "AND", "values": [props]}],
         }
 
-    return PropertyGroupFilter(**clean_properties(raw_properties))
+    return PropertyGroupFilter(**clean_global_properties(raw_properties))
 
 
 def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
@@ -383,6 +384,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     properties={"$some_property": i},
                 )
         _create_action(team=self.team, name="sign up")
+
+    def _create_breakdown_url_events(self):
+        freeze_without_time = ["2020-01-02"]
+
+        with freeze_time(freeze_without_time[0]):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "http://hogflix/first"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "http://hogflix/first/"},
+            )
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "http://hogflix/second"},
+            )
 
     def _create_event_count_per_actor_events(self):
         self._create_person(
@@ -730,6 +754,30 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response[2]["label"], "other_value")
         self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+
+    @also_test_with_person_on_events_v2
+    @snapshot_clickhouse_queries
+    def test_trends_breakdown_normalize_url(self):
+        self._create_breakdown_url_events()
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "date_from": "-7d",
+                        "display": "ActionsLineGraphCumulative",
+                        "events": [{"id": "sign up", "math": "dau"}],
+                        "breakdown": "$current_url",
+                        "breakdown_normalize_url": True,
+                    },
+                ),
+                self.team,
+            )
+
+        labels = [item["label"] for item in response]
+        assert sorted(labels) == ["http://hogflix/first", "http://hogflix/second"]
+        breakdown_values = [item["breakdown_value"] for item in response]
+        assert sorted(breakdown_values) == sorted(labels)
 
     def test_trends_single_aggregate_dau(self):
         self._create_events()
@@ -5180,7 +5228,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = sorted(response, key=lambda x: x["label"])
-        self.assertEqual(len(response), 0)
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
+        self.assertEqual(response[0]["count"], 0)
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -5514,72 +5564,71 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(action_response[0]["count"], 2)
 
-    # TODO: Fix exception
-    # @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
-    # def test_breakdown_user_props_with_filter(self):
-    #     self._create_person(
-    #         team_id=self.team.pk,
-    #         distinct_ids=["person1"],
-    #         properties={"email": "test@posthog.com"},
-    #     )
-    #     self._create_person(
-    #         team_id=self.team.pk,
-    #         distinct_ids=["person2"],
-    #         properties={"email": "test@gmail.com"},
-    #     )
-    #     person = self._create_person(
-    #         team_id=self.team.pk,
-    #         distinct_ids=["person3"],
-    #         properties={"email": "test@gmail.com"},
-    #     )
-    #     create_person_distinct_id(self.team.pk, "person1", str(person.uuid))
+    @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
+    def test_breakdown_user_props_with_filter(self):
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"email": "test@posthog.com"},
+        )
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"email": "test@gmail.com"},
+        )
+        person = self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"email": "test@gmail.com"},
+        )
+        create_person_distinct_id(self.team.pk, "person1", str(person.uuid))
 
-    #     self._create_event(
-    #         event="sign up",
-    #         distinct_id="person1",
-    #         team=self.team,
-    #         properties={"key": "val"},
-    #     )
-    #     self._create_event(
-    #         event="sign up",
-    #         distinct_id="person2",
-    #         team=self.team,
-    #         properties={"key": "val"},
-    #     )
+        self._create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "val"},
+        )
+        self._create_event(
+            event="sign up",
+            distinct_id="person2",
+            team=self.team,
+            properties={"key": "val"},
+        )
 
-    #     flush_persons_and_events()
+        flush_persons_and_events()
 
-    #     response = self._run(
-    #         Filter(
-    #             team=self.team,
-    #             data={
-    #                 "date_from": "-14d",
-    #                 "breakdown": "email",
-    #                 "breakdown_type": "person",
-    #                 "events": [
-    #                     {
-    #                         "id": "sign up",
-    #                         "name": "sign up",
-    #                         "type": "events",
-    #                         "order": 0,
-    #                     }
-    #                 ],
-    #                 "properties": [
-    #                     {
-    #                         "key": "email",
-    #                         "value": "@posthog.com",
-    #                         "operator": "not_icontains",
-    #                         "type": "person",
-    #                     },
-    #                     {"key": "key", "value": "val"},
-    #                 ],
-    #             },
-    #         ),
-    #         self.team,
-    #     )
+        response = self._run(
+            Filter(
+                team=self.team,
+                data={
+                    "date_from": "-14d",
+                    "breakdown": "email",
+                    "breakdown_type": "person",
+                    "events": [
+                        {
+                            "id": "sign up",
+                            "name": "sign up",
+                            "type": "events",
+                            "order": 0,
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "email",
+                            "value": "@posthog.com",
+                            "operator": "not_icontains",
+                            "type": "person",
+                        },
+                        {"key": "key", "value": "val"},
+                    ],
+                },
+            ),
+            self.team,
+        )
 
-    #     self.assertEqual(len(response), 1)
-    #     self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email", "$os", "$browser"])

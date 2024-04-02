@@ -1,3 +1,5 @@
+import { Tooltip } from '@posthog/lemon-ui'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
@@ -7,7 +9,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { LemonButton } from '../LemonButton'
 import { LemonDropdown } from '../LemonDropdown'
-import { LemonInput } from '../LemonInput'
+import { LemonInput, LemonInputProps } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
 
 export interface LemonInputSelectOption {
@@ -16,7 +18,11 @@ export interface LemonInputSelectOption {
     labelComponent?: React.ReactNode
 }
 
-export type LemonInputSelectProps = {
+export type LemonInputSelectProps = Pick<
+    // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
+    LemonInputProps,
+    'autoFocus'
+> & {
     options?: LemonInputSelectOption[]
     value?: string[] | null
     disabled?: boolean
@@ -26,6 +32,7 @@ export type LemonInputSelectProps = {
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
     onChange?: (newValue: string[]) => void
+    onBlur?: () => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
 }
@@ -37,10 +44,12 @@ export function LemonInputSelect({
     loading,
     onChange,
     onInputChange,
+    onBlur,
     mode,
     disabled,
     disableFiltering = false,
     allowCustomValues = false,
+    autoFocus = false,
     ...props
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
@@ -49,14 +58,21 @@ export function LemonInputSelect({
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
     const values = value ?? []
+    const altKeyHeld = useKeyHeld('Alt')
+
+    const separateOnComma = allowCustomValues && mode === 'multiple'
 
     const visibleOptions = useMemo(() => {
         const res: LemonInputSelectOption[] = []
         const customValues = [...values]
 
+        // We show the input value if custom values are allowed and it's not in the list
+        if (allowCustomValues && inputValue && !values.includes(inputValue)) {
+            customValues.unshift(inputValue)
+        }
+
         options.forEach((option) => {
             // Remove from the custom values list if it's in the options
-
             if (customValues.includes(option.key)) {
                 customValues.splice(customValues.indexOf(option.key), 1)
             }
@@ -75,14 +91,8 @@ export function LemonInputSelect({
                 res.unshift({ key: value, label: value })
             })
         }
-
-        // Finally we show the input value if custom values are allowed and it's not in the list
-        if (allowCustomValues && inputValue && !values.includes(inputValue)) {
-            res.unshift({ key: inputValue, label: inputValue })
-        }
-
         return res
-    }, [options, inputValue, value])
+    }, [options, inputValue, values])
 
     // Reset the selected index when the visible options change
     useEffect(() => {
@@ -90,31 +100,67 @@ export function LemonInputSelect({
     }, [visibleOptions.length])
 
     const setInputValue = (newValue: string): void => {
+        // Special case for multiple mode with custom values
+        if (separateOnComma && newValue.includes(',')) {
+            const newValues = [...values]
+
+            newValue.split(',').forEach((value) => {
+                const trimmedValue = value.trim()
+                if (trimmedValue && !values.includes(trimmedValue)) {
+                    newValues.push(trimmedValue)
+                }
+            })
+
+            onChange?.(newValues)
+            newValue = ''
+        }
+
         _setInputValue(newValue)
         onInputChange?.(inputValue)
     }
 
-    const _onActionItem = (item: string): void => {
+    const _removeItem = (item: string): void => {
         let newValues = [...values]
-        if (values.includes(item)) {
-            // Remove the item
-            if (mode === 'single') {
-                newValues = []
-            } else {
-                newValues.splice(values.indexOf(item), 1)
-            }
+        // Remove the item
+        if (mode === 'single') {
+            newValues = []
         } else {
-            // Add the item
-            if (mode === 'single') {
-                newValues = [item]
-            } else {
-                newValues.push(item)
-            }
-
-            setInputValue('')
+            newValues.splice(values.indexOf(item), 1)
         }
 
         onChange?.(newValues)
+    }
+
+    const _addItem = (item: string): void => {
+        let newValues = [...values]
+        // Add the item
+        if (mode === 'single') {
+            newValues = [item]
+        } else {
+            if (!newValues.includes(item)) {
+                newValues.push(item)
+            }
+        }
+
+        setInputValue('')
+        onChange?.(newValues)
+    }
+
+    const _onActionItem = (item: string): void => {
+        if (altKeyHeld && allowCustomValues) {
+            // In this case we want to remove it if added and set input to it
+            if (values.includes(item)) {
+                _removeItem(item)
+            }
+            setInputValue(item)
+            return
+        }
+
+        if (values.includes(item)) {
+            _removeItem(item)
+        } else {
+            _addItem(item)
+        }
     }
 
     const _onBlur = (): void => {
@@ -132,6 +178,7 @@ export function LemonInputSelect({
                 setInputValue('')
             }
             setShowPopover(false)
+            onBlur?.()
         }, 100)
     }
 
@@ -143,8 +190,8 @@ export function LemonInputSelect({
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
         if (e.key === 'Enter') {
             e.preventDefault()
-
             const itemToAdd = visibleOptions[selectedIndex]?.key
+
             if (itemToAdd) {
                 _onActionItem(visibleOptions[selectedIndex]?.key)
             }
@@ -157,40 +204,59 @@ export function LemonInputSelect({
             }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
-            setSelectedIndex(Math.min(selectedIndex + 1, options.length - 1))
+            setSelectedIndex(Math.min(selectedIndex + 1, visibleOptions.length - 1))
         } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setSelectedIndex(Math.max(selectedIndex - 1, 0))
         }
     }
 
-    // TRICKY: We don't want the popover to affect the snack buttons
-    const prefix = (
-        <PopoverReferenceContext.Provider value={null}>
-            <>
-                {values.map((value) => {
-                    const option = options.find((option) => option.key === value) ?? {
-                        label: value,
-                        labelComponent: null,
-                    }
-                    return (
-                        <>
-                            <LemonSnack title={option?.label} onClose={() => _onActionItem(value)}>
+    const prefix = useMemo(
+        () => (
+            // TRICKY: We don't want the popover to affect the snack buttons
+            <PopoverReferenceContext.Provider value={null}>
+                <>
+                    {values.map((value) => {
+                        const option = options.find((option) => option.key === value) ?? {
+                            label: value,
+                            labelComponent: null,
+                        }
+                        const snack = (
+                            <LemonSnack
+                                key={value}
+                                title={option?.label}
+                                onClose={() => _onActionItem(value)}
+                                onClick={allowCustomValues ? () => _onActionItem(value) : undefined}
+                            >
                                 {option?.labelComponent ?? option?.label}
                             </LemonSnack>
-                        </>
-                    )
-                })}
-            </>
-        </PopoverReferenceContext.Provider>
+                        )
+                        return allowCustomValues ? (
+                            <Tooltip
+                                title={
+                                    <>
+                                        <KeyboardShortcut option /> + click to edit
+                                    </>
+                                }
+                            >
+                                {snack}
+                            </Tooltip>
+                        ) : (
+                            snack
+                        )
+                    })}
+                </>
+            </PopoverReferenceContext.Provider>
+        ),
+        [values, options, altKeyHeld, allowCustomValues]
     )
 
     return (
         <LemonDropdown
+            matchWidth
             closeOnClickInside={false}
-            visible={showPopover}
-            sameWidth
             actionable
+            visible={showPopover}
             onClickOutside={() => {
                 popoverFocusRef.current = false
                 setShowPopover(false)
@@ -219,7 +285,9 @@ export function LemonInputSelect({
                                         {isHighlighted ? (
                                             <span>
                                                 <KeyboardShortcut enter />{' '}
-                                                {!values.includes(option.key)
+                                                {altKeyHeld && allowCustomValues
+                                                    ? 'edit'
+                                                    : !values.includes(option.key)
                                                     ? mode === 'single'
                                                         ? 'select'
                                                         : 'add'
@@ -262,6 +330,7 @@ export function LemonInputSelect({
                     onChange={setInputValue}
                     onKeyDown={_onKeyDown}
                     disabled={disabled}
+                    autoFocus={autoFocus}
                 />
             </span>
         </LemonDropdown>

@@ -56,8 +56,11 @@ export async function runScheduledTasks(
         for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
             status.info('⏲️', 'queueing_schedule_task', { taskType, pluginConfigId })
             await server.kafkaProducer.queueMessage({
-                topic: KAFKA_SCHEDULED_TASKS,
-                messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
+                kafkaMessage: {
+                    topic: KAFKA_SCHEDULED_TASKS,
+                    messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
+                },
+                waitForAck: true,
             })
             graphileScheduledTaskCounter.labels({ status: 'queued', task: taskType }).inc()
         }

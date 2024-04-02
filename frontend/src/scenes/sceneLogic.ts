@@ -4,14 +4,13 @@ import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -52,27 +51,6 @@ export const sceneLogic = kea<sceneLogicType>([
         setLoadedScene: (loadedScene: LoadedScene) => ({
             loadedScene,
         }),
-        showUpgradeModal: (featureKey: AvailableFeature, currentUsage?: number, isGrandfathered?: boolean) => ({
-            featureKey,
-            currentUsage,
-            isGrandfathered,
-        }),
-        guardAvailableFeature: (
-            featureKey: AvailableFeature,
-            featureAvailableCallback?: () => void,
-            guardOn: {
-                cloud: boolean
-                selfHosted: boolean
-            } = {
-                cloud: true,
-                selfHosted: true,
-            },
-            // how much of the feature has been used (eg. number of recording playlists created),
-            // which will be compared to the limit for their subscriptions
-            currentUsage?: number,
-            isGrandfathered?: boolean
-        ) => ({ featureKey, featureAvailableCallback, guardOn, currentUsage, isGrandfathered }),
-        hideUpgradeModal: true,
         reloadBrowserDueToImportError: true,
     }),
     reducers({
@@ -103,27 +81,6 @@ export const sceneLogic = kea<sceneLogicType>([
             {
                 loadScene: (_, { scene }) => scene,
                 setScene: () => null,
-            },
-        ],
-        upgradeModalFeatureKey: [
-            null as AvailableFeature | null,
-            {
-                showUpgradeModal: (_, { featureKey }) => featureKey,
-                hideUpgradeModal: () => null,
-            },
-        ],
-        upgradeModalFeatureUsage: [
-            null as number | null,
-            {
-                showUpgradeModal: (_, { currentUsage }) => currentUsage ?? null,
-                hideUpgradeModal: () => null,
-            },
-        ],
-        upgradeModalIsGrandfathered: [
-            null as boolean | null,
-            {
-                showUpgradeModal: (_, { isGrandfathered }) => isGrandfathered ?? null,
-                hideUpgradeModal: () => null,
             },
         ],
         lastReloadAt: [
@@ -170,27 +127,6 @@ export const sceneLogic = kea<sceneLogicType>([
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
     }),
     listeners(({ values, actions, props, selectors }) => ({
-        showUpgradeModal: ({ featureKey }) => {
-            eventUsageLogic.actions.reportUpgradeModalShown(featureKey)
-        },
-        guardAvailableFeature: ({ featureKey, featureAvailableCallback, guardOn, currentUsage, isGrandfathered }) => {
-            const { preflight } = preflightLogic.values
-            let featureAvailable: boolean
-            if (!preflight) {
-                featureAvailable = false
-            } else if (!guardOn.cloud && preflight.cloud) {
-                featureAvailable = true
-            } else if (!guardOn.selfHosted && !preflight.cloud) {
-                featureAvailable = true
-            } else {
-                featureAvailable = userLogic.values.hasAvailableFeature(featureKey, currentUsage)
-            }
-            if (featureAvailable) {
-                featureAvailableCallback?.()
-            } else {
-                actions.showUpgradeModal(featureKey, currentUsage, isGrandfathered)
-            }
-        },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
             posthog.capture('$pageview')
 
@@ -266,7 +202,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         !teamLogic.values.currentTeam.is_demo &&
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.onboarding('')) &&
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
+                        !removeProjectIdIfPresent(location.pathname).startsWith('/settings')
                     ) {
                         const allProductUrls = Object.values(productUrlMapping).flat()
                         if (

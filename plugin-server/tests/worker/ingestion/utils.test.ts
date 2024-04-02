@@ -24,7 +24,7 @@ describe('captureIngestionWarning()', () => {
     }
 
     it('can read own writes', async () => {
-        await captureIngestionWarning(hub.db, 2, 'some_type', { foo: 'bar' })
+        await captureIngestionWarning(hub.db.kafkaProducer, 2, 'some_type', { foo: 'bar' })
 
         const warnings = await delayUntilEventIngested(fetchWarnings)
         expect(warnings).toEqual([

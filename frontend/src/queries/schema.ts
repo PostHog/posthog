@@ -4,6 +4,7 @@ import {
     Breakdown,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
     EventPropertyFilter,
@@ -25,6 +26,8 @@ import {
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
+
+export { ChartDisplayCategory }
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -176,7 +179,7 @@ export interface DataNode extends Node {
 
 /** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
 export interface HogQLQueryModifiers {
-    personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
+    personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled' | 'v3_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
@@ -890,8 +893,8 @@ export type QueryStatus = {
     error: boolean
     /**  @default false */
     complete: boolean
-    /**  @default "" */
-    error_message: string
+    /**  @default null */
+    error_message: string | null
     results?: any
     /**  @format date-time */
     start_time?: string
@@ -1179,9 +1182,13 @@ export interface FunnelCorrelationQuery {
     response?: FunnelCorrelationResponse
 }
 
+/**  @format date-time */
+export type DatetimeDay = string
+
 export type BreakdownValueInt = integer
 export interface InsightActorsQueryOptionsResponse {
-    day?: { label: string; value: string | Day }[]
+    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    day?: { label: string; value: string | DatetimeDay | Day }[]
     status?: { label: string; value: string }[]
     interval?: {
         label: string

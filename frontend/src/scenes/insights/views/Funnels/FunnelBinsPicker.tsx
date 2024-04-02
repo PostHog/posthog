@@ -90,7 +90,7 @@ export function FunnelBinsPicker(): JSX.Element {
         <>
             <LemonDropdown
                 data-attr="funnel-bin-filter"
-                sameWidth
+                matchWidth
                 visible={visible}
                 closeOnClickInside={false}
                 onClickOutside={() => setVisible(false)}

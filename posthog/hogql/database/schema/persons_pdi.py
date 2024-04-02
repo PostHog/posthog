@@ -10,7 +10,6 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from posthog.hogql.errors import HogQLException
-from posthog.schema import HogQLQueryModifiers
 
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
@@ -63,7 +62,7 @@ class PersonsPDITable(LazyTable):
         "person_id": StringDatabaseField(name="person_id"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
         return persons_pdi_select(requested_fields)
 
     def to_printed_clickhouse(self, context):
