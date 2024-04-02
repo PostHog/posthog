@@ -141,7 +141,7 @@ class QueryContext:
         if is_numerical:
             return dataclasses.replace(
                 self,
-                numerical_filter="AND is_numerical = true AND name != ANY(ARRAY['distinct_id', 'timestamp'])",
+                numerical_filter="AND is_numerical = true AND NOT name = ANY(ARRAY['distinct_id', 'timestamp'])",
             )
         else:
             return self
@@ -239,7 +239,7 @@ class QueryContext:
         return dataclasses.replace(
             self,
             excluded_properties_filter=(
-                f"AND {self.property_definition_table}.name != ANY(%(excluded_properties)s)"
+                f"AND NOT {self.property_definition_table}.name = ANY(%(excluded_properties)s)"
                 if len(excluded_list) > 0
                 else ""
             ),
