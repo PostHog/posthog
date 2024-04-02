@@ -241,7 +241,7 @@
            WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(e__group_0.properties___industry), 'finance'), 0), ifNull(equals(toString(e__group_0.properties___industry), 'technology'), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -342,7 +342,7 @@
            WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(equals(toString(e__group_0.properties___industry), 'finance'), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -396,7 +396,7 @@
                          toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                          transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['second url'], ['second url'], '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 'second url'), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -450,7 +450,7 @@
                          toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                          transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_null_$$'], ['$$_posthog_breakdown_null_$$'], '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0), or(isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -507,7 +507,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 'val'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 'bor'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id,
                             breakdown_value) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -565,7 +565,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), or(ifNull(equals(toString(nullIf(nullIf(e.mat_key, ''), 'null')), 'val'), 0), ifNull(equals(toString(nullIf(nullIf(e.mat_key, ''), 'null')), 'bor'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id,
                             breakdown_value) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -697,7 +697,7 @@
                                                                                                                                                                                                                                                                                           FROM cohortpeople
                                                                                                                                                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2))
                                                                                                                                                                                                                                                                                           GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
-                                                                                                                                                                                                                                                                                          HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 'val'), 0)), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
+                                                                                                                                                                                                                                                                                          HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0))), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id,
                                   breakdown_value) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -772,7 +772,7 @@
            WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 'uh'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 'oh'), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -862,7 +862,7 @@
            WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 'uh'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 'oh'), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -923,7 +923,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'other_value'), 0), isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value'), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -984,7 +984,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'other_value'), 0), isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value'), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -1352,7 +1352,7 @@
                                                                    WHERE equals(person.team_id, 2)
                                                                    GROUP BY person.id
                                                                    HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-              WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(e__pdi__person.properties___filter_prop, 'filter_val'), 0), or(ifNull(equals(toString(e__pdi__person.`properties___$some_prop`), 'some_val2'), 0), ifNull(equals(toString(e__pdi__person.`properties___$some_prop`), 'some_val'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(e__pdi__person.properties___filter_prop, 'filter_val'), 0), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id,
                                   breakdown_value) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
@@ -1434,7 +1434,7 @@
                  FROM person_overrides
                  WHERE equals(person_overrides.team_id, 2)
                  GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
-              WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), 'some_val2'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), 'some_val'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id,
                                   breakdown_value) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
@@ -1563,7 +1563,7 @@
                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2))
                                                                                                                                                                                                                                                                                                                                                                     GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
-                                                                                                                                                                                                                                                                                                                                                                    HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), or(isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'other_value'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                    HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -1659,7 +1659,7 @@
                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2))
                                                                                                                                                                                                                                                                                                                                                                     GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
-                                                                                                                                                                                                                                                                                                                                                                    HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), or(isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'other_value'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                    HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -2289,7 +2289,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), 'Mac'), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -2481,7 +2481,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), 'Mac'), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -2673,7 +2673,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '')), 'Mac'), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -3100,7 +3100,7 @@
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
                                                              HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(e__pdi__person.properties___email, '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), or(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'safari'), 0))), or(ifNull(equals(toString(e__pdi__person.properties___email), 'test2@posthog.com'), 0), ifNull(equals(toString(e__pdi__person.properties___email), 'test@gmail.com'), 0), ifNull(equals(toString(e__pdi__person.properties___email), 'test5@posthog.com'), 0), ifNull(equals(toString(e__pdi__person.properties___email), 'test4@posthog.com'), 0), ifNull(equals(toString(e__pdi__person.properties___email), 'test3@posthog.com'), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(e__pdi__person.properties___email, '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), or(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'safari'), 0))), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -3194,7 +3194,7 @@
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
                                                              HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(e__pdi__person.properties___email, '%@posthog.com%'), 0)), ifNull(equals(toString(e__pdi__person.properties___email), 'test2@posthog.com'), 0))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(e__pdi__person.properties___email, '%@posthog.com%'), 0)), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -3354,7 +3354,7 @@
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
                                                              HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(e__pdi__person.`properties___$some_prop`), 'some_val'), 0), isNull(toString(e__pdi__person.`properties___$some_prop`)), ifNull(equals(toString(e__pdi__person.`properties___$some_prop`), ''), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -3486,7 +3486,7 @@
                          toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                          transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_null_$$'], ['$$_posthog_breakdown_null_$$'], '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), 0)))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
         GROUP BY day_start,
                  breakdown_value)
      GROUP BY day_start,
@@ -3604,7 +3604,7 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'other_value'), 0)))
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
            GROUP BY e__pdi.person_id,
                     breakdown_value)
         GROUP BY day_start,
@@ -3670,7 +3670,7 @@
               FROM person_overrides
               WHERE equals(person_overrides.team_id, 2)
               GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'other_value'), 0)))
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
            GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
                     breakdown_value)
         GROUP BY day_start,
@@ -3741,7 +3741,7 @@
               WHERE equals(person_distinct_id2.team_id, 2)
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 'http://hogflix/first'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 'http://hogflix/second'), 0)))
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
            GROUP BY e__pdi.person_id,
                     breakdown_value)
         GROUP BY day_start,
@@ -3811,7 +3811,7 @@
               FROM person_overrides
               WHERE equals(person_overrides.team_id, 2)
               GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 'http://hogflix/first'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 'http://hogflix/second'), 0)))
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
            GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
                     breakdown_value)
         GROUP BY day_start,
@@ -3861,7 +3861,7 @@
         WHERE equals(sessions.team_id, 2)
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value2'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value1'), 0), isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), 0)))
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
      GROUP BY e.`$session_id`,
               breakdown_value)
   GROUP BY breakdown_value
@@ -3905,7 +3905,7 @@
         WHERE equals(sessions.team_id, 2)
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value2'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value1'), 0), isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), 0)))
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
      GROUP BY e.`$session_id`,
               breakdown_value)
   GROUP BY breakdown_value
@@ -4066,7 +4066,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, 'viewed video'), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '')), 'red'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '')), 'blue'), 0), isNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', ''))), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '')), ''), 0))), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
+        WHERE and(equals(e.team_id, 2), and(equals(e.event, 'viewed video'), true), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))
         GROUP BY e__pdi.person_id,
                  breakdown_value)
      GROUP BY breakdown_value)
@@ -4353,7 +4353,7 @@
                                                           WHERE equals(person.team_id, 2)
                                                           GROUP BY person.id
                                                           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(e__pdi__person.`properties___$some_prop`), 'some_val'), 0), ifNull(equals(toString(e__pdi__person.`properties___$some_prop`), 'another_val'), 0)))
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
      GROUP BY e.`$session_id`,
               breakdown_value)
   GROUP BY breakdown_value
@@ -4564,7 +4564,7 @@
               WHERE equals(sessions.team_id, 2)
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value2'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value1'), 0)))
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
            GROUP BY day_start,
                     e.`$session_id`,
                     breakdown_value,
@@ -4640,7 +4640,7 @@
               WHERE equals(sessions.team_id, 2)
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
-           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value2'), 0), ifNull(equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), 'value1'), 0)))
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
            GROUP BY day_start,
                     e.`$session_id`,
                     breakdown_value,

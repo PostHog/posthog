@@ -64,7 +64,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
 
 jest.setTimeout(1000)
 
-describe('ingester', () => {
+describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOverflow) => {
     let ingester: SessionRecordingIngester
 
     let hub: Hub
@@ -74,6 +74,9 @@ describe('ingester', () => {
     let mockOffsets: Record<number, number> = {}
     let mockCommittedOffsets: Record<number, number> = {}
     let redisConn: Redis
+    const consumedTopic = consumeOverflow
+        ? 'session_recording_snapshot_item_overflow_test'
+        : 'session_recording_snapshot_item_events_test'
 
     beforeAll(async () => {
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
@@ -114,10 +117,10 @@ describe('ingester', () => {
 
         await deleteKeysWithPrefix(hub)
 
-        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, redisConn)
+        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow, redisConn)
         await ingester.start()
 
-        mockConsumer.assignments.mockImplementation(() => [createTP(0), createTP(1)])
+        mockConsumer.assignments.mockImplementation(() => [createTP(0, consumedTopic), createTP(1, consumedTopic)])
     })
 
     afterEach(async () => {
@@ -132,7 +135,6 @@ describe('ingester', () => {
         rmSync(config.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
         jest.useRealTimers()
     })
-
     const commitAllOffsets = async () => {
         // Simulate a background refresh for testing
         await ingester.commitAllOffsets(ingester.partitionMetrics, Object.values(ingester.sessions))
@@ -143,6 +145,7 @@ describe('ingester', () => {
         mockOffsets[partition]++
 
         return createKafkaMessage(
+            consumedTopic,
             teamToken,
             {
                 partition,
@@ -168,7 +171,13 @@ describe('ingester', () => {
                 KAFKA_HOSTS: 'localhost:9092',
             } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-            const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, undefined)
+            const ingester = new SessionRecordingIngester(
+                config,
+                hub.postgres,
+                hub.objectStorage,
+                consumeOverflow,
+                undefined
+            )
             expect(ingester['debugPartition']).toEqual(103)
         })
 
@@ -177,7 +186,13 @@ describe('ingester', () => {
                 KAFKA_HOSTS: 'localhost:9092',
             } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-            const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, undefined)
+            const ingester = new SessionRecordingIngester(
+                config,
+                hub.postgres,
+                hub.objectStorage,
+                consumeOverflow,
+                undefined
+            )
             expect(ingester['debugPartition']).toBeUndefined()
         })
 
@@ -251,6 +266,7 @@ describe('ingester', () => {
                 expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
                 expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                     expect.objectContaining({
+                        topic: consumedTopic,
                         offset: 2 + 1,
                         partition: 1,
                     })
@@ -266,6 +282,7 @@ describe('ingester', () => {
                 expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
                 expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                     expect.objectContaining({
+                        topic: consumedTopic,
                         partition: 1,
                         offset: 2,
                     })
@@ -282,6 +299,7 @@ describe('ingester', () => {
                 expect(mockConsumer.commit).toHaveBeenCalledTimes(2)
                 expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                     expect.objectContaining({
+                        topic: consumedTopic,
                         partition: 1,
                         offset: 2 + 1,
                     })
@@ -308,6 +326,7 @@ describe('ingester', () => {
                 await commitAllOffsets()
                 expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                     expect.objectContaining({
+                        topic: consumedTopic,
                         partition: 1,
                         offset: 4 + 1,
                     })
@@ -334,6 +353,7 @@ describe('ingester', () => {
                 // We should commit the offset of the blocking session
                 expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                     expect.objectContaining({
+                        topic: consumedTopic,
                         partition: 1,
                         offset: ingester.sessions[`${team.id}-sid2`].getLowestOffset(),
                     })
@@ -354,6 +374,7 @@ describe('ingester', () => {
                 expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
                 expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                     expect.objectContaining({
+                        topic: consumedTopic,
                         partition: 1,
                         offset: 2,
                     })
@@ -366,6 +387,7 @@ describe('ingester', () => {
                 expect(mockConsumer.commit).toHaveBeenCalledTimes(2)
                 expect(mockConsumer.commit).toHaveBeenCalledWith(
                     expect.objectContaining({
+                        topic: consumedTopic,
                         partition: 1,
                         offset: 3,
                     })
@@ -381,9 +403,9 @@ describe('ingester', () => {
 
         describe('watermarkers', () => {
             const getSessionWaterMarks = (partition = 1) =>
-                ingester.sessionHighWaterMarker.getWaterMarks(createTP(partition))
+                ingester.sessionHighWaterMarker.getWaterMarks(createTP(partition, consumedTopic))
             const getPersistentWaterMarks = (partition = 1) =>
-                ingester.persistentHighWaterMarker.getWaterMarks(createTP(partition))
+                ingester.persistentHighWaterMarker.getWaterMarks(createTP(partition, consumedTopic))
 
             it('should update session watermarkers with flushing', async () => {
                 await ingester.handleEachBatch(
@@ -410,11 +432,17 @@ describe('ingester', () => {
 
                 // all replay events should be watermarked up until the 3rd message as they HAVE been processed
                 // whereas the commited kafka offset should be the 1st message as the 2nd message HAS not been processed
-                await expect(getPersistentWaterMarks()).resolves.toEqual({
-                    'session-recordings-blob': 1,
+                const expectedWaterMarks = {
                     session_replay_console_logs_events_ingester: 3,
                     session_replay_events_ingester: 3,
-                })
+                }
+                if (consumeOverflow) {
+                    expectedWaterMarks['session-recordings-blob-overflow'] = 1
+                } else {
+                    expectedWaterMarks['session-recordings-blob'] = 1
+                }
+                await expect(getPersistentWaterMarks()).resolves.toEqual(expectedWaterMarks)
+
                 // sid1 should be watermarked up until the 3rd message as it HAS been processed
                 await expect(getSessionWaterMarks()).resolves.toEqual({ sid1: 3 })
             })
@@ -448,7 +476,13 @@ describe('ingester', () => {
             jest.setTimeout(5000) // Increased to cover lock delay
 
             beforeEach(async () => {
-                otherIngester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, undefined)
+                otherIngester = new SessionRecordingIngester(
+                    config,
+                    hub.postgres,
+                    hub.objectStorage,
+                    consumeOverflow,
+                    undefined
+                )
                 await otherIngester.start()
             })
 
@@ -463,14 +497,20 @@ describe('ingester', () => {
                 const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
                 const partitionMsgs2 = [createMessage('session_id_3', 2), createMessage('session_id_4', 2)]
 
-                mockConsumer.assignments.mockImplementation(() => [createTP(1), createTP(2), createTP(3)])
+                mockConsumer.assignments.mockImplementation(() => [
+                    createTP(1, consumedTopic),
+                    createTP(2, consumedTopic),
+                    createTP(3, consumedTopic),
+                ])
                 await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2], noop)
 
                 expect(
                     Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
                 ).toEqual(['1:session_id_1:1', '1:session_id_2:1', '2:session_id_3:1', '2:session_id_4:1'])
 
-                const rebalancePromises = [ingester.onRevokePartitions([createTP(2), createTP(3)])]
+                const rebalancePromises = [
+                    ingester.onRevokePartitions([createTP(2, consumedTopic), createTP(3, consumedTopic)]),
+                ]
 
                 // Should immediately be removed from the tracked sessions
                 expect(
@@ -479,7 +519,10 @@ describe('ingester', () => {
 
                 // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
                 // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
-                mockConsumer.assignments.mockImplementation(() => [createTP(2), createTP(3)])
+                mockConsumer.assignments.mockImplementation(() => [
+                    createTP(2, consumedTopic),
+                    createTP(3, consumedTopic),
+                ])
                 await otherIngester.handleEachBatch([...partitionMsgs2, createMessage('session_id_4', 2)], noop)
                 await Promise.all(rebalancePromises)
 
@@ -509,7 +552,7 @@ describe('ingester', () => {
                     expect.stringContaining(`${team.id}.sid3.`), // json
                 ])
 
-                const revokePromise = ingester.onRevokePartitions([createTP(1)])
+                const revokePromise = ingester.onRevokePartitions([createTP(1, consumedTopic)])
 
                 expect(Object.keys(ingester.sessions)).toEqual([`${team.id}-sid3`])
 
@@ -524,6 +567,7 @@ describe('ingester', () => {
                 expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
                 expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                     expect.objectContaining({
+                        topic: consumedTopic,
                         offset: 2 + 1,
                         partition: 1,
                     })
@@ -536,75 +580,90 @@ describe('ingester', () => {
                 // non-zero offset because the code can't commit offset 0
                 await ingester.handleEachBatch(
                     [
-                        createKafkaMessage('invalid_token', { offset: 12 }),
-                        createKafkaMessage('invalid_token', { offset: 13 }),
+                        createKafkaMessage(consumedTopic, 'invalid_token', { offset: 12 }),
+                        createKafkaMessage(consumedTopic, 'invalid_token', { offset: 13 }),
                     ],
                     noop
                 )
                 expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
                 expect(mockConsumer.commit).toHaveBeenCalledWith({
+                    topic: consumedTopic,
                     offset: 14,
                     partition: 1,
-                    topic: 'session_recording_snapshot_item_events_test',
                 })
             })
         })
 
-        describe('overflow detection', () => {
-            const ingestBurst = async (count: number, size_bytes: number, timestamp_delta: number) => {
-                const first_timestamp = Date.now() - 2 * timestamp_delta * count
+        describe(
+            'overflow detection',
+            consumeOverflow
+                ? () => {} // Skip these tests when running with consumeOverflow (it's disabled)
+                : () => {
+                      const ingestBurst = async (count: number, size_bytes: number, timestamp_delta: number) => {
+                          const first_timestamp = Date.now() - 2 * timestamp_delta * count
 
-                // Because messages from the same batch are reduced into a single one, we call handleEachBatch
-                // with individual messages to have better control on the message timestamp
-                for (let n = 0; n < count; n++) {
-                    const message = createMessage('sid1', 1, {
-                        size: size_bytes,
-                        timestamp: first_timestamp + n * timestamp_delta,
-                    })
-                    await ingester.handleEachBatch([message], noop)
-                }
-            }
+                          // Because messages from the same batch are reduced into a single one, we call handleEachBatch
+                          // with individual messages to have better control on the message timestamp
+                          for (let n = 0; n < count; n++) {
+                              const message = createMessage('sid1', 1, {
+                                  size: size_bytes,
+                                  timestamp: first_timestamp + n * timestamp_delta,
+                              })
+                              await ingester.handleEachBatch([message], noop)
+                          }
+                      }
 
-            it('should not trigger overflow if under threshold', async () => {
-                await ingestBurst(10, 100, 10)
-                expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
-            })
+                      it('should not trigger overflow if under threshold', async () => {
+                          await ingestBurst(10, 100, 10)
+                          expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
+                      })
 
-            it('should trigger overflow during bursts', async () => {
-                const expected_expiration = Math.floor(Date.now() / 1000) + 24 * 3600 // 24 hours from now, in seconds
-                await ingestBurst(10, 150_000, 10)
+                      it('should trigger overflow during bursts', async () => {
+                          const expected_expiration = Math.floor(Date.now() / 1000) + 24 * 3600 // 24 hours from now, in seconds
+                          await ingestBurst(10, 150_000, 10)
 
-                expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
-                expect(
-                    await redisConn.zrangebyscore(
-                        CAPTURE_OVERFLOW_REDIS_KEY,
-                        expected_expiration - 10,
-                        expected_expiration + 10
-                    )
-                ).toEqual([`${team.id}:sid1`])
-            })
+                          expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
+                          expect(
+                              await redisConn.zrangebyscore(
+                                  CAPTURE_OVERFLOW_REDIS_KEY,
+                                  expected_expiration - 10,
+                                  expected_expiration + 10
+                              )
+                          ).toEqual([`sid1`])
+                      })
 
-            it('should not trigger overflow during backfills', async () => {
-                await ingestBurst(10, 150_000, 150_000)
-                expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
-            })
+                      it('should not trigger overflow during backfills', async () => {
+                          await ingestBurst(10, 150_000, 150_000)
+                          expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(0)
+                      })
 
-            it('should cleanup older entries when triggering', async () => {
-                await redisConn.zadd(CAPTURE_OVERFLOW_REDIS_KEY, 'NX', Date.now() / 1000 - 7000, 'expired:session')
-                await redisConn.zadd(CAPTURE_OVERFLOW_REDIS_KEY, 'NX', Date.now() / 1000 - 1000, 'not_expired:session')
-                expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
-                    'expired:session',
-                    'not_expired:session',
-                ])
+                      it('should cleanup older entries when triggering', async () => {
+                          await redisConn.zadd(
+                              CAPTURE_OVERFLOW_REDIS_KEY,
+                              'NX',
+                              Date.now() / 1000 - 7000,
+                              'expired:session'
+                          )
+                          await redisConn.zadd(
+                              CAPTURE_OVERFLOW_REDIS_KEY,
+                              'NX',
+                              Date.now() / 1000 - 1000,
+                              'not_expired:session'
+                          )
+                          expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
+                              'expired:session',
+                              'not_expired:session',
+                          ])
 
-                await ingestBurst(10, 150_000, 10)
-                expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
-                expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
-                    'not_expired:session',
-                    `${team.id}:sid1`,
-                ])
-            })
-        })
+                          await ingestBurst(10, 150_000, 10)
+                          expect(await redisConn.exists(CAPTURE_OVERFLOW_REDIS_KEY)).toEqual(1)
+                          expect(await redisConn.zrange(CAPTURE_OVERFLOW_REDIS_KEY, 0, -1)).toEqual([
+                              'not_expired:session',
+                              `sid1`,
+                          ])
+                      })
+                  }
+        )
 
         describe('lag reporting', () => {
             it('should return the latest offsets', async () => {
