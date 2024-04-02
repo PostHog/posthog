@@ -16,14 +16,15 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import BatchExportField, RedshiftBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
-    CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
-    create_export_run,
+    FinishBatchExportRunInputs,
+    RecordsCompleted,
+    StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
+    finish_batch_export_run,
     get_data_interval,
-    get_rows_count,
     iter_records,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
 from posthog.temporal.batch_exports.postgres_batch_export import (
@@ -271,7 +272,7 @@ class RedshiftInsertInputs(PostgresInsertInputs):
 
 
 @activity.defn
-async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> int:
+async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> RecordsCompleted:
     """Activity to insert data from ClickHouse to Redshift.
 
     This activity executes the following steps:
@@ -289,33 +290,17 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> int:
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Redshift")
     logger.info(
-        "Exporting batch %s - %s",
+        "Batch exporting range %s - %s to Redshift: %s.%s.%s",
         inputs.data_interval_start,
         inputs.data_interval_end,
+        inputs.database,
+        inputs.schema,
+        inputs.table_name,
     )
 
     async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        count = await get_rows_count(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-        )
-
-        if count == 0:
-            logger.info(
-                "Nothing to export in batch %s - %s",
-                inputs.data_interval_start,
-                inputs.data_interval_end,
-            )
-            return 0
-
-        logger.info("BatchExporting %s rows", count)
 
         if inputs.batch_export_schema is None:
             fields = redshift_default_fields()
@@ -421,15 +406,17 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Redshift."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
-        create_export_run_inputs = CreateBatchExportRunInputs(
+        start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
-        run_id = await workflow.execute_activity(
-            create_export_run,
-            create_export_run_inputs,
+        run_id, records_total_count = await workflow.execute_activity(
+            start_batch_export_run,
+            start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -439,11 +426,25 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(
+        finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
+
+        if records_total_count == 0:
+            await workflow.execute_activity(
+                finish_batch_export_run,
+                finish_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+            return
 
         insert_inputs = RedshiftInsertInputs(
             team_id=inputs.team_id,
@@ -461,6 +462,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             properties_data_type=inputs.properties_data_type,
             batch_export_schema=inputs.batch_export_schema,
+            run_id=run_id,
         )
 
         await execute_batch_export_insert_activity(
@@ -475,7 +477,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                 # Missing permissions to, e.g., insert into table.
                 "InsufficientPrivilege",
             ],
-            update_inputs=update_inputs,
+            finish_inputs=finish_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
             heartbeat_timeout_seconds=None,
         )

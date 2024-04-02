@@ -53,10 +53,6 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
-const REALTIME_POLLING_PARAMS = {
-    source: SnapshotSourceType.realtime,
-    version: '2',
-}
 
 let postHogEEModule: PostHogEE
 
@@ -67,9 +63,10 @@ function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
-    withMobileTransformer: boolean
+    // this is only kept so that we can export the untransformed data for debugging
+    withMobileTransformer: boolean = true
 ): Promise<RecordingSnapshot[]> => {
-    if (!postHogEEModule && withMobileTransformer) {
+    if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
     }
     const lineCount = items.length
@@ -239,11 +236,7 @@ async function processEncodedResponse(
     let untransformed: RecordingSnapshot[] | null = null
 
     const transformed = deduplicateSnapshots(
-        await parseEncodedSnapshots(
-            encodedResponse,
-            props.sessionRecordingId,
-            !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE]
-        ),
+        await parseEncodedSnapshots(encodedResponse, props.sessionRecordingId),
         existingData?.snapshots ?? []
     )
 
@@ -478,10 +471,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionPlayerSnapshotData | null,
             {
                 pollRecordingSnapshots: async (_, breakpoint: BreakPointFunction) => {
-                    const params = { ...REALTIME_POLLING_PARAMS }
-
-                    if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK]) {
-                        params.version = '3'
+                    const params = {
+                        version: values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK] ? '3' : '2',
+                        source: SnapshotSourceType.realtime,
                     }
 
                     await breakpoint(1) // debounce

@@ -111,6 +111,9 @@ class BatchExportRun(UUIDModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportRun was last updated.",
     )
+    records_total_count: models.IntegerField = models.IntegerField(
+        null=True, help_text="The total count of records that should be exported in this BatchExportRun."
+    )
 
 
 BATCH_EXPORT_INTERVALS = [

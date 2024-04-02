@@ -3,6 +3,7 @@ import './InsightsTable.scss'
 import { useActions, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
@@ -157,7 +158,7 @@ export function InsightsTable({
                 }
                 const labelA = formatItemBreakdownLabel(a)
                 const labelB = formatItemBreakdownLabel(b)
-                return labelA.localeCompare(labelB)
+                return compareFn()(labelA, labelB)
             },
         })
         if (isTrends && display === ChartDisplayType.WorldMap) {

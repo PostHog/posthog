@@ -236,6 +236,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
         assert response.results
 
@@ -761,7 +762,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 AND toTimeZone(toDateTime(event.timestamp), 'UTC') > funnel_actors.first_timestamp
                 AND toTimeZone(toDateTime(event.timestamp), 'UTC') < coalesce(
                     funnel_actors.final_timestamp,
-                    funnel_actors.first_timestamp + INTERVAL {windowInterval} {windowIntervalUnit},
+                    toTimeZone(funnel_actors.first_timestamp, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit},
                     date_to)
                     -- Ensure that the event is not outside the bounds of the funnel conversion window
 

@@ -1,7 +1,5 @@
 import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -21,9 +19,7 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                 </p>
 
                 <ul className="space-y-1">
-                    <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE} match={true}>
-                        <h5>All recording sources:</h5>
-                    </FlaggedFeature>
+                    <h5>All recording sources:</h5>
                     {otherRecordings.length > 0 && hideViewedRecordings && (
                         <li>
                             Viewed recordings hidden.{' '}
@@ -42,10 +38,8 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                             They are outside the retention period
                         </Link>
                     </li>
-                    <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE} match={true}>
-                        <LemonDivider dashed={true} />
-                        <h5>Web recordings</h5>
-                    </FlaggedFeature>
+                    <LemonDivider dashed={true} />
+                    <h5>Web recordings</h5>
                     <li>
                         <Link
                             to="https://posthog.com/docs/session-replay/troubleshooting#4-adtracking-blockers"

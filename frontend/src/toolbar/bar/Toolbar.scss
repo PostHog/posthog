@@ -144,8 +144,4 @@
             transform: var(--toolbar-translate) scale(0);
         }
     }
-
-    &--unauthenticated {
-        width: calc(5rem + 1px); // Account for border
-    }
 }

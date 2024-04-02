@@ -5,11 +5,9 @@ import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-
 import { Counter } from 'prom-client'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
-import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
-import { PluginsServerConfig } from '../../../../types'
+import { flushProducer, produce } from '../../../../kafka/producer'
 import { KafkaProducerWrapper } from '../../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../../utils/status'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
@@ -26,10 +24,8 @@ const replayEventsCounter = new Counter({
 })
 
 export class ReplayEventsIngester {
-    producer?: RdKafkaProducer
-
     constructor(
-        private readonly serverConfig: PluginsServerConfig,
+        private readonly producer: RdKafkaProducer,
         private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
     ) {}
 
@@ -171,27 +167,13 @@ export class ReplayEventsIngester {
                     topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
                     value: Buffer.from(JSON.stringify(replayRecord)),
                     key: event.session_id,
+                    waitForAck: true,
                 }),
             ]
         } catch (error) {
             status.error('⚠️', '[replay-events] processing_error', {
                 error: error,
             })
-        }
-    }
-    public async start(): Promise<void> {
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
-        const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
-        this.producer = await createKafkaProducer(connectionConfig, producerConfig)
-        this.producer.connect()
-    }
-
-    public async stop(): Promise<void> {
-        status.info('🔁', '[replay-events] stopping')
-
-        if (this.producer && this.producer.isConnected()) {
-            status.info('🔁', '[replay-events] disconnecting kafka producer in batchConsumer stop')
-            await disconnectProducer(this.producer)
         }
     }
 }

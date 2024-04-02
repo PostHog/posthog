@@ -672,7 +672,6 @@ export interface EventPropertyFilter extends BasePropertyFilter {
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
     operator: PropertyOperator
-    table?: string
 }
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {
@@ -903,8 +902,10 @@ export interface SessionRecordingsResponse {
 
 export type ErrorCluster = {
     cluster: number
-    sample: { session_id: string; error: string }
+    sample: string
     occurrences: number
+    session_ids: string[]
+    sparkline: Record<string, number>
     unique_sessions: number
     viewed: number
 }
@@ -1426,6 +1427,7 @@ export interface BillingProductV2AddonType {
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
     included_with_main_product?: boolean
+    inclusion_only: boolean | null
     contact_support: boolean | null
     unit: string | null
     unit_amount_usd: string | null
@@ -1836,14 +1838,19 @@ export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'>
 
 export enum ChartDisplayType {
     ActionsLineGraph = 'ActionsLineGraph',
-    ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
-    ActionsAreaGraph = 'ActionsAreaGraph',
-    ActionsTable = 'ActionsTable',
-    ActionsPie = 'ActionsPie',
     ActionsBar = 'ActionsBar',
-    ActionsBarValue = 'ActionsBarValue',
-    WorldMap = 'WorldMap',
+    ActionsAreaGraph = 'ActionsAreaGraph',
+    ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
+    ActionsPie = 'ActionsPie',
+    ActionsBarValue = 'ActionsBarValue',
+    ActionsTable = 'ActionsTable',
+    WorldMap = 'WorldMap',
+}
+export enum ChartDisplayCategory {
+    TimeSeries = 'TimeSeries',
+    CumulativeTimeSeries = 'CumulativeTimeSeries',
+    TotalValue = 'TotalValue',
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql' | 'data_warehouse'
@@ -2806,9 +2813,6 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
-
-    // For Data warehouse person properties
-    table?: string
 }
 
 export enum PropertyDefinitionState {
@@ -2821,10 +2825,9 @@ export enum PropertyDefinitionState {
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
-    id: string | number
+    id: number
     name: string
     count: number
-    table?: string
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
@@ -2919,7 +2922,7 @@ export interface FunnelExperimentResults {
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
-export type SecondaryMetricResults = Partial<ExperimentResults['result']> & {
+export type SecondaryMetricResults = ExperimentResults['result'] & {
     result?: Record<string, number>
 }
 export interface SecondaryExperimentMetric {
@@ -3040,7 +3043,7 @@ interface BreadcrumbBase {
     /** Symbol, e.g. a lettermark or a profile picture. */
     symbol?: React.ReactNode
     /** Whether to show a custom popover */
-    popover?: Pick<PopoverProps, 'overlay' | 'sameWidth'>
+    popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
     /** Path to link to. */
@@ -3542,7 +3545,7 @@ export interface DataWarehouseViewLink {
     created_at?: string | null
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres' | 'Zendesk'
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
@@ -3595,6 +3598,7 @@ export type BatchExportDestinationS3 = {
         encryption: string | null
         kms_key_id: string | null
         endpoint_url: string | null
+        file_format: string
     }
 }
 
@@ -3739,34 +3743,43 @@ export type SDK = {
 }
 
 export enum SDKKey {
-    JS_WEB = 'javascript_web',
-    REACT = 'react',
-    NEXT_JS = 'nextjs',
-    GATSBY = 'gatsby',
-    IOS = 'ios',
     ANDROID = 'android',
-    FLUTTER = 'flutter',
-    REACT_NATIVE = 'react_native',
-    NODE_JS = 'nodejs',
-    RUBY = 'ruby',
-    PYTHON = 'python',
-    PHP = 'php',
-    GO = 'go',
-    ELIXIR = 'elixir',
+    ANGULAR = 'angular',
+    ASTRO = 'astro',
     API = 'api',
-    JAVA = 'java',
-    RUST = 'rust',
-    GOOGLE_TAG_MANAGER = 'google_tag_manager',
-    NUXT_JS = 'nuxtjs',
-    VUE_JS = 'vuejs',
-    SEGMENT = 'segment',
-    RUDDERSTACK = 'rudderstack',
+    BUBBLE = 'bubble',
+    DJANGO = 'django',
     DOCUSAURUS = 'docusaurus',
-    SHOPIFY = 'shopify',
-    WORDPRESS = 'wordpress',
-    SENTRY = 'sentry',
-    RETOOL = 'retool',
+    ELIXIR = 'elixir',
+    FRAMER = 'framer',
+    FLUTTER = 'flutter',
+    GATSBY = 'gatsby',
+    GO = 'go',
+    GOOGLE_TAG_MANAGER = 'google_tag_manager',
     HTML_SNIPPET = 'html',
+    IOS = 'ios',
+    JAVA = 'java',
+    JS_WEB = 'javascript_web',
+    LARAVEL = 'laravel',
+    NEXT_JS = 'nextjs',
+    NODE_JS = 'nodejs',
+    NUXT_JS = 'nuxtjs',
+    PHP = 'php',
+    PYTHON = 'python',
+    REACT = 'react',
+    REACT_NATIVE = 'react_native',
+    REMIX = 'remix',
+    RETOOL = 'retool',
+    RUBY = 'ruby',
+    RUDDERSTACK = 'rudderstack',
+    RUST = 'rust',
+    SEGMENT = 'segment',
+    SENTRY = 'sentry',
+    SHOPIFY = 'shopify',
+    SVELTE = 'svelte',
+    VUE_JS = 'vuejs',
+    WEBFLOW = 'webflow',
+    WORDPRESS = 'wordpress',
 }
 
 export enum SDKTag {
