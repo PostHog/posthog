@@ -13,7 +13,7 @@ import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
 
-interface billingLimitInputForm {
+export interface billingLimitInputForm {
     input: number | undefined
 }
 
