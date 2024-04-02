@@ -288,7 +288,9 @@ def get_static_cohort_size(cohort: Cohort) -> Optional[int]:
         return None
 
 
-def recalculate_cohortpeople(cohort: Cohort, pending_version: int, *, initiating_user_id: int) -> Optional[int]:
+def recalculate_cohortpeople(
+    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
+) -> Optional[int]:
     hogql_context = HogQLContext(within_non_hogql_query=True, team_id=cohort.team_id)
     cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 

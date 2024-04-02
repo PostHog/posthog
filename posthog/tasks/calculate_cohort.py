@@ -32,10 +32,10 @@ def calculate_cohorts() -> None:
         .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
-        update_cohort(cohort)
+        update_cohort(cohort, initiating_user=None)
 
 
-def update_cohort(cohort: Cohort, initiating_user: User) -> None:
+def update_cohort(cohort: Cohort, *, initiating_user: User) -> None:
     pending_version = get_and_update_pending_version(cohort)
     calculate_cohort_ch.delay(cohort.id, pending_version, initiating_user.id)
 
