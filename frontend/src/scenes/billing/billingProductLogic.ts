@@ -64,7 +64,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 setBillingLimitInput: (_, { billingLimitInput }) => {
                     return {
                         input: billingLimitInput,
-                    }
+                    } as billingLimitInputForm
                 },
             },
         ],
