@@ -334,7 +334,7 @@ class Resolver(CloningVisitor):
             node = cast(ast.JoinExpr, clone_expr(node))
 
             node.table = super().visit(node.table)
-            if node.table.view_name is not None:
+            if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None:
                 if node.alias in scope.tables:
                     raise ResolverException(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
