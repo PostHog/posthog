@@ -46,6 +46,7 @@ from posthog.tasks.tasks import (
     update_quota_limiting,
     verify_persons_data_in_sync,
     calculate_replay_embeddings,
+    calculate_replay_error_clusters,
 )
 from posthog.utils import get_crontab
 
@@ -248,6 +249,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             calculate_replay_embeddings.s(),
             name="calculate replay embeddings",
         )
+
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(hour="10", minute=str(randrange(0, 40))),
+            calculate_replay_error_clusters.s(),
+            name="calculate replay error clusters",
+        )  # every day at a random minute past 10am. Randomize to avoid overloading license.posthog.com
 
         sender.add_periodic_task(
             crontab(hour="0", minute=str(randrange(0, 40))),

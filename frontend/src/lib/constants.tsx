@@ -172,6 +172,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
+    HOGQL_INSIGHTS: 'hogql-insights-preview', // owner: @mariusandra
     HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
     HOGQL_INSIGHTS_PATHS: 'hogql-insights-paths', // owner: @webjunkie
     HOGQL_INSIGHTS_RETENTION: 'hogql-insights-retention', // owner: @webjunkie
@@ -212,6 +213,8 @@ export const FEATURE_FLAGS = {
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
     REVERSE_PROXY_ONBOARDING: 'reverse-proxy-onboarding', // owner: @zlwaterfield
+    SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
+    THEME: 'theme', // owner: @aprilfools
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

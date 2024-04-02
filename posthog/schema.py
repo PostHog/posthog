@@ -733,7 +733,7 @@ class QueryStatus(BaseModel):
     complete: Optional[bool] = False
     end_time: Optional[AwareDatetime] = None
     error: Optional[bool] = False
-    error_message: Optional[str] = ""
+    error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
     query_async: Optional[bool] = True
@@ -1369,7 +1369,6 @@ class PersonPropertyFilter(BaseModel):
     key: str
     label: Optional[str] = None
     operator: PropertyOperator
-    table: Optional[str] = None
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 

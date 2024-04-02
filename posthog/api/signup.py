@@ -51,6 +51,7 @@ def get_redirect_url(uuid: str, is_email_verified: bool) -> str:
 
 class SignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
+    last_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email: serializers.Field = serializers.EmailField()
     password: serializers.Field = serializers.CharField(allow_null=True, required=True)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
@@ -92,7 +93,7 @@ class SignupSerializer(serializers.Serializer):
 
         is_instance_first_user: bool = not User.objects.exists()
 
-        organization_name = validated_data.pop("organization_name", validated_data["first_name"])
+        organization_name = validated_data.pop("organization_name", f"{validated_data['first_name']}'s Organization")
         role_at_organization = validated_data.pop("role_at_organization", "")
         referral_source = validated_data.pop("referral_source", "")
 

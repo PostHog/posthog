@@ -1,4 +1,4 @@
-from typing import Dict, List, cast
+from typing import Dict, List, cast, Any
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -14,9 +14,12 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr
 from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
-
+from posthog.hogql.errors import HogQLException
 
 SESSIONS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
+    "id": StringDatabaseField(
+        name="session_id"
+    ),  # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
     "session_id": StringDatabaseField(name="session_id"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
@@ -70,6 +73,10 @@ def select_from_sessions_table(
     from posthog.hogql import ast
 
     table_name = "raw_sessions"
+
+    # Always include "session_id", as it's the key we use to make further joins, and it'd be great if it's available
+    if "session_id" not in requested_fields:
+        requested_fields = {**requested_fields, "session_id": ["session_id"]}
 
     aggregate_fields = {
         "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
@@ -163,3 +170,24 @@ class SessionsTable(LazyTable):
 
     def to_printed_hogql(self):
         return "sessions"
+
+
+def join_events_table_to_sessions_table(
+    from_table: str, to_table: str, requested_fields: Dict[str, Any], context: HogQLContext, node: ast.SelectQuery
+) -> ast.JoinExpr:
+    from posthog.hogql import ast
+
+    if not requested_fields:
+        raise HogQLException("No fields requested from events")
+
+    join_expr = ast.JoinExpr(table=select_from_sessions_table(requested_fields, node, context))
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[from_table, "$session_id"]),
+            right=ast.Field(chain=[to_table, "session_id"]),
+        )
+    )
+    return join_expr

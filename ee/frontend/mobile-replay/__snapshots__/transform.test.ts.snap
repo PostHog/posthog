@@ -1036,7 +1036,7 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
+                      "style": "background-color: #f3f4ef;background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==");background-size: auto;background-repeat: unset;color: #35373e;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
                     },
                     "childNodes": [
                       {
@@ -7035,7 +7035,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 10,
-            "style": "background-color: #f3f4ef;color: #35373e;width: 100vw;height: 150px;bottom: 0;position: fixed;align-items: center;justify-content: center;display: flex;",
+            "style": "background-color: #f3f4ef;background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==");background-size: auto;background-repeat: unset;color: #35373e;width: 100vw;height: 150px;bottom: 0;position: fixed;align-items: center;justify-content: center;display: flex;",
           },
           "childNodes": [
             {
@@ -7145,7 +7145,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                    "style": "background-color: #f3f4ef;background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==");background-size: auto;background-repeat: unset;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                   },
                   "childNodes": [
                     {
@@ -8295,7 +8295,7 @@ exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = 
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                    "style": "background-color: #f3f4ef;background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==");background-size: auto;background-repeat: unset;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                   },
                   "childNodes": [
                     {
@@ -8431,7 +8431,7 @@ exports[`replay/transform transform inputs web_view with URL 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                    "style": "background-color: #f3f4ef;background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==");background-size: auto;background-repeat: unset;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                   },
                   "childNodes": [
                     {
@@ -8715,7 +8715,7 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                      "style": "background-color: #f3f4ef;background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==");background-size: auto;background-repeat: unset;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                     },
                     "childNodes": [
                       {

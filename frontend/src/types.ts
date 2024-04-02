@@ -672,7 +672,6 @@ export interface EventPropertyFilter extends BasePropertyFilter {
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
     operator: PropertyOperator
-    table?: string
 }
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {
@@ -1428,6 +1427,7 @@ export interface BillingProductV2AddonType {
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
     included_with_main_product?: boolean
+    inclusion_only: boolean | null
     contact_support: boolean | null
     unit: string | null
     unit_amount_usd: string | null
@@ -2813,9 +2813,6 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
-
-    // For Data warehouse person properties
-    table?: string
 }
 
 export enum PropertyDefinitionState {
@@ -2828,10 +2825,9 @@ export enum PropertyDefinitionState {
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
-    id: string | number
+    id: number
     name: string
     count: number
-    table?: string
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
@@ -2926,7 +2922,7 @@ export interface FunnelExperimentResults {
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
-export type SecondaryMetricResults = Partial<ExperimentResults['result']> & {
+export type SecondaryMetricResults = ExperimentResults['result'] & {
     result?: Record<string, number>
 }
 export interface SecondaryExperimentMetric {

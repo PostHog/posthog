@@ -68,6 +68,8 @@ def create_channel_type_expr(
             args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
         )
 
+    # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
+    # update either.
     return parse_expr(
         """
 multiIf(
@@ -75,7 +77,8 @@ multiIf(
     'Cross Network',
 
     (
-        match({medium}, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
+        {medium} IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting') OR
+        startsWith({medium}, 'paid') OR
         {gclid} IS NOT NULL OR
         {gad_source} IS NOT NULL
     ),
