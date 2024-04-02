@@ -214,6 +214,15 @@ class SelectQueryAliasType(Type):
         raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
+        if self.view_name:
+            if context.database is None:
+                raise HogQLException("Database must be set for queries with views")
+            try:
+                context.database.get_table(self.view_name).get_field(name)
+                return True
+            except Exception:
+                pass
+
         return self.select_query_type.has_child(name, context)
 
 
