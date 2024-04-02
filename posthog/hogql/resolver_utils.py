@@ -44,7 +44,7 @@ def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
     elif isinstance(type, ast.SelectQueryAliasType):
         return type.alias
     elif isinstance(type, ast.SelectViewType):
-        return type.view_name
+        return type.alias
     elif isinstance(type, ast.LazyJoinType):
         return f"{get_long_table_name(select, type.table_type)}__{type.field}"
     elif isinstance(type, ast.VirtualTableType):

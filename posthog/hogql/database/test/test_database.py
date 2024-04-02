@@ -312,5 +312,11 @@ class TestDatabase(BaseTest):
             database=db,
         )
 
+        sql = "select event_view.some_field.key from event_view"
+        print_ast(parse_select(sql), context, dialect="clickhouse")
+
+        sql = "select some_field.key from event_view"
+        print_ast(parse_select(sql), context, dialect="clickhouse")
+
         sql = "select e.some_field.key from event_view as e"
         print_ast(parse_select(sql), context, dialect="clickhouse")
