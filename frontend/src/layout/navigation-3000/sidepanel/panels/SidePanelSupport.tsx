@@ -71,6 +71,8 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
     const { billing } = useValues(billingLogic)
+
+    // TODO(@zach): remove after updated plans w/ support levels are shipped
     const supportResponseTimes = {
         [AvailableFeature.EMAIL_SUPPORT]: '2-3 days',
         [AvailableFeature.PRIORITY_SUPPORT]: '4-6 hours',
@@ -89,10 +91,10 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                 </div>
                 {billing?.products
                     ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
-                    ?.plans?.map((plan, i) => (
+                    ?.plans?.map((plan) => (
                         <React.Fragment key={`support-panel-${plan.plan_key}`}>
                             <div className={plan.current_plan ? 'font-bold' : undefined}>
-                                {i == 1 ? 'Pay-per-use' : plan.name}
+                                {plan.name}
                                 {plan.current_plan && (
                                     <>
                                         {' '}
@@ -101,7 +103,10 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                                 )}
                             </div>
                             <div className={plan.current_plan ? 'font-bold' : undefined}>
-                                {plan.features.some((f) => f.key == AvailableFeature.PRIORITY_SUPPORT)
+                                {/* TODO(@zach): remove fallback after updated plans w/ support levels are shipped */}
+                                {plan.support_level
+                                    ? plan.support_level.response_time
+                                    : plan.features.some((f) => f.key == AvailableFeature.PRIORITY_SUPPORT)
                                     ? supportResponseTimes[AvailableFeature.PRIORITY_SUPPORT]
                                     : plan.features.some((f) => f.key == AvailableFeature.EMAIL_SUPPORT)
                                     ? supportResponseTimes[AvailableFeature.EMAIL_SUPPORT]
