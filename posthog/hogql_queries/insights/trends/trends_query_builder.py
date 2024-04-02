@@ -380,12 +380,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.group_by = [ast.Field(chain=["breakdown_value"])]
             query.order_by.insert(
                 0,
-                parse_expr(
-                    "breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0",
-                    placeholders={
-                        "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
-                        "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                    },
+                cast(
+                    ast.OrderExpr,
+                    parse_expr(
+                        "breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0",
+                        placeholders={
+                            "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                            "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                        },
+                    ),
                 ),
             )
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
