@@ -139,7 +139,6 @@ export const FEATURE_FLAGS = {
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     // Experiments / beta features
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
-    SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
