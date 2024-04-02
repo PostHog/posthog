@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.data_imports.pipelines.helpers import aupdate_job_count
 from posthog.temporal.data_imports.pipelines.zendesk.credentials import ZendeskCredentialsToken
 from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
@@ -251,7 +252,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
     heartbeat_task = asyncio.create_task(heartbeat())
 
     try:
-        await DataImportPipeline(job_inputs, source, logger).run()
+        total_rows_synced = await DataImportPipeline(job_inputs, source, logger).run()
+        await aupdate_job_count(inputs.run_id, inputs.team_id, total_rows_synced)
     finally:
         heartbeat_task.cancel()
         await asyncio.wait([heartbeat_task])
