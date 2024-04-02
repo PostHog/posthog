@@ -338,14 +338,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             {
                 loadSnapshotSources: async () => {
                     const params = {
-                        source: SnapshotSourceType.realtime,
                         version: values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK] ? '3' : '2',
                     }
 
                     const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
-                    const sources = response.sources ?? []
-
-                    return sources ?? []
+                    return response.sources ?? []
                 },
             },
         ],
@@ -601,7 +598,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             // ten is an arbitrary limit to try to avoid sending requests to our backend unnecessarily
             // we could change this or add to it e.g. only poll if browser is visible to user
-
             if ((cache.lastSnapshotsUnchangedCount ?? 0) <= 10) {
                 cache.realTimePollingTimeoutID = setTimeout(() => {
                     actions.loadSnapshotsForSource({ source: SnapshotSourceType.realtime })
