@@ -73,9 +73,10 @@ export class EventsProcessor {
         eventUuid: string
     ): Promise<PreIngestionEvent> {
         const singleSaveTimer = new Date()
-        const timeout = timeoutGuard('Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!', {
-            event: JSON.stringify(data),
-        })
+        const timeout = timeoutGuard(
+            'Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!',
+            () => ({ event: JSON.stringify(data) })
+        )
 
         let result: PreIngestionEvent | null = null
         try {
