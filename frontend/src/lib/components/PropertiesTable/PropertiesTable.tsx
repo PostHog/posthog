@@ -64,7 +64,7 @@ function ValueDisplay({
     type,
     value,
     rootKey,
-    onEdit = () => {},
+    onEdit,
     nestingLevel,
     useDetectedPropertyType,
 }: ValueDisplayType): JSX.Element {
