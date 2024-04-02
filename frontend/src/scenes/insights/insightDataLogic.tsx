@@ -259,16 +259,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
         saveAs: async () => {
             LemonDialog.openForm({
                 title: 'Save as new insight',
-                initialValues: { name: `${values.insight.name || values.insight.derived_name} (copy)` },
+                initialValues: { insightName: `${values.insight.name || values.insight.derived_name} (copy)` },
                 content: (
-                    <LemonField name="name">
+                    <LemonField name="insightName">
                         <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
                     </LemonField>
                 ),
                 errors: {
-                    name: (name) => (!name ? 'You must enter a name' : undefined),
+                    insightName: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ name }) => actions.saveAsNamingSuccess(name),
+                onSubmit: async ({ insightName }) => actions.saveAsNamingSuccess(insightName),
             })
         },
         saveAsNamingSuccess: ({ name }) => {

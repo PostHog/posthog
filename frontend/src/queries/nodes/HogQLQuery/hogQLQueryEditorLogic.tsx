@@ -170,16 +170,16 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         saveAsView: async () => {
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { name: '' },
+                initialValues: { viewName: '' },
                 content: (
-                    <LemonField name="name">
+                    <LemonField name="viewName">
                         <LemonInput placeholder="Please enter the name of the view" autoFocus />
                     </LemonField>
                 ),
                 errors: {
-                    name: (name) => (!name ? 'You must enter a name' : undefined),
+                    viewName: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: ({ name }) => actions.saveAsViewSuccess(name),
+                onSubmit: ({ viewName }) => actions.saveAsViewSuccess(viewName),
             })
         },
         saveAsViewSuccess: async ({ name }) => {
