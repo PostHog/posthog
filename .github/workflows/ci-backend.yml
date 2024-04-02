@@ -112,11 +112,6 @@ jobs:
                   cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - uses: syphar/restore-virtualenv@v1
-              id: cache-backend-tests
-              with:
-                  custom_cache_key_element: v2-
-
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
@@ -191,11 +186,6 @@ jobs:
                   cache: 'pip'
                   cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-
-            - uses: syphar/restore-virtualenv@v1
-              id: cache-backend-tests
-              with:
-                  custom_cache_key_element: v1-
 
             - name: Install SAML (python3-saml) dependencies
               run: |
@@ -343,11 +333,6 @@ jobs:
                   cache: 'pip'
                   cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-
-            - uses: syphar/restore-virtualenv@v1
-              id: cache-backend-tests
-              with:
-                  custom_cache_key_element: v2-
 
             - name: Install SAML (python3-saml) dependencies
               run: |
