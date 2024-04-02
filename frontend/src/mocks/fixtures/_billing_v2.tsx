@@ -2693,7 +2693,7 @@ export const billingJson: BillingV2Type = {
                 {
                     plan_key: 'paid-20240208',
                     product_key: 'platform_and_support',
-                    name: 'With subscription',
+                    name: 'With Pay-per-use',
                     description: 'SSO, permission management, and support.',
                     image_url: 'https://posthog.com/images/product/product-icons/platform.svg',
                     docs_url: 'https://posthog.com/docs',
