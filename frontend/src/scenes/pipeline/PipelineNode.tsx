@@ -1,3 +1,4 @@
+import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -59,7 +60,16 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         return <NotFound object="pipeline app stage" />
     }
 
-    if (!nodeLoading && !node) {
+    if (nodeLoading) {
+        return <Spinner />
+    }
+
+    if (id === 'new') {
+        // If it's new we don't want to show any tabs
+        return <PipelineNodeConfiguration />
+    }
+
+    if (!node) {
         return <NotFound object={stage} />
     }
 
