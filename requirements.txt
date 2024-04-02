@@ -215,7 +215,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.4.3
+dlt==0.4.7
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -394,7 +394,7 @@ openapi-spec-validator==0.7.1
     # via -r requirements.in
 openpyxl==3.1.2
     # via -r requirements.in
-orjson==3.9.15
+orjson==3.9.10
     # via
     #   -r requirements.in
     #   dlt
@@ -623,7 +623,7 @@ sortedcontainers==2.4.0
     #   snowflake-connector-python
     #   trio
 sqlalchemy==2.0.23
-    # via dlt
+    # via -r requirements.in
 sqlparse==0.4.4
     # via
     #   -r requirements.in
