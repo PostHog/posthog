@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.data_imports.pipelines.helpers import aupdate_job_count
 from posthog.temporal.data_imports.pipelines.zendesk.credentials import ZendeskCredentialsToken
 from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
@@ -176,10 +177,14 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
         from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
 
         stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
+        account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
+        # Cludge: account_id should be checked here too but can deal with nulls
+        # until we require re update of account_ids in stripe so they're all store
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
         source = stripe_source(
             api_key=stripe_secret_key,
+            account_id=account_id,
             endpoints=tuple(endpoints),
             team_id=inputs.team_id,
             job_id=inputs.run_id,
@@ -247,7 +252,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
     heartbeat_task = asyncio.create_task(heartbeat())
 
     try:
-        await DataImportPipeline(job_inputs, source, logger).run()
+        total_rows_synced = await DataImportPipeline(job_inputs, source, logger).run()
+        await aupdate_job_count(inputs.run_id, inputs.team_id, total_rows_synced)
     finally:
         heartbeat_task.cancel()
         await asyncio.wait([heartbeat_task])

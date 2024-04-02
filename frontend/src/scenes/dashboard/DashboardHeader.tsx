@@ -328,7 +328,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 {canEditDashboard ? (
                                     <ObjectTags
                                         tags={dashboard.tags}
-                                        onChange={(_, tags) => triggerDashboardUpdate({ tags })}
+                                        onChange={(tags) => triggerDashboardUpdate({ tags })}
                                         saving={dashboardLoading}
                                         tagsAvailable={tags.filter((tag) => !dashboard.tags?.includes(tag))}
                                         className="mt-2"
