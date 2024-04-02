@@ -183,9 +183,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         selectRow: () => {
             actions.setIsEditingSavedQuery(false)
         },
-        updateDataWarehouseSavedQuerySuccess: async (query) => {
+        updateDataWarehouseSavedQuerySuccess: async (_, view) => {
             actions.setIsEditingSavedQuery(false)
-            lemonToast.success(`${query.name} successfully updated`)
+            lemonToast.success(`${view.name} successfully updated`)
         },
     })),
     afterMount(({ actions, values }) => {
