@@ -207,6 +207,7 @@ class Resolver(CloningVisitor):
             {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
         )
         new_node.settings = node.settings.model_copy() if node.settings is not None else None
+        new_node.view_name = node.view_name
 
         self.scopes.pop()
 
@@ -222,9 +223,10 @@ class Resolver(CloningVisitor):
             isinstance(asterisk.table_type, ast.SelectUnionQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
+            or isinstance(asterisk.table_type, ast.SelectViewType)
         ):
             select = asterisk.table_type
-            while isinstance(select, ast.SelectQueryAliasType):
+            while isinstance(select, ast.SelectQueryAliasType) or isinstance(select, ast.SelectViewType):
                 select = select.select_query_type
             if isinstance(select, ast.SelectUnionQueryType):
                 select = select.types[0]
@@ -276,6 +278,10 @@ class Resolver(CloningVisitor):
                         raise ResolverException("Nested views are not supported")
 
                     node.table = parse_select(str(database_table.query))
+
+                    if isinstance(node.table, ast.SelectQuery):
+                        node.table.view_name = database_table.name
+
                     node.alias = table_alias or database_table.name
                     node = self.visit(node)
 
@@ -328,7 +334,16 @@ class Resolver(CloningVisitor):
             node = cast(ast.JoinExpr, clone_expr(node))
 
             node.table = super().visit(node.table)
-            if node.alias is not None:
+            if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
+                if node.alias in scope.tables:
+                    raise ResolverException(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
+                node.type = ast.SelectViewType(
+                    alias=node.alias, view_name=node.table.view_name, select_query_type=node.table.type
+                )
+                scope.tables[node.alias] = node.type
+            elif node.alias is not None:
                 if node.alias in scope.tables:
                     raise ResolverException(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
