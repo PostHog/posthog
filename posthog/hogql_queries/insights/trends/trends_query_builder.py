@@ -270,7 +270,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 breakdown.column_expr(),
             ]
 
-            default_query.group_by.extend([ast.Field(chain=["session", "id"]), ast.Field(chain=["breakdown_value"])])
+            default_query.group_by.extend([ast.Field(chain=["$session_id"]), ast.Field(chain=["breakdown_value"])])
 
             wrapper = self.session_duration_math_property_wrapper(default_query)
             assert wrapper.group_by is not None
@@ -303,7 +303,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
                 )
             ]
-            default_query.group_by.append(ast.Field(chain=["session", "id"]))
+            default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
             wrapper = self.session_duration_math_property_wrapper(default_query)
 

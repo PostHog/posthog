@@ -173,6 +173,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         client_secret = payload.get("client_secret")
+        account_id = payload.get("account_id")
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
@@ -184,9 +185,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             status="Running",
             source_type=source_type,
-            job_inputs={
-                "stripe_secret_key": client_secret,
-            },
+            job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
             prefix=prefix,
         )
 

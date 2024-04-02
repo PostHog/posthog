@@ -1,16 +1,41 @@
 import '../Experiment.scss'
 
 import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
+
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+import { ExperimentResults, InsightShortId } from '~/types'
 
 import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
+import { getExperimentInsightColour, transformResultFilters } from '../utils'
+
+export function VariantTag({ variantKey }: { variantKey: string }): JSX.Element {
+    const { experimentResults, getIndexForVariant } = useValues(experimentLogic)
+
+    return (
+        <span className="flex items-center space-x-1">
+            <div
+                className="w-2 h-2 rounded-full mr-0.5"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    backgroundColor: getExperimentInsightColour(getIndexForVariant(experimentResults, variantKey)),
+                }}
+            />
+            <span className="font-semibold">{capitalizeFirstLetter(variantKey)}</span>
+        </span>
+    )
+}
 
 export function ResultsTag(): JSX.Element {
     const { areResultsSignificant } = useValues(experimentLogic)
@@ -38,6 +63,67 @@ export function ExperimentLoader(): JSX.Element {
             loadingSkeletonRows={8}
             loading={true}
         />
+    )
+}
+
+export function ResultsQuery({
+    targetResults,
+    showTable,
+}: {
+    targetResults: ExperimentResults['result'] | null
+    showTable: boolean
+}): JSX.Element {
+    return (
+        <Query
+            query={{
+                kind: NodeKind.InsightVizNode,
+                source: filtersToQueryNode(transformResultFilters(targetResults?.filters ?? {})),
+                showTable,
+                showLastComputation: true,
+                showLastComputationRefresh: false,
+            }}
+            context={{
+                insightProps: {
+                    dashboardItemId: targetResults?.fakeInsightId as InsightShortId,
+                    cachedInsight: {
+                        short_id: targetResults?.fakeInsightId as InsightShortId,
+                        filters: transformResultFilters(targetResults?.filters ?? {}),
+                        result: targetResults?.insight,
+                        disable_baseline: true,
+                        last_refresh: targetResults?.last_refresh,
+                    },
+                    doNotLoad: true,
+                },
+            }}
+            readOnly
+        />
+    )
+}
+
+export function NoResultsEmptyState(): JSX.Element {
+    const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
+
+    if (experimentResultsLoading) {
+        return <></>
+    }
+
+    return (
+        <div>
+            <h2 className="font-semibold text-lg">Results</h2>
+            <div className="border rounded bg-bg-light pt-6 pb-8 text-muted">
+                <div className="flex flex-col items-center mx-auto">
+                    <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+                    <h2 className="text-xl font-semibold leading-tight">There are no experiment results yet</h2>
+                    {!!experimentResultCalculationError && (
+                        <div className="text-sm text-center text-balance">{experimentResultCalculationError}</div>
+                    )}
+                    <div className="text-sm text-center text-balance">
+                        Wait a bit longer for your users to be exposed to the experiment. Double check your feature flag
+                        implementation if you're still not seeing results.
+                    </div>
+                </div>
+            </div>
+        </div>
     )
 }
 
