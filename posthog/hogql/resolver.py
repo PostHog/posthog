@@ -223,9 +223,10 @@ class Resolver(CloningVisitor):
             isinstance(asterisk.table_type, ast.SelectUnionQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
+            or isinstance(asterisk.table_type, ast.SelectViewType)
         ):
             select = asterisk.table_type
-            while isinstance(select, ast.SelectQueryAliasType):
+            while isinstance(select, ast.SelectQueryAliasType) or isinstance(select, ast.SelectViewType):
                 select = select.select_query_type
             if isinstance(select, ast.SelectUnionQueryType):
                 select = select.types[0]
@@ -333,15 +334,19 @@ class Resolver(CloningVisitor):
             node = cast(ast.JoinExpr, clone_expr(node))
 
             node.table = super().visit(node.table)
-            if node.alias is not None:
+            if node.table.view_name is not None:
+                if node.alias in scope.tables:
+                    raise ResolverException(
+                        f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
+                    )
+                node.type = ast.SelectViewType(view_name=node.table.view_name, select_query_type=node.table.type)
+                scope.tables[node.type.view_name] = node.type
+            elif node.alias is not None:
                 if node.alias in scope.tables:
                     raise ResolverException(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
                 node.type = ast.SelectQueryAliasType(alias=node.alias, select_query_type=node.table.type)
-                if isinstance(node.table, ast.SelectQuery):
-                    node.type.view_name = node.table.view_name
-
                 scope.tables[node.alias] = node.type
             else:
                 node.type = node.table.type

@@ -424,6 +424,10 @@ class _Printer(Visitor):
         elif isinstance(node.type, ast.SelectUnionQueryType):
             join_strings.append(self.visit(node.table))
 
+        elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
+            join_strings.append(self.visit(node.table))
+            join_strings.append(f"AS {self._print_identifier(node.alias)}")
+
         elif isinstance(node.type, ast.SelectQueryAliasType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
@@ -962,10 +966,11 @@ class _Printer(Visitor):
         elif (
             isinstance(type.table_type, ast.SelectQueryType)
             or isinstance(type.table_type, ast.SelectQueryAliasType)
+            or isinstance(type.table_type, ast.SelectViewType)
             or isinstance(type.table_type, ast.SelectUnionQueryType)
         ):
             field_sql = self._print_identifier(type.name)
-            if isinstance(type.table_type, ast.SelectQueryAliasType):
+            if isinstance(type.table_type, ast.SelectQueryAliasType) or isinstance(type.table_type, ast.SelectViewType):
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
@@ -1059,6 +1064,9 @@ class _Printer(Visitor):
 
     def visit_select_query_alias_type(self, type: ast.SelectQueryAliasType):
         return self._print_identifier(type.alias)
+
+    def visit_select_view_type(self, type: ast.SelectViewType):
+        return self._print_identifier(type.view_name)
 
     def visit_field_alias_type(self, type: ast.FieldAliasType):
         return self._print_identifier(type.alias)

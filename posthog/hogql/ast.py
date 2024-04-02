@@ -85,7 +85,9 @@ class BaseTableType(Type):
         raise HogQLException(f"Field not found: {name}")
 
 
-TableOrSelectType = Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
+TableOrSelectType = Union[
+    BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType", "SelectViewType"
+]
 
 
 @dataclass(kw_only=True)
@@ -184,10 +186,9 @@ class SelectUnionQueryType(Type):
 
 
 @dataclass(kw_only=True)
-class SelectQueryAliasType(Type):
-    alias: str
+class SelectViewType(Type):
+    view_name: str
     select_query_type: SelectQueryType | SelectUnionQueryType
-    view_name: Optional[str] = None
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
@@ -211,7 +212,7 @@ class SelectQueryAliasType(Type):
             if isinstance(field, ExpressionField):
                 return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
             return FieldType(name=name, table_type=self)
-        raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
+        raise HogQLException(f"Field {name} not found on view query with name {self.view_name}")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         if self.view_name:
@@ -223,6 +224,23 @@ class SelectQueryAliasType(Type):
             except Exception:
                 pass
 
+        return self.select_query_type.has_child(name, context)
+
+
+@dataclass(kw_only=True)
+class SelectQueryAliasType(Type):
+    alias: str
+    select_query_type: SelectQueryType | SelectUnionQueryType
+
+    def get_child(self, name: str, context: HogQLContext) -> Type:
+        if name == "*":
+            return AsteriskType(table_type=self)
+        if self.select_query_type.has_child(name, context):
+            return FieldType(name=name, table_type=self)
+
+        raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
+
+    def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.select_query_type.has_child(name, context)
 
 
