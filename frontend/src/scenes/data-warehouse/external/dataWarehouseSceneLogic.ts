@@ -148,6 +148,11 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                             acc[table.payload.external_data_source.source_type] = []
                         }
                         acc[table.payload.external_data_source.source_type].push(table)
+                    } else {
+                        if (!acc['S3']) {
+                            acc['S3'] = []
+                        }
+                        acc['S3'].push(table)
                     }
                     return acc
                 }, {})

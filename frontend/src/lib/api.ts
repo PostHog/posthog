@@ -1490,6 +1490,9 @@ const api = {
         async update(id: PluginConfigTypeNew['id'], data: FormData): Promise<PluginConfigWithPluginInfoNew> {
             return await new ApiRequest().pluginConfig(id).update({ data })
         },
+        async create(data: FormData): Promise<PluginConfigWithPluginInfoNew> {
+            return await new ApiRequest().pluginConfigs().create({ data })
+        },
         async list(): Promise<PaginatedResponse<PluginConfigTypeNew>> {
             return await new ApiRequest().pluginConfigs().get()
         },

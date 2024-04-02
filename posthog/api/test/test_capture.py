@@ -4,6 +4,7 @@ from unittest import mock
 import base64
 import gzip
 import json
+from django.test import override_settings
 import lzstring
 import pathlib
 import pytest
@@ -281,8 +282,7 @@ class TestCapture(BaseTest):
             assert is_randomly_partitioned(override_key) is True
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_capture_randomly_partitions_with_likely_anonymous_ids(self, kafka_produce):
-        """Test is_randomly_partitioned in the prescence of likely anonymous ids."""
+    def _do_test_capture_with_likely_anonymous_ids(self, kafka_produce, expect_random_partitioning: bool):
         for distinct_id in LIKELY_ANONYMOUS_IDS:
             data = {
                 "event": "$autocapture",
@@ -298,8 +298,22 @@ class TestCapture(BaseTest):
                 )
 
             kafka_produce.assert_called_with(
-                topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=ANY, key=None, headers=None
+                topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+                data=ANY,
+                key=None if expect_random_partitioning else ANY,
+                headers=None,
             )
+
+            if not expect_random_partitioning:
+                assert kafka_produce.mock_calls[0].kwargs["key"] is not None
+
+    def test_capture_randomly_partitions_with_likely_anonymous_ids(self):
+        """Test is_randomly_partitioned in the prescence of likely anonymous ids, if enabled."""
+        with override_settings(CAPTURE_ALLOW_RANDOM_PARTITIONING=True):
+            self._do_test_capture_with_likely_anonymous_ids(expect_random_partitioning=True)
+
+        with override_settings(CAPTURE_ALLOW_RANDOM_PARTITIONING=False):
+            self._do_test_capture_with_likely_anonymous_ids(expect_random_partitioning=False)
 
     def test_cached_is_randomly_partitioned(self):
         """Assert the behavior of is_randomly_partitioned under certain cache settings.

@@ -173,7 +173,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
 
-        name: Validate Django migrations
+        name: Validate Django and CH migrations
         runs-on: depot-ubuntu-latest-4
 
         steps:
@@ -231,6 +231,11 @@ jobs:
                   # initial migrations (0001_*) as these are guaranteed to be
                   # run on initial setup where there is no data.
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/migrations/" | awk '{print $2}' | grep -v migrations/0001_ | python manage.py test_migrations_are_safe
+
+            - name: Check CH migrations
+              run: |
+                  # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
+                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | awk '{print $2}' |  python manage.py test_ch_migrations_are_safe
 
     django:
         needs: changes

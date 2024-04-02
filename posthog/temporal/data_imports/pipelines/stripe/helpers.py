@@ -8,7 +8,7 @@ from dlt.common import pendulum
 from dlt.sources import DltResource
 from pendulum import DateTime
 from asgiref.sync import sync_to_async
-from posthog.temporal.data_imports.pipelines.helpers import check_limit, aupdate_job_count
+from posthog.temporal.data_imports.pipelines.helpers import check_limit
 from posthog.warehouse.models import ExternalDataJob
 
 stripe.api_version = "2022-11-15"
@@ -25,6 +25,7 @@ def transform_date(date: Union[str, DateTime, int]) -> int:
 
 async def stripe_get_data(
     api_key: str,
+    account_id: str,
     resource: str,
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
@@ -42,6 +43,7 @@ async def stripe_get_data(
 
     resource_dict = await sync_to_async(_resource.list)(
         api_key=api_key,
+        stripe_account=account_id,
         created={"gte": start_date, "lt": end_date},
         limit=100,
         **kwargs,
@@ -53,6 +55,7 @@ async def stripe_get_data(
 
 async def stripe_pagination(
     api_key: str,
+    account_id: str,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -75,6 +78,7 @@ async def stripe_pagination(
 
         response = await stripe_get_data(
             api_key,
+            account_id,
             endpoint,
             starting_after=starting_after,
         )
@@ -92,12 +96,10 @@ async def stripe_pagination(
         if not response["has_more"] or status == ExternalDataJob.Status.CANCELLED:
             break
 
-    await aupdate_job_count(job_id, team_id, count)
-
 
 @dlt.source(max_table_nesting=0)
 def stripe_source(
-    api_key: str, endpoints: Tuple[str, ...], team_id, job_id, starting_after: Optional[str] = None
+    api_key: str, account_id: str, endpoints: Tuple[str, ...], team_id, job_id, starting_after: Optional[str] = None
 ) -> Iterable[DltResource]:
     for endpoint in endpoints:
         yield dlt.resource(
@@ -106,6 +108,7 @@ def stripe_source(
             write_disposition="append",
         )(
             api_key=api_key,
+            account_id=account_id,
             endpoint=endpoint,
             team_id=team_id,
             job_id=job_id,
