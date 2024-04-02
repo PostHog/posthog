@@ -192,7 +192,6 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay
     REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
-    SIDEPANEL_STATUS: 'sidepanel-status', // owner: @benjackwhite
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
     PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
