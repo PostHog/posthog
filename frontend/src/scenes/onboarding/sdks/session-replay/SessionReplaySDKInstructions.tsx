@@ -11,6 +11,9 @@ import {
     NuxtJSInstructions,
     ReactInstructions,
     RemixInstructions,
+    SvelteInstructions,
+    VueInstructions,
+    WebflowInstructions,
 } from '.'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
@@ -24,4 +27,7 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.NUXT_JS]: NuxtJSInstructions,
     [SDKKey.REACT]: ReactInstructions,
     [SDKKey.REMIX]: RemixInstructions,
+    [SDKKey.SVELTE]: SvelteInstructions,
+    [SDKKey.VUE_JS]: VueInstructions,
+    [SDKKey.WEBFLOW]: WebflowInstructions,
 }

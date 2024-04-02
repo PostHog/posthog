@@ -6,6 +6,7 @@ import {
     FeatureFlagsAPIInstructions,
     FeatureFlagsAstroInstructions,
     FeatureFlagsBubbleInstructions,
+    FeatureFlagsDjangoInstructions,
     FeatureFlagsFlutterInstructions,
     FeatureFlagsFramerInstructions,
     FeatureFlagsGoInstructions,
@@ -21,6 +22,9 @@ import {
     FeatureFlagsRemixJSInstructions,
     FeatureFlagsRNInstructions,
     FeatureFlagsRubyInstructions,
+    FeatureFlagsSvelteInstructions,
+    FeatureFlagsVueInstructions,
+    FeatureFlagsWebflowInstructions,
 } from '.'
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
@@ -30,6 +34,7 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.API]: FeatureFlagsAPIInstructions,
     [SDKKey.ASTRO]: FeatureFlagsAstroInstructions,
     [SDKKey.BUBBLE]: FeatureFlagsBubbleInstructions,
+    [SDKKey.DJANGO]: FeatureFlagsDjangoInstructions,
     [SDKKey.FLUTTER]: FeatureFlagsFlutterInstructions,
     [SDKKey.FRAMER]: FeatureFlagsFramerInstructions,
     [SDKKey.GO]: FeatureFlagsGoInstructions,
@@ -44,5 +49,7 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REACT_NATIVE]: FeatureFlagsRNInstructions,
     [SDKKey.REMIX]: FeatureFlagsRemixJSInstructions,
     [SDKKey.RUBY]: FeatureFlagsRubyInstructions,
-    // add rust, gatsby, nuxt, vue, svelte, and others here
+    [SDKKey.SVELTE]: FeatureFlagsSvelteInstructions,
+    [SDKKey.VUE_JS]: FeatureFlagsVueInstructions,
+    [SDKKey.WEBFLOW]: FeatureFlagsWebflowInstructions,
 }

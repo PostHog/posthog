@@ -59,6 +59,13 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/bubble',
     },
     {
+        name: 'Django',
+        key: SDKKey.DJANGO,
+        tags: [SDKTag.SERVER],
+        image: require('./logos/django.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/django',
+    },
+    {
         name: 'Elixir',
         key: SDKKey.ELIXIR,
         tags: [SDKTag.SERVER],
@@ -181,6 +188,20 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/ruby',
     },
     {
+        name: 'Rust',
+        key: SDKKey.RUST,
+        tags: [SDKTag.SERVER],
+        image: require('./logos/rust.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/rust',
+    },
+    {
+        name: 'Svelte',
+        key: SDKKey.SVELTE,
+        tags: [SDKTag.WEB],
+        image: require('./logos/svelte.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/svelte',
+    },
+    {
         name: 'Vue.js',
         key: SDKKey.VUE_JS,
         tags: [SDKTag.WEB],
@@ -188,11 +209,11 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/vue-js',
     },
     {
-        name: 'Rust',
-        key: SDKKey.RUST,
-        tags: [SDKTag.SERVER],
-        image: require('./logos/rust.svg'),
-        docsLink: 'https://posthog.com/docs/libraries/rust',
+        name: 'Webflow',
+        key: SDKKey.WEBFLOW,
+        tags: [SDKTag.WEB],
+        image: require('./logos/webflow.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/webflow',
     },
     // integrations
     {

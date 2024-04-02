@@ -3744,6 +3744,7 @@ export enum SDKKey {
     ASTRO = 'astro',
     API = 'api',
     BUBBLE = 'bubble',
+    DJANGO = 'django',
     DOCUSAURUS = 'docusaurus',
     ELIXIR = 'elixir',
     FRAMER = 'framer',
@@ -3771,7 +3772,9 @@ export enum SDKKey {
     SEGMENT = 'segment',
     SENTRY = 'sentry',
     SHOPIFY = 'shopify',
+    SVELTE = 'svelte',
     VUE_JS = 'vuejs',
+    WEBFLOW = 'webflow',
     WORDPRESS = 'wordpress',
 }
 
