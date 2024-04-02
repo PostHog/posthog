@@ -42,16 +42,17 @@ function EditTextValueComponent({
     onChange,
 }: {
     initialValue: any
-    onChange: (newValue: any, save: boolean) => void
+    onChange: (newValue: any) => void
 }): JSX.Element {
     const [value, setValue] = useState(initialValue)
 
     return (
         <LemonInput
             autoFocus
+            value={value}
             onChange={setValue}
-            onBlur={() => onChange(null, false)}
-            onPressEnter={() => onChange(value, true)}
+            onBlur={() => onChange(initialValue)}
+            onPressEnter={() => onChange(value)}
             autoComplete="off"
             autoCapitalize="off"
             size="xsmall"
@@ -84,9 +85,9 @@ function ValueDisplay({
 
     const valueString: string = value === null ? 'null' : String(value) // typeof null returns 'object' ¯\_(ツ)_/¯
 
-    const handleValueChange = (newValue: any, save: boolean): void => {
+    const handleValueChange = (newValue: any): void => {
         setEditing(false)
-        if (rootKey !== undefined && save && onEdit && newValue != value) {
+        if (rootKey !== undefined && onEdit && newValue != value) {
             onEdit(rootKey, newValue, value)
         }
     }
@@ -123,15 +124,15 @@ function ValueDisplay({
                             items={[
                                 {
                                     label: 'True',
-                                    onClick: () => handleValueChange(true, true),
+                                    onClick: () => handleValueChange(true),
                                 },
                                 {
                                     label: 'False',
-                                    onClick: () => handleValueChange(false, true),
+                                    onClick: () => handleValueChange(false),
                                 },
                                 {
                                     label: 'Null',
-                                    onClick: () => handleValueChange(null, true),
+                                    onClick: () => handleValueChange(null),
                                     status: 'danger',
                                 },
                             ]}
