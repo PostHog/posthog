@@ -1066,7 +1066,7 @@ class _Printer(Visitor):
         return self._print_identifier(type.alias)
 
     def visit_select_view_type(self, type: ast.SelectViewType):
-        return self._print_identifier(type.view_name)
+        return self._print_identifier(type.alias)
 
     def visit_field_alias_type(self, type: ast.FieldAliasType):
         return self._print_identifier(type.alias)

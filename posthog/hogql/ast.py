@@ -188,6 +188,7 @@ class SelectUnionQueryType(Type):
 @dataclass(kw_only=True)
 class SelectViewType(Type):
     view_name: str
+    alias: str
     select_query_type: SelectQueryType | SelectUnionQueryType
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
