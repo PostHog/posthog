@@ -40,6 +40,7 @@ from posthog.models.instance_setting import (
     get_instance_setting,
     override_instance_config,
 )
+from posthog.models.person.util import create_person_distinct_id
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -5563,72 +5564,71 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(action_response[0]["count"], 2)
 
-    # TODO: Fix exception
-    # @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
-    # def test_breakdown_user_props_with_filter(self):
-    #     self._create_person(
-    #         team_id=self.team.pk,
-    #         distinct_ids=["person1"],
-    #         properties={"email": "test@posthog.com"},
-    #     )
-    #     self._create_person(
-    #         team_id=self.team.pk,
-    #         distinct_ids=["person2"],
-    #         properties={"email": "test@gmail.com"},
-    #     )
-    #     person = self._create_person(
-    #         team_id=self.team.pk,
-    #         distinct_ids=["person3"],
-    #         properties={"email": "test@gmail.com"},
-    #     )
-    #     create_person_distinct_id(self.team.pk, "person1", str(person.uuid))
+    @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
+    def test_breakdown_user_props_with_filter(self):
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"email": "test@posthog.com"},
+        )
+        self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"email": "test@gmail.com"},
+        )
+        person = self._create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"email": "test@gmail.com"},
+        )
+        create_person_distinct_id(self.team.pk, "person1", str(person.uuid))
 
-    #     self._create_event(
-    #         event="sign up",
-    #         distinct_id="person1",
-    #         team=self.team,
-    #         properties={"key": "val"},
-    #     )
-    #     self._create_event(
-    #         event="sign up",
-    #         distinct_id="person2",
-    #         team=self.team,
-    #         properties={"key": "val"},
-    #     )
+        self._create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "val"},
+        )
+        self._create_event(
+            event="sign up",
+            distinct_id="person2",
+            team=self.team,
+            properties={"key": "val"},
+        )
 
-    #     flush_persons_and_events()
+        flush_persons_and_events()
 
-    #     response = self._run(
-    #         Filter(
-    #             team=self.team,
-    #             data={
-    #                 "date_from": "-14d",
-    #                 "breakdown": "email",
-    #                 "breakdown_type": "person",
-    #                 "events": [
-    #                     {
-    #                         "id": "sign up",
-    #                         "name": "sign up",
-    #                         "type": "events",
-    #                         "order": 0,
-    #                     }
-    #                 ],
-    #                 "properties": [
-    #                     {
-    #                         "key": "email",
-    #                         "value": "@posthog.com",
-    #                         "operator": "not_icontains",
-    #                         "type": "person",
-    #                     },
-    #                     {"key": "key", "value": "val"},
-    #                 ],
-    #             },
-    #         ),
-    #         self.team,
-    #     )
+        response = self._run(
+            Filter(
+                team=self.team,
+                data={
+                    "date_from": "-14d",
+                    "breakdown": "email",
+                    "breakdown_type": "person",
+                    "events": [
+                        {
+                            "id": "sign up",
+                            "name": "sign up",
+                            "type": "events",
+                            "order": 0,
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "email",
+                            "value": "@posthog.com",
+                            "operator": "not_icontains",
+                            "type": "person",
+                        },
+                        {"key": "key", "value": "val"},
+                    ],
+                },
+            ),
+            self.team,
+        )
 
-    #     self.assertEqual(len(response), 1)
-    #     self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email", "$os", "$browser"])
