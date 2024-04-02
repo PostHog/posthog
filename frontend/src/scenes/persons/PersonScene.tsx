@@ -1,8 +1,7 @@
 import './PersonScene.scss'
 
 import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonDropdown, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { Dropdown, Menu } from 'antd'
+import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -49,15 +48,17 @@ export const scene: SceneExport = {
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <div>
-                <span className="text-muted">IDs:</span>{' '}
-                <CopyToClipboardInline
-                    tooltipMessage={null}
-                    description="person distinct ID"
-                    style={{ justifyContent: 'flex-end' }}
-                >
-                    {person.distinct_ids[0]}
-                </CopyToClipboardInline>
+            <div className="flex space-x-1">
+                <div>
+                    <span className="text-muted">IDs:</span>{' '}
+                    <CopyToClipboardInline
+                        tooltipMessage={null}
+                        description="person distinct ID"
+                        style={{ justifyContent: 'flex-end' }}
+                    >
+                        {person.distinct_ids[0]}
+                    </CopyToClipboardInline>
+                </div>
                 {person.distinct_ids.length > 1 && (
                     <LemonMenu
                         items={person.distinct_ids.slice(1).map((distinct_id: string) => ({
