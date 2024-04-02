@@ -71,6 +71,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                                 { value: 'v1_enabled', label: 'V1 Enabled' },
                                 { value: 'v1_mixed', label: 'V1 Mixed' },
                                 { value: 'v2_enabled', label: 'V2 Enabled' },
+                                { value: 'v3_enabled', label: 'V3 Enabled (Join)' },
                             ]}
                             onChange={(value) =>
                                 setQuery({

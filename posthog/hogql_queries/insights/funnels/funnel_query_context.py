@@ -25,7 +25,7 @@ class FunnelQueryContext(QueryContext):
 
     interval: IntervalType
 
-    breakdown: List[Union[str, int]] | None
+    breakdown: List[Union[str, int]] | str | int | None
     breakdownType: BreakdownType
     breakdownAttributionType: BreakdownAttributionType
 

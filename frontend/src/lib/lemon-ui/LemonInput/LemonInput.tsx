@@ -8,7 +8,7 @@ import React, { useRef, useState } from 'react'
 
 interface LemonInputPropsBase
     extends Pick<
-        // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
+        // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
         React.InputHTMLAttributes<HTMLInputElement>,
         | 'className'
         | 'onFocus'
@@ -42,7 +42,7 @@ interface LemonInputPropsBase
     /** Special case - show a transparent background rather than white */
     transparentBackground?: boolean
     /** Size of the element. Default: `'medium'`. */
-    size?: 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium'
     onPressEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void
     'data-attr'?: string
     'aria-label'?: string

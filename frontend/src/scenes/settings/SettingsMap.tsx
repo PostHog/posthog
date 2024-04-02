@@ -298,7 +298,6 @@ export const SettingsMap: SettingSection[] = [
         level: 'organization',
         id: 'organization-rbac',
         title: 'Role-based access',
-        flag: 'ROLE_BASED_ACCESS',
         settings: [
             {
                 id: 'organization-rbac',

@@ -51,6 +51,7 @@ LIMIT 10
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
         return WebTopClicksQueryResponse(

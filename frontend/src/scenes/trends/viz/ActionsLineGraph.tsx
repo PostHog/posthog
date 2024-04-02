@@ -55,21 +55,21 @@ export function ActionsLineGraph({
         []
 
     const isLifecycleQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]) &&
         isLifecycle &&
         query &&
         isInsightVizNode(query) &&
         isLifecycleQuery(query.source)
 
     const isStickinessQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]) &&
         isStickiness &&
         query &&
         isInsightVizNode(query) &&
         isStickinessQuery(query.source)
 
     const isTrendsQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
         isTrends &&
         query &&
         isInsightVizNode(query) &&
@@ -151,6 +151,10 @@ export function ActionsLineGraph({
                                       series: dataset.action?.order ?? 0,
                                       breakdown: dataset.breakdown_value,
                                       compare: dataset.compare_label,
+                                  },
+                                  additionalSelect: {
+                                      value_at_data_point: 'event_count',
+                                      matched_recordings: 'matched_recordings',
                                   },
                               })
                           } else {

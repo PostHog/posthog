@@ -459,6 +459,7 @@ class TestPasswordResetAPI(APIBaseTest):
         response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
+        self.assertEqual(response.headers["Content-Length"], "0")
 
     def test_cant_validate_token_without_a_token(self):
         response = self.client.get(f"/api/reset/{self.user.uuid}/")

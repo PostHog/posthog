@@ -1,7 +1,8 @@
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path } from 'kea'
 import api from 'lib/api'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { promptLogic } from 'lib/logic/promptLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { InsightModel } from '~/types'
@@ -10,7 +11,7 @@ import type { insightsModelType } from './insightsModelType'
 
 export const insightsModel = kea<insightsModelType>([
     path(['models', 'insightsModel']),
-    connect([promptLogic({ key: 'rename-insight' }), teamLogic]),
+    connect([teamLogic]),
     actions(() => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
@@ -27,17 +28,21 @@ export const insightsModel = kea<insightsModelType>([
     })),
     listeners(({ actions }) => ({
         renameInsight: async ({ item }) => {
-            promptLogic({ key: 'rename-insight' }).actions.prompt({
+            LemonDialog.openForm({
                 title: 'Rename insight',
-                placeholder: 'Please enter the new name',
-                value: item.name,
-                error: 'You must enter name',
-                success: async (name: string) => {
+                initialValues: { name: item.name },
+                content: (
+                    <LemonField name="name">
+                        <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
+                    </LemonField>
+                ),
+                errors: {
+                    name: (name) => (!name ? 'You must enter a name' : undefined),
+                },
+                onSubmit: async ({ name }) => {
                     const updatedItem = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
-                        {
-                            name,
-                        }
+                        { name }
                     )
                     lemonToast.success(
                         <>

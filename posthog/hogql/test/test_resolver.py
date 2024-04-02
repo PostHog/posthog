@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
+    ExpressionField,
     FieldTraverser,
     StringJSONDatabaseField,
     StringDatabaseField,
@@ -253,6 +254,15 @@ class TestResolver(BaseTest):
         assert pretty_dataclasses(node) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_asterisk_expander_hidden_field(self):
+        self.database.events.fields["hidden_field"] = ExpressionField(
+            name="hidden_field", hidden=True, expr=ast.Field(chain=["event"])
+        )
+        node = self._select("select * from events")
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert pretty_dataclasses(node) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_subquery_alias(self):
         node = self._select("select x.* from (select 1 as a, 2 as b) x")
         node = resolve_types(node, self.context, dialect="clickhouse")
@@ -349,10 +359,12 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="hogql"))
         hogql = print_prepared_ast(node, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
         expected = (
-            f"SELECT id, email FROM "
-            f"(SELECT id, properties.email AS email FROM persons INNER JOIN "
-            f"(SELECT DISTINCT person_id FROM events) "
-            f"AS source ON equals(persons.id, source.person_id) ORDER BY id ASC) "
-            f"LIMIT 10000"
+            "SELECT id, email FROM "
+            "(SELECT id, properties.email AS email FROM "
+            "(SELECT DISTINCT person_id FROM events) "
+            "AS source INNER JOIN "
+            "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
+            "LIMIT 10000"
         )
+
         assert hogql == expected

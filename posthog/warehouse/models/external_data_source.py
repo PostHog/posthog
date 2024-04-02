@@ -12,6 +12,7 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
         STRIPE = "Stripe", "Stripe"
         HUBSPOT = "Hubspot", "Hubspot"
         POSTGRES = "Postgres", "Postgres"
+        ZENDESK = "Zendesk", "Zendesk"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
