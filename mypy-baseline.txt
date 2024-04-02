@@ -730,7 +730,6 @@ posthog/hogql/test/test_parser_cpp.py:0: error: Unsupported dynamic base class "
 posthog/hogql/test/test_parse_string_python.py:0: error: Unsupported dynamic base class "parse_string_test_factory"  [misc]
 posthog/hogql/test/test_parse_string_cpp.py:0: error: Unsupported dynamic base class "parse_string_test_factory"  [misc]
 posthog/hogql/database/test/test_view.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
-posthog/hogql/database/test/test_saved_query.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
 posthog/hogql/database/test/test_s3_table.py:0: error: Argument "dialect" to "print_ast" has incompatible type "str"; expected "Literal['hogql', 'clickhouse']"  [arg-type]
 posthog/api/search.py:0: error: Argument "extra_fields" to "class_queryset" has incompatible type "object"; expected "dict[Any, Any] | None"  [arg-type]
 posthog/api/property_definition.py:0: error: Item "AnonymousUser" of "User | AnonymousUser" has no attribute "organization"  [union-attr]

@@ -29,6 +29,7 @@ export interface HogQLQueryEditorLogicProps {
     key: number
     query: HogQLQuery
     setQuery?: (query: HogQLQuery) => void
+    onChange?: (query: string) => void
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
 }
@@ -139,6 +140,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             }
             actions.setIsValidView(response?.isValidView || false)
             actions.setModelMarkers(markers)
+            props.onChange?.(queryInput)
         },
         draftFromPrompt: async () => {
             if (!values.aiAvailable) {
