@@ -1,8 +1,7 @@
 import './PropertiesTable.scss'
 
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonDialog, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { Dropdown, Input, Menu } from 'antd'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
@@ -39,20 +38,23 @@ interface ValueDisplayType extends BasePropertyType {
 }
 
 function EditTextValueComponent({
-    value,
+    initialValue,
     onChange,
 }: {
-    value: any
+    initialValue: any
     onChange: (newValue: any, save: boolean) => void
 }): JSX.Element {
+    const [value, setValue] = useState(initialValue)
+
     return (
-        <Input
-            defaultValue={value}
+        <LemonInput
             autoFocus
+            onChange={setValue}
             onBlur={() => onChange(null, false)}
-            onPressEnter={(e) => onChange((e.target as HTMLInputElement).value, true)}
+            onPressEnter={() => onChange(value, true)}
             autoComplete="off"
             autoCapitalize="off"
+            size="xsmall"
         />
     )
 }
@@ -61,7 +63,7 @@ function ValueDisplay({
     type,
     value,
     rootKey,
-    onEdit,
+    onEdit = () => {},
     nestingLevel,
     useDetectedPropertyType,
 }: ValueDisplayType): JSX.Element {
@@ -117,29 +119,25 @@ function ValueDisplay({
             {!editing ? (
                 <>
                     {canEdit && boolNullTypes.includes(valueType) ? (
-                        <Dropdown
-                            overlay={
-                                <Menu
-                                    onClick={({ key }) => {
-                                        let val = null
-                                        if (key === 't') {
-                                            val = true
-                                        } else if (key === 'f') {
-                                            val = false
-                                        }
-                                        handleValueChange(val, true)
-                                    }}
-                                >
-                                    <Menu.Item key="t">true</Menu.Item>
-                                    <Menu.Item key="f">false</Menu.Item>
-                                    <Menu.Item key="n" danger>
-                                        null
-                                    </Menu.Item>
-                                </Menu>
-                            }
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'True',
+                                    onClick: () => handleValueChange(true, true),
+                                },
+                                {
+                                    label: 'False',
+                                    onClick: () => handleValueChange(false, true),
+                                },
+                                {
+                                    label: 'Null',
+                                    onClick: () => handleValueChange(null, true),
+                                    status: 'danger',
+                                },
+                            ]}
                         >
                             {valueComponent}
-                        </Dropdown>
+                        </LemonMenu>
                     ) : (
                         valueComponent
                     )}
@@ -170,7 +168,7 @@ function ValueDisplay({
                     </Tooltip>
                 </>
             ) : (
-                <EditTextValueComponent value={value} onChange={handleValueChange} />
+                <EditTextValueComponent initialValue={value} onChange={handleValueChange} />
             )}
         </div>
     )
