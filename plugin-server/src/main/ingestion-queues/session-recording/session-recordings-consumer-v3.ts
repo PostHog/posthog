@@ -492,21 +492,47 @@ export class SessionRecordingIngesterV3 {
                                 return
                             }
 
+                            const ifNoneMatch = req.headers['if-none-match']
+
                             status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
 
                             // We don't know the partition upfront so we have to recursively check all partitions
                             const partitions = await readdir(this.rootDir).catch(() => [])
 
                             for (const partition of partitions) {
-                                const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
-                                const exists = await stat(sessionDir).catch(() => null)
+                                const possibleBufferFile = path.join(
+                                    this.dirForSession(parseInt(partition), projectId, sessionId),
+                                    BUFFER_FILE_NAME
+                                )
+                                const exists = await stat(possibleBufferFile).catch(() => null)
 
                                 if (!exists) {
                                     continue
                                 }
 
-                                const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
+                                // TODO: Test if this actually works...
+                                status.info(
+                                    '⚡️',
+                                    `Found recording ${projectId}__${sessionId} in partition ${partition}`,
+                                    {
+                                        size: exists.size,
+                                        mtimeMs: exists.mtimeMs,
+                                    }
+                                )
+
+                                const etag = `W/${exists.mtimeMs}-${exists.size}`
+
+                                // Set a weak etag header so that subsequent requests can be short circuited
+                                res.setHeader('ETag', etag)
+
+                                if (etag && ifNoneMatch === etag) {
+                                    res.sendStatus(304)
+                                    return
+                                }
+
+                                const fileStream = createReadStream(possibleBufferFile)
                                 fileStream.pipe(res)
+                                status.info('⚡️', `Took ${Date.now() - startTime}ms to find the file`)
                                 return
                             }
 

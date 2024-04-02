@@ -418,12 +418,24 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 with requests.get(
                     url=f"{settings.RECORDINGS_INGESTER_URL}/api/projects/{self.team.pk}/session_recordings/{str(recording.session_id)}/snapshots",
                     stream=True,
+                    headers={
+                        "if-none-match": request.headers.get("If-None-Match", ""),
+                    },
                 ) as r:
+                    etag = r.headers.get("ETag")
                     if r.status_code == 404:
-                        return Response({"snapshots": []})
+                        raise exceptions.NotFound("Realtime snapshots not found")
+
+                    if r.status_code == 304:
+                        response = HttpResponse(status=304)
+                        if etag:
+                            response["ETag"] = etag
+                        return response
 
                     response = HttpResponse(content=r.raw, content_type="application/json")
                     response["Content-Disposition"] = "inline"
+                    if etag:
+                        response["ETag"] = etag
                     return response
             else:
                 snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
