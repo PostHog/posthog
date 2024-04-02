@@ -119,7 +119,7 @@ export function SupportForm(): JSX.Element | null {
                     </div>
                 )}
             </LemonField>
-            <>
+            <div className="flex gap-2 flex-col">
                 <div className="flex justify-between items-center">
                     <label className="LemonLabel">
                         Severity level
@@ -142,7 +142,7 @@ export function SupportForm(): JSX.Element | null {
                         }))}
                     />
                 </LemonField>
-            </>
+            </div>
         </Form>
     )
 }
