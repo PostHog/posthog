@@ -3,14 +3,13 @@ import '../Experiment.scss'
 import { IconInfo } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 import { FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { VariantTag } from './components'
 
 export function SummaryTable(): JSX.Element {
     const {
@@ -18,29 +17,26 @@ export function SummaryTable(): JSX.Element {
         experimentInsightType,
         exposureCountDataForVariant,
         conversionRateForVariant,
-        sortedConversionRates,
         experimentMathAggregationForTrends,
         countDataForVariant,
         areTrendResultsConfusing,
+        getHighestProbabilityVariant,
     } = useValues(experimentLogic)
 
     if (!experimentResults) {
         return <></>
     }
 
+    const winningVariant = getHighestProbabilityVariant(experimentResults)
+
     const columns: LemonTableColumns<TrendExperimentVariant | FunnelExperimentVariant> = [
         {
             key: 'variants',
             title: 'Variant',
-            render: function Key(_, item, index): JSX.Element {
+            render: function Key(_, item): JSX.Element {
                 return (
                     <div className="flex items-center">
-                        <div
-                            className="w-2 h-2 rounded-full mr-2"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ backgroundColor: getSeriesColor(index + 1) }}
-                        />
-                        <span className="font-semibold">{capitalizeFirstLetter(item.key)}</span>
+                        <VariantTag variantKey={item.key} />
                     </div>
                 )
             },
@@ -90,12 +86,8 @@ export function SummaryTable(): JSX.Element {
             key: 'conversionRate',
             title: 'Conversion rate',
             render: function Key(_, item): JSX.Element {
-                const isWinning = item.key === sortedConversionRates[0].key
                 return (
-                    <div className={`font-semibold ${isWinning && 'text-success'}`}>{`${conversionRateForVariant(
-                        experimentResults,
-                        item.key
-                    )}%`}</div>
+                    <div className="font-semibold">{`${conversionRateForVariant(experimentResults, item.key)}%`}</div>
                 )
             },
         })
@@ -105,16 +97,20 @@ export function SummaryTable(): JSX.Element {
         key: 'winProbability',
         title: 'Win probability',
         render: function Key(_, item): JSX.Element {
+            const variantKey = item.key
             const percentage =
-                experimentResults?.probability?.[item.key] != undefined &&
-                experimentResults.probability?.[item.key] * 100
+                experimentResults?.probability?.[variantKey] != undefined &&
+                experimentResults.probability?.[variantKey] * 100
+            const isWinning = variantKey === winningVariant
 
             return (
                 <>
                     {percentage ? (
                         <span className="inline-flex items-center w-30 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
-                            <span className="w-1/4">{percentage.toFixed(2)}%</span>
+                            <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
+                                {percentage.toFixed(2)}%
+                            </span>
                         </span>
                     ) : (
                         '--'

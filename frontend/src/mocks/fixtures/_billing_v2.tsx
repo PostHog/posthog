@@ -333,6 +333,7 @@ export const billingJson: BillingV2Type = {
             addons: [
                 {
                     name: 'Group analytics',
+                    inclusion_only: false,
                     description:
                         'Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more.',
                     price_description: null,
@@ -512,6 +513,7 @@ export const billingJson: BillingV2Type = {
                 },
                 {
                     name: 'Data pipelines',
+                    inclusion_only: false,
                     description:
                         'Get your PostHog data into your data warehouse or other tools like BigQuery, Redshift, Customer.io, and more.',
                     price_description: null,
