@@ -272,6 +272,8 @@ class ClickhouseFunnelBase(ABC):
     def _exec_query(self) -> List[Tuple]:
         self._filter.team = self._team
         query = self.get_query()
+        print("QUERY", query)  # noqa: T201
+        print("FILTER", self._filter)  # noqa: T201
         return insight_sync_execute(
             query,
             {**self.params, **self._filter.hogql_context.values},

@@ -1,3 +1,4 @@
+import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import List, Optional, Tuple, Type
@@ -69,6 +70,8 @@ class ClickhouseFunnelExperimentResult:
                 experiment_end_date.astimezone(ZoneInfo(team.timezone)) if experiment_end_date else None
             )
 
+        # ruff: disable=T201
+        print("BREAKDOWN_KEY", breakdown_key)  # noqa: T201
         query_filter = filter.shallow_clone(
             {
                 "date_from": start_date_in_project_timezone,
@@ -89,8 +92,12 @@ class ClickhouseFunnelExperimentResult:
     def get_results(self, validate: bool = True):
         funnel_results = self.funnel.run()
 
+        # This only shows breakdown for control and test variants, not other values such as None
+        print("RAW_FUNNEL_RESULT", json.dumps(funnel_results, indent=2))  # noqa: T201
+
         basic_result_props = {
             # TODO: check if this can error out or not?, i.e. results don't have 0 index?
+            # I was expecting this part to filter out events with the experiment variants only
             "insight": [result for result in funnel_results if result[0]["breakdown_value"][0] in self.variants],
             "filters": self.funnel._filter.to_dict(),
         }
