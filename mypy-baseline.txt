@@ -588,18 +588,6 @@ posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attrib
 posthog/hogql/database/schema/test/test_channel_type.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
 posthog/hogql/database/schema/test/test_channel_type.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
 posthog/api/organization_member.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
-posthog/api/fields.py:0: error: List item 0 has incompatible type "type[PydanticModelValidator]"; expected "Callable[[dict[str, Any] | list[dict[str, Any]]], None] | ContextValidator[dict[str, Any] | list[dict[str, Any]]]"  [list-item]
-posthog/api/fields.py:0: note: "PydanticModelValidator" is missing following "ContextValidator" protocol member:
-posthog/api/fields.py:0: note: requires_context
-posthog/api/fields.py:0: note: Following member(s) of "PydanticModelValidator" have conflicts:
-posthog/api/fields.py:0: note: Expected:
-posthog/api/fields.py:0: note: def __call__(dict[str, Any] | list[dict[str, Any]], Field[Any, Any, Any, Any], /) -> None
-posthog/api/fields.py:0: note: Got:
-posthog/api/fields.py:0: note: def __init__(model: Any) -> PydanticModelValidator
-posthog/api/fields.py:0: note: Expected:
-posthog/api/fields.py:0: note: def __call__(dict[str, Any] | list[dict[str, Any]], Field[Any, Any, Any, Any], /) -> None
-posthog/api/fields.py:0: note: Got:
-posthog/api/fields.py:0: note: def __init__(model: Any) -> PydanticModelValidator
 ee/api/role.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 ee/clickhouse/views/insights.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/queries/trends/test/test_person.py:0: error: "str" has no attribute "get"  [attr-defined]
