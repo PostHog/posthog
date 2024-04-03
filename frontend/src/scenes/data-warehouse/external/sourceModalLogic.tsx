@@ -4,7 +4,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { ExternalDataSourceSyncSchema, ExternalDataSourceType } from '~/types'
 
-import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
+import { dataWarehouseTableLogic } from '../new/dataWarehouseTableLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { sourceFormLogic } from './forms/sourceFormLogic'

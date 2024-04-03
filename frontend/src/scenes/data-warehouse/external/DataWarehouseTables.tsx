@@ -4,15 +4,14 @@ import { useActions, useValues } from 'kea'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { ViewLinkModal } from '../ViewLinkModal'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import SourceModal from './SourceModal'
 import { TableData } from './TableData'
 
 export const DataWarehouseTables = (): JSX.Element => {
     const {
-        isSourceModalOpen,
         externalTablesBySourceType,
         dataWarehouseLoading,
         posthogTables,
@@ -20,7 +19,7 @@ export const DataWarehouseTables = (): JSX.Element => {
         selectedRow,
         dataWarehouseSavedQueriesLoading,
     } = useValues(dataWarehouseSceneLogic)
-    const { toggleSourceModal, selectRow } = useActions(dataWarehouseSceneLogic)
+    const { selectRow } = useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const treeItems = (): TreeItem[] => {
@@ -36,14 +35,7 @@ export const DataWarehouseTables = (): JSX.Element => {
                 })),
                 emptyLabel: (
                     <span className="text-muted">
-                        No tables found.{' '}
-                        <Link
-                            onClick={() => {
-                                toggleSourceModal()
-                            }}
-                        >
-                            Link source
-                        </Link>
+                        No tables found. <Link to={urls.dataWarehouseTable()}>Link source</Link>
                     </span>
                 ),
                 isLoading: dataWarehouseLoading,
@@ -80,7 +72,6 @@ export const DataWarehouseTables = (): JSX.Element => {
                 </div>
                 <TableData />
             </div>
-            <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
             <ViewLinkModal />
         </>
     )
