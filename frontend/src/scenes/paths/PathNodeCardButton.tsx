@@ -75,6 +75,7 @@ export function PathNodeCardButton({
                                 : []),
                             { label: 'Copy path item name', onClick: copyName },
                         ]}
+                        placement="bottom-end"
                     >
                         <LemonButton
                             size="small"
