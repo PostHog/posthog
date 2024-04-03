@@ -55,7 +55,7 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     const [checkListValues, setCheckListValues] = useState<boolean[]>([])
 
     const checklist = [
-        'Wait 5 minutes. Sometimes it takes a bit for ISPs to deliver emails.',
+        'Wait 5 minutes. Sometimes it takes a bit for email providers to deliver emails.',
         'Check your spam folder and any firewalls you may have active',
         'Ask your company IT department to allow any emails from @posthog.com',
         'Make sure you can receive emails to your email address, especially if it\'s an alias',
