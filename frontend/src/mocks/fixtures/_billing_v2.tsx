@@ -3429,6 +3429,14 @@ export const billingJson: BillingV2Type = {
                     type: null,
                 },
                 {
+                    key: 'support_response_time',
+                    name: 'Support response time',
+                    description: 'Get help from our team!',
+                    images: null,
+                    icon_key: null,
+                    type: null,
+                },
+                {
                     key: 'audit_logs',
                     name: 'Audit logs',
                     description: 'See who in your organization has accessed or modified entities within PostHog.',
