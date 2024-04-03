@@ -1676,7 +1676,7 @@
 # name: test_create_table_query[sessions_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS sessions_mv ON CLUSTER 'posthog'
+  CREATE OR REPLACE MATERIALIZED VIEW sessions_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_sessions
   AS SELECT
   
