@@ -147,6 +147,7 @@ export enum AvailableFeature {
     CUSTOMM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
+    SUPPORT_RESPONSE_TIME = 'support_response_time',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -1473,11 +1474,6 @@ export interface BillingV2Type {
     amount_off_expires_at?: Dayjs
 }
 
-export interface BillingV2SupportLevelType {
-    type: string
-    response_time: string
-}
-
 export interface BillingV2PlanType {
     free_allocation?: number | null
     features: BillingV2FeatureType[]
@@ -1496,7 +1492,6 @@ export interface BillingV2PlanType {
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
     contact_support: boolean | null
-    support_level?: BillingV2SupportLevelType
 }
 
 export interface PlanInterface {
