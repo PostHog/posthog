@@ -57,7 +57,7 @@ export function PathNodeCardButton({
                 <span className="text-xxs text-muted mr-1">{`0${name[0]}`}</span>
                 <span className="text-xs break-words">{pageUrl(node, isPath)}</span>
             </div>
-            {/* TRICKY: We don't want the popover to affect the snack buttons */}
+            {/* TRICKY: We don't want the popover to affect the buttons */}
             <PopoverReferenceContext.Provider value={null}>
                 <div className="flex flex-nowrap">
                     <LemonButton size="small" onClick={openModal}>
