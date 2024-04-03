@@ -3086,7 +3086,6 @@ export type GraphDataset = ChartDataset<ChartType> &
             | 'compare'
             | 'compare_label'
             | 'status'
-            | 'action'
             | 'actions'
             | 'breakdown_value'
             | 'persons_urls'
