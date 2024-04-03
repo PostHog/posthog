@@ -44,16 +44,8 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
         } as Partial<PathsQuery>)
     }
 
-    function _getStepNameAtIndex(filters: Record<string, any>, index: number): string {
-        const targetEntity =
-            filters.events?.filter((event: Record<string, any>) => {
-                return event.order === index - 1
-            })?.[0] ||
-            filters.actions?.filter((action: Record<string, any>) => {
-                return action.order === index - 1
-            })?.[0]
-
-        return targetEntity?.name || ''
+    function _getStepNameAtIndex(filters: FunnelsQuery, index: number): string {
+        return filters.series[index - 1].name ?? ''
     }
 
     function _getStepLabel(funnelSource?: FunnelsQuery, index?: number, shift: number = 0): JSX.Element {
