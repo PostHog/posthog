@@ -15,6 +15,8 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
+from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_enabled
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.logging.timing import timed
 from posthog.models import (
     Dashboard,
@@ -29,6 +31,7 @@ from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import generate_insight_cache_key
+from posthog.models.user import User
 from posthog.queries.funnels import (
     ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
@@ -38,6 +41,7 @@ from posthog.queries.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
+from posthog.schema import InsightType
 from posthog.types import FilterType
 
 CACHE_TYPE_TO_INSIGHT_CLASS = {
@@ -107,7 +111,7 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
 
 
 def calculate_result_by_insight(
-    team: Team, insight: Insight, dashboard: Optional[Dashboard]
+    *, team: Team, insight: Insight, dashboard: Optional[Dashboard], requesting_user: Optional[User] = None
 ) -> Tuple[str, str, List | Dict]:
     """
     Calculates the result for an insight. If the insight is query based,
@@ -119,6 +123,13 @@ def calculate_result_by_insight(
     if insight.query is not None:
         return calculate_for_query_based_insight(team, insight, dashboard)
     else:
+        if requesting_user and hogql_insights_enabled(requesting_user, insight.filters.get("type", InsightType.TRENDS)):
+            # KLUDGE: Using `finally` to unset this `query` after calculation, as we shouldn't save it to Postgres
+            insight.query = filter_to_query(insight.filters)
+            try:
+                return calculate_for_query_based_insight(team, insight, dashboard)
+            finally:
+                insight.query = None
         return calculate_for_filter_based_insight(team, insight, dashboard)
 
 
@@ -138,7 +149,6 @@ def calculate_for_query_based_insight(
     # local import to avoid circular reference
     from posthog.api.services.query import process_query
 
-    # TODO need to properly check that hogql is enabled?
     return cache_key, cache_type, process_query(team, insight.query, True)
 
 

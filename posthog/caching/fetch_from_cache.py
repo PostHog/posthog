@@ -12,6 +12,7 @@ from posthog.caching.calculate_results import (
 from posthog.caching.insight_cache import update_cached_state
 from posthog.models import DashboardTile, Insight
 from posthog.models.dashboard import Dashboard
+from posthog.models.user import User
 from posthog.schema import QueryTiming
 from posthog.utils import get_safe_cache
 
@@ -82,8 +83,12 @@ def synchronously_update_cache(
     insight: Insight,
     dashboard: Optional[Dashboard],
     refresh_frequency: Optional[timedelta] = None,
+    *,
+    requesting_user: User,
 ) -> InsightResult:
-    cache_key, cache_type, result = calculate_result_by_insight(team=insight.team, insight=insight, dashboard=dashboard)
+    cache_key, cache_type, result = calculate_result_by_insight(
+        team=insight.team, insight=insight, dashboard=dashboard, requesting_user=requesting_user
+    )
     timestamp = now()
 
     next_allowed_client_refresh = timestamp + refresh_frequency if refresh_frequency else None
