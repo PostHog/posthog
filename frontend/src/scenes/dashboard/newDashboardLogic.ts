@@ -89,7 +89,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 hideNewDashboardModal: () => false,
                 submitNewDashboardSuccess: () => false,
                 submitNewDashboardFailure: () => false,
-                clearActiveDashboardTemplate: () => false,
             },
         ],
         newDashboardModalVisible: [

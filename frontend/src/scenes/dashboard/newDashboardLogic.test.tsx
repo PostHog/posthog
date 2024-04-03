@@ -17,7 +17,6 @@ describe('template function in newDashboardLogic', () => {
             ])
         ).toEqual({ a: 'hello', b: 'hi' })
     })
-
     it('uses identified variables', () => {
         expect(
             applyTemplate({ a: '{VARIABLE_1}', b: 'hi' }, [
