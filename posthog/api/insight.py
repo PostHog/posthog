@@ -57,6 +57,8 @@ from posthog.helpers.multi_property_breakdown import (
 )
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_enabled
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
@@ -462,6 +464,18 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
     def get_result(self, insight: Insight):
+        if hogql_insights_enabled(
+            self.context["request"].user, insight.filters.get("insight", schema.InsightType.TRENDS)
+        ):
+            # TRICKY: As running `filters`-based insights on the HogQL-based engine is a transitional mechanism,
+            # we fake the insight being properly `query`-based.
+            # To prevent the lie from accidentally being saved to Postgres, we roll it back in the `finally` branch.
+            insight.query = filter_to_query(insight.filters).model_dump()
+            try:
+                return self.insight_result(insight).result
+            finally:
+                insight.query = None
+
         return self.insight_result(insight).result
 
     def get_timezone(self, insight: Insight):
@@ -520,7 +534,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def insight_result(self, insight: Insight) -> InsightResult:
         dashboard = self.context.get("dashboard", None)
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
-        target = insight if dashboard is None else dashboard_tile
+        if dashboard_tile:
+            # Syncing `dashboard_tile.insight.query` for consistency in the `hogql_insights_enabled` branch of `get_result`
+            dashboard_tile.insight.query = insight.query
 
         is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
@@ -535,8 +551,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 insight, dashboard, refresh_frequency=refresh_frequency, requesting_user=self.context["request"].user
             )
 
-        # :TODO: Clear up if tile can be null or not
-        return fetch_cached_insight_result(target or insight, refresh_frequency)
+        return fetch_cached_insight_result(dashboard_tile or insight, refresh_frequency)
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:

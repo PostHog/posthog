@@ -15,8 +15,6 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_enabled
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.logging.timing import timed
 from posthog.models import (
     Dashboard,
@@ -41,7 +39,6 @@ from posthog.queries.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
-from posthog.schema import InsightType
 from posthog.types import FilterType
 
 CACHE_TYPE_TO_INSIGHT_CLASS = {
@@ -123,15 +120,6 @@ def calculate_result_by_insight(
     if insight.query is not None:
         return calculate_for_query_based_insight(team, insight, dashboard)
     else:
-        if requesting_user and hogql_insights_enabled(
-            requesting_user, insight.filters.get("insight", InsightType.TRENDS)
-        ):
-            # KLUDGE: Using `finally` to unset this `query` after calculation, as we shouldn't save it to Postgres
-            insight.query = filter_to_query(insight.filters).model_dump()
-            try:
-                return calculate_for_query_based_insight(team, insight, dashboard)
-            finally:
-                insight.query = None
         return calculate_for_filter_based_insight(team, insight, dashboard)
 
 
