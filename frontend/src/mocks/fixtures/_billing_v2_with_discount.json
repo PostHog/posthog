@@ -2821,15 +2821,6 @@
                                     "limit": null,
                                     "note": null,
                                     "group": "support"
-                                },
-                                {
-                                    "key": "support_slas",
-                                    "name": "Support SLAs",
-                                    "description": "Support SLAs",
-                                    "unit": null,
-                                    "limit": null,
-                                    "note": null,
-                                    "group": "support"
                                 }
                             ]
                         }

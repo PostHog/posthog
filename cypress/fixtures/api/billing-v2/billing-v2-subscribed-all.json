@@ -3544,14 +3544,6 @@
                     "images": null,
                     "icon_key": null,
                     "type": null
-                },
-                {
-                    "key": "support_slas",
-                    "name": "Support SLAs",
-                    "description": "Support SLAs",
-                    "images": null,
-                    "icon_key": null,
-                    "type": null
                 }
             ]
         }

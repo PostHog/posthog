@@ -3429,14 +3429,6 @@ export const billingJson: BillingV2Type = {
                     type: null,
                 },
                 {
-                    key: 'support_slas',
-                    name: 'Support SLAs',
-                    description: 'Support SLAs',
-                    images: null,
-                    icon_key: null,
-                    type: null,
-                },
-                {
                     key: 'audit_logs',
                     name: 'Audit logs',
                     description: 'See who in your organization has accessed or modified entities within PostHog.',
