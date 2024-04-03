@@ -972,6 +972,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query.dateRange, DateRange)
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
         self.assertEqual(query.dateRange.explicitDate, True)
