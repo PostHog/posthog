@@ -1,8 +1,8 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.sessions.sql import (
-    SESSIONS_TABLE_MV_SQL,
+    SESSION_TABLE_UPDATE_SQL,
 )
 
 operations = [
-    run_sql_with_exceptions(SESSIONS_TABLE_MV_SQL),
+    run_sql_with_exceptions(SESSION_TABLE_UPDATE_SQL),
 ]

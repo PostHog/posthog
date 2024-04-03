@@ -102,11 +102,9 @@ def source_column(column_name: str) -> str:
     return trim_quotes_expr(f"JSONExtractRaw(properties, '{column_name}')")
 
 
-SESSIONS_TABLE_MV_SQL = (
+SESSION_TABLE_MV_SELECT_SQL = (
     lambda: """
-CREATE OR REPLACE MATERIALIZED VIEW {table_name} ON CLUSTER '{cluster}'
-TO {database}.{target_table}
-AS SELECT
+SELECT
 
 `$session_id` as session_id,
 team_id,
@@ -149,9 +147,6 @@ FROM {database}.sharded_events
 WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
 GROUP BY `$session_id`, team_id
 """.format(
-        table_name=f"{TABLE_BASE_NAME}_mv",
-        target_table=f"writable_{TABLE_BASE_NAME}",
-        cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
         current_url_property=source_column("$current_url"),
         referring_domain_property=source_column("$referring_domain"),
@@ -176,6 +171,30 @@ GROUP BY `$session_id`, team_id
     )
 )
 
+SESSIONS_TABLE_MV_SQL = (
+    lambda: """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+TO {database}.{target_table}
+AS
+{select_sql}
+""".format(
+        table_name=f"{TABLE_BASE_NAME}_mv",
+        target_table=f"writable_{TABLE_BASE_NAME}",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+        select_sql=SESSION_TABLE_MV_SELECT_SQL(),
+    )
+)
+
+SESSION_TABLE_UPDATE_SQL = (
+    lambda: """
+ALTER TABLE {table_name} MODIFY QUERY
+{select_sql}
+""".format(
+        table_name=f"{TABLE_BASE_NAME}_mv",
+        select_sql=SESSION_TABLE_MV_SELECT_SQL(),
+    )
+)
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
