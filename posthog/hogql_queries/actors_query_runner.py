@@ -142,11 +142,11 @@ class ActorsQueryRunner(QueryRunner):
         source_alias = "source"
 
         return ast.JoinExpr(
-            table=ast.Field(chain=[self.strategy.origin]),
+            table=source_query,
+            alias=source_alias,
             next_join=ast.JoinExpr(
-                table=source_query,
+                table=ast.Field(chain=[self.strategy.origin]),
                 join_type="INNER JOIN",
-                alias=source_alias,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,

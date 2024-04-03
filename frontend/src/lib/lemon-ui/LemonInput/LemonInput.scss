@@ -58,6 +58,16 @@
         transition: color 200ms ease;
     }
 
+    &.LemonInput--xsmall {
+        --lemon-input-height: 1.5rem;
+
+        padding: 0.125rem 0.25rem;
+
+        .LemonIcon {
+            font-size: 1rem;
+        }
+    }
+
     &.LemonInput--small {
         --lemon-input-height: 2rem;
 

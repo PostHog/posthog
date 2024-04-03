@@ -277,6 +277,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehousePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehousePersonPropertyFilter"
                 }
             ]
         },
@@ -860,6 +863,29 @@
                 }
             },
             "required": ["distinct_id_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
+        "DataWarehousePersonPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "data_warehouse_person_property",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "DataWarehousePropertyFilter": {
@@ -3542,7 +3568,8 @@
                 "recording",
                 "group",
                 "hogql",
-                "data_warehouse"
+                "data_warehouse",
+                "data_warehouse_person_property"
             ],
             "type": "string"
         },
@@ -4483,8 +4510,8 @@
                     "type": "boolean"
                 },
                 "error_message": {
-                    "default": "",
-                    "type": "string"
+                    "default": null,
+                    "type": ["string", "null"]
                 },
                 "expiration_time": {
                     "format": "date-time",

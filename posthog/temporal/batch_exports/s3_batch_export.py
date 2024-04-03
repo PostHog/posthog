@@ -409,8 +409,6 @@ def s3_default_fields() -> list[BatchExportField]:
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
     batch_export_fields.append({"expression": "nullIf(person_properties, '')", "alias": "person_properties"})
     batch_export_fields.append({"expression": "toString(person_id)", "alias": "person_id"})
-    # In contrast to other destinations, we do export this field.
-    batch_export_fields.append({"expression": "COALESCE(inserted_at, _timestamp)", "alias": "inserted_at"})
 
     # Again, in contrast to other destinations, and for historical reasons, we do not include these fields.
     not_exported_by_default = {"team_id", "set", "set_once"}

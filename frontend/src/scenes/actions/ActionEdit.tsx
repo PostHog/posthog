@@ -102,7 +102,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 {({ value, onChange }) => (
                                     <ObjectTags
                                         tags={value ?? []}
-                                        onChange={(_, newTags) => onChange(newTags)}
+                                        onChange={(tags) => onChange(tags)}
                                         className="action-tags"
                                         saving={actionLoading}
                                         tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}

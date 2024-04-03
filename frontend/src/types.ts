@@ -652,6 +652,7 @@ export enum PropertyFilterType {
     Group = 'group',
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
+    DataWarehousePersonProperty = 'data_warehouse_person_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -676,6 +677,11 @@ export interface PersonPropertyFilter extends BasePropertyFilter {
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.DataWarehouse
+    operator: PropertyOperator
+}
+
+export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.DataWarehousePersonProperty
     operator: PropertyOperator
 }
 
@@ -735,6 +741,7 @@ export type AnyPropertyFilter =
     | HogQLPropertyFilter
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -1427,6 +1434,7 @@ export interface BillingProductV2AddonType {
     subscribed: boolean
     // sometimes addons are included with the base product, but they aren't subscribed individually
     included_with_main_product?: boolean
+    inclusion_only: boolean | null
     contact_support: boolean | null
     unit: string | null
     unit_amount_usd: string | null
@@ -2921,7 +2929,7 @@ export interface FunnelExperimentResults {
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
-export type SecondaryMetricResults = Partial<ExperimentResults['result']> & {
+export type SecondaryMetricResults = ExperimentResults['result'] & {
     result?: Record<string, number>
 }
 export interface SecondaryExperimentMetric {
@@ -3742,34 +3750,43 @@ export type SDK = {
 }
 
 export enum SDKKey {
-    JS_WEB = 'javascript_web',
-    REACT = 'react',
-    NEXT_JS = 'nextjs',
-    GATSBY = 'gatsby',
-    IOS = 'ios',
     ANDROID = 'android',
-    FLUTTER = 'flutter',
-    REACT_NATIVE = 'react_native',
-    NODE_JS = 'nodejs',
-    RUBY = 'ruby',
-    PYTHON = 'python',
-    PHP = 'php',
-    GO = 'go',
-    ELIXIR = 'elixir',
+    ANGULAR = 'angular',
+    ASTRO = 'astro',
     API = 'api',
-    JAVA = 'java',
-    RUST = 'rust',
-    GOOGLE_TAG_MANAGER = 'google_tag_manager',
-    NUXT_JS = 'nuxtjs',
-    VUE_JS = 'vuejs',
-    SEGMENT = 'segment',
-    RUDDERSTACK = 'rudderstack',
+    BUBBLE = 'bubble',
+    DJANGO = 'django',
     DOCUSAURUS = 'docusaurus',
-    SHOPIFY = 'shopify',
-    WORDPRESS = 'wordpress',
-    SENTRY = 'sentry',
-    RETOOL = 'retool',
+    ELIXIR = 'elixir',
+    FRAMER = 'framer',
+    FLUTTER = 'flutter',
+    GATSBY = 'gatsby',
+    GO = 'go',
+    GOOGLE_TAG_MANAGER = 'google_tag_manager',
     HTML_SNIPPET = 'html',
+    IOS = 'ios',
+    JAVA = 'java',
+    JS_WEB = 'javascript_web',
+    LARAVEL = 'laravel',
+    NEXT_JS = 'nextjs',
+    NODE_JS = 'nodejs',
+    NUXT_JS = 'nuxtjs',
+    PHP = 'php',
+    PYTHON = 'python',
+    REACT = 'react',
+    REACT_NATIVE = 'react_native',
+    REMIX = 'remix',
+    RETOOL = 'retool',
+    RUBY = 'ruby',
+    RUDDERSTACK = 'rudderstack',
+    RUST = 'rust',
+    SEGMENT = 'segment',
+    SENTRY = 'sentry',
+    SHOPIFY = 'shopify',
+    SVELTE = 'svelte',
+    VUE_JS = 'vuejs',
+    WEBFLOW = 'webflow',
+    WORDPRESS = 'wordpress',
 }
 
 export enum SDKTag {
