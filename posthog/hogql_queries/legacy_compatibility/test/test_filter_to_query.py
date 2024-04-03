@@ -957,6 +957,15 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
 
+    def test_date_range_with_explict_date_setting(self):
+        filter = {"date_from": "-14d", "date_to": "-7d", "explicit_date": "on"}
+
+        query = filter_to_query(filter)
+
+        self.assertEqual(query.dateRange.date_from, "-14d")
+        self.assertEqual(query.dateRange.date_to, "-7d")
+        self.assertEqual(query.dateRange.explicitDate, True)
+
     def test_interval(self):
         filter = {"interval": "hour"}
 
