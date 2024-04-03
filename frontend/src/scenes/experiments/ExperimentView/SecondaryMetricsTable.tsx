@@ -125,6 +125,7 @@ export function SecondaryMetricsTable({
     const { openModalToCreateSecondaryMetric, openModalToEditSecondaryMetric } = useActions(logic)
 
     const {
+        experimentResults,
         secondaryMetricResultsLoading,
         isExperimentRunning,
         experiment,
@@ -143,6 +144,9 @@ export function SecondaryMetricsTable({
                 {
                     title: <div className="py-2">Variant</div>,
                     render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                        if (!experimentResults || !experimentResults.insight) {
+                            return <span className="font-semibold">{capitalizeFirstLetter(item.variant)}</span>
+                        }
                         return (
                             <div className="flex items-center py-2">
                                 <VariantTag variantKey={item.variant} />
