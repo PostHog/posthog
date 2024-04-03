@@ -291,7 +291,7 @@ def simulate_postgres_error():
     Exception hierachy
     """
     with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
-        cursor_mock.side_effect = return_given_error_or_random(DjangoDatabaseError)
+        cursor_mock.side_effect = return_given_error_or_random(DjangoDatabaseError("failed to connect"))
         yield
 
 
@@ -301,7 +301,7 @@ def simulate_postgres_psycopg2_error():
     Causes psycopg2 to raise an error
     """
     with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
-        cursor_mock.side_effect = psycopg2.OperationalError  # This is raised during an error
+        cursor_mock.side_effect = return_given_error_or_random(psycopg2.OperationalError)
         yield
 
 
