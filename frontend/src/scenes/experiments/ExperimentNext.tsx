@@ -7,6 +7,7 @@ import { ExperimentForm } from './ExperimentForm'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic } from './experimentLogic'
 import {
+    ActionBanner,
     ExperimentLoader,
     ExperimentLoadingAnimation,
     NoResultsEmptyState,
@@ -35,6 +36,7 @@ export function ExperimentView(): JSX.Element {
                     <ExperimentLoader />
                 ) : (
                     <>
+                        <ActionBanner />
                         <Info />
                         {experimentResultsLoading ? (
                             <ExperimentLoadingAnimation />

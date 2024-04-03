@@ -1,6 +1,6 @@
 import '../Experiment.scss'
 
-import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -231,4 +231,32 @@ export function PageHeaderCustom(): JSX.Element {
             }
         />
     )
+}
+
+export function ActionBanner(): JSX.Element {
+    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+
+    if (!experiment) {
+        return <></>
+    }
+
+    if (!isExperimentRunning) {
+        return (
+            <LemonBanner type="info">
+                <div className="flex">
+                    <div className="flex-1 p-1">
+                        Your experiment is in draft mode. You can edit your variants, adjust release conditions, and
+                        test your feature flag. Once everything works as expected, you can launch your experiment.
+                    </div>
+                    <div className="w-20 flex items-center">
+                        <LemonButton size="small" type="primary">
+                            Launch
+                        </LemonButton>
+                    </div>
+                </div>
+            </LemonBanner>
+        )
+    }
+
+    return <></>
 }
