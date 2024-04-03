@@ -606,7 +606,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         clusters = error_clustering(self.team)
 
         if clusters:
-            cache.set(cache_key, clusters, timeout=30)
+            cache.set(cache_key, clusters, settings.CACHED_RESULTS_TTL)
 
         # let the browser cache for half the time we cache on the server
         r = Response(clusters, headers={"Cache-Control": "max-age=15"})

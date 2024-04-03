@@ -442,7 +442,7 @@ export function Experiment(): JSX.Element {
                                                 sure you manually send feature flag information for server-side
                                                 libraries if necessary.{' '}
                                                 <Link
-                                                    to="https://posthog.com/docs/integrate/server/python#capture"
+                                                    to="https://posthog.com/docs/libraries/python#capture"
                                                     target="_blank"
                                                 >
                                                     {' '}
@@ -840,7 +840,13 @@ export function Experiment(): JSX.Element {
     )
 }
 
-const ResetButton = ({ experiment, onConfirm }: { experiment: ExperimentType; onConfirm: () => void }): JSX.Element => {
+export const ResetButton = ({
+    experiment,
+    onConfirm,
+}: {
+    experiment: ExperimentType
+    onConfirm: () => void
+}): JSX.Element => {
     const onClickReset = (): void => {
         LemonDialog.open({
             title: 'Reset this experiment?',

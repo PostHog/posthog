@@ -121,14 +121,14 @@ class ChartAxis(BaseModel):
 
 class ChartDisplayType(str, Enum):
     ActionsLineGraph = "ActionsLineGraph"
-    ActionsLineGraphCumulative = "ActionsLineGraphCumulative"
-    ActionsAreaGraph = "ActionsAreaGraph"
-    ActionsTable = "ActionsTable"
-    ActionsPie = "ActionsPie"
     ActionsBar = "ActionsBar"
-    ActionsBarValue = "ActionsBarValue"
-    WorldMap = "WorldMap"
+    ActionsAreaGraph = "ActionsAreaGraph"
+    ActionsLineGraphCumulative = "ActionsLineGraphCumulative"
     BoldNumber = "BoldNumber"
+    ActionsPie = "ActionsPie"
+    ActionsBarValue = "ActionsBarValue"
+    ActionsTable = "ActionsTable"
+    WorldMap = "WorldMap"
 
 
 class CohortPropertyFilter(BaseModel):
@@ -151,6 +151,16 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
+class DataWarehouseEventsModifier(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id_field: str
+    id_field: str
+    table_name: str
+    timestamp_field: str
+
+
 class DatabaseSchemaQueryResponseField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -168,6 +178,10 @@ class DateRange(BaseModel):
     )
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+
+
+class DatetimeDay(RootModel[AwareDatetime]):
+    root: AwareDatetime
 
 
 class Day(RootModel[int]):
@@ -355,7 +369,7 @@ class FunnelTimeToConvertResults(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    average_conversion_time: int
+    average_conversion_time: Optional[float] = None
     bins: List[List[int]]
 
 
@@ -408,12 +422,14 @@ class PersonsOnEventsMode(str, Enum):
     v1_enabled = "v1_enabled"
     v1_mixed = "v1_mixed"
     v2_enabled = "v2_enabled"
+    v3_enabled = "v3_enabled"
 
 
 class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataWarehouseEventsModifiers: Optional[List[DataWarehouseEventsModifier]] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
@@ -446,7 +462,7 @@ class DayItem(BaseModel):
         extra="forbid",
     )
     label: str
-    value: Union[str, int]
+    value: Union[str, AwareDatetime, int]
 
 
 class IntervalItem(BaseModel):
@@ -635,6 +651,7 @@ class PropertyFilterType(str, Enum):
     group = "group"
     hogql = "hogql"
     data_warehouse = "data_warehouse"
+    data_warehouse_person_property = "data_warehouse_person_property"
 
 
 class PropertyMathType(str, Enum):
@@ -717,7 +734,7 @@ class QueryStatus(BaseModel):
     complete: Optional[bool] = False
     end_time: Optional[AwareDatetime] = None
     error: Optional[bool] = False
-    error_message: Optional[str] = ""
+    error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
     query_async: Optional[bool] = True
@@ -1115,6 +1132,17 @@ class ChartSettings(BaseModel):
     yAxis: Optional[List[ChartAxis]] = None
 
 
+class DataWarehousePersonPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["data_warehouse_person_property"] = "data_warehouse_person_property"
+    value: Optional[Union[str, float, List[Union[str, float]]]] = None
+
+
 class DataWarehousePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1353,7 +1381,6 @@ class PersonPropertyFilter(BaseModel):
     key: str
     label: Optional[str] = None
     operator: PropertyOperator
-    table: Optional[str] = None
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
@@ -1730,6 +1757,7 @@ class DashboardFilter(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = None
@@ -1740,6 +1768,7 @@ class DataWarehouseNode(BaseModel):
         extra="forbid",
     )
     custom_name: Optional[str] = None
+    distinct_id_field: str
     fixedProperties: Optional[
         List[
             Union[
@@ -1754,6 +1783,7 @@ class DataWarehouseNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -1784,6 +1814,7 @@ class DataWarehouseNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1821,6 +1852,7 @@ class EntityNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -1849,6 +1881,7 @@ class EntityNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1875,6 +1908,7 @@ class EventsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -1905,6 +1939,7 @@ class EventsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1934,6 +1969,7 @@ class EventsQuery(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -1959,6 +1995,7 @@ class EventsQuery(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1986,6 +2023,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -2017,6 +2055,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2043,6 +2082,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -2075,6 +2115,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2101,6 +2142,7 @@ class HogQLFilters(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = None
@@ -2141,6 +2183,7 @@ class PersonsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -2164,6 +2207,7 @@ class PersonsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2191,6 +2235,7 @@ class PropertyGroupFilterValue(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ],
         ]
     ]
@@ -2298,6 +2343,7 @@ class ActionsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -2327,6 +2373,7 @@ class ActionsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2418,6 +2465,7 @@ class RetentionQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2455,6 +2503,7 @@ class StickinessQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2498,6 +2547,7 @@ class TrendsQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2554,6 +2604,7 @@ class FilterType(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2594,6 +2645,7 @@ class FunnelsQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2630,6 +2682,7 @@ class InsightsQueryBase(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2668,6 +2721,7 @@ class LifecycleQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2713,6 +2767,7 @@ class PathsQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2828,6 +2883,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = None
@@ -2864,6 +2920,7 @@ class ActorsQuery(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = None
@@ -2885,6 +2942,7 @@ class ActorsQuery(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = None

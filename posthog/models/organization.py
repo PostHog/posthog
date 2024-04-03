@@ -60,11 +60,11 @@ class OrganizationManager(models.Manager):
         **kwargs,
     ) -> Tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
-        from .team import Team  # Avoiding circular import
+        from .project import Project  # Avoiding circular import
 
         with transaction.atomic():
             organization = Organization.objects.create(**kwargs)
-            team = Team.objects.create(organization=organization, **(team_fields or {}))
+            _, team = Project.objects.create_with_team(organization=organization, team_fields=team_fields)
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(

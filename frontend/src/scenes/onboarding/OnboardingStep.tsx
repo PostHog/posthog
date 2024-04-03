@@ -16,6 +16,7 @@ export const OnboardingStep = ({
     showHelpButton = false,
     onSkip,
     continueAction,
+    continueText,
     continueOverride,
     hideHeader,
 }: {
@@ -27,6 +28,7 @@ export const OnboardingStep = ({
     showHelpButton?: boolean
     onSkip?: () => void
     continueAction?: () => void
+    continueText?: string
     continueOverride?: JSX.Element
     hideHeader?: boolean
 }): JSX.Element => {
@@ -41,15 +43,11 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div
-                    className={`flex justify-between items-center text-muted max-w-screen-lg mx-auto ${
-                        hideHeader && 'hidden'
-                    }`}
-                >
-                    <h1 className="font-bold m-0 pl-2">
-                        {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
-                    </h1>
-                    <div className="flex items-center gap-x-3" data-attr="onboarding-breadcrumbs">
+                <div className={`text-muted max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
+                    <div
+                        className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
+                        data-attr="onboarding-breadcrumbs"
+                    >
                         {onboardingStepKeys.map((stepName, idx) => {
                             return (
                                 <React.Fragment key={`stepKey-${idx}`}>
@@ -76,6 +74,9 @@ export const OnboardingStep = ({
                             )
                         })}
                     </div>
+                    <h1 className="font-bold m-0 mt-3 px-2">
+                        {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
+                    </h1>
                 </div>
             </div>
             <div className={`${stepKey !== 'product_intro' && 'p-2 max-w-screen-md mx-auto'}`}>
@@ -97,6 +98,7 @@ export const OnboardingStep = ({
                                 onSkip && onSkip()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
+                            data-attr="onboarding-skip-button"
                         >
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
@@ -107,13 +109,14 @@ export const OnboardingStep = ({
                         <LemonButton
                             type="primary"
                             status="alt"
+                            data-attr="onboarding-continue"
                             onClick={() => {
                                 continueAction && continueAction()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                         >
-                            {!hasNextStep ? 'Finish' : 'Next'}
+                            {continueText ? continueText : !hasNextStep ? 'Finish' : 'Next'}
                         </LemonButton>
                     )}
                 </div>

@@ -1,6 +1,6 @@
 import './ViewLinkModal.scss'
 
-import { IconTrash } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -18,7 +18,7 @@ import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
-import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
+import { DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 
 export function ViewLinkModal(): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
@@ -35,7 +35,7 @@ export function ViewLinkModal(): JSX.Element {
             }
             isOpen={isJoinTableModalOpen}
             onClose={toggleJoinTableModal}
-            width={600}
+            width={700}
         >
             <ViewLinkForm />
         </LemonModal>
@@ -45,7 +45,6 @@ export function ViewLinkModal(): JSX.Element {
 export function ViewLinkForm(): JSX.Element {
     const {
         tableOptions,
-        selectedJoiningTable,
         selectedJoiningTableName,
         selectedSourceTableName,
         sourceTableKeys,
@@ -58,6 +57,7 @@ export function ViewLinkForm(): JSX.Element {
         selectedJoiningKey,
         sourceIsUsingHogQLExpression,
         joiningIsUsingHogQLExpression,
+        isViewLinkSubmitting,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -67,12 +67,13 @@ export function ViewLinkForm(): JSX.Element {
         selectSourceKey,
         selectJoiningKey,
     } = useActions(viewLinkLogic)
+    const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     return (
         <Form logic={viewLinkLogic} formKey="viewLink" enableFormOnSubmit>
             <div className="flex flex-col w-full justify-between items-center">
                 <div className="flex flex-row w-full justify-between">
-                    <div className={isNewJoin ? 'w-50' : 'flex flex-col'}>
+                    <div className={isNewJoin ? 'w-60' : 'flex flex-col'}>
                         <span className="l4">Source Table</span>
                         {isNewJoin ? (
                             <Field name="source_table_name">
@@ -87,7 +88,7 @@ export function ViewLinkForm(): JSX.Element {
                             selectedSourceTableName ?? ''
                         )}
                     </div>
-                    <div className="w-50">
+                    <div className="w-60">
                         <span className="l4">Joining Table</span>
                         <Field name="joining_table_name">
                             <LemonSelect
@@ -99,8 +100,8 @@ export function ViewLinkForm(): JSX.Element {
                         </Field>
                     </div>
                 </div>
-                <div className="mt-3 flex flex-row justify-between items-center w-full">
-                    <div className="w-50">
+                <div className="mt-4 flex flex-row justify-between items-center w-full">
+                    <div className="w-60">
                         <span className="l4">Source Table Key</span>
                         <Field name="source_table_key">
                             <>
@@ -116,6 +117,7 @@ export function ViewLinkForm(): JSX.Element {
                                     <HogQLDropdown
                                         hogQLValue={selectedSourceKey ?? ''}
                                         onHogQLValueChange={selectSourceKey}
+                                        tableName={selectedSourceTableName ?? ''}
                                     />
                                 )}
                             </>
@@ -124,7 +126,7 @@ export function ViewLinkForm(): JSX.Element {
                     <div className="mt-5">
                         <IconSwapHoriz />
                     </div>
-                    <div className="w-50">
+                    <div className="w-60">
                         <span className="l4">Joining Table Key</span>
                         <Field name="joining_table_key">
                             <>
@@ -132,7 +134,7 @@ export function ViewLinkForm(): JSX.Element {
                                     fullWidth
                                     onSelect={selectJoiningKey}
                                     value={joiningIsUsingHogQLExpression ? '' : selectedJoiningKey ?? undefined}
-                                    disabledReason={selectedJoiningTable ? '' : 'Select a table to choose join key'}
+                                    disabledReason={selectedJoiningTableName ? '' : 'Select a table to choose join key'}
                                     options={[...joiningTableKeys, { value: '', label: <span>HogQL Expression</span> }]}
                                     placeholder="Select a key"
                                 />
@@ -140,6 +142,7 @@ export function ViewLinkForm(): JSX.Element {
                                     <HogQLDropdown
                                         hogQLValue={selectedJoiningKey ?? ''}
                                         onHogQLValueChange={selectJoiningKey}
+                                        tableName={selectedJoiningTableName ?? ''}
                                     />
                                 )}
                             </>
@@ -147,8 +150,22 @@ export function ViewLinkForm(): JSX.Element {
                     </div>
                 </div>
                 {sqlCodeSnippet && (
-                    <>
+                    <div className="w-full mt-2">
                         <LemonDivider className="mt-4 mb-4" />
+                        <LemonButton
+                            fullWidth
+                            onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
+                            sideIcon={advancedSettingsExpanded ? <IconCollapse /> : <IconExpand />}
+                        >
+                            <div>
+                                <h3 className="l4 mt-2">Advanced settings</h3>
+                                <div className="text-muted mb-2 font-medium">Customize how the fields are accessed</div>
+                            </div>
+                        </LemonButton>
+                    </div>
+                )}
+                {sqlCodeSnippet && advancedSettingsExpanded && (
+                    <>
                         <div className="mt-3 flex flex-row justify-between items-center w-full">
                             <div className="w-full">
                                 <span className="l4">Field Name</span>
@@ -184,7 +201,7 @@ export function ViewLinkForm(): JSX.Element {
                 <LemonButton className="mr-3" type="secondary" onClick={toggleJoinTableModal}>
                     Close
                 </LemonButton>
-                <LemonButton type="primary" htmlType="submit">
+                <LemonButton type="primary" htmlType="submit" loading={isViewLinkSubmitting}>
                     Save
                 </LemonButton>
             </div>
@@ -195,14 +212,16 @@ export function ViewLinkForm(): JSX.Element {
 const HogQLDropdown = ({
     hogQLValue,
     onHogQLValueChange,
+    tableName,
 }: {
     hogQLValue: string
+    tableName: string
     onHogQLValueChange: (hogQLValue: string) => void
 }): JSX.Element => {
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
 
     return (
-        <div className="flex-auto overflow-hidden">
+        <div className="flex-auto overflow-hidden mt-2">
             <LemonDropdown
                 visible={isHogQLDropdownVisible}
                 closeOnClickInside={false}
@@ -213,6 +232,7 @@ const HogQLDropdown = ({
                         <HogQLEditor
                             disablePersonProperties
                             value={hogQLValue}
+                            metadataSource={{ kind: NodeKind.HogQLQuery, query: `SELECT * FROM ${tableName}` }}
                             onChange={(currentValue) => {
                                 onHogQLValueChange(currentValue)
                                 setIsHogQLDropdownVisible(false)

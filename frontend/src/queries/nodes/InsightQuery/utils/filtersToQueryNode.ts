@@ -41,10 +41,8 @@ import {
 } from '~/queries/utils'
 import {
     ActionFilter,
-    AnyPropertyFilter,
     BaseMathType,
     DataWarehouseFilter,
-    FilterLogicalOperator,
     FilterType,
     FunnelExclusionLegacy,
     FunnelsFilterType,
@@ -53,13 +51,12 @@ import {
     InsightType,
     isDataWarehouseFilter,
     PathsFilterType,
-    PropertyFilterType,
-    PropertyGroupFilterValue,
-    PropertyOperator,
     RetentionEntity,
     RetentionFilterType,
     TrendsFilterType,
 } from '~/types'
+
+import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 
 const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
@@ -95,6 +92,7 @@ export const legacyEntityToNode = (
         custom_name: entity.custom_name || undefined,
         id_field: 'id_field' in entity ? entity.id_field : undefined,
         timestamp_field: 'timestamp_field' in entity ? entity.timestamp_field : undefined,
+        distinct_id_field: 'distinct_id_field' in entity ? entity.distinct_id_field : undefined,
         table_name: 'table_name' in entity ? entity.table_name : undefined,
     }
 
@@ -103,12 +101,13 @@ export const legacyEntityToNode = (
             ...shared,
             id_field: entity.id_field || undefined,
             timestamp_field: entity.timestamp_field || undefined,
+            distinct_id_field: entity.distinct_id_field || undefined,
             table_name: entity.table_name || undefined,
         }
     }
 
     if (includeProperties) {
-        shared = { ...shared, properties: cleanProperties(entity.properties) } as any
+        shared = { ...shared, properties: cleanEntityProperties(entity.properties) } as any
     }
 
     if (mathAvailability !== MathAvailability.None) {
@@ -211,97 +210,6 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
     return record
 }
 
-const cleanProperties = (parentProperties: FilterType['properties']): InsightsQueryBase['properties'] => {
-    if (!parentProperties || !parentProperties.values) {
-        return parentProperties
-    }
-
-    const processAnyPropertyFilter = (filter: AnyPropertyFilter): AnyPropertyFilter => {
-        if (
-            filter.type === PropertyFilterType.Event ||
-            filter.type === PropertyFilterType.Person ||
-            filter.type === PropertyFilterType.Element ||
-            filter.type === PropertyFilterType.Session ||
-            filter.type === PropertyFilterType.Group ||
-            filter.type === PropertyFilterType.Feature ||
-            filter.type === PropertyFilterType.Recording
-        ) {
-            return {
-                ...filter,
-                operator: filter.operator ?? PropertyOperator.Exact,
-            }
-        }
-
-        // Some saved insights have `"operator": null` defined in the properties, this
-        // breaks HogQL trends and Pydantic validation
-        if (filter.type === PropertyFilterType.Cohort) {
-            if ('operator' in filter) {
-                delete filter.operator
-            }
-        }
-
-        return filter
-    }
-
-    const processPropertyGroupFilterValue = (
-        propertyGroupFilterValue: PropertyGroupFilterValue
-    ): PropertyGroupFilterValue => {
-        if (propertyGroupFilterValue.values?.length === 0 || !propertyGroupFilterValue.values) {
-            return propertyGroupFilterValue
-        }
-
-        // Check whether the first values type is an AND or OR
-        const firstValueType = propertyGroupFilterValue.values[0].type
-
-        if (firstValueType === FilterLogicalOperator.And || firstValueType === FilterLogicalOperator.Or) {
-            // propertyGroupFilterValue.values is PropertyGroupFilterValue[]
-            const values = (propertyGroupFilterValue.values as PropertyGroupFilterValue[]).map(
-                processPropertyGroupFilterValue
-            )
-
-            return {
-                ...propertyGroupFilterValue,
-                values,
-            }
-        }
-
-        // propertyGroupFilterValue.values is AnyPropertyFilter[]
-        const values = (propertyGroupFilterValue.values as AnyPropertyFilter[]).map(processAnyPropertyFilter)
-
-        return {
-            ...propertyGroupFilterValue,
-            values,
-        }
-    }
-
-    if (Array.isArray(parentProperties)) {
-        // parentProperties is AnyPropertyFilter[]
-        return parentProperties.map(processAnyPropertyFilter)
-    }
-
-    if (
-        (parentProperties.type === FilterLogicalOperator.And || parentProperties.type === FilterLogicalOperator.Or) &&
-        Array.isArray(parentProperties.values) &&
-        parentProperties.values.some(
-            (value) =>
-                typeof value !== 'object' ||
-                (value.type !== FilterLogicalOperator.And && value.type !== FilterLogicalOperator.Or)
-        )
-    ) {
-        return {
-            type: FilterLogicalOperator.And,
-            values: [processPropertyGroupFilterValue(parentProperties)],
-        }
-    }
-
-    // parentProperties is PropertyGroupFilter
-    const values = parentProperties.values.map(processPropertyGroupFilterValue)
-    return {
-        ...parentProperties,
-        values,
-    }
-}
-
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
     const captureException = (message: string): void => {
         Sentry.captureException(new Error(message), {
@@ -316,7 +224,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     const query: InsightsQueryBase = {
         kind: reverseInsightMap[filters.insight],
-        properties: cleanProperties(filters.properties),
+        properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
     }
     if (filters.sampling_factor) {

@@ -3,6 +3,7 @@ import typing
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
+import structlog
 import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import (
@@ -31,6 +32,8 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
     update_schedule,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class BatchExportField(typing.TypedDict):
@@ -86,6 +89,8 @@ class S3BatchExportInputs:
     encryption: str | None = None
     kms_key_id: str | None = None
     batch_export_schema: BatchExportSchema | None = None
+    endpoint_url: str | None = None
+    file_format: str = "JSONLines"
 
 
 @dataclass
@@ -291,6 +296,27 @@ def unpause_batch_export(
     backfill_export(temporal, batch_export_id, batch_export.team_id, start_at, end_at)
 
 
+def disable_and_delete_export(instance: BatchExport):
+    """Mark a BatchExport as deleted and delete its Temporal Schedule (including backfills)."""
+    temporal = sync_connect()
+
+    instance.deleted = True
+
+    try:
+        batch_export_delete_schedule(temporal, str(instance.pk))
+    except BatchExportServiceScheduleNotFound as e:
+        logger.warning(
+            "The Schedule %s could not be deleted as it was not found",
+            e.schedule_id,
+        )
+
+    instance.save()
+
+    for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
+        if backfill.status == BatchExportBackfill.Status.RUNNING:
+            cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
+
+
 def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
     """Delete a Temporal Schedule."""
     try:
@@ -391,6 +417,7 @@ def create_batch_export_run(
     data_interval_start: str,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
+    records_total_count: int | None = None,
 ) -> BatchExportRun:
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -408,20 +435,29 @@ def create_batch_export_run(
         status=status,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start),
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
+        records_total_count=records_total_count,
     )
     run.save()
 
     return run
 
 
-def update_batch_export_run_status(run_id: UUID, status: str, latest_error: str | None) -> BatchExportRun:
-    """Update the status of an BatchExportRun with given id.
+def update_batch_export_run(
+    run_id: UUID,
+    **kwargs,
+) -> BatchExportRun:
+    """Update the BatchExportRun with given run_id and provided **kwargs.
 
     Arguments:
-        id: The id of the BatchExportRun to update.
+        run_id: The id of the BatchExportRun to update.
     """
     model = BatchExportRun.objects.filter(id=run_id)
-    updated = model.update(status=status, latest_error=latest_error)
+    update_at = dt.datetime.now()
+
+    updated = model.update(
+        **kwargs,
+        last_updated_at=update_at,
+    )
 
     if not updated:
         raise ValueError(f"BatchExportRun with id {run_id} not found.")

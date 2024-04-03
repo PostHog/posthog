@@ -145,6 +145,7 @@ class SessionEmbeddingsRunner(ABC):
                                     "session_id": session_id,
                                     "embeddings": embeddings,
                                     "source_type": source_type,
+                                    "input": input,
                                 }
                             )
                 # we don't want to fail the whole batch if only a single recording fails
@@ -198,7 +199,7 @@ class SessionEmbeddingsRunner(ABC):
     def _flush_embeddings_to_clickhouse(self, embeddings: List[Dict[str, Any]], source_type: str) -> None:
         try:
             sync_execute(
-                "INSERT INTO session_replay_embeddings (session_id, team_id, embeddings, source_type) VALUES",
+                "INSERT INTO session_replay_embeddings (session_id, team_id, embeddings, source_type, input) VALUES",
                 embeddings,
             )
             SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.labels(source_type=source_type).inc(len(embeddings))

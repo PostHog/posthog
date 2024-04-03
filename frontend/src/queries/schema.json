@@ -277,6 +277,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehousePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehousePersonPropertyFilter"
                 }
             ]
         },
@@ -501,14 +504,14 @@
         "ChartDisplayType": {
             "enum": [
                 "ActionsLineGraph",
-                "ActionsLineGraphCumulative",
-                "ActionsAreaGraph",
-                "ActionsTable",
-                "ActionsPie",
                 "ActionsBar",
+                "ActionsAreaGraph",
+                "ActionsLineGraphCumulative",
+                "BoldNumber",
+                "ActionsPie",
                 "ActionsBarValue",
-                "WorldMap",
-                "BoldNumber"
+                "ActionsTable",
+                "WorldMap"
             ],
             "type": "string"
         },
@@ -764,10 +767,32 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "DataWarehouseEventsModifier": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id_field": {
+                    "type": "string"
+                },
+                "id_field": {
+                    "type": "string"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                }
+            },
+            "required": ["table_name", "timestamp_field", "distinct_id_field", "id_field"],
+            "type": "object"
+        },
         "DataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
+                    "type": "string"
+                },
+                "distinct_id_field": {
                     "type": "string"
                 },
                 "fixedProperties": {
@@ -837,7 +862,30 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "id_field", "kind", "table_name", "timestamp_field"],
+            "required": ["distinct_id_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
+        "DataWarehousePersonPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "data_warehouse_person_property",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "DataWarehousePropertyFilter": {
@@ -926,6 +974,10 @@
                 }
             },
             "type": "object"
+        },
+        "DatetimeDay": {
+            "format": "date-time",
+            "type": "string"
         },
         "Day": {
             "type": "integer"
@@ -1960,7 +2012,7 @@
             "additionalProperties": false,
             "properties": {
                 "average_conversion_time": {
-                    "type": "integer"
+                    "type": ["number", "null"]
                 },
                 "bins": {
                     "items": {
@@ -2526,6 +2578,12 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
+                "dataWarehouseEventsModifiers": {
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseEventsModifier"
+                    },
+                    "type": "array"
+                },
                 "inCohortVia": {
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"
@@ -2539,7 +2597,7 @@
                     "type": "string"
                 },
                 "personsOnEventsMode": {
-                    "enum": ["disabled", "v1_enabled", "v1_mixed", "v2_enabled"],
+                    "enum": ["disabled", "v1_enabled", "v1_mixed", "v2_enabled", "v3_enabled"],
                     "type": "string"
                 }
             },
@@ -2759,6 +2817,9 @@
                                 "anyOf": [
                                     {
                                         "type": "string"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/DatetimeDay"
                                     },
                                     {
                                         "$ref": "#/definitions/Day"
@@ -3425,9 +3486,6 @@
                 "operator": {
                     "$ref": "#/definitions/PropertyOperator"
                 },
-                "table": {
-                    "type": "string"
-                },
                 "type": {
                     "const": "person",
                     "description": "Person properties",
@@ -3496,7 +3554,8 @@
                 "recording",
                 "group",
                 "hogql",
-                "data_warehouse"
+                "data_warehouse",
+                "data_warehouse_person_property"
             ],
             "type": "string"
         },
@@ -3810,6 +3869,9 @@
                                         "anyOf": [
                                             {
                                                 "type": "string"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/DatetimeDay"
                                             },
                                             {
                                                 "$ref": "#/definitions/Day"
@@ -4434,8 +4496,8 @@
                     "type": "boolean"
                 },
                 "error_message": {
-                    "default": "",
-                    "type": "string"
+                    "default": null,
+                    "type": ["string", "null"]
                 },
                 "expiration_time": {
                     "format": "date-time",

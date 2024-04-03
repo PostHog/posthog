@@ -17,6 +17,9 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        testOptions: {
+            waitForSelector: '.empty-state-inner',
+        },
     },
 }
 export default meta
@@ -114,6 +117,7 @@ export const EstimatedQueryExecutionTimeTooLong: StoryFn = () => {
 EstimatedQueryExecutionTimeTooLong.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
+        waitForSelector: '[data-attr=insight-loading-too-long]',
     },
 }
 
@@ -143,6 +147,7 @@ export const LongLoading: StoryFn = () => {
 LongLoading.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
+        waitForSelector: '[data-attr=insight-loading-waiting-message]',
     },
 }
 

@@ -424,6 +424,10 @@ class _Printer(Visitor):
         elif isinstance(node.type, ast.SelectUnionQueryType):
             join_strings.append(self.visit(node.table))
 
+        elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
+            join_strings.append(self.visit(node.table))
+            join_strings.append(f"AS {self._print_identifier(node.alias)}")
+
         elif isinstance(node.type, ast.SelectQueryAliasType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
@@ -822,18 +826,34 @@ class _Printer(Visitor):
                                 break  # Found an overload matching the first function org
 
                 if func_meta.tz_aware:
-                    if (relevant_clickhouse_name == "now64" and len(node.args) == 0) or (
-                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
+                    has_tz_override = len(node.args) == func_meta.max_args
+
+                    if not has_tz_override:
+                        args.append(self.visit(ast.Constant(value=self._get_timezone())))
+
+                    if (
+                        relevant_clickhouse_name == "now64"
+                        and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
+                    ) or (
+                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
+                        and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
-                        args.append("6")  # These two CH functions require the precision argument before timezone
-                    args.append(self.visit(ast.Constant(value=self._get_timezone())))
+                        # These two CH functions require a precision argument before timezone
+                        args = args[:-1] + ["6"] + args[-1:]
+
                 if node.name == "toStartOfWeek" and len(node.args) == 1:
                     # If week mode hasn't been specified, use the project's default.
                     # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
                     args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
 
-                params = [self.visit(param) for param in node.params] if node.params is not None else None
+                if node.name == "trimLeft" and len(args) == 2:
+                    return f"trim(LEADING {args[1]} FROM {args[0]})"
+                elif node.name == "trimRight" and len(args) == 2:
+                    return f"trim(TRAILING {args[1]} FROM {args[0]})"
+                elif node.name == "trim" and len(args) == 2:
+                    return f"trim(BOTH {args[1]} FROM {args[0]})"
 
+                params = [self.visit(param) for param in node.params] if node.params is not None else None
                 params_part = f"({', '.join(params)})" if params is not None else ""
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
@@ -952,10 +972,11 @@ class _Printer(Visitor):
         elif (
             isinstance(type.table_type, ast.SelectQueryType)
             or isinstance(type.table_type, ast.SelectQueryAliasType)
+            or isinstance(type.table_type, ast.SelectViewType)
             or isinstance(type.table_type, ast.SelectUnionQueryType)
         ):
             field_sql = self._print_identifier(type.name)
-            if isinstance(type.table_type, ast.SelectQueryAliasType):
+            if isinstance(type.table_type, ast.SelectQueryAliasType) or isinstance(type.table_type, ast.SelectViewType):
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
@@ -1048,6 +1069,9 @@ class _Printer(Visitor):
         return self.visit(node.left) if node.right is None else f"{self.visit(node.left)}/{self.visit(node.right)}"
 
     def visit_select_query_alias_type(self, type: ast.SelectQueryAliasType):
+        return self._print_identifier(type.alias)
+
+    def visit_select_view_type(self, type: ast.SelectViewType):
         return self._print_identifier(type.alias)
 
     def visit_field_alias_type(self, type: ast.FieldAliasType):

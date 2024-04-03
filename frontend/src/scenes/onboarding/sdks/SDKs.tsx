@@ -86,6 +86,7 @@ export function SDKs({
                     ) : (
                         <>
                             <LemonButton
+                                data-attr="sdk-continue"
                                 sideIcon={hasNextStep ? <IconArrowRight /> : null}
                                 type="primary"
                                 status="alt"
@@ -98,7 +99,7 @@ export function SDKs({
                 </div>
             }
         >
-            <div className="flex gap-x-8 mt-8">
+            <div className="flex gap-x-8 mt-6">
                 <div
                     className={`flex-col gap-y-2 flex-wrap gap-x-4 ${showSideBySide && 'min-w-[12.5rem] w-50'} ${
                         !showSideBySide && panel !== 'options' ? 'hidden' : 'flex'
@@ -117,6 +118,7 @@ export function SDKs({
                     {sdks?.map((sdk) => (
                         <React.Fragment key={`sdk-${sdk.key}`}>
                             <LemonButton
+                                data-attr={`onboarding-sdk-${sdk.key}`}
                                 active={selectedSDK?.key === sdk.key}
                                 onClick={selectedSDK?.key !== sdk.key ? () => setSelectedSDK(sdk) : undefined}
                                 fullWidth

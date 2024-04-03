@@ -58,7 +58,7 @@ interface ExperimentVariantNumberProps {
     index: number
 }
 export function ExperimentVariantNumber({ className, index }: ExperimentVariantNumberProps): JSX.Element {
-    const color = getSeriesColor(index)
+    const color = getSeriesColor(index + 1)
     const { isDarkModeOn } = useValues(themeLogic)
 
     return (

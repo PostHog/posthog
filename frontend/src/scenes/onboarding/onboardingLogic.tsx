@@ -1,9 +1,10 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -23,6 +24,7 @@ export enum OnboardingStepKey {
     PLANS = 'plans',
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
+    REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
 }
 
@@ -61,13 +63,10 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey, featureFlags?: FeatureFlagsSet): string => {
+export const getProductUri = (productKey: ProductKey): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return featureFlags &&
-                featureFlags[FEATURE_FLAGS.REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
-                ? urls.insightNew()
-                : combineUrl(urls.insights(), {}, { panel: 'activation' }).url
+            return urls.insightNew()
         case ProductKey.SESSION_REPLAY:
             return urls.replay()
         case ProductKey.FEATURE_FLAGS:
@@ -92,6 +91,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['featureFlags'],
             userLogic,
             ['user'],
+            preflightLogic,
+            ['isCloudOrDev'],
         ],
         actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
     }),
@@ -165,9 +166,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.featureFlags, s.productKey],
-            (featureFlags: FeatureFlagsSet, productKey: string | null) => {
-                return productKey ? getProductUri(productKey as ProductKey, featureFlags) : urls.default()
+            (s) => [s.productKey],
+            (productKey: string | null) => {
+                return productKey ? getProductUri(productKey as ProductKey) : urls.default()
             },
         ],
         totalOnboardingSteps: [
@@ -200,10 +201,23 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowBillingStep: [
-            (s) => [s.product, s.subscribedDuringOnboarding],
-            (product: BillingProductV2Type | null, subscribedDuringOnboarding: boolean) => {
+            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev],
+            (product: BillingProductV2Type | null, subscribedDuringOnboarding: boolean, isCloudOrDev) => {
+                if (!isCloudOrDev) {
+                    return false
+                }
                 const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
                 return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
+            },
+        ],
+        shouldShowReverseProxyStep: [
+            (s) => [s.product, s.featureFlags],
+            (product: BillingProductV2Type | null, featureFlags: FeatureFlagsSet) => {
+                const productsWithReverseProxy = []
+                if (featureFlags[FEATURE_FLAGS.REVERSE_PROXY_ONBOARDING] === 'test') {
+                    productsWithReverseProxy.push(ProductKey.FEATURE_FLAGS)
+                }
+                return productsWithReverseProxy.includes(product?.type as ProductKey)
             },
         ],
         isStepKeyInvalid: [
@@ -302,9 +316,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
     actionToUrl(({ values }) => ({
         setStepKey: ({ stepKey }) => {
             if (stepKey) {
-                return [`/onboarding/${values.productKey}`, { step: stepKey }]
+                return [`/onboarding/${values.productKey}`, { ...router.values.searchParams, step: stepKey }]
             } else {
-                return [`/onboarding/${values.productKey}`]
+                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
         },
         goToNextStep: () => {
@@ -313,9 +327,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             )
             const nextStep = values.allOnboardingSteps[currentStepIndex + 1]
             if (nextStep) {
-                return [`/onboarding/${values.productKey}`, { step: nextStep.props.stepKey }]
+                return [
+                    `/onboarding/${values.productKey}`,
+                    { ...router.values.searchParams, step: nextStep.props.stepKey },
+                ]
             } else {
-                return [`/onboarding/${values.productKey}`]
+                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
         },
         goToPreviousStep: () => {
@@ -324,9 +341,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             )
             const previousStep = values.allOnboardingSteps[currentStepIndex - 1]
             if (previousStep) {
-                return [`/onboarding/${values.productKey}`, { step: previousStep.props.stepKey }]
+                return [
+                    `/onboarding/${values.productKey}`,
+                    { ...router.values.searchParams, step: previousStep.props.stepKey },
+                ]
             } else {
-                return [`/onboarding/${values.productKey}`]
+                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
         },
         updateCurrentTeamSuccess(val) {

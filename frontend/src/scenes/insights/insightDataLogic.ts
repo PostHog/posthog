@@ -145,6 +145,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
 
                 const maintainLegacy = !(
+                    featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS] ||
                     (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE] && isLifecycleQuery(sourceQuery)) ||
                     (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS] && isPathsQuery(sourceQuery)) ||
                     (featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION] && isRetentionQuery(sourceQuery)) ||

@@ -1,5 +1,5 @@
 import time
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from celery import shared_task
@@ -9,6 +9,7 @@ from django.utils import timezone
 from prometheus_client import Gauge
 
 from posthog.cloud_utils import is_cloud
+from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
@@ -33,7 +34,12 @@ def redis_heartbeat() -> None:
 
 @shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES.value)
 def process_query_task(
-    team_id: str, query_id: str, query_json: Any, limit_context: Any = None, refresh_requested: bool = False
+    team_id: int,
+    user_id: int,
+    query_id: str,
+    query_json: dict,
+    limit_context: Optional[LimitContext] = None,
+    refresh_requested: bool = False,
 ) -> None:
     """
     Kick off query
@@ -43,6 +49,7 @@ def process_query_task(
 
     execute_process_query(
         team_id=team_id,
+        user_id=user_id,
         query_id=query_id,
         query_json=query_json,
         limit_context=limit_context,
@@ -750,3 +757,17 @@ def calculate_replay_embeddings() -> None:
         pass
     except Exception as e:
         logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)
+
+
+# this task triggers other tasks
+# it can run on the default queue
+@shared_task(ignore_result=True)
+def calculate_replay_error_clusters() -> None:
+    try:
+        from ee.tasks.replay import generate_replay_embedding_error_clusters
+
+        generate_replay_embedding_error_clusters()
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
