@@ -9,7 +9,6 @@ aioboto3==12.0.0
 aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
-    #   aiobotocore
     #   s3fs
 aiohttp==3.9.2
     # via
@@ -253,7 +252,6 @@ giturlparse==0.12.0
     # via dlt
 google-api-core[grpc]==2.11.1
     # via
-    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0
@@ -275,7 +273,9 @@ googleapis-common-protos==1.60.0
     #   google-api-core
     #   grpcio-status
 greenlet==3.0.3
-    # via gevent
+    # via
+    #   gevent
+    #   sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -424,7 +424,7 @@ phonenumberslite==8.13.6
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-pillow==10.2.0
+pillow==10.3.0
     # via -r requirements.in
 platformdirs==3.11.0
     # via snowflake-connector-python
@@ -707,7 +707,6 @@ urllib3[secure,socks]==1.26.18
     #   requests
     #   selenium
     #   sentry-sdk
-    #   urllib3
 urllib3-secure-extra==0.1.0
     # via urllib3
 vine==5.0.0
