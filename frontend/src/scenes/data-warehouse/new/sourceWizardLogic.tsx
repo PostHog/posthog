@@ -4,11 +4,11 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { ExternalDataSourceSyncSchema, ExternalDataSourceType } from '~/types'
 
-import { dataWarehouseTableLogic } from '../new/dataWarehouseTableLogic'
+import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
+import { sourceFormLogic } from '../external/forms/sourceFormLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { sourceFormLogic } from './forms/sourceFormLogic'
-import type { sourceModalLogicType } from './sourceModalLogicType'
+import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
+import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
 
@@ -153,8 +153,8 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
     },
 }
 
-export const sourceModalLogic = kea<sourceModalLogicType>([
-    path(['scenes', 'data-warehouse', 'external', 'sourceModalLogic']),
+export const sourceWizardLogic = kea<sourceWizardLogicType>([
+    path(['scenes', 'data-warehouse', 'external', 'sourceWizardLogic']),
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
