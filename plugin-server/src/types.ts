@@ -94,8 +94,6 @@ export interface PluginsServerConfig {
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
-    INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled (only used by analytics-ingestion)
-    INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
@@ -875,6 +873,14 @@ export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
 }
 
+export interface DataWarehousePropertyFilter extends PropertyFilterWithOperator {
+    type: 'data_warehouse'
+}
+
+export interface DataWarehousePersonPropertyFilter extends PropertyFilterWithOperator {
+    type: 'data_warehouse_person_property'
+}
+
 /** Sync with posthog/frontend/src/types.ts */
 export interface ElementPropertyFilter extends PropertyFilterWithOperator {
     type: 'element'
@@ -890,7 +896,13 @@ export interface CohortPropertyFilter extends PropertyFilterBase {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
-export type PropertyFilter = EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter
+export type PropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | CohortPropertyFilter
+    | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {

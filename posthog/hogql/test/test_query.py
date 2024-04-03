@@ -411,7 +411,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ],
                 name="cohort",
             )
-            recalculate_cohortpeople(cohort, pending_version=0)
+            recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
             with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
                     "SELECT event, count() FROM events WHERE {cohort_filter} GROUP BY event",

@@ -44,7 +44,7 @@ class TestInCohort(BaseTest):
             team=self.team,
             groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
-        recalculate_cohortpeople(cohort, pending_version=0)
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
@@ -146,7 +146,7 @@ class TestInCohort(BaseTest):
             team=self.team,
             groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
-        recalculate_cohortpeople(cohort, pending_version=0)
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
