@@ -1292,6 +1292,7 @@ export type HogQLExpression = string
 export interface DateRange {
     date_from?: string | null
     date_to?: string | null
+    explicitDate?: boolean | null
 }
 
 export interface BreakdownFilter {

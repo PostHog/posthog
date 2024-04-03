@@ -178,6 +178,7 @@ class DateRange(BaseModel):
     )
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    explicitDate: Optional[bool] = None
 
 
 class DatetimeDay(RootModel[AwareDatetime]):
