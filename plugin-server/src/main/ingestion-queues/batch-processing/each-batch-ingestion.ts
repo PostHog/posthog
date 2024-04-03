@@ -28,8 +28,7 @@ require('@sentry/tracing')
 
 export enum IngestionOverflowMode {
     Disabled,
-    Reroute, // preserves partition locality
-    RerouteRandomly, // discards partition locality
+    Reroute,
     ConsumeSplitByDistinctId,
     ConsumeSplitEvenly,
 }
@@ -218,9 +217,7 @@ export async function eachBatchParallelIngestion(
                 op: 'emitToOverflow',
                 data: { eventCount: splitBatch.toOverflow.length },
             })
-            processingPromises.push(
-                emitToOverflow(queue, splitBatch.toOverflow, overflowMode === IngestionOverflowMode.RerouteRandomly)
-            )
+            processingPromises.push(emitToOverflow(queue, splitBatch.toOverflow))
             overflowSpan.finish()
         }
 
@@ -260,14 +257,14 @@ function computeKey(pluginEvent: PipelineEvent): string {
     return `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
 }
 
-async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[], useRandomPartitioner: boolean) {
+async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]) {
     ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.produce({
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
                 value: message.value,
-                key: useRandomPartitioner ? undefined : message.key,
+                key: null, // No locality guarantees in overflow
                 headers: message.headers,
                 waitForAck: true,
             })
@@ -289,9 +286,6 @@ export function splitIngestionBatch(
         toProcess: [],
         toOverflow: [],
     }
-    const shouldRerouteToOverflow = [IngestionOverflowMode.Reroute, IngestionOverflowMode.RerouteRandomly].includes(
-        overflowMode
-    )
 
     if (overflowMode === IngestionOverflowMode.ConsumeSplitEvenly) {
         /**
@@ -320,7 +314,7 @@ export function splitIngestionBatch(
 
     const batches: Map<string, { message: Message; pluginEvent: PipelineEvent }[]> = new Map()
     for (const message of kafkaMessages) {
-        if (shouldRerouteToOverflow && message.key == null) {
+        if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
             // Overflow detected by capture, reroute to overflow topic
             // Not applying tokenBlockList to save CPU. TODO: do so once token is in the message headers
             output.toOverflow.push(message)
@@ -340,8 +334,12 @@ export function splitIngestionBatch(
         }
 
         const eventKey = computeKey(pluginEvent)
-        if (shouldRerouteToOverflow && !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)) {
+        if (
+            overflowMode === IngestionOverflowMode.Reroute &&
+            !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)
+        ) {
             // Local overflow detection triggering, reroute to overflow topic too
+            message.key = null
             ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
             if (LoggingLimiter.consume(eventKey, 1)) {
                 status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
