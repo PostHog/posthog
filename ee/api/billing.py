@@ -75,7 +75,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         distinct_id,
                         "billing limits updated",
                         properties={**custom_limits_usd},
-                        groups=groups(org, self.request.user.team),
+                        groups=groups(org, self.request.user.team)
+                        if hasattr(self.request.user, "team")
+                        else groups(org),
                     )
                     posthoganalytics.group_identify(
                         "organization",
