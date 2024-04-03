@@ -332,7 +332,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? '',
+                message: message ?? SUPPORT_TICKET_TEMPLATES[kind],
             })
 
             if (values.sidePanelAvailable) {
