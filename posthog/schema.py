@@ -178,7 +178,10 @@ class DateRange(BaseModel):
     )
     date_from: Optional[str] = None
     date_to: Optional[str] = None
-    explicitDate: Optional[bool] = None
+    explicitDate: Optional[bool] = Field(
+        default=None,
+        description="Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+    )
 
 
 class DatetimeDay(RootModel[AwareDatetime]):
