@@ -123,9 +123,11 @@ def calculate_result_by_insight(
     if insight.query is not None:
         return calculate_for_query_based_insight(team, insight, dashboard)
     else:
-        if requesting_user and hogql_insights_enabled(requesting_user, insight.filters.get("type", InsightType.TRENDS)):
+        if requesting_user and hogql_insights_enabled(
+            requesting_user, insight.filters.get("insight", InsightType.TRENDS)
+        ):
             # KLUDGE: Using `finally` to unset this `query` after calculation, as we shouldn't save it to Postgres
-            insight.query = filter_to_query(insight.filters)
+            insight.query = filter_to_query(insight.filters).model_dump()
             try:
                 return calculate_for_query_based_insight(team, insight, dashboard)
             finally:
@@ -136,20 +138,16 @@ def calculate_result_by_insight(
 def calculate_for_query_based_insight(
     team: Team, insight: Insight, dashboard: Optional[Dashboard]
 ) -> Tuple[str, str, List | Dict]:
-    cache_key = generate_insight_cache_key(insight, dashboard)
+    # TODO: What is cache_type for? Is there a point to this being more specific than just "query"? - Michael
     cache_type = get_cache_type(insight.query)
 
-    tag_queries(
-        team_id=team.pk,
-        insight_id=insight.pk,
-        cache_type=cache_type,
-        cache_key=cache_key,
-    )
+    tag_queries(team_id=team.pk, insight_id=insight.pk, cache_type=cache_type)
 
-    # local import to avoid circular reference
     from posthog.api.services.query import process_query
 
-    return cache_key, cache_type, process_query(team, insight.query, True)
+    response = process_query(team, insight.query, refresh_requested=True)
+
+    return response["cache_key"], cache_type, response["results"]
 
 
 def calculate_for_filter_based_insight(
