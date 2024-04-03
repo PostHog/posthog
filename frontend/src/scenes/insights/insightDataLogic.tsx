@@ -1,7 +1,8 @@
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { promptLogic } from 'lib/logic/promptLogic'
 import { objectsEqual } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
@@ -79,7 +80,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
-        logic: [insightDataTimingLogic(props), promptLogic({ key: `save-as-insight` })],
+        logic: [insightDataTimingLogic(props)],
     })),
 
     actions({
@@ -256,12 +257,18 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.insightLogicSaveInsight(redirectToViewMode)
         },
         saveAs: async () => {
-            promptLogic({ key: `save-as-insight` }).actions.prompt({
+            LemonDialog.openForm({
                 title: 'Save as new insight',
-                placeholder: 'Please enter the new name',
-                value: `${values.insight.name || values.insight.derived_name} (copy)`,
-                error: 'You must enter a name',
-                success: actions.saveAsNamingSuccess,
+                initialValues: { insightName: `${values.insight.name || values.insight.derived_name} (copy)` },
+                content: (
+                    <LemonField name="insightName">
+                        <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
+                    </LemonField>
+                ),
+                errors: {
+                    insightName: (name) => (!name ? 'You must enter a name' : undefined),
+                },
+                onSubmit: async ({ insightName }) => actions.saveAsNamingSuccess(insightName),
             })
         },
         saveAsNamingSuccess: ({ name }) => {

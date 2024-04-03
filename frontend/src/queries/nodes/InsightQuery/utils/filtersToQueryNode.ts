@@ -18,7 +18,9 @@ import {
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelPathsFilter,
     FunnelsFilter,
+    FunnelsQuery,
     InsightNodeKind,
     InsightQueryNode,
     InsightsQueryBase,
@@ -303,6 +305,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // paths filter
     if (isPathsFilter(filters) && isPathsQuery(query)) {
         query.pathsFilter = pathsFilterToQuery(filters)
+        query.funnelPathsFilter = filtersToFunnelPathsQuery(filters)
     }
 
     // stickiness filter
@@ -378,8 +381,6 @@ export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilt
         startPoint: filters.start_point,
         endPoint: filters.end_point,
         pathGroupings: filters.path_groupings,
-        funnelPaths: filters.funnel_paths,
-        funnelFilter: filters.funnel_filter,
         excludeEvents: filters.exclude_events,
         stepLimit: filters.step_limit,
         pathReplacements: filters.path_replacements,
@@ -388,6 +389,18 @@ export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilt
         minEdgeWeight: filters.min_edge_weight,
         maxEdgeWeight: filters.max_edge_weight,
     })
+}
+
+export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): FunnelPathsFilter | undefined => {
+    if (filters.funnel_paths === undefined || filters.funnel_filter === undefined) {
+        return undefined
+    }
+
+    return {
+        funnelPathType: filters.funnel_paths,
+        funnelSource: filtersToQueryNode(filters.funnel_filter) as FunnelsQuery,
+        funnelStep: filters.funnel_filter?.funnel_step,
+    }
 }
 
 export const stickinessFilterToQuery = (filters: Record<string, any>): StickinessFilter => {

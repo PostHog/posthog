@@ -95,9 +95,6 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
     if property.key not in override_property_values:
         raise ValidationError("can't match properties without an override value")
 
-    if property.operator == "is_not_set":
-        raise ValidationError("can't match properties with operator is_not_set")
-
     key = property.key
     operator = property.operator or "exact"
     value = property.value
@@ -123,6 +120,11 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
 
     if operator == "is_set":
         return key in override_property_values
+
+    if operator == "is_not_set":
+        if key in override_property_values:
+            return False
+        raise ValidationError("can't match properties with operator is_not_set")
 
     if operator == "icontains":
         return str(value).lower() in str(override_value).lower()
@@ -324,7 +326,7 @@ def property_to_Q(
             )
 
     # short circuit query if key exists in override_property_values
-    if property.key in override_property_values and property.operator != "is_not_set":
+    if property.key in override_property_values:
         # if match found, add an explicit match-all Q object
         # if not found, return falsy Q
         if not match_property(property, override_property_values):

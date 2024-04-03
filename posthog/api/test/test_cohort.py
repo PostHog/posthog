@@ -16,7 +16,7 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
 from posthog.schema import PropertyOperator
-from posthog.tasks.calculate_cohort import calculate_cohort_from_list
+from posthog.tasks.calculate_cohort import calculate_cohort_ch, calculate_cohort_from_list
 from posthog.tasks.tasks import clickhouse_clear_removed_data
 from posthog.test.base import (
     APIBaseTest,
@@ -35,8 +35,9 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         return self.capture_queries(("INSERT INTO cohortpeople", "SELECT", "ALTER", "select", "DELETE"))
 
     @patch("posthog.api.cohort.report_user_action")
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_creating_update_and_calculating(self, patch_calculate_cohort, patch_capture):
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
+    @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
+    def test_creating_update_and_calculating(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"team_id": 5})
@@ -74,21 +75,24 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             },
         )
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
-            data={
-                "name": "whatever2",
-                "description": "A great cohort!",
-                "groups": [{"properties": {"team_id": 6}}],
-                "created_by": "something something",
-                "last_calculation": "some random date",
-                "errors_calculating": 100,
-                "deleted": False,
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertDictContainsSubset({"name": "whatever2", "description": "A great cohort!"}, response.json())
-        self.assertEqual(patch_calculate_cohort.call_count, 2)
+        with self.capture_queries("INSERT INTO cohortpeople") as insert_statements:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
+                data={
+                    "name": "whatever2",
+                    "description": "A great cohort!",
+                    "groups": [{"properties": {"team_id": 6}}],
+                    "created_by": "something something",
+                    "last_calculation": "some random date",
+                    "errors_calculating": 100,
+                    "deleted": False,
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertDictContainsSubset({"name": "whatever2", "description": "A great cohort!"}, response.json())
+            self.assertEqual(patch_calculate_cohort.call_count, 2)
+
+            self.assertIn(f" user_id:{self.user.id} ", insert_statements[0])
 
         # Assert analytics are sent
         patch_capture.assert_called_with(

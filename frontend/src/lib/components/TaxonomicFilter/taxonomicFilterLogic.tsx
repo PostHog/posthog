@@ -15,6 +15,7 @@ import { IconCohort } from 'lib/lemon-ui/icons'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
@@ -86,6 +87,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['allGroupProperties'],
             dataWarehouseSceneLogic,
             ['externalTables'],
+            dataWarehouseJoinsLogic,
+            ['columnsJoinedToPersons'],
         ],
     }),
     actions(() => ({
@@ -224,6 +227,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (col: DatabaseSchemaQueryResponseField) => col.key,
                         getPopoverHeader: () => 'Data Warehouse Column',
                         getIcon: () => <IconServer />,
+                    },
+                    {
+                        name: 'Data Warehouse Person Properties',
+                        searchPlaceholder: 'person properties from data warehouse tables',
+                        type: TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                        logic: dataWarehouseJoinsLogic,
+                        value: 'columnsJoinedToPersons',
+                        getName: (personProperty: PersonProperty) => personProperty.name,
+                        getValue: (personProperty: PersonProperty) => personProperty.id,
+                        getPopoverHeader: () => 'Data Warehouse Person Property',
                     },
                     {
                         name: 'Autocapture elements',
