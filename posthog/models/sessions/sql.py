@@ -6,8 +6,6 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
     AggregatingMergeTree,
 )
-from posthog.models.property.util import get_property_string_expr
-from posthog.settings import TEST
 
 TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
@@ -101,22 +99,12 @@ SETTINGS index_granularity=512
 
 
 def source_column(column_name: str) -> str:
-    # use the materialized version if it exists, and use the properties json if not
-    try:
-        return get_property_string_expr(
-            "events", property_name=column_name, var=f"'{column_name}'", column="properties"
-        )[0]
-    except Exception as e:
-        # in test code we don't have a Clickhouse instance running when this code runs
-        if TEST:
-            return trim_quotes_expr(f"JSONExtractRaw(properties, '{column_name}')")
-        else:
-            raise e
+    return trim_quotes_expr(f"JSONExtractRaw(properties, '{column_name}')")
 
 
 SESSIONS_TABLE_MV_SQL = (
     lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE OR REPLACE MATERIALIZED VIEW {table_name} ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
 
