@@ -13,12 +13,11 @@ import { urls } from 'scenes/urls'
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
-import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { SourceConfig, sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
     component: NewSourceWizard,
-    logic: dataWarehouseTableLogic,
+    logic: sourceWizardLogic,
 }
 export function NewSourceWizard(): JSX.Element {
     const { modalTitle, modalCaption } = useValues(sourceWizardLogic)

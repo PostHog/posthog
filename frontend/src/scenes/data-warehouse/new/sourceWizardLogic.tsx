@@ -1,8 +1,10 @@
 import { Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceSyncSchema, ExternalDataSourceType } from '~/types'
+import { Breadcrumb, ExternalDataSourceSyncSchema, ExternalDataSourceType } from '~/types'
 
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import { sourceFormLogic } from '../external/forms/sourceFormLogic'
@@ -220,6 +222,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.DataWarehouse,
+                    name: 'Data Warehouse',
+                    path: urls.dataWarehouse(),
+                },
+                { key: [Scene.DataWarehouse, 'New'], name: 'New' },
+            ],
+        ],
         showFooter: [
             (s) => [s.selectedConnector, s.isManualLinkFormVisible],
             (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
