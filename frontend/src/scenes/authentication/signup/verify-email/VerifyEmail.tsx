@@ -130,11 +130,12 @@ export function VerifyEmail(): JSX.Element {
                     <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
                         {view === 'pending' ? (
                             <>
+                                <h2 className="text-lg">Welcome to PostHog!</h2>
                                 <h1 className="text-3xl font-bold">Let's verify your email address.</h1>
                                 <div className="max-w-60 my-10">
                                     <MailHog className="w-full h-full" />
                                 </div>
-                                <p>An email has been sent with a link to verify your email address.</p>
+                                <p className="mb-6">An email has been sent with a link to verify your email address.</p>
                                 {featureFlags[FEATURE_FLAGS.EMAIL_VERIFICATION_TICKET_SUBMISSION] === 'test' ? (
                                     <GetHelp />
                                 ) : (
@@ -160,7 +161,7 @@ export function VerifyEmail(): JSX.Element {
                                 <div className="max-w-60 mb-12">
                                     <SurprisedHog className="w-full h-full" />
                                 </div>
-                                <p>Seems like that link isn't quite right. Try again?</p>
+                                <p className="mb-6">Seems like that link isn't quite right. Try again?</p>
                                 <SupportButtons />
                             </>
                         ) : (
