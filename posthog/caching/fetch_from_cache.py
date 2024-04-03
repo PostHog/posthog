@@ -84,7 +84,7 @@ def synchronously_update_cache(
     dashboard: Optional[Dashboard],
     refresh_frequency: Optional[timedelta] = None,
     *,
-    requesting_user: User,
+    requesting_user: Optional[User],
 ) -> InsightResult:
     cache_key, cache_type, result = calculate_result_by_insight(
         team=insight.team, insight=insight, dashboard=dashboard, requesting_user=requesting_user

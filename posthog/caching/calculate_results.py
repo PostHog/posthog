@@ -111,7 +111,7 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
 
 
 def calculate_result_by_insight(
-    *, team: Team, insight: Insight, dashboard: Optional[Dashboard], requesting_user: Optional[User] = None
+    *, team: Team, insight: Insight, dashboard: Optional[Dashboard], requesting_user: Optional[User]
 ) -> Tuple[str, str, List | Dict]:
     """
     Calculates the result for an insight. If the insight is query based,

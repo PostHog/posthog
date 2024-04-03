@@ -104,7 +104,9 @@ def update_cache(caching_state_id: UUID):
     }
 
     try:
-        cache_key, cache_type, result = calculate_result_by_insight(team=team, insight=insight, dashboard=dashboard)
+        cache_key, cache_type, result = calculate_result_by_insight(
+            team=team, insight=insight, dashboard=dashboard, requesting_user=None
+        )
     except Exception as err:
         capture_exception(err, metadata)
         exception = err
