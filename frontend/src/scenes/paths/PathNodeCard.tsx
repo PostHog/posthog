@@ -1,5 +1,4 @@
-import { Tooltip } from '@posthog/lemon-ui'
-import { Dropdown } from 'antd'
+import { LemonDropdown, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { InsightLogicProps } from '~/types'
@@ -37,7 +36,7 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
 
     return (
         <Tooltip title={pageUrl(node)} placement="right">
-            <Dropdown
+            <LemonDropdown
                 overlay={
                     <PathNodeCardMenu
                         name={node.name}
@@ -50,7 +49,10 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                         openPersonsModal={openPersonsModal}
                     />
                 }
-                placement="bottomCenter"
+                trigger="hover"
+                placement="bottom"
+                padded={false}
+                matchWidth
             >
                 <div
                     className="absolute rounded bg-bg-light p-1"
@@ -78,7 +80,7 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                         filter={filter}
                     />
                 </div>
-            </Dropdown>
+            </LemonDropdown>
         </Tooltip>
     )
 }
