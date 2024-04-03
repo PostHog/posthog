@@ -18,7 +18,7 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
-from posthog.settings import SITE_URL
+from posthog.event_usage import groups
 
 logger = structlog.get_logger(__name__)
 
@@ -75,11 +75,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         distinct_id,
                         "billing limits updated",
                         properties={**custom_limits_usd},
-                        groups={
-                            "instance": SITE_URL,
-                            "organization": str(org.pk),
-                            "project": str(self.request.user.team.uuid) if self.request.user.team else None,
-                        },
+                        groups=groups(org, self.request.user.team),
                     )
                     posthoganalytics.group_identify(
                         "organization",
