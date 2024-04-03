@@ -32,17 +32,6 @@
     "refreshing": false,
     "result": [
         {
-            "action": {
-                "id": "$pageview",
-                "type": "events",
-                "order": 0,
-                "name": "$pageview",
-                "custom_name": null,
-                "math": null,
-                "math_property": null,
-                "math_group_type_index": null,
-                "properties": {}
-            },
             "label": "$pageview",
             "count": 47258,
             "data": [22870, 37914, 44589, 47146, 47146, 47146, 47258, 47258],

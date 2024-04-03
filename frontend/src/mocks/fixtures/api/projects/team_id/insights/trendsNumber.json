@@ -29,17 +29,6 @@
     "refreshing": false,
     "result": [
         {
-            "action": {
-                "id": "signed_up",
-                "type": "events",
-                "order": 0,
-                "name": "signed_up",
-                "custom_name": null,
-                "math": null,
-                "math_property": null,
-                "math_group_type_index": null,
-                "properties": {}
-            },
             "label": "signed_up",
             "count": 0,
             "data": [],

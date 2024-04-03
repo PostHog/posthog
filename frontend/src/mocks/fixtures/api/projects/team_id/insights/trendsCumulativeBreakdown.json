@@ -34,17 +34,6 @@
     "refreshing": false,
     "result": [
         {
-            "action": {
-                "id": "$pageview",
-                "type": "events",
-                "order": 0,
-                "name": "$pageview",
-                "custom_name": null,
-                "math": null,
-                "math_property": null,
-                "math_group_type_index": null,
-                "properties": {}
-            },
             "label": "$pageview - 100",
             "count": 44182,
             "data": [22750, 37782, 43114, 44182, 44182, 44182, 44182, 44182],
@@ -191,17 +180,6 @@
             }
         },
         {
-            "action": {
-                "id": "$pageview",
-                "type": "events",
-                "order": 0,
-                "name": "$pageview",
-                "custom_name": null,
-                "math": null,
-                "math_property": null,
-                "math_group_type_index": null,
-                "properties": {}
-            },
             "label": "$pageview - 92",
             "count": 598,
             "data": [0, 0, 0, 544, 544, 544, 598, 598],
@@ -348,17 +326,6 @@
             }
         },
         {
-            "action": {
-                "id": "$pageview",
-                "type": "events",
-                "order": 0,
-                "name": "$pageview",
-                "custom_name": null,
-                "math": null,
-                "math_property": null,
-                "math_group_type_index": null,
-                "properties": {}
-            },
             "label": "$pageview - 98",
             "count": 2478,
             "data": [120, 132, 1475, 2420, 2420, 2420, 2478, 2478],

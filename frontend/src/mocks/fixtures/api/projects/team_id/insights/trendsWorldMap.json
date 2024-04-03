@@ -34,17 +34,6 @@
     "refreshing": false,
     "result": [
         {
-            "action": {
-                "id": "$pageview",
-                "type": "events",
-                "order": 0,
-                "name": "$pageview",
-                "custom_name": null,
-                "math": null,
-                "math_property": null,
-                "math_group_type_index": null,
-                "properties": {}
-            },
             "label": "$pageview - AU",
             "count": 0,
             "data": [],
@@ -83,17 +72,6 @@
             "breakdown_value": "AU"
         },
         {
-            "action": {
-                "id": "$pageview",
-                "type": "events",
-                "order": 0,
-                "name": "$pageview",
-                "custom_name": null,
-                "math": null,
-                "math_property": null,
-                "math_group_type_index": null,
-                "properties": {}
-            },
             "label": "$pageview - IS",
             "count": 0,
             "data": [],
