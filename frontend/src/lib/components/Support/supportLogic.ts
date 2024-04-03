@@ -36,6 +36,14 @@ function getDjangoAdminLink(
     return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
 }
 
+function getBillingAdminLink(user: UserType | null): string {
+    if (!user) {
+        return ''
+    }
+    const link = `http://go/billing/customer/${user.organization?.id}`
+    return `Billing Admin: ${link} (Organization: '${user.organization?.name}'`
+}
+
 function getSentryLink(user: UserType | null, cloudRegion: Region | null | undefined): string {
     if (!user || !cloudRegion) {
         return ''
@@ -366,6 +374,8 @@ export const supportLogic = kea<supportLogicType>([
                             getSessionReplayLink() +
                             '\n' +
                             getDjangoAdminLink(userLogic.values.user, cloudRegion, teamLogic.values.currentTeamId) +
+                            '\n' +
+                            getBillingAdminLink(userLogic.values.user) +
                             '\n' +
                             getSentryLink(userLogic.values.user, cloudRegion)
                         ).trim(),
