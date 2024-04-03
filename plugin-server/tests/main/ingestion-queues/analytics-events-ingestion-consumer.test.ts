@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { buildStringMatcher } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../src/config/kafka-topics'
 import {
+    computeKey,
     eachBatchParallelIngestion,
     IngestionOverflowMode,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
@@ -55,10 +56,6 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
     let closeServer: () => Promise<void>
     let queue: any
 
-    function makeMessageKey(event: any): string {
-        return event.token + ':' + event.distinct_id
-    }
-
     function createBatchWithMultipleEvents(events: any[], timestamp?: any, withKey: boolean = true): Message[] {
         return events.map((event, i) => ({
             partition: 0,
@@ -66,7 +63,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
             value: Buffer.from(JSON.stringify(event)),
             timestamp,
             offset: i,
-            key: withKey ? makeMessageKey(event) : null,
+            key: withKey ? computeKey(event) : null,
             size: 0, // irrelevant, but needed for type checking
         }))
     }
@@ -123,7 +120,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         await eachBatchParallelIngestion(tokenBlockList, [message], queue, IngestionOverflowMode.Reroute)
 
         expect(consume).toHaveBeenCalledWith(
-            makeMessageKey(event), // NOTE: can't use ``message.key`` here as it will already have been mutated
+            computeKey(event), // NOTE: can't use ``message.key`` here as it will already have been mutated
             1,
             now
         )
