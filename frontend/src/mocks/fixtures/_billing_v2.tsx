@@ -334,6 +334,17 @@ export const billingJson: BillingV2Type = {
                 {
                     name: 'Group analytics',
                     inclusion_only: false,
+                    features: [
+                        {
+                            key: 'group_analytics',
+                            name: 'Group analytics',
+                            description:
+                                'Associate events with a group - such as a company, community, or project - and analyze them in that context.',
+                            unit: null,
+                            limit: null,
+                            note: null,
+                        },
+                    ],
                     description:
                         'Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more.',
                     price_description: null,
@@ -514,6 +525,17 @@ export const billingJson: BillingV2Type = {
                 {
                     name: 'Data pipelines',
                     inclusion_only: false,
+                    features: [
+                        {
+                            key: 'data_pipelines',
+                            name: 'Data pipelines',
+                            description:
+                                'Get your PostHog data into your data warehouse or other tools like BigQuery, Redshift, Customer.io, and more.',
+                            unit: null,
+                            limit: null,
+                            note: null,
+                        },
+                    ],
                     description:
                         'Get your PostHog data into your data warehouse or other tools like BigQuery, Redshift, Customer.io, and more.',
                     price_description: null,
