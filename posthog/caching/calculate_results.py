@@ -1,9 +1,8 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import structlog
 from sentry_sdk import capture_exception
 
-from posthog.caching.fetch_from_cache import InsightResult
 from posthog.caching.utils import ensure_is_date
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
@@ -38,6 +37,9 @@ from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.types import FilterType
+
+if TYPE_CHECKING:
+    from posthog.caching.fetch_from_cache import InsightResult
 
 CACHE_TYPE_TO_INSIGHT_CLASS = {
     CacheType.TRENDS: Trends,
@@ -105,7 +107,9 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 
-def _cached_response_to_insight_result(response: CachedQueryResponse) -> InsightResult:
+def _cached_response_to_insight_result(response: CachedQueryResponse) -> "InsightResult":
+    from posthog.caching.fetch_from_cache import InsightResult
+
     response_dict = response.model_dump()
     result_keys = InsightResult.__annotations__.keys()
 
@@ -119,7 +123,7 @@ def _cached_response_to_insight_result(response: CachedQueryResponse) -> Insight
     return result
 
 
-def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> InsightResult:
+def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> "InsightResult":
     from posthog.api.services.query import process_query
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk)

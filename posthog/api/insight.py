@@ -35,11 +35,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication
-from posthog.caching.fetch_from_cache import (
-    InsightResult,
-    fetch_cached_insight_result,
-    synchronously_update_cache,
-)
+from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
 from posthog.caching.insights_api import should_refresh_insight
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
