@@ -103,6 +103,20 @@ class OrganizationInviteViewSet(
         local_part, domain = email.split("@")
         return f"{local_part}@{domain.lower()}"
 
+    def create(self, request: request.Request, **kwargs) -> response.Response:
+        data = cast(Any, request.data.copy())
+
+        data["target_email"] = self.lowercase_email_domain(data["target_email"])
+
+        serializer = OrganizationInviteSerializer(
+            data=data,
+            context={**self.get_serializer_context()},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+
     @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data)
