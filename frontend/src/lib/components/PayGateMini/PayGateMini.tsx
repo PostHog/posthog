@@ -10,7 +10,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { AvailableFeature, BillingProductV2Type } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateMiniButton } from './PayGateMiniButton'
@@ -142,11 +142,7 @@ export function PayGateMini({
                         </>
                     </div>
                 )}
-                <PayGateMiniButton
-                    product={productWithFeature as BillingProductV2Type}
-                    featureInfo={featureInfo}
-                    gateVariant={gateVariant}
-                />
+                <PayGateMiniButton product={productWithFeature} featureInfo={featureInfo} gateVariant={gateVariant} />
             </div>
         ) : (
             <div className={className}>{children}</div>
