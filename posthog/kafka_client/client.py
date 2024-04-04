@@ -2,6 +2,7 @@ import json
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import kafka.errors
 from django.conf import settings
 from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
@@ -194,7 +195,7 @@ def can_connect():
     """
     try:
         _KafkaProducer(test=settings.TEST)
-    except Exception:
+    except kafka.errors.KafkaError:
         logger.debug("kafka_connection_failure", exc_info=True)
         return False
     return True
