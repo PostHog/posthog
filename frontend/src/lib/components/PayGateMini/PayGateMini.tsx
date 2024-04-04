@@ -4,7 +4,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { lowercaseFirstLetter } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -113,6 +112,10 @@ export function PayGateMini({
                         <p>
                             {gateVariant === 'move-to-cloud' ? (
                                 <>This feature is only available on PostHog Cloud.</>
+                            ) : isAddonProduct ? (
+                                <>
+                                    Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
+                                </>
                             ) : (
                                 <>
                                     Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
@@ -140,7 +143,6 @@ export function PayGateMini({
                     </div>
                 )}
                 <PayGateMiniButton
-                    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
                     product={productWithFeature as BillingProductV2Type}
                     featureInfo={featureInfo}
                     gateVariant={gateVariant}
@@ -184,16 +186,22 @@ export function PayGateMini({
                     </p>
                 </div>
             ) : (
-                <p>
-                    {gateVariant === 'move-to-cloud' ? (
-                        <>On PostHog Cloud, you can </>
-                    ) : (
-                        <>
-                            Upgrade your <b>{productWithFeature?.name}</b> plan to{' '}
-                        </>
-                    )}
-                    {featureInfo.description ? lowercaseFirstLetter(featureInfo.description) : 'use this feature.'}
-                </p>
+                <>
+                    <p>{featureInfo.description}</p>
+                    <p>
+                        {gateVariant === 'move-to-cloud' ? (
+                            <>This feature is only available on PostHog Cloud.</>
+                        ) : isAddonProduct ? (
+                            <>
+                                Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
+                            </>
+                        ) : (
+                            <>
+                                Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
+                            </>
+                        )}
+                    </p>
+                </>
             )}
             {isGrandfathered && (
                 <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
