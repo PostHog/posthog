@@ -70,7 +70,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
-        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True).data
+        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
