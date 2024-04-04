@@ -103,7 +103,7 @@ SETTINGS index_granularity=512
 
 
 def json_source_column(column_name: str) -> str:
-    return trim_quotes_expr(f"nullIf(JSONExtractRaw(properties, '{column_name}'), 'null'")
+    return trim_quotes_expr(f"JSONExtractRaw(properties, '{column_name}')")
 
 
 def json_or_mat_source_column(column_name: str) -> str:
