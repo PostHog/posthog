@@ -534,7 +534,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def insight_result(self, insight: Insight) -> InsightResult:
         dashboard = self.context.get("dashboard", None)
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
-        if dashboard_tile:
+        if dashboard_tile and dashboard_tile.insight:
             # Syncing `dashboard_tile.insight.query` for consistency in the `hogql_insights_enabled` branch of `get_result`
             dashboard_tile.insight.query = insight.query
 
