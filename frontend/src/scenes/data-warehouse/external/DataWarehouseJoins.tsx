@@ -29,6 +29,7 @@ export const DataWarehouseJoins = (): JSX.Element => {
                                 Joining {join.joining_table_name} onto {join.source_table_name}
                             </>
                         }
+                        onClick={() => void toggleEditJoinModal(join)}
                     />
                 )
             },
