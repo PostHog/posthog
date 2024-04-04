@@ -19,7 +19,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from posthog.warehouse.api.table import SimpleTableSerializer
 
-        return SimpleTableSerializer(schema.table, context={"database": self.context["database"]}).data or None
+        hogql_context = self.context.get("database", None)
+        if not hogql_context:
+            hogql_context = create_hogql_database(team_id=self.context["team_id"])
+
+        return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
 
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
