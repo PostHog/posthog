@@ -5,6 +5,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import viewsets, filters
 from rest_framework.exceptions import NotAuthenticated
 from posthog.models import User
+from posthog.hogql.database.database import create_hogql_database
 
 
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
@@ -18,7 +19,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from posthog.warehouse.api.table import SimpleTableSerializer
 
-        return SimpleTableSerializer(schema.table).data or None
+        return SimpleTableSerializer(schema.table, context={"database": self.context["database"]}).data or None
 
 
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
@@ -34,6 +35,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["database"] = create_hogql_database(team_id=self.team_id)
+        return context
 
     def get_queryset(self):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
