@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ImpossibleASTException
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
@@ -232,7 +232,7 @@ class QueryDateRange:
             case "month":
                 return ast.Call(name="toStartOfMonth", args=[date])
             case _:
-                raise HogQLException(message="Unknown interval name")
+                raise ImpossibleASTException(message="Unknown interval name")
 
     def date_from_to_start_of_interval_hogql(self) -> ast.Call:
         return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())

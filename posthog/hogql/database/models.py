@@ -2,7 +2,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from pydantic import ConfigDict, BaseModel
 
 from posthog.hogql.base import Expr
-from posthog.hogql.errors import HogQLException, NotImplementedException
+from posthog.hogql.errors import ResolutionException, NotImplementedException
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -102,7 +102,7 @@ class Table(FieldOrTable):
                 if not field.hidden:  # Skip over hidden fields
                     asterisk[key] = field
             else:
-                raise HogQLException(f"Unknown field type {type(field).__name__} for asterisk")
+                raise ResolutionException(f"Unknown field type {type(field).__name__} for asterisk")
         return asterisk
 
 
@@ -119,7 +119,7 @@ class LazyJoin(FieldOrTable):
             return self.join_table
 
         if context.database is None:
-            raise HogQLException("Database is not set")
+            raise ResolutionException("Database is not set")
 
         return context.database.get_table(self.join_table)
 

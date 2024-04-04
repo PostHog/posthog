@@ -8,7 +8,7 @@ from freezegun import freeze_time
 
 from posthog import datetime
 from posthog.hogql import ast
-from posthog.hogql.errors import SyntaxException, HogQLException
+from posthog.hogql.errors import SyntaxException, QueryException
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests, pretty_print_response_in_tests
@@ -1272,17 +1272,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         query = f"SELECT number from numbers"
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryException) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table function 'numbers' requires arguments")
 
         query = f"SELECT number from numbers()"
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryException) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table function 'numbers' requires at least 1 argument")
 
         query = f"SELECT number from numbers(1,2,3)"
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryException) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table function 'numbers' requires at most 2 arguments")
 
@@ -1322,7 +1322,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_events_table_error_if_function(self):
         query = "SELECT * from events(1, 4)"
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryException) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table 'events' does not accept arguments")
 
@@ -1380,7 +1380,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_hogql_query_filters_double_error(self):
         query = "SELECT event from events where {filters}"
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryException) as e:
             execute_hogql_query(
                 query,
                 team=self.team,

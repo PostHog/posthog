@@ -9,7 +9,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     FieldOrTable,
 )
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ResolutionException
 
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
@@ -39,7 +39,7 @@ def persons_pdi_join(
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise HogQLException("No fields requested from person_distinct_ids")
+        raise ResolutionException("No fields requested from person_distinct_ids")
     join_expr = ast.JoinExpr(table=persons_pdi_select(requested_fields))
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table

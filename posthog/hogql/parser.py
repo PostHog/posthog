@@ -7,11 +7,7 @@ from prometheus_client import Histogram
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS
-from posthog.hogql.errors import (
-    NotImplementedException,
-    HogQLException,
-    SyntaxException,
-)
+from posthog.hogql.errors import BaseHogQLException, NotImplementedException, SyntaxException
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
@@ -153,7 +149,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 node.start = start
                 node.end = end
             return node
-        except HogQLException as e:
+        except BaseHogQLException as e:
             if start is not None and end is not None and e.start is None or e.end is None:
                 e.start = start
                 e.end = end

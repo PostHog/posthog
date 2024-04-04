@@ -259,7 +259,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 "values": {},
                 "hogql_query": print_prepared_ast(hogql_query, context=context, dialect="hogql"),
             }
-        except errors.HogQLException:
+        except errors.ExposedHogQLException:
             raise serializers.ValidationError("Unsupported HogQL query")
 
         for field in hogql_query.select:
