@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from posthog.warehouse.models import ExternalDataSchema
-from typing import Optional
+from typing import Optional, Dict, Any
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import viewsets, filters
 from rest_framework.exceptions import NotAuthenticated
@@ -36,7 +36,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_serializer_context(self):
+    def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context

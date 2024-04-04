@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Dict
 
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated
@@ -111,7 +111,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_serializer_context(self) -> filters.Dict[str, Any]:
+    def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context
