@@ -123,15 +123,15 @@ function ValueDisplay({
                         <LemonMenu
                             items={[
                                 {
-                                    label: 'True',
+                                    label: 'true',
                                     onClick: () => handleValueChange(true),
                                 },
                                 {
-                                    label: 'False',
+                                    label: 'false',
                                     onClick: () => handleValueChange(false),
                                 },
                                 {
-                                    label: 'Null',
+                                    label: 'null',
                                     onClick: () => handleValueChange(null),
                                     status: 'danger',
                                 },
