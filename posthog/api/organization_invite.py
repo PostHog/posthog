@@ -45,6 +45,10 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
+    def validate_target_email(self, email: str):
+        local_part, domain = email.split("@")
+        return f"{local_part}@{domain.lower()}"
+
     def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
             organization_id=self.context["organization_id"],
@@ -106,8 +110,6 @@ class OrganizationInviteViewSet(
     def create(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data.copy())
 
-        data["target_email"] = self.lowercase_email_domain(data["target_email"])
-
         serializer = OrganizationInviteSerializer(
             data=data,
             context={**self.get_serializer_context()},
@@ -127,9 +129,6 @@ class OrganizationInviteViewSet(
                 "A maximum of 20 invites can be sent in a single request.",
                 code="max_length",
             )
-
-        for datum in data:
-            datum["target_email"] = self.lowercase_email_domain(datum["target_email"])
 
         serializer = OrganizationInviteSerializer(
             data=data,
