@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional
 from uuid import UUID
 
 import dlt
@@ -81,16 +81,18 @@ class DataImportPipeline:
         data, starting_after = paginating_function(**kwargs)
         return data, starting_after
 
-    async def _run(self) -> int:
+    async def _run(self, starting_at_endpoint: Optional[str] = None, starting_at_cursor: Optional[str] = None) -> int:
         pipeline = self._create_pipeline()
 
-        # TODO: Pull heartbeat
+        starting_after = starting_at_cursor if starting_at_cursor else None
+        endpoints = []
+        for _endpoint in self.source.endpoints:
+            if starting_at_endpoint and _endpoint != starting_at_endpoint:
+                continue
+            endpoints.append(_endpoint)
+            starting_at_endpoint = None
 
-        starting_after = 1
-
-        # iterate next 10000 rows
-
-        for endpoint in self.source.endpoints:
+        for endpoint in endpoints:
             while starting_after:
                 starting_after = None
                 data_to_push = []
@@ -117,13 +119,13 @@ class DataImportPipeline:
 
         return total_rows_synced
 
-    async def run(self) -> int:
+    async def run(self, starting_at_endpoint: Optional[str] = None, starting_at_cursor: Optional[str] = None) -> int:
         schemas = self._get_schemas()
         if not schemas:
             return 0
 
         try:
-            return await self._run()
+            return await self._run(starting_at_endpoint, starting_at_cursor)
         except PipelineStepFailed:
             self.logger.error(f"Data import failed for endpoint")
             raise

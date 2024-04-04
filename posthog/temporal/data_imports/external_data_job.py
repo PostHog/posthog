@@ -29,6 +29,7 @@ from posthog.warehouse.models import (
 )
 from posthog.warehouse.models.external_data_schema import get_postgres_schemas
 from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.utils import should_resume_from_activity_heartbeat, DataImportHeartbeatDetails
 from typing import Tuple
 import asyncio
 from django.conf import settings
@@ -160,6 +161,13 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+    should_resume, details = await should_resume_from_activity_heartbeat(activity, DataImportHeartbeatDetails, logger)
+    if should_resume is True and details is not None:
+        starting_at_cursor = details.cursor
+        starting_at_endpoint = details.endpoint
+    else:
+        starting_at_cursor = None
+        starting_at_endpoint = None
 
     job_inputs = PipelineInputs(
         source_id=inputs.source_id,
@@ -252,7 +260,9 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
     heartbeat_task = asyncio.create_task(heartbeat())
 
     try:
-        total_rows_synced = await DataImportPipeline(job_inputs, source, logger).run()
+        total_rows_synced = await DataImportPipeline(job_inputs, source, logger).run(
+            starting_at_endpoint, starting_at_cursor
+        )
         await aupdate_job_count(inputs.run_id, inputs.team_id, total_rows_synced)
     finally:
         heartbeat_task.cancel()
