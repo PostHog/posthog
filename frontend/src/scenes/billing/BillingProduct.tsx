@@ -164,6 +164,11 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 type="primary"
                                 icon={<IconPlus />}
                                 size="small"
+                                disabledReason={
+                                    !currentAndUpgradePlans?.upgradePlan
+                                        ? "You don't have a plan to upgrade to"
+                                        : undefined
+                                }
                                 to={`/api/billing-v2/activation?products=${addon.type}:${
                                     currentAndUpgradePlans?.upgradePlan?.plan_key
                                 }${redirectPath && `&redirect_path=${redirectPath}`}`}
