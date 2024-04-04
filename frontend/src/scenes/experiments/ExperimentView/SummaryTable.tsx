@@ -100,6 +100,17 @@ export function SummaryTable(): JSX.Element {
     columns.push({
         key: 'winProbability',
         title: 'Win probability',
+        sorter: (a, b) => {
+            const aPercentage =
+                (experimentResults?.probability?.[a.key] != undefined &&
+                    experimentResults.probability?.[a.key] * 100) ||
+                0
+            const bPercentage =
+                (experimentResults?.probability?.[b.key] != undefined &&
+                    experimentResults.probability?.[b.key] * 100) ||
+                0
+            return aPercentage - bPercentage
+        },
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
             const percentage =
