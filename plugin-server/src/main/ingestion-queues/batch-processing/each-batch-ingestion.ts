@@ -75,7 +75,7 @@ async function handleProcessingError(
             await queue.pluginsServer.kafkaProducer.produce({
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
                 value: message.value,
-                key: message.key,
+                key: message.key ?? null, // avoid undefined, just to be safe
                 headers: headers,
                 waitForAck: true,
             })

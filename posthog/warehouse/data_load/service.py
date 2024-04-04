@@ -58,7 +58,7 @@ def sync_external_data_job_workflow(
             jitter=timedelta(hours=2),
         ),
         state=ScheduleState(note=f"Schedule for external data source: {external_data_source.pk}"),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.CANCEL_OTHER),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if create:
