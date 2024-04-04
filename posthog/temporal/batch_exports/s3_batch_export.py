@@ -47,6 +47,7 @@ from posthog.temporal.batch_exports.temporary_file import (
 )
 from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
 from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.heartbeat import heartbeat_every
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -503,7 +504,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 bytes_exported.add(bytes_since_last_flush)
 
                 last_uploaded_part_timestamp = str(last_inserted_at)
-                activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
             first_record_batch, record_iterator = peek_first_and_rewind(record_iterator)
             first_record_batch = cast_record_batch_json_columns(first_record_batch)
@@ -526,14 +526,21 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 schema=schema,
             )
 
-            async with writer.open_temporary_file():
-                rows_exported = get_rows_exported_metric()
-                bytes_exported = get_bytes_exported_metric()
+            def s3_heartbeat_details() -> tuple | tuple[str, S3MultiPartUploadState]:
+                """Return S3 heartbeat details if set."""
+                if last_uploaded_part_timestamp is None:
+                    return ()
+                return (last_uploaded_part_timestamp, s3_upload.to_state())
 
-                for record_batch in record_iterator:
-                    record_batch = cast_record_batch_json_columns(record_batch)
+            async with heartbeat_every(details_callable=s3_heartbeat_details):
+                async with writer.open_temporary_file():
+                    rows_exported = get_rows_exported_metric()
+                    bytes_exported = get_bytes_exported_metric()
 
-                    await writer.write_record_batch(record_batch)
+                    for record_batch in record_iterator:
+                        record_batch = cast_record_batch_json_columns(record_batch)
+
+                        await writer.write_record_batch(record_batch)
 
             await s3_upload.complete()
 
