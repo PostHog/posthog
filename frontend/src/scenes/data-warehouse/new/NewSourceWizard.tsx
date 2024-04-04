@@ -1,24 +1,28 @@
-import { LemonButton, LemonModal, LemonModalProps } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 import zendeskLogo from 'public/zendesk-logo.png'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
-import PostgresSchemaForm from './forms/PostgresSchemaForm'
-import SourceForm from './forms/SourceForm'
-import { SourceConfig } from './sourceModalLogic'
-import { sourceModalLogic } from './sourceModalLogic'
+import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
+import SourceForm from '../external/forms/SourceForm'
+import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
+import { SourceConfig, sourceWizardLogic } from './sourceWizardLogic'
 
-interface SourceModalProps extends LemonModalProps {}
-
-export default function SourceModal(props: SourceModalProps): JSX.Element {
-    const { modalTitle, modalCaption } = useValues(sourceModalLogic)
-    const { onClear, onBack, onSubmit } = useActions(sourceModalLogic)
-    const { currentStep } = useValues(sourceModalLogic)
+export const scene: SceneExport = {
+    component: NewSourceWizard,
+    logic: sourceWizardLogic,
+}
+export function NewSourceWizard(): JSX.Element {
+    const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
+    const { onBack, onSubmit } = useActions(sourceWizardLogic)
+    const { currentStep } = useValues(sourceWizardLogic)
 
     const footer = (): JSX.Element | null => {
         if (currentStep === 1) {
@@ -38,18 +42,30 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
     }
 
     return (
-        <LemonModal
-            {...props}
-            width={600}
-            onAfterClose={() => onClear()}
-            title={modalTitle}
-            description={modalCaption}
-            footer={footer()}
-        >
-            <FirstStep />
-            <SecondStep />
-            <ThirdStep />
-        </LemonModal>
+        <>
+            <PageHeader
+                buttons={
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            center
+                            data-attr="source-form-cancel-button"
+                            to={urls.dataWarehouse()}
+                        >
+                            Cancel
+                        </LemonButton>
+                    </>
+                }
+            />
+            <>
+                <h3>{modalTitle}</h3>
+                <p>{modalCaption}</p>
+                <FirstStep />
+                <SecondStep />
+                <ThirdStep />
+                {footer()}
+            </>
+        </>
     )
 }
 
@@ -59,7 +75,7 @@ interface ModalPageProps {
 }
 
 function ModalPage({ children, page }: ModalPageProps): JSX.Element {
-    const { currentStep } = useValues(sourceModalLogic)
+    const { currentStep } = useValues(sourceWizardLogic)
 
     if (currentStep !== page) {
         return <></>
@@ -69,8 +85,8 @@ function ModalPage({ children, page }: ModalPageProps): JSX.Element {
 }
 
 function FirstStep(): JSX.Element {
-    const { connectors, addToHubspotButtonUrl } = useValues(sourceModalLogic)
-    const { selectConnector, toggleManualLinkFormVisible, onNext } = useActions(sourceModalLogic)
+    const { connectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
+    const { selectConnector, toggleManualLinkFormVisible, onNext } = useActions(sourceWizardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const MenuButton = (config: SourceConfig): JSX.Element => {
@@ -135,7 +151,7 @@ function FirstStep(): JSX.Element {
 }
 
 function SecondStep(): JSX.Element {
-    const { selectedConnector } = useValues(sourceModalLogic)
+    const { selectedConnector } = useValues(sourceWizardLogic)
 
     return (
         <ModalPage page={2}>

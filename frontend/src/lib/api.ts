@@ -33,9 +33,10 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
-    ExternalDataPostgresSchema,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
+    ExternalDataSourceSyncSchema,
+    ExternalDataSourceType,
     ExternalDataStripeSource,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
@@ -1924,17 +1925,18 @@ const api = {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
         async database_schema(
-            host: string,
-            port: string,
-            dbname: string,
-            user: string,
-            password: string,
-            schema: string
-        ): Promise<ExternalDataPostgresSchema[]> {
+            source_type: ExternalDataSourceType,
+            host?: string,
+            port?: string,
+            dbname?: string,
+            user?: string,
+            password?: string,
+            schema?: string
+        ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
                 .externalDataSources()
                 .withAction('database_schema')
-                .create({ data: { host, port, dbname, user, password, schema } })
+                .create({ data: { source_type, host, port, dbname, user, password, schema } })
         },
     },
 

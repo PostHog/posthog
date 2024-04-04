@@ -9,8 +9,6 @@ import { urls } from 'scenes/urls'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
 
-import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
-import SourceModal from '../external/SourceModal'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export const scene: SceneExport = {
@@ -29,8 +27,6 @@ export function DataWarehouseSettingsScene(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
-    const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
-    const { isSourceModalOpen } = useValues(dataWarehouseSceneLogic)
 
     const renderExpandable = (source: ExternalDataStripeSource): JSX.Element => {
         return (
@@ -52,7 +48,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         type="primary"
                         data-attr="new-data-warehouse-easy-link"
                         key="new-data-warehouse-easy-link"
-                        onClick={() => toggleSourceModal()}
+                        to={urls.dataWarehouseTable()}
                     >
                         Link Source
                     </LemonButton>
@@ -175,7 +171,6 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     noIndent: true,
                 }}
             />
-            <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
     )
 }

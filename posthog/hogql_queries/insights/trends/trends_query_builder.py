@@ -8,6 +8,7 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
+from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -377,6 +378,19 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             )
             query.group_by = [ast.Field(chain=["breakdown_value"])]
+            query.order_by.insert(
+                0,
+                cast(
+                    ast.OrderExpr,
+                    parse_expr(
+                        "breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0",
+                        placeholders={
+                            "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                            "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                        },
+                    ),
+                ),
+            )
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
         return query
