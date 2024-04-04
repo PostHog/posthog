@@ -1446,6 +1446,7 @@ export interface BillingProductV2AddonType {
     usage_key?: string
     free_allocation?: number | null
     percentage_usage?: number
+    features: BillingV2FeatureType[]
 }
 export interface BillingV2Type {
     customer_id: string
