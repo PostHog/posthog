@@ -34,7 +34,9 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 "team_ids": list(set(row.team_id for row in deletions)),
             },
         )
-        temp_table_name = "{}.async_deletion_run".format(CLICKHOUSE_DATABASE, )
+        temp_table_name = "{}.async_deletion_run".format(
+            CLICKHOUSE_DATABASE,
+        )
 
         self._fill_table(deletions, temp_table_name)
 
