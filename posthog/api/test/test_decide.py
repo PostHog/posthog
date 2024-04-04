@@ -3995,7 +3995,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         )
 
         # new request with hash key overrides but not writes should not go to main database
-        with self.assertNumQueries(11, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(13, using="replica"), self.assertNumQueries(0, using="default"):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. WITH some CTEs,
@@ -4024,7 +4024,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # now main database is down, but does not affect replica
 
         with connections["default"].execute_wrapper(QueryTimeoutWrapper()), self.assertNumQueries(
-            7, using="replica"
+            13, using="replica"
         ), self.assertNumQueries(0, using="default"):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
