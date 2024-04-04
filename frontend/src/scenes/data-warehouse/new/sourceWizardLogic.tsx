@@ -1,14 +1,16 @@
 import { Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceSyncSchema, ExternalDataSourceType } from '~/types'
+import { Breadcrumb, ExternalDataSourceSyncSchema, ExternalDataSourceType } from '~/types'
 
-import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
+import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
+import { sourceFormLogic } from '../external/forms/sourceFormLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { sourceFormLogic } from './forms/sourceFormLogic'
-import type { sourceModalLogicType } from './sourceModalLogicType'
+import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
+import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
 
@@ -153,8 +155,8 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
     },
 }
 
-export const sourceModalLogic = kea<sourceModalLogicType>([
-    path(['scenes', 'data-warehouse', 'external', 'sourceModalLogic']),
+export const sourceWizardLogic = kea<sourceWizardLogicType>([
+    path(['scenes', 'data-warehouse', 'external', 'sourceWizardLogic']),
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
@@ -220,6 +222,17 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         ],
     }),
     selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.DataWarehouse,
+                    name: 'Data Warehouse',
+                    path: urls.dataWarehouse(),
+                },
+                { key: [Scene.DataWarehouse, 'New'], name: 'New' },
+            ],
+        ],
         showFooter: [
             (s) => [s.selectedConnector, s.isManualLinkFormVisible],
             (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
