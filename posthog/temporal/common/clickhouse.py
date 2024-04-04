@@ -298,6 +298,7 @@ class ClickHouseClient:
             )
             self.check_response(response, query)
             yield response
+            response.close()
 
     async def execute_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> None:
         """Execute the given query in ClickHouse.
@@ -355,8 +356,18 @@ class ClickHouseClient:
         """
         with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             with pa.ipc.open_stream(pa.PythonFile(response.raw)) as reader:
-                for batch in reader:
-                    yield batch
+                try:
+                    for batch in reader:
+                        yield batch
+                except OSError as e:
+                    from sentry_sdk import add_breadcrumb, capture_exception
+
+                    add_breadcrumb(
+                        message="Incomplete response received from ClickHouse", level="debug", data=response.raw
+                    )
+
+                    capture_exception(e)
+                    raise
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
