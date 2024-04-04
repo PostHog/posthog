@@ -1380,7 +1380,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_hogql_query_filters_double_error(self):
         query = "SELECT event from events where {filters}"
-        with self.assertRaises(QueryException) as e:
+        with self.assertRaises(ValueError) as e:
             execute_hogql_query(
                 query,
                 team=self.team,
