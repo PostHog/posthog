@@ -523,6 +523,7 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
                     "test-4": {"name": "test-4", "resource": "test-4", "columns": {"id": {"data_type": "text"}}},
                     "test-5": {"name": "test-5", "resource": "test-5", "columns": {"id": {"data_type": "text"}}},
                 },
+                table_row_counts={},
             ),
         )
 
@@ -607,6 +608,7 @@ async def test_validate_schema_and_update_table_activity_with_existing(activity_
                     "test-4": {"name": "test-4", "resource": "test-4", "columns": {"id": {"data_type": "text"}}},
                     "test-5": {"name": "test-5", "resource": "test-5", "columns": {"id": {"data_type": "text"}}},
                 },
+                table_row_counts={},
             ),
         )
 
@@ -679,6 +681,7 @@ async def test_validate_schema_and_update_table_activity_half_run(activity_envir
                         "columns": {"id": {"data_type": "text"}},
                     },
                 },
+                table_row_counts={},
             ),
         )
 
@@ -738,6 +741,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
                     "test-4": {"name": "test-4", "resource": "test-4", "columns": {"id": {"data_type": "text"}}},
                     "test-5": {"name": "test-5", "resource": "test-5", "columns": {"id": {"data_type": "text"}}},
                 },
+                table_row_counts={},
             ),
         )
 
