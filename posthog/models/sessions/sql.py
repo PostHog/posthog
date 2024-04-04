@@ -1,3 +1,5 @@
+from typing import Literal
+
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
@@ -6,6 +8,8 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
     AggregatingMergeTree,
 )
+from posthog.models.property.util import get_property_string_expr
+from posthog.settings import TEST
 
 TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
@@ -98,12 +102,29 @@ SETTINGS index_granularity=512
 )
 
 
-def source_column(column_name: str) -> str:
-    return trim_quotes_expr(f"JSONExtractRaw(properties, '{column_name}')")
+def json_source_column(column_name: str) -> str:
+    return trim_quotes_expr(f"nullIf(JSONExtractRaw(properties, '{column_name}'), 'null'")
 
 
-SESSION_TABLE_MV_SELECT_SQL = (
-    lambda: """
+def json_or_mat_source_column(column_name: str) -> str:
+    try:
+        return get_property_string_expr(
+            "events", property_name=column_name, var=f"'{column_name}'", column="properties"
+        )[0]
+    except Exception as e:
+        # in test code we don't have a Clickhouse instance running when this code runs
+        if TEST:
+            return json_source_column(column_name)
+        else:
+            raise e
+
+
+def get_session_table_mv_select_sql(source_column_mode: Literal["json", "json_or_mat"], extra_where: str = "TRUE"):
+    if source_column_mode == "json":
+        source_column = json_source_column
+    else:
+        source_column = json_or_mat_source_column
+    return """
 SELECT
 
 `$session_id` as session_id,
@@ -144,7 +165,7 @@ sumIf(1, event='$pageview') as pageview_count,
 sumIf(1, event='$autocapture') as autocapture_count
 
 FROM {database}.sharded_events
-WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
+WHERE (`$session_id` IS NOT NULL AND `$session_id` != '') AND ({extra_where})
 GROUP BY `$session_id`, team_id
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
@@ -168,8 +189,9 @@ GROUP BY `$session_id`, team_id
         mc_cid_property=source_column("mc_cid"),
         igshid_property=source_column("igshid"),
         ttclid_property=source_column("ttclid"),
+        extra_where=extra_where,
     )
-)
+
 
 SESSIONS_TABLE_MV_SQL = (
     lambda: """
@@ -182,7 +204,7 @@ AS
         target_table=f"writable_{TABLE_BASE_NAME}",
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
-        select_sql=SESSION_TABLE_MV_SELECT_SQL(),
+        select_sql=get_session_table_mv_select_sql(source_column_mode="json"),
     )
 )
 
@@ -192,7 +214,7 @@ ALTER TABLE {table_name} MODIFY QUERY
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
-        select_sql=SESSION_TABLE_MV_SELECT_SQL(),
+        select_sql=get_session_table_mv_select_sql(source_column_mode="json"),
     )
 )
 
