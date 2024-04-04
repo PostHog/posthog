@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from posthog.hogql.errors import QueryException
+from posthog.hogql.errors import QueryException, ResolutionException
 from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
     escape_clickhouse_string,
@@ -144,6 +144,6 @@ class TestPrintString(BaseTest):
     def test_escape_clickhouse_string_errors(self):
         # This test is a stopgap. Think long and hard before adding support for printing dicts or objects.
         # Make sure string escaping happens at the right level, and % is tested through and through.
-        with self.assertRaises(QueryException) as context:
+        with self.assertRaises(ResolutionException) as context:
             escape_clickhouse_string({"a": 1, "b": 2})  # type: ignore
         self.assertTrue("SQLValueEscaper has no method visit_dict" in str(context.exception))

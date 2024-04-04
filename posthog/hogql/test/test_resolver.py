@@ -16,6 +16,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
 )
+from posthog.hogql.errors import QueryException
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
@@ -84,7 +85,7 @@ class TestResolver(BaseTest):
         expr = self._select(
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )
-        with self.assertRaises(ResolutionException) as e:
+        with self.assertRaises(QueryException) as e:
             expr = resolve_types(expr, self.context, dialect="clickhouse")
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
 
@@ -120,7 +121,7 @@ class TestResolver(BaseTest):
             "SELECT x.y FROM (SELECT event as y FROM events AS x) AS t",
         ]
         for query in queries:
-            with self.assertRaises(ResolutionException) as e:
+            with self.assertRaises(QueryException) as e:
                 resolve_types(self._select(query), self.context, dialect="clickhouse")
             self.assertIn("Unable to resolve field:", str(e.exception))
 
@@ -173,7 +174,7 @@ class TestResolver(BaseTest):
         assert pretty_dataclasses(node) == self.snapshot
 
     def test_ctes_loop(self):
-        with self.assertRaises(ResolutionException) as e:
+        with self.assertRaises(QueryException) as e:
             self._print_hogql("with cte as (select * from cte) select * from cte")
         self.assertIn("Too many CTE expansions (50+). Probably a CTE loop.", str(e.exception))
 
@@ -189,7 +190,7 @@ class TestResolver(BaseTest):
         )
 
     def test_ctes_field_access(self):
-        with self.assertRaises(ResolutionException) as e:
+        with self.assertRaises(QueryException) as e:
             self._print_hogql("with properties as cte select cte.$browser from events")
         self.assertIn("Cannot access fields on CTE cte yet", str(e.exception))
 
@@ -278,7 +279,7 @@ class TestResolver(BaseTest):
 
     def test_asterisk_expander_multiple_table_error(self):
         node = self._select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
-        with self.assertRaises(ResolutionException) as e:
+        with self.assertRaises(QueryException) as e:
             resolve_types(node, self.context, dialect="clickhouse")
         self.assertEqual(
             str(e.exception),

@@ -163,8 +163,8 @@ class HogQLSelectQueryField(serializers.Field):
                     dialect="hogql",
                 ),
             )
-        except errors.ResolutionException:
-            raise serializers.ValidationError("Invalid HogQL query")
+        except errors.ExposedHogQLException as e:
+            raise serializers.ValidationError(f"Invalid HogQL query: {e}")
 
         return prepared_select_query
 

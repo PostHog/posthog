@@ -59,7 +59,7 @@ class QueryException(ExposedHogQLException):
     pass
 
 
-class NotImplementedException(ExposedHogQLException):
+class NotImplementedException(InternalHogQLException):
     """This feature isn't implemented in HogQL (yet)."""
 
     pass

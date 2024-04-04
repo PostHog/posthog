@@ -3,7 +3,7 @@ from typing import Literal, cast, Optional, Dict
 import math
 
 from posthog.hogql import ast
-from posthog.hogql.errors import InternalHogQLException, SyntaxException
+from posthog.hogql.errors import ExposedHogQLException, SyntaxException
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
@@ -1004,13 +1004,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
         def test_select_array_join_errors(self):
-            with self.assertRaises(InternalHogQLException) as e:
+            with self.assertRaises(ExposedHogQLException) as e:
                 self._select("select a from events ARRAY JOIN [1,2,3]")
             self.assertEqual(str(e.exception), "ARRAY JOIN arrays must have an alias")
             self.assertEqual(e.exception.start, 32)
             self.assertEqual(e.exception.end, 39)
 
-            with self.assertRaises(InternalHogQLException) as e:
+            with self.assertRaises(ExposedHogQLException) as e:
                 self._select("select a ARRAY JOIN [1,2,3]")
             self.assertEqual(
                 str(e.exception),
@@ -1532,14 +1532,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
             # With mismatched closing tag
-            with self.assertRaises(InternalHogQLException) as e:
+            with self.assertRaises(ExposedHogQLException) as e:
                 self._select(
                     "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></HogQLQuery>"
                 )
             assert str(e.exception) == "Opening and closing HogQLX tags must match. Got OuterQuery and HogQLQuery"
 
             # With mismatched closing tag
-            with self.assertRaises(InternalHogQLException) as e:
+            with self.assertRaises(ExposedHogQLException) as e:
                 self._select(
                     "select event from <OuterQuery source='b'><HogQLQuery query='select event from events' /></OuterQuery>"
                 )
