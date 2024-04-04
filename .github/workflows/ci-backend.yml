@@ -249,7 +249,7 @@ jobs:
             matrix:
                 python-version: ['3.10.10']
                 clickhouse-server-image:
-                    ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:24.3.2.23-alpine']
+                    ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:23.12.5.81-alpine']
                 segment: ['FOSS', 'EE']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
@@ -323,7 +323,7 @@ jobs:
             fail-fast: false
             matrix:
                 clickhouse-server-image:
-                    ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:24.3.2.23-alpine']
+                    ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:23.12.5.81-alpine']
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest-4
         steps:
