@@ -251,6 +251,13 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                         ) : null
                     },
                 },
+                {
+                    title: 'Rows Synced',
+                    key: 'rows_synced',
+                    render: function Render(_, schema) {
+                        return schema.table?.row_count ?? ''
+                    },
+                },
             ]}
         />
     )
