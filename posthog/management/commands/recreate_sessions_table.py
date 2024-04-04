@@ -22,51 +22,71 @@ SETTINGS = {
 
 @dataclass
 class RecreateSessionsTable:
-    date: datetime
+    month: datetime
     use_offline_workload: bool
 
-    def execute(
-        self,
-    ) -> None:
-        logger.info(f"Recreating sessions table for {self.date.strftime('%Y-%m-%d')}")
+    def execute(self, print_counts=False) -> None:
+        logger.info(f"Recreating sessions table for {self.month.strftime('%Y-%m')}")
 
-        events_where = f"toStartOfDay(timestamp) = '{self.date.strftime('%Y-%m-%d')}'"
-        sessions_where = f"toStartOfDay(min_timestamp) = '{self.date.strftime('%Y-%m-%d')}'"
+        events_where = f"toYYYYMM(timestamp) = {self.month.strftime('%Y%m')}"
+        sessions_where = f"toYYYYMM(min_timestamp) = {self.month.strftime('%Y%m')}"
         select_query = get_session_table_mv_select_sql(source_column_mode="json_or_mat", extra_where=events_where)
 
-        logging.info("Deleting the existing sessions for day %s", self.date.strftime("%Y-%m-%d"))
+        if print_counts:
+            count_query = f"SELECT count(), uniq(session_id) FROM sharded_sessions WHERE {sessions_where}"
+            [(sessions_row_count, sessions_event_count)] = sync_execute(count_query, settings=SETTINGS)
+            logger.info(f"{sessions_row_count} rows and {sessions_event_count} unique session_ids in sessions table")
+
+        logging.info("Deleting the existing sessions for month %s", self.month.strftime("%Y-%m"))
         sync_execute(
-            query=f"""DELETE FROM sharded_sessions WHERE {sessions_where}""",
+            query=f"""ALTER TABLE sharded_sessions DROP PARTITION {self.month.strftime('%Y%m')}""",
             workload=Workload.OFFLINE if self.use_offline_workload else Workload.DEFAULT,
             settings=SETTINGS,
         )
 
-        logging.info("Writing the new sessions for day %s", self.date.strftime("%Y-%m-%d"))
+        if print_counts:
+            count_query = f"SELECT count(), uniq(session_id) FROM ({select_query})"
+            [(sessions_row_count, sessions_event_count)] = sync_execute(count_query, settings=SETTINGS)
+            logger.info(f"{sessions_row_count} rows and {sessions_event_count} unique session_ids in events table")
+
+        logging.info("Writing the new sessions for day %s", self.month.strftime("%Y-%m"))
         sync_execute(
             query=f"""INSERT INTO writable_sessions {select_query}""",
             workload=Workload.OFFLINE if self.use_offline_workload else Workload.DEFAULT,
             settings=SETTINGS,
         )
 
+        if print_counts:
+            count_query = f"SELECT count(), uniq(session_id) FROM sharded_sessions WHERE {sessions_where}"
+            [(sessions_row_count, sessions_event_count)] = sync_execute(count_query, settings=SETTINGS)
+            logger.info(f"{sessions_row_count} rows and {sessions_event_count} unique session_ids in sessions table")
+
 
 class Command(BaseCommand):
     help = "Backfill person_distinct_id_overrides records."
 
     def add_arguments(self, parser):
-        parser.add_argument("--date", required=True, type=str, help="Day to replace (format YYYY-MM-DD)")
+        parser.add_argument("--month", required=True, type=str, help="Month to replace (format YYYY-MM)")
         parser.add_argument(
-            "--use-offline-workload", action="store_true", help="actually execute INSERT queries (default is dry-run)"
+            "--use-offline-workload", action="store_true", help="Where possible, use the offline workload"
+        )
+        parser.add_argument(
+            "--print-counts",
+            required=False,
+            action="store_true",
+            help="Print the number of rows and session ids at each stage",
         )
 
     def handle(
         self,
         *,
-        date: str,
+        month: str,
         use_offline_workload: bool,
+        print_counts: bool = False,
         **options,
     ):
         logger.setLevel(logging.INFO)
 
-        date_datetime = datetime.strptime(date, "%Y-%m-%d")
+        month_datetime = datetime.strptime(month, "%Y-%m")
 
-        RecreateSessionsTable(date_datetime, use_offline_workload).execute()
+        RecreateSessionsTable(month_datetime, use_offline_workload).execute(print_counts=print_counts)
