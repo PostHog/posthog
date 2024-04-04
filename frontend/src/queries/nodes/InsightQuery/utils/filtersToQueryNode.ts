@@ -427,6 +427,7 @@ export const breakdownFilterToQuery = (filters: Record<string, any>, isTrends: b
         breakdown_normalize_url: filters.breakdown_normalize_url,
         breakdowns: filters.breakdowns,
         breakdown_group_type_index: filters.breakdown_group_type_index,
+        breakdown_limit: filters.breakdown_limit,
         ...(isTrends
             ? {
                   breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,
