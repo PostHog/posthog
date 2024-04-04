@@ -20,10 +20,20 @@ export function Overview(): JSX.Element {
     function WinningVariantText(): JSX.Element {
         if (experimentInsightType === InsightType.FUNNELS) {
             const winningVariant = sortedConversionRates[0]
-            const secondBestVariant = sortedConversionRates[1]
-            const difference = winningVariant.conversionRate - secondBestVariant.conversionRate
 
-            if (winningVariant.conversionRate === secondBestVariant.conversionRate) {
+            let comparisonVariant
+            if (winningVariant.key === 'control') {
+                comparisonVariant = sortedConversionRates[1]
+            } else {
+                comparisonVariant = sortedConversionRates.find(({ key }) => key === 'control')
+            }
+
+            if (!comparisonVariant) {
+                return <></>
+            }
+
+            const difference = winningVariant.conversionRate - comparisonVariant.conversionRate
+            if (winningVariant.conversionRate === comparisonVariant.conversionRate) {
                 return (
                     <span>
                         <b>No variant is winning</b> at this moment.&nbsp;
@@ -39,7 +49,7 @@ export function Overview(): JSX.Element {
                         increase of {`${difference.toFixed(2)}%`}
                     </span>
                     <span>&nbsp;percentage points (vs&nbsp;</span>
-                    <VariantTag variantKey={secondBestVariant.key} />
+                    <VariantTag variantKey={comparisonVariant.key} />
                     <span>).&nbsp;</span>
                 </div>
             )
