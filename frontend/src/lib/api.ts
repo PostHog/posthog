@@ -1912,8 +1912,8 @@ const api = {
     },
 
     externalDataSources: {
-        async list(): Promise<PaginatedResponse<ExternalDataStripeSource>> {
-            return await new ApiRequest().externalDataSources().get()
+        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
+            return await new ApiRequest().externalDataSources().get(options)
         },
         async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<ExternalDataSourceCreatePayload> {
             return await new ApiRequest().externalDataSources().create({ data })
