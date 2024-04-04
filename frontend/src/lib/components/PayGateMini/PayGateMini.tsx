@@ -11,7 +11,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, BillingProductV2Type } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateMiniButton } from './PayGateMiniButton'
@@ -20,7 +20,10 @@ import { payGateMiniLogic } from './payGateMiniLogic'
 export interface PayGateMiniProps {
     feature: AvailableFeature
     currentUsage?: number
-    children: React.ReactNode
+    /**
+     * The content to show when the feature is available. Will show nothing if children is undefined.
+     */
+    children?: React.ReactNode
     overrideShouldShowGate?: boolean
     className?: string
     background?: boolean
@@ -41,7 +44,7 @@ export function PayGateMini({
     background = true,
     isGrandfathered,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, featureAvailableOnOrg, gateVariant } = useValues(
+    const { productWithFeature, featureInfo, featureAvailableOnOrg, gateVariant, isAddonProduct } = useValues(
         payGateMiniLogic({ featureKey: feature, currentUsage })
     )
     const { preflight } = useValues(preflightLogic)
@@ -67,7 +70,9 @@ export function PayGateMini({
         return null // Don't show anything if paid features are explicitly disabled
     }
 
-    return featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' ? (
+    return featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' &&
+        // we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page
+        !isAddonProduct ? (
         gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
             <div
                 className={clsx(
@@ -134,7 +139,12 @@ export function PayGateMini({
                         </>
                     </div>
                 )}
-                <PayGateMiniButton product={productWithFeature} featureInfo={featureInfo} gateVariant={gateVariant} />
+                <PayGateMiniButton
+                    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+                    product={productWithFeature as BillingProductV2Type}
+                    featureInfo={featureInfo}
+                    gateVariant={gateVariant}
+                />
             </div>
         ) : (
             <div className={className}>{children}</div>
