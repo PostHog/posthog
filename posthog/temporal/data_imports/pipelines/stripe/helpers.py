@@ -10,6 +10,8 @@ from pendulum import DateTime
 from asgiref.sync import sync_to_async
 from posthog.temporal.data_imports.pipelines.helpers import check_limit
 from posthog.warehouse.models import ExternalDataJob
+import dataclasses
+
 
 stripe.api_version = "2022-11-15"
 
@@ -114,3 +116,12 @@ def stripe_source(
             job_id=job_id,
             starting_after=starting_after,
         )
+
+
+@dataclasses.dataclass
+class StripeSourceInput:
+    api_key: str
+    account_id: str
+    endpoints: Tuple[str, ...]
+    team_id: int
+    run_id: str

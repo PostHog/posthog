@@ -6,11 +6,13 @@ import dlt
 from django.conf import settings
 from dlt.pipeline.exceptions import PipelineStepFailed
 
-import asyncio
 import os
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.sources import DltSource
+from posthog.temporal.data_imports.pipelines.stripe.helpers import StripeSourceInput, stripe_get_data
+
+BLOCK_SIZE = 10_000
 
 
 @dataclass
@@ -26,7 +28,7 @@ class PipelineInputs:
 class DataImportPipeline:
     loader_file_format: Literal["parquet"] = "parquet"
 
-    def __init__(self, inputs: PipelineInputs, source: DltSource, logger: FilteringBoundLogger):
+    def __init__(self, inputs: PipelineInputs, source: DltSource | StripeSourceInput, logger: FilteringBoundLogger):
         self.inputs = inputs
         self.logger = logger
         self.source = source
@@ -75,9 +77,38 @@ class DataImportPipeline:
 
         return self.inputs.schemas
 
-    def _run(self) -> int:
+    def _next_page(self, paginating_function, **kwargs):
+        data, starting_after = paginating_function(**kwargs)
+        return data, starting_after
+
+    async def _run(self) -> int:
         pipeline = self._create_pipeline()
-        pipeline.run(self.source, loader_file_format=self.loader_file_format)
+
+        # TODO: Pull heartbeat
+
+        starting_after = 1
+
+        # iterate next 10000 rows
+
+        for endpoint in self.source.endpoints:
+            while starting_after:
+                starting_after = None
+                data_to_push = []
+                while len(data_to_push) < BLOCK_SIZE:
+                    response = await stripe_get_data(
+                        self.source.api_key, self.source.account_id, endpoint, starting_after=starting_after
+                    )
+                    data_to_push.extend(response["data"])
+                    if response.get("has_more", None):
+                        starting_after = response["data"][-1]["id"]
+                    else:
+                        starting_after = None
+
+                    if not starting_after:
+                        break
+
+                pipeline.run(data_to_push, loader_file_format=self.loader_file_format, table_name=endpoint)
+                data_to_push = []
 
         row_counts = pipeline.last_trace.last_normalize_info.row_counts
         # Remove any DLT tables from the counts
@@ -92,7 +123,7 @@ class DataImportPipeline:
             return 0
 
         try:
-            return await asyncio.to_thread(self._run)
+            return await self._run()
         except PipelineStepFailed:
             self.logger.error(f"Data import failed for endpoint")
             raise
