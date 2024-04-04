@@ -11,6 +11,7 @@ from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.sources import DltSource
 from posthog.temporal.data_imports.pipelines.stripe.helpers import StripeSourceInput, stripe_get_data
+from temporalio import activity
 
 BLOCK_SIZE = 10_000
 
@@ -110,6 +111,8 @@ class DataImportPipeline:
                         break
 
                 pipeline.run(data_to_push, loader_file_format=self.loader_file_format, table_name=endpoint)
+
+                activity.heartbeat(cursor=starting_after, endpoint=endpoint)
                 data_to_push = []
 
         row_counts = pipeline.last_trace.last_normalize_info.row_counts
