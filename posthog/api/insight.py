@@ -464,18 +464,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
     def get_result(self, insight: Insight):
-        if hogql_insights_enabled(
-            self.context["request"].user, insight.filters.get("insight", schema.InsightType.TRENDS)
-        ):
-            # TRICKY: As running `filters`-based insights on the HogQL-based engine is a transitional mechanism,
-            # we fake the insight being properly `query`-based.
-            # To prevent the lie from accidentally being saved to Postgres, we roll it back in the `finally` branch.
-            insight.query = filter_to_query(insight.filters).model_dump()
-            try:
-                return self.insight_result(insight).result
-            finally:
-                insight.query = None
-
         return self.insight_result(insight).result
 
     def get_timezone(self, insight: Insight):
@@ -532,11 +520,29 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     @lru_cache(maxsize=1)
     def insight_result(self, insight: Insight) -> InsightResult:
+        from posthog.caching.calculate_results import calculate_for_query_based_insight
+
+        if insight.query:
+            return calculate_for_query_based_insight(
+                insight, refresh_requested=refresh_requested_by_client(self.context["request"])
+            )
+
+        if hogql_insights_enabled(
+            self.context["request"].user, insight.filters.get("insight", schema.InsightType.TRENDS)
+        ):
+            # TRICKY: As running `filters`-based insights on the HogQL-based engine is a transitional mechanism,
+            # we fake the insight being properly `query`-based.
+            # To prevent the lie from accidentally being saved to Postgres, we roll it back in the `finally` branch.
+            insight.query = filter_to_query(insight.filters).model_dump()
+            try:
+                return calculate_for_query_based_insight(
+                    insight, refresh_requested=refresh_requested_by_client(self.context["request"])
+                )
+            finally:
+                insight.query = None
+
         dashboard = self.context.get("dashboard", None)
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
-        if dashboard_tile and dashboard_tile.insight:
-            # Syncing `dashboard_tile.insight.query` for consistency in the `hogql_insights_enabled` branch of `get_result`
-            dashboard_tile.insight.query = insight.query
 
         is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
@@ -547,9 +553,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         )
         if refresh_insight_now:
             INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
-            return synchronously_update_cache(
-                insight, dashboard, refresh_frequency=refresh_frequency, requesting_user=self.context["request"].user
-            )
+            return synchronously_update_cache(insight, dashboard, refresh_frequency=refresh_frequency)
 
         return fetch_cached_insight_result(dashboard_tile or insight, refresh_frequency)
 

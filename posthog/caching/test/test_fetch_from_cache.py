@@ -52,7 +52,7 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
     def test_synchronously_update_cache_insight(self):
         insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}], "properties": []})
 
-        result = synchronously_update_cache(insight, None, requesting_user=self.user)
+        result = synchronously_update_cache(insight, None)
 
         assert result.result is not None
         assert result.last_refresh == now()
@@ -71,7 +71,7 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
         }
 
     def test_synchronously_update_cache_dashboard_tile(self):
-        result = synchronously_update_cache(self.insight, self.dashboard, requesting_user=self.user)
+        result = synchronously_update_cache(self.insight, self.dashboard)
 
         assert result.result is not None
         assert result.last_refresh == now()
@@ -91,9 +91,7 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
         }
 
     def test_fetch_cached_insight_result_from_cache(self):
-        cached_result = synchronously_update_cache(
-            self.insight, self.dashboard, timedelta(minutes=3), requesting_user=self.user
-        )
+        cached_result = synchronously_update_cache(self.insight, self.dashboard, timedelta(minutes=3))
         from_cache_result = fetch_cached_insight_result(self.dashboard_tile, timedelta(minutes=3))
 
         assert from_cache_result == InsightResult(

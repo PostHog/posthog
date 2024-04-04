@@ -184,7 +184,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
             if exported_asset.insight:
                 # NOTE: Dashboards are regularly updated but insights are not
                 # so, we need to trigger a manual update to ensure the results are good
-                synchronously_update_cache(exported_asset.insight, exported_asset.dashboard, requesting_user=None)
+                synchronously_update_cache(exported_asset.insight, exported_asset.dashboard)
 
             if exported_asset.export_format == "image/png":
                 with EXPORT_TIMER.labels(type="image").time():

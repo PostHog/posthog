@@ -1,6 +1,5 @@
 import posthoganalytics
 from django.conf import settings
-from posthog.cloud_utils import is_cloud
 from posthog.models.user import User
 
 from posthog.schema import InsightType
@@ -8,7 +7,7 @@ from posthog.schema import InsightType
 
 GLOBAL_FLAG = "hogql-insights-preview"
 INSIGHT_TYPE_TO_FLAG: dict[InsightType, str] = {
-    InsightType.TRENDS: "hogql-insight-trends",
+    InsightType.TRENDS: "hogql-insights-trends",
     InsightType.FUNNELS: "hogql-insights-funnels",
     InsightType.RETENTION: "hogql-insights-retention",
     InsightType.PATHS: "hogql-insights-paths",
@@ -20,10 +19,6 @@ INSIGHT_TYPE_TO_FLAG: dict[InsightType, str] = {
 def hogql_insights_enabled(user: User, insight_type: InsightType) -> bool:
     if settings.HOGQL_INSIGHTS_OVERRIDE is not None:
         return settings.HOGQL_INSIGHTS_OVERRIDE
-
-    if not is_cloud():
-        # HogQL insights are only available on Cloud
-        return False
 
     if posthoganalytics.feature_enabled(
         GLOBAL_FLAG,
