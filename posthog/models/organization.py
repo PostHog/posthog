@@ -344,12 +344,6 @@ class OrganizationInvite(UUIDModel):
 
         _email = email or getattr(user, "email", None)
 
-        # According to the email RFC https://www.rfc-editor.org/rfc/rfc1035, anything before the @ can be
-        # case-sensitive but the domain should not be. There have been a small number of customers who type in their emails
-        # with a capitalized domain. We shouldn't prevent them from inviting teammates because of this.
-        local_part, domain = self.target_email.split("@")
-        self.target_email = f"{local_part}@{domain.lower()}"
-
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
                 "This invite is intended for another email address.",

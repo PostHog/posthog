@@ -96,6 +96,13 @@ class OrganizationInviteViewSet(
             .order_by(self.ordering)
         )
 
+    def lowercase_email_domain(self, email: str):
+        # According to the email RFC https://www.rfc-editor.org/rfc/rfc1035, anything before the @ can be
+        # case-sensitive but the domain should not be. There have been a small number of customers who type in their emails
+        # with a capitalized domain. We shouldn't prevent them from inviting teammates because of this.
+        local_part, domain = email.split("@")
+        return f"{local_part}@{domain.lower()}"
+
     @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data)
@@ -106,6 +113,9 @@ class OrganizationInviteViewSet(
                 "A maximum of 20 invites can be sent in a single request.",
                 code="max_length",
             )
+
+        for datum in data:
+            datum["target_email"] = self.lowercase_email_domain(datum["target_email"])
 
         serializer = OrganizationInviteSerializer(
             data=data,
