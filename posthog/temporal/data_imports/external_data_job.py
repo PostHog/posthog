@@ -174,7 +174,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
 
     source = None
     if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
-        from posthog.temporal.data_imports.pipelines.stripe.helpers import StripeSourceInput, stripe_source
+        from posthog.temporal.data_imports.pipelines.stripe.helpers import StripeSourceInput
 
         stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
         account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
@@ -182,21 +182,12 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
         # until we require re update of account_ids in stripe so they're all store
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
-
         source = StripeSourceInput(
             api_key=stripe_secret_key,
             account_id=account_id,
             endpoints=tuple(endpoints),
             team_id=inputs.team_id,
             run_id=inputs.run_id,
-        )
-
-        mock_source = stripe_source(
-            api_key=stripe_secret_key,
-            account_id=account_id,
-            endpoints=tuple(endpoints),
-            team_id=inputs.team_id,
-            job_id=inputs.run_id,
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
         from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token
@@ -267,7 +258,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
         heartbeat_task.cancel()
         await asyncio.wait([heartbeat_task])
 
-    return mock_source.schema.tables
+    return source.schema.tables
 
 
 # TODO: update retry policies
