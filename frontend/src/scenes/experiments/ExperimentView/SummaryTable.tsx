@@ -87,8 +87,11 @@ export function SummaryTable(): JSX.Element {
             key: 'conversionRate',
             title: 'Conversion rate',
             render: function Key(_, item): JSX.Element {
+                const conversionRate = conversionRateForVariant(experimentResults, item.key)
                 return (
-                    <div className="font-semibold">{`${conversionRateForVariant(experimentResults, item.key)}%`}</div>
+                    <div className="font-semibold">
+                        {conversionRate === '--' ? conversionRate : `${conversionRate}%`}
+                    </div>
                 )
             },
         })
