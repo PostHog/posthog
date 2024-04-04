@@ -129,6 +129,18 @@
   WHERE joinGet(posthog_test.async_deletion_run_2024_04_04, 'id', team_id, 0, toString(team_id)) > 0
   '''
 # ---
+# name: TestAsyncDeletion.test_delete_cohortpeople
+  '''
+  SELECT count()
+  FROM cohortpeople
+  '''
+# ---
+# name: TestAsyncDeletion.test_delete_cohortpeople_version
+  '''
+  SELECT count()
+  FROM cohortpeople
+  '''
+# ---
 # name: TestAsyncDeletion.test_delete_person
   '''
   
