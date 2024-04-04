@@ -98,7 +98,6 @@ posthog/hogql/database/schema/session_replay_events.py:0: note: Consider using "
 posthog/hogql/database/schema/session_replay_events.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
 posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
-posthog/models/action/action.py:0: error: Module "posthog.hogql.bytecode" has no attribute "create_bytecode"  [attr-defined]
 posthog/models/filters/base_filter.py:0: error: "HogQLContext" has no attribute "person_on_events_mode"  [attr-defined]
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
@@ -563,7 +562,6 @@ posthog/hogql/test/test_filters.py:0: note: Use https://github.com/hauntsaninja/
 posthog/hogql/test/test_filters.py:0: error: Incompatible default for argument "placeholders" (default has type "None", argument has type "dict[str, Any]")  [assignment]
 posthog/hogql/test/test_filters.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/test/test_filters.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-posthog/hogql/test/test_bytecode.py:0: error: Module "posthog.hogql.bytecode" has no attribute "to_bytecode"  [attr-defined]
 posthog/hogql/test/_test_parser.py:0: error: Invalid base class  [misc]
 posthog/hogql/test/_test_parser.py:0: error: Argument "table" to "JoinExpr" has incompatible type "Placeholder"; expected "SelectQuery | SelectUnionQuery | Field | None"  [arg-type]
 posthog/hogql/test/_test_parser.py:0: error: Item "None" of "JoinExpr | None" has no attribute "table"  [union-attr]
