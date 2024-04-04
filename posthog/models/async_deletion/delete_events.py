@@ -1,9 +1,9 @@
 from typing import Any, Dict, List, Set, Tuple
-from django.utils.timezone import now
 
 from posthog.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType, CLICKHOUSE_ASYNC_DELETION_TABLE
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
+from posthog.clickhouse.client.connection import Workload
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.clickhouse.client.escape import substitute_params
 
@@ -34,7 +34,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 "team_ids": list(set(row.team_id for row in deletions)),
             },
         )
-        temp_table_name = "{}.async_deletion_run_{}".format(CLICKHOUSE_DATABASE, now().strftime("%Y_%m_%d"))
+        temp_table_name = "{}.async_deletion_run".format(CLICKHOUSE_DATABASE, )
 
         self._fill_table(deletions, temp_table_name)
 
@@ -49,6 +49,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 joinGet({temp_table_name}, 'id', team_id, 1, toString(person_id)) > 0
             """,
             args,
+            workload=Workload.OFFLINE,
         )
 
         # Team data needs to be deleted from other models as well, groups/persons handles deletions on a schema level
@@ -73,11 +74,14 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 DELETE WHERE joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0
                 """,
                 args,
+                workload=Workload.OFFLINE,
             )
 
     def _fill_table(self, deletions: List[AsyncDeletion], temp_table_name: str):
+        sync_execute(f"DROP TABLE IF EXISTS {temp_table_name}", workload=Workload.OFFLINE)
         sync_execute(
-            CLICKHOUSE_ASYNC_DELETION_TABLE.format(table_name=temp_table_name, cluster=CLICKHOUSE_CLUSTER)
+            CLICKHOUSE_ASYNC_DELETION_TABLE.format(table_name=temp_table_name, cluster=CLICKHOUSE_CLUSTER),
+            workload=Workload.OFFLINE,
         )  # probs remove
 
         for i in range(0, len(deletions), 1000):
@@ -93,7 +97,8 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             sync_execute(
                 "INSERT INTO {} (id, deletion_type, key, group_type_index, team_id) VALUES {}".format(
                     temp_table_name, ",".join(append)
-                )
+                ),
+                workload=Workload.OFFLINE,
             )
 
     def _verify_by_group(self, deletion_type: int, async_deletions: List[AsyncDeletion]) -> List[AsyncDeletion]:
@@ -116,6 +121,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             WHERE {" OR ".join(conditions)}
             """,
             args,
+            workload=Workload.OFFLINE,
         )
         return set(tuple(row) for row in clickhouse_result)
 
