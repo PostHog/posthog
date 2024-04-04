@@ -369,6 +369,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "instance_tag": "none",
                     "event_count_lifetime": 55,
                     "event_count_in_period": 22,
+                    # TODO: enhanced_persons: modify this test so that there are fewer of these events than the base
+                    "enhanced_persons_event_count_in_period": 22,
                     "event_count_in_month": 42,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
@@ -411,6 +413,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_1_team_1.id): {
                             "event_count_lifetime": 44,
                             "event_count_in_period": 12,
+                            "enhanced_persons_event_count_in_period": 12,
                             "event_count_in_month": 32,
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
@@ -447,6 +450,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_1_team_2.id): {
                             "event_count_lifetime": 11,
                             "event_count_in_period": 10,
+                            "enhanced_persons_event_count_in_period": 10,
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 5,
@@ -506,6 +510,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "instance_tag": "none",
                     "event_count_lifetime": 11,
                     "event_count_in_period": 10,
+                    "enhanced_persons_event_count_in_period": 10,
                     "event_count_in_month": 10,
                     "event_count_with_groups_in_period": 0,
                     "recording_count_in_period": 0,
@@ -548,6 +553,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_2_team_3.id): {
                             "event_count_lifetime": 11,
                             "event_count_in_period": 10,
+                            "enhanced_persons_event_count_in_period": 10,
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 0,

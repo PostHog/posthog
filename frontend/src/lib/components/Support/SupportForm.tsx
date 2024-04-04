@@ -119,21 +119,21 @@ export function SupportForm(): JSX.Element | null {
                     </div>
                 )}
             </LemonField>
-            <LemonField name="severity_level">
-                <>
-                    <div className="flex justify-between items-center">
-                        <label className="LemonLabel">
-                            Severity level
-                            <Tooltip title="Severity levels help us prioritize your request.">
-                                <span>
-                                    <IconInfo className="opacity-75" />
-                                </span>
-                            </Tooltip>
-                        </label>
-                        <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
-                            Definitions
-                        </Link>
-                    </div>
+            <div className="flex gap-2 flex-col">
+                <div className="flex justify-between items-center">
+                    <label className="LemonLabel">
+                        Severity level
+                        <Tooltip title="Severity levels help us prioritize your request.">
+                            <span>
+                                <IconInfo className="opacity-75" />
+                            </span>
+                        </Tooltip>
+                    </label>
+                    <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
+                        Definitions
+                    </Link>
+                </div>
+                <LemonField name="severity_level">
                     <LemonSelect
                         fullWidth
                         options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
@@ -141,8 +141,8 @@ export function SupportForm(): JSX.Element | null {
                             value: key,
                         }))}
                     />
-                </>
-            </LemonField>
+                </LemonField>
+            </div>
         </Form>
     )
 }

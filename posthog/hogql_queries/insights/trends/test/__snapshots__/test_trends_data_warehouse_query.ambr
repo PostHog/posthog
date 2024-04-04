@@ -46,7 +46,8 @@
               breakdown_value
      ORDER BY day_start ASC, breakdown_value ASC)
   GROUP BY breakdown_value
-  ORDER BY sum(count) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
+           sum(count) DESC, breakdown_value ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -99,7 +100,8 @@
               breakdown_value
      ORDER BY day_start ASC, breakdown_value ASC)
   GROUP BY breakdown_value
-  ORDER BY sum(count) DESC, breakdown_value ASC
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
+           sum(count) DESC, breakdown_value ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1

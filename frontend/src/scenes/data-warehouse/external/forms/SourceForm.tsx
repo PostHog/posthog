@@ -16,7 +16,7 @@ export default function SourceForm({ sourceType }: SourceFormProps): JSX.Element
         <Form
             logic={sourceFormLogic}
             props={{ sourceType }}
-            formKey={sourceType == 'Postgres' ? 'databaseSchemaForm' : 'externalDataSource'}
+            formKey="sourceConnectionDetails"
             className="space-y-4"
             enableFormOnSubmit
         >

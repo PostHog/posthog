@@ -2,7 +2,7 @@ import { Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { ExternalDataPostgresSchema, ExternalDataSourceType } from '~/types'
+import { ExternalDataSourceSyncSchema, ExternalDataSourceType } from '~/types'
 
 import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
@@ -163,8 +163,8 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         onBack: true,
         onNext: true,
         onSubmit: true,
-        setDatabaseSchemas: (schemas: ExternalDataPostgresSchema[]) => ({ schemas }),
-        selectSchema: (schema: ExternalDataPostgresSchema) => ({ schema }),
+        setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
+        selectSchema: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
     }),
     connect({
         values: [
@@ -206,7 +206,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             },
         ],
         databaseSchema: [
-            [] as ExternalDataPostgresSchema[],
+            [] as ExternalDataSourceSyncSchema[],
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 selectSchema: (state, { schema }) => {
@@ -306,23 +306,28 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             }
 
             if (values.currentStep === 2) {
-                if (values.selectedConnector?.name === 'Postgres') {
-                    sourceFormLogic({ sourceType: 'Postgres' }).actions.submitDatabaseSchemaForm()
-                } else if (values.selectedConnector?.name) {
-                    sourceFormLogic({ sourceType: values.selectedConnector?.name }).actions.submitExternalDataSource()
+                if (values.selectedConnector?.name) {
+                    const logic = sourceFormLogic({ sourceType: values.selectedConnector?.name })
+                    logic.actions.submitSourceConnectionDetails()
+                    if (logic.values.isSourceConnectionDetailsValid) {
+                        // Ugly mess with multiple forms. TODO: clean this up
+                        logic.actions.setExternalDataSourceValues({ ...logic.values.sourceConnectionDetails })
+                        logic.actions.setDatabaseSchemaFormValues({ ...logic.values.sourceConnectionDetails })
+                        logic.actions.submitDatabaseSchemaForm()
+                    }
                 } else {
                     dataWarehouseTableLogic.actions.submitTable()
                 }
             }
 
-            if (values.currentStep === 3) {
-                const logic = sourceFormLogic({ sourceType: 'Postgres' })
+            if (values.currentStep === 3 && values.selectedConnector?.name) {
+                const logic = sourceFormLogic({ sourceType: values.selectedConnector?.name })
 
                 logic.actions.setExternalDataSourceValue('payload', {
-                    ...logic.values.databaseSchemaForm.payload,
+                    ...logic.values.externalDataSource.payload,
                     schemas: values.databaseSchema.filter((schema) => schema.should_sync).map((schema) => schema.table),
                 })
-                logic.actions.setExternalDataSourceValue('prefix', logic.values.databaseSchemaForm.prefix)
+                logic.actions.setExternalDataSourceValue('prefix', logic.values.externalDataSource.prefix)
                 logic.actions.submitExternalDataSource()
             }
         },

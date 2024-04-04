@@ -85,6 +85,11 @@ class BaseTableType(Type):
         raise HogQLException(f"Field not found: {name}")
 
 
+TableOrSelectType = Union[
+    BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType", "SelectViewType"
+]
+
+
 @dataclass(kw_only=True)
 class TableType(BaseTableType):
     table: Table
@@ -104,7 +109,7 @@ class TableAliasType(BaseTableType):
 
 @dataclass(kw_only=True)
 class LazyJoinType(BaseTableType):
-    table_type: BaseTableType
+    table_type: TableOrSelectType
     field: str
     lazy_join: LazyJoin
 
@@ -122,7 +127,7 @@ class LazyTableType(BaseTableType):
 
 @dataclass(kw_only=True)
 class VirtualTableType(BaseTableType):
-    table_type: BaseTableType
+    table_type: TableOrSelectType
     field: str
     virtual_table: VirtualTable
 
@@ -131,9 +136,6 @@ class VirtualTableType(BaseTableType):
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.virtual_table.has_field(name)
-
-
-TableOrSelectType = Union[BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType"]
 
 
 @dataclass(kw_only=True)
@@ -184,6 +186,49 @@ class SelectUnionQueryType(Type):
 
 
 @dataclass(kw_only=True)
+class SelectViewType(Type):
+    view_name: str
+    alias: str
+    select_query_type: SelectQueryType | SelectUnionQueryType
+
+    def get_child(self, name: str, context: HogQLContext) -> Type:
+        if name == "*":
+            return AsteriskType(table_type=self)
+        if self.select_query_type.has_child(name, context):
+            return FieldType(name=name, table_type=self)
+        if self.view_name:
+            if context.database is None:
+                raise HogQLException("Database must be set for queries with views")
+
+            field = context.database.get_table(self.view_name).get_field(name)
+
+            if isinstance(field, LazyJoin):
+                return LazyJoinType(table_type=self, field=name, lazy_join=field)
+            if isinstance(field, LazyTable):
+                return LazyTableType(table=field)
+            if isinstance(field, FieldTraverser):
+                return FieldTraverserType(table_type=self, chain=field.chain)
+            if isinstance(field, VirtualTable):
+                return VirtualTableType(table_type=self, field=name, virtual_table=field)
+            if isinstance(field, ExpressionField):
+                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
+            return FieldType(name=name, table_type=self)
+        raise HogQLException(f"Field {name} not found on view query with name {self.view_name}")
+
+    def has_child(self, name: str, context: HogQLContext) -> bool:
+        if self.view_name:
+            if context.database is None:
+                raise HogQLException("Database must be set for queries with views")
+            try:
+                context.database.get_table(self.view_name).get_field(name)
+                return True
+            except Exception:
+                pass
+
+        return self.select_query_type.has_child(name, context)
+
+
+@dataclass(kw_only=True)
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectUnionQueryType
@@ -193,6 +238,7 @@ class SelectQueryAliasType(Type):
             return AsteriskType(table_type=self)
         if self.select_query_type.has_child(name, context):
             return FieldType(name=name, table_type=self)
+
         raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
@@ -575,6 +621,7 @@ class SelectQuery(Expr):
     limit_with_ties: Optional[bool] = None
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None
+    view_name: Optional[str] = None
 
 
 @dataclass(kw_only=True)

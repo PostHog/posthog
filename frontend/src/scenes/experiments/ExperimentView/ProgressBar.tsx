@@ -30,7 +30,12 @@ export function ProgressBar(): JSX.Element {
 
     return (
         <div>
-            <div className="mb-1 font-semibold">{`${
+            <h2 className="font-semibold text-lg mb-0">Data collection</h2>
+            <div className="text-muted text-xs">
+                Estimated target for the number of participants. Actual data may reveal significance earlier or later
+                than predicted.
+            </div>
+            <div className="mt-4 mb-1 font-semibold">{`${
                 experimentProgressPercent > 100 ? 100 : experimentProgressPercent.toFixed(2)
             }% complete`}</div>
             <LemonProgress

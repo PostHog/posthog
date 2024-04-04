@@ -359,10 +359,12 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="hogql"))
         hogql = print_prepared_ast(node, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
         expected = (
-            f"SELECT id, email FROM "
-            f"(SELECT id, properties.email AS email FROM persons INNER JOIN "
-            f"(SELECT DISTINCT person_id FROM events) "
-            f"AS source ON equals(persons.id, source.person_id) ORDER BY id ASC) "
-            f"LIMIT 10000"
+            "SELECT id, email FROM "
+            "(SELECT id, properties.email AS email FROM "
+            "(SELECT DISTINCT person_id FROM events) "
+            "AS source INNER JOIN "
+            "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
+            "LIMIT 10000"
         )
+
         assert hogql == expected

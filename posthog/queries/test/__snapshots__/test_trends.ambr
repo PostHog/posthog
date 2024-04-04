@@ -11,7 +11,7 @@
 # ---
 # name: TestTrends.test_action_filtering_with_cohort.1
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -99,7 +99,7 @@
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.1
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -1001,7 +1001,7 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.1
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -1073,7 +1073,7 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.1
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
