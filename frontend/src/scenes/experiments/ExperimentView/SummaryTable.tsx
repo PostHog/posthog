@@ -14,6 +14,7 @@ import { VariantTag } from './components'
 export function SummaryTable(): JSX.Element {
     const {
         experimentResults,
+        tabularExperimentResults,
         experimentInsightType,
         exposureCountDataForVariant,
         conversionRateForVariant,
@@ -122,7 +123,7 @@ export function SummaryTable(): JSX.Element {
 
     return (
         <div className="mb-4">
-            <LemonTable loading={false} columns={columns} dataSource={experimentResults?.variants || []} />
+            <LemonTable loading={false} columns={columns} dataSource={tabularExperimentResults} />
         </div>
     )
 }
