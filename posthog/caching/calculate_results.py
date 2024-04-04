@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import structlog
 from sentry_sdk import capture_exception
 
+from posthog.caching.fetch_from_cache import InsightResult
 from posthog.caching.utils import ensure_is_date
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
@@ -15,6 +16,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
+from posthog.hogql_queries.query_runner import CachedQueryResponse
 from posthog.logging.timing import timed
 from posthog.models import (
     Dashboard,
@@ -103,17 +105,26 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 
-def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> Tuple[str, str, List | Dict]:
-    # TODO: What is cache_type for? Is there a point to this being more specific than just "query"? - Michael
-    cache_type = get_cache_type(insight.query)
+def _cached_response_to_insight_result(response: CachedQueryResponse) -> InsightResult:
+    response_dict = response.model_dump()
+    result_keys = InsightResult.__annotations__.keys()
 
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk, cache_type=cache_type)
+    # replace 'result' with 'results' for schema compatibility
+    response_keys = ["results" if key == "result" else key for key in result_keys]
 
+    # use only the keys of the response that are also present in the result
+    result = InsightResult(
+        **{result_key: response_dict[response_key] for result_key, response_key in zip(result_keys, response_keys)}
+    )
+    return result
+
+
+def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> InsightResult:
     from posthog.api.services.query import process_query
 
+    tag_queries(team_id=insight.team_id, insight_id=insight.pk)
     response = process_query(insight.team, insight.query, refresh_requested=refresh_requested)
-
-    return response["cache_key"], cache_type, response["results"]
+    return _cached_response_to_insight_result(response)
 
 
 def calculate_for_filter_based_insight(
