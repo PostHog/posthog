@@ -54,7 +54,9 @@ class TableSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
     def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
-        hogql_context = self.context["database"]
+        hogql_context = self.context.get("database", None)
+        if not hogql_context:
+            hogql_context = create_hogql_database(team_id=self.context["team_id"])
 
         return serialize_fields(table.hogql_definition().fields, hogql_context)
 
@@ -90,7 +92,9 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "name", "columns"]
 
     def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
-        hogql_context = self.context["database"]
+        hogql_context = self.context.get("database", None)
+        if not hogql_context:
+            hogql_context = create_hogql_database(team_id=self.context["team_id"])
 
         return serialize_fields(table.hogql_definition().fields, hogql_context)
 
