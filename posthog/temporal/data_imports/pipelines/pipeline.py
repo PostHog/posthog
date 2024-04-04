@@ -75,17 +75,24 @@ class DataImportPipeline:
 
         return self.inputs.schemas
 
-    def _run(self):
+    def _run(self) -> int:
         pipeline = self._create_pipeline()
         pipeline.run(self.source, loader_file_format=self.loader_file_format)
 
-    async def run(self) -> None:
+        row_counts = pipeline.last_trace.last_normalize_info.row_counts
+        # Remove any DLT tables from the counts
+        filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
+        total_rows_synced = sum(map(lambda pair: pair[1], filtered_rows))
+
+        return total_rows_synced
+
+    async def run(self) -> int:
         schemas = self._get_schemas()
         if not schemas:
-            return
+            return 0
 
         try:
-            await asyncio.to_thread(self._run)
+            return await asyncio.to_thread(self._run)
         except PipelineStepFailed:
             self.logger.error(f"Data import failed for endpoint")
             raise

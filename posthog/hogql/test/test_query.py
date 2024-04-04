@@ -411,7 +411,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ],
                 name="cohort",
             )
-            recalculate_cohortpeople(cohort, pending_version=0)
+            recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
             with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
                     "SELECT event, count() FROM events WHERE {cohort_filter} GROUP BY event",
@@ -1452,7 +1452,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 properties={"$session_id": random_uuid},
             )
 
-        query = "SELECT session.id, session.duration from events WHERE distinct_id={distinct_id} order by timestamp"
+        query = (
+            "SELECT session.session_id, session.duration from events WHERE distinct_id={distinct_id} order by timestamp"
+        )
         response = execute_hogql_query(
             query, team=self.team, placeholders={"distinct_id": ast.Constant(value=random_uuid)}
         )

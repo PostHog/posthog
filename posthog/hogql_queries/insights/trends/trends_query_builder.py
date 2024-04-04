@@ -8,6 +8,7 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
+from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -270,7 +271,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 breakdown.column_expr(),
             ]
 
-            default_query.group_by.extend([ast.Field(chain=["session", "id"]), ast.Field(chain=["breakdown_value"])])
+            default_query.group_by.extend([ast.Field(chain=["$session_id"]), ast.Field(chain=["breakdown_value"])])
 
             wrapper = self.session_duration_math_property_wrapper(default_query)
             assert wrapper.group_by is not None
@@ -303,7 +304,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
                 )
             ]
-            default_query.group_by.append(ast.Field(chain=["session", "id"]))
+            default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
             wrapper = self.session_duration_math_property_wrapper(default_query)
 
@@ -377,6 +378,19 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             )
             query.group_by = [ast.Field(chain=["breakdown_value"])]
+            query.order_by.insert(
+                0,
+                cast(
+                    ast.OrderExpr,
+                    parse_expr(
+                        "breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0",
+                        placeholders={
+                            "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                            "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                        },
+                    ),
+                ),
+            )
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
         return query

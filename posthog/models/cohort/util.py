@@ -8,6 +8,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql.constants import LimitContext
@@ -287,7 +288,9 @@ def get_static_cohort_size(cohort: Cohort) -> Optional[int]:
         return None
 
 
-def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
+def recalculate_cohortpeople(
+    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
+) -> Optional[int]:
     hogql_context = HogQLContext(within_non_hogql_query=True, team_id=cohort.team_id)
     cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
@@ -302,6 +305,10 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
         )
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
+
+    tag_queries(kind="cohort_calculation", team_id=cohort.team_id)
+    if initiating_user_id:
+        tag_queries(user_id=initiating_user_id)
 
     sync_execute(
         recalcluate_cohortpeople_sql,
