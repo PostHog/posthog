@@ -57,6 +57,7 @@ from posthog.helpers.multi_property_breakdown import (
 )
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.apply_dashboard_filters import DATA_TABLE_LIKE_NODE_KINDS
 from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_enabled
 from posthog.hogql_queries.legacy_compatibility.process_insight import is_insight_with_hogql_support, process_insight
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
@@ -690,10 +691,14 @@ class InsightViewSet(
                 insight = request.GET[INSIGHT]
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
-                    queryset = queryset.exclude(query__kind="DataTableNode", query__source__kind="HogQLQuery")
+                    queryset = queryset.exclude(
+                        query__kind__in=DATA_TABLE_LIKE_NODE_KINDS, query__source__kind="HogQLQuery"
+                    )
                 elif insight == "SQL":
                     queryset = queryset.filter(query__isnull=False)
-                    queryset = queryset.filter(query__kind="DataTableNode", query__source__kind="HogQLQuery")
+                    queryset = queryset.filter(
+                        query__kind__in=DATA_TABLE_LIKE_NODE_KINDS, query__source__kind="HogQLQuery"
+                    )
                 else:
                     queryset = queryset.filter(query__isnull=True)
                     queryset = queryset.filter(filters__insight=insight)
