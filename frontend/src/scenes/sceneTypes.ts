@@ -53,7 +53,7 @@ export enum Scene {
     AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
     Billing = 'Billing',
-    Apps = 'Apps',
+    Apps = 'Connectors',
     FrontendAppScene = 'FrontendAppScene',
     AppMetrics = 'AppMetrics',
     SavedInsights = 'SavedInsights',

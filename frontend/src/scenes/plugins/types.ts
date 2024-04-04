@@ -29,7 +29,7 @@ export interface PluginUpdateStatusType {
 }
 
 export enum PluginTab {
-    Apps = 'apps',
+    Apps = 'connectors',
     AppsManagement = 'apps_management',
     BatchExports = 'batch_exports',
     History = 'history',

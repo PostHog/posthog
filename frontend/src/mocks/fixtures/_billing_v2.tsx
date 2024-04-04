@@ -2450,9 +2450,9 @@ export const billingJson: BillingV2Type = {
                         },
                         {
                             key: 'apps',
-                            name: 'Apps',
+                            name: 'Data connectors',
                             description:
-                                'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                                'Use connectors to transform, filter, and modify your incoming data. (Export destinations not included, see the Data pipelines addon for product analytics.)',
                             unit: null,
                             limit: null,
                             note: null,
@@ -2510,9 +2510,9 @@ export const billingJson: BillingV2Type = {
                         },
                         {
                             key: 'apps',
-                            name: 'Apps',
+                            name: 'Data connectors',
                             description:
-                                'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                                'Use connectors to transform, filter, and modify your incoming data. (Export destinations not included, see the Data pipelines addon for product analytics.)',
                             unit: null,
                             limit: null,
                             note: null,
@@ -2553,9 +2553,9 @@ export const billingJson: BillingV2Type = {
             features: [
                 {
                     key: 'apps',
-                    name: 'Apps',
+                    name: 'Data connectors',
                     description:
-                        'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                        'Use connectors to transform, filter, and modify your incoming data. (Export destinations not included, see the Data pipelines addon for product analytics.)',
                     images: null,
                     icon_key: null,
                     type: null,
