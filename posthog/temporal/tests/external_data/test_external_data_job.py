@@ -834,7 +834,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         )
 
     async def mock_async_func(inputs):
-        pass
+        return {}
 
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}
