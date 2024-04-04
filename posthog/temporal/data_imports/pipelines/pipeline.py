@@ -88,7 +88,7 @@ class DataImportPipeline:
     async def run(self) -> Dict[str, int]:
         schemas = self._get_schemas()
         if not schemas:
-            return 0
+            return {}
 
         try:
             return await asyncio.to_thread(self._run)
