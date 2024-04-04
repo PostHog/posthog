@@ -13,6 +13,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     DataWarehousePropertyFilter,
+    DataWarehousePersonPropertyFilter,
     FeaturePropertyFilter,
     FunnelCorrelationActorsQuery,
     FunnelExclusionActionsNode,
@@ -58,6 +59,7 @@ AnyPropertyFilter: TypeAlias = Union[
     HogQLPropertyFilter,
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,
+    DataWarehousePersonPropertyFilter,
 ]
 
 EntityNode: TypeAlias = Union[EventsNode, ActionsNode, DataWarehouseNode]

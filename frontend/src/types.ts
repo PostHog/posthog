@@ -652,6 +652,7 @@ export enum PropertyFilterType {
     Group = 'group',
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
+    DataWarehousePersonProperty = 'data_warehouse_person_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -676,6 +677,11 @@ export interface PersonPropertyFilter extends BasePropertyFilter {
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.DataWarehouse
+    operator: PropertyOperator
+}
+
+export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.DataWarehousePersonProperty
     operator: PropertyOperator
 }
 
@@ -735,6 +741,7 @@ export type AnyPropertyFilter =
     | HogQLPropertyFilter
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -3569,7 +3576,7 @@ export interface SimpleExternalDataSourceSchema {
     last_synced_at?: Dayjs
 }
 
-export interface ExternalDataPostgresSchema {
+export interface ExternalDataSourceSyncSchema {
     table: string
     should_sync: boolean
 }

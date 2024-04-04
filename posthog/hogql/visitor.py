@@ -187,6 +187,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_select_query_alias_type(self, node: ast.SelectQueryAliasType):
         self.visit(node.select_query_type)
 
+    def visit_select_view_type(self, node: ast.SelectViewType):
+        self.visit(node.select_query_type)
+
     def visit_asterisk_type(self, node: ast.AsteriskType):
         self.visit(node.table_type)
 
@@ -485,6 +488,7 @@ class CloningVisitor(Visitor[Any]):
             if node.window_exprs
             else None,
             settings=node.settings.model_copy() if node.settings is not None else None,
+            view_name=node.view_name,
         )
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):

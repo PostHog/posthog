@@ -55,6 +55,11 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
+                    key: Scene.DataWarehouse,
+                    name: 'Data Warehouse',
+                    path: urls.dataWarehouse(),
+                },
+                {
                     key: Scene.DataWarehouseSettings,
                     name: 'Data Warehouse Settings',
                     path: urls.dataWarehouseSettings(),

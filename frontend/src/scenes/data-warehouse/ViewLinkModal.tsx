@@ -73,20 +73,22 @@ export function ViewLinkForm(): JSX.Element {
         <Form logic={viewLinkLogic} formKey="viewLink" enableFormOnSubmit>
             <div className="flex flex-col w-full justify-between items-center">
                 <div className="flex flex-row w-full justify-between">
-                    <div className={isNewJoin ? 'w-60' : 'flex flex-col'}>
+                    <div className="w-60">
                         <span className="l4">Source Table</span>
-                        {isNewJoin ? (
-                            <Field name="source_table_name">
-                                <LemonSelect
-                                    fullWidth
-                                    options={tableOptions}
-                                    onSelect={selectSourceTable}
-                                    placeholder="Select a table"
-                                />
-                            </Field>
-                        ) : (
-                            selectedSourceTableName ?? ''
-                        )}
+                        <div className="text-wrap break-all">
+                            {isNewJoin ? (
+                                <Field name="source_table_name">
+                                    <LemonSelect
+                                        fullWidth
+                                        options={tableOptions}
+                                        onSelect={selectSourceTable}
+                                        placeholder="Select a table"
+                                    />
+                                </Field>
+                            ) : (
+                                selectedSourceTableName ?? ''
+                            )}
+                        </div>
                     </div>
                     <div className="w-60">
                         <span className="l4">Joining Table</span>

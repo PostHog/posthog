@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceCreatePayload, ExternalDataSourceType } from '~/types'
 
-import { getHubspotRedirectUri, sourceModalLogic } from '../sourceModalLogic'
+import { getHubspotRedirectUri, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import type { sourceFormLogicType } from './sourceFormLogicType'
 
 export interface SourceFormProps {
@@ -46,6 +46,33 @@ const getErrorsDefaults = (sourceType: string): ((args: Record<string, any>) => 
                     ? null
                     : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
             })
+        case 'Postgres':
+            return ({ prefix, payload }) => ({
+                prefix: /^[a-zA-Z0-9_-]*$/.test(prefix)
+                    ? null
+                    : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
+                payload: {
+                    host: !payload.host && 'Please enter a host.',
+                    port: !payload.port && 'Please enter a port.',
+                    dbname: !payload.dbname && 'Please enter a dbname.',
+                    user: !payload.user && 'Please enter a user.',
+                    password: !payload.password && 'Please enter a password.',
+                    schema: !payload.schema && 'Please enter a schema.',
+                },
+            })
+        case 'Zendesk':
+            return ({ prefix, payload }) => {
+                return {
+                    prefix: /^[a-zA-Z0-9_-]*$/.test(prefix)
+                        ? null
+                        : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
+                    payload: {
+                        subdomain: !payload.subdomain && 'Please enter a subdomain.',
+                        api_key: !payload.api_key && 'Please enter an API key.',
+                        email_address: !payload.email_address && 'Please enter an email address.',
+                    },
+                }
+            }
         default:
             return () => ({})
     }
@@ -56,7 +83,7 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
     props({} as SourceFormProps),
     connect({
         actions: [
-            sourceModalLogic,
+            sourceWizardLogic,
             ['setDatabaseSchemas', 'onBack', 'onNext', 'selectConnector', 'toggleSourceModal', 'loadSources'],
         ],
     }),
@@ -109,13 +136,20 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
         },
     })),
     forms(({ props, actions }) => ({
-        externalDataSource: {
+        sourceConnectionDetails: {
             defaults: {
                 prefix: '',
                 source_type: props.sourceType,
                 payload: getPayloadDefaults(props.sourceType),
             } as ExternalDataSourceCreatePayload,
             errors: getErrorsDefaults(props.sourceType),
+        },
+        externalDataSource: {
+            defaults: {
+                prefix: '',
+                source_type: props.sourceType,
+                payload: getPayloadDefaults(props.sourceType),
+            } as ExternalDataSourceCreatePayload,
             submit: async (payload: ExternalDataSourceCreatePayload) => {
                 const newResource = await api.externalDataSources.create(payload)
                 return newResource
@@ -133,21 +167,9 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                     schema: '',
                 },
             },
-            errors: ({ prefix, payload: { host, port, dbname, user, password, schema } }) => ({
-                prefix: /^[a-zA-Z0-9_-]*$/.test(prefix)
-                    ? null
-                    : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
-                payload: {
-                    host: !host && 'Please enter a host.',
-                    port: !port && 'Please enter a port.',
-                    dbname: !dbname && 'Please enter a dbname.',
-                    user: !user && 'Please enter a user.',
-                    password: !password && 'Please enter a password.',
-                    schema: !schema && 'Please enter a schema.',
-                },
-            }),
             submit: async ({ payload: { host, port, dbname, user, password, schema }, prefix }) => {
                 const schemas = await api.externalDataSources.database_schema(
+                    props.sourceType,
                     host,
                     port,
                     dbname,
