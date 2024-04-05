@@ -111,6 +111,34 @@ export function convertToIngestionEvent(event: RawClickHouseEvent, skipElementsC
     }
 }
 
+/// Does normalization steps involving the $process_person property. This is currently a separate
+/// function because `normalizeEvent` is called from multiple places, some early in the pipeline,
+/// and we want to have one trusted place where `$process_person` is handled and passed through
+/// all of the processing steps.
+///
+/// If `formPipelineEvent` is removed this can easily be combined with `normalizeEvent`.
+export function normalizeProcessPerson(event: PluginEvent, processPerson: boolean): PluginEvent {
+    const properties = event.properties ?? {}
+
+    // $process_person steps:
+    //   1. If person processing is disabled, $set, $set_once and $unset are dropped
+    //   2. Normalize the $process_person property on the event, if true, drop it since true is
+    //      the default. If it was false before plugins ran, ensure it's still set to false.
+    if (!processPerson) {
+        delete event.$set
+        delete event.$set_once
+        delete properties.$set
+        delete properties.$set_once
+        delete properties.$unset
+        properties.$process_person = false
+    } else {
+        delete properties.$process_person
+    }
+
+    event.properties = properties
+    return event
+}
+
 export function normalizeEvent(event: PluginEvent): PluginEvent {
     event.distinct_id = event.distinct_id?.toString()
 

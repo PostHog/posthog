@@ -63,6 +63,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
             <LemonTable
                 dataSource={dataWarehouseSources?.results ?? []}
                 loading={dataWarehouseSourcesLoading}
+                disableTableWhileLoading={false}
                 columns={[
                     {
                         title: 'Source Type',

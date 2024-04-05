@@ -22,7 +22,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
     escape_clickhouse_string,
@@ -31,7 +31,7 @@ from posthog.hogql.escape_sql import (
 )
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
-from posthog.hogql.resolver import ResolverException, resolve_types
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
@@ -48,7 +48,7 @@ from posthog.utils import PersonOnEventsMode
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
     if not context.team_id:
-        raise HogQLException("context.team_id not found")
+        raise InternalHogQLError("context.team_id not found")
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
@@ -183,7 +183,7 @@ class _Printer(Visitor):
 
         if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectUnionQuery):
-                raise HogQLException("Settings can only be applied to SELECT queries")
+                raise QueryError("Settings can only be applied to SELECT queries")
             settings = self._print_settings(self.settings)
             if settings is not None:
                 response += " " + settings
@@ -205,9 +205,9 @@ class _Printer(Visitor):
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse":
             if not self.context.enable_select_queries:
-                raise HogQLException("Full SELECT queries are disabled if context.enable_select_queries is False")
+                raise InternalHogQLError("Full SELECT queries are disabled if context.enable_select_queries is False")
             if not self.context.team_id:
-                raise HogQLException("Full SELECT queries are disabled if context.team_id is not set")
+                raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
         # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectUnionQuery)
@@ -221,7 +221,9 @@ class _Printer(Visitor):
         while isinstance(next_join, ast.JoinExpr):
             if next_join.type is None:
                 if self.dialect == "clickhouse":
-                    raise HogQLException("Printing queries with a FROM clause is not permitted before type resolution")
+                    raise InternalHogQLError(
+                        "Printing queries with a FROM clause is not permitted before type resolution"
+                    )
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
@@ -238,7 +240,7 @@ class _Printer(Visitor):
                 else:
                     where = ast.And(exprs=[extra_where, where])
             else:
-                raise HogQLException(
+                raise ImpossibleASTError(
                     f"Invalid where of type {type(extra_where).__name__} returned by join_expr", node=visited_join.where
                 )
 
@@ -293,10 +295,10 @@ class _Printer(Visitor):
                 "LEFT ARRAY JOIN",
                 "INNER ARRAY JOIN",
             ):
-                raise HogQLException(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
+                raise ImpossibleASTError(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
             array_join = node.array_join_op
             if len(node.array_join_list) == 0:
-                raise HogQLException(f"Invalid ARRAY JOIN without an array")
+                raise ImpossibleASTError(f"Invalid ARRAY JOIN without an array")
             array_join += f" {', '.join(self.visit(expr) for expr in node.array_join_list)}"
 
         space = f"\n{self.indent(1)}" if self.pretty else " "
@@ -370,7 +372,7 @@ class _Printer(Visitor):
                 table_type = table_type.table_type
 
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
-                raise HogQLException(f"Invalid table type {type(table_type).__name__} in join_expr")
+                raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
             # Skip function call tables like numbers(), s3(), etc.
@@ -394,24 +396,24 @@ class _Printer(Visitor):
 
             if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
                 if node.table_args is None:
-                    raise HogQLException(f"Table function '{table_type.table.name}' requires arguments")
+                    raise QueryError(f"Table function '{table_type.table.name}' requires arguments")
 
                 if table_type.table.min_args is not None and (
                     node.table_args is None or len(node.table_args) < table_type.table.min_args
                 ):
-                    raise HogQLException(
+                    raise QueryError(
                         f"Table function '{table_type.table.name}' requires at least {table_type.table.min_args} argument{'s' if table_type.table.min_args > 1 else ''}"
                     )
                 if table_type.table.max_args is not None and (
                     node.table_args is None or len(node.table_args) > table_type.table.max_args
                 ):
-                    raise HogQLException(
+                    raise QueryError(
                         f"Table function '{table_type.table.name}' requires at most {table_type.table.max_args} argument{'s' if table_type.table.max_args > 1 else ''}"
                     )
                 if node.table_args is not None and len(node.table_args) > 0:
                     sql = f"{sql}({', '.join([self.visit(arg) for arg in node.table_args])})"
             elif node.table_args is not None:
-                raise HogQLException(f"Table '{table_type.table.to_printed_hogql()}' does not accept arguments")
+                raise QueryError(f"Table '{table_type.table.to_printed_hogql()}' does not accept arguments")
 
             join_strings.append(sql)
 
@@ -436,9 +438,9 @@ class _Printer(Visitor):
             if self.dialect == "hogql":
                 join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
             else:
-                raise HogQLException(f"Unexpected LazyTableType for: {node.type.table.to_printed_hogql()}")
+                raise ImpossibleASTError(f"Unexpected LazyTableType for: {node.type.table.to_printed_hogql()}")
         else:
-            raise HogQLException(
+            raise QueryError(
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
             )
 
@@ -470,7 +472,7 @@ class _Printer(Visitor):
         elif node.op == ast.ArithmeticOperationOp.Mod:
             return f"modulo({self.visit(node.left)}, {self.visit(node.right)})"
         else:
-            raise HogQLException(f"Unknown ArithmeticOperationOp {node.op}")
+            raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
         if len(node.exprs) == 1:
@@ -591,7 +593,7 @@ class _Printer(Visitor):
                 lambda left_op, right_op: left_op <= right_op if left_op is not None and right_op is not None else False
             )
         else:
-            raise HogQLException(f"Unknown CompareOperationOp: {node.op.name}")
+            raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
 
         # Try to see if we can take shortcuts
 
@@ -664,7 +666,7 @@ class _Printer(Visitor):
         elif value_if_one_side_is_null is False and value_if_both_sides_are_null is False:
             return f"ifNull({op}, 0)"
         else:
-            raise HogQLException("Impossible")
+            raise ImpossibleASTError("Impossible")
 
     def visit_constant(self, node: ast.Constant):
         if self.dialect == "hogql":
@@ -685,7 +687,7 @@ class _Printer(Visitor):
             if "%" in value:
                 # We don't know if this will be passed on as part of a legacy ClickHouse query or not.
                 # Ban % to be on the safe side. Who knows how it can end up in a UUID or datetime for example.
-                raise HogQLException(f"Invalid character '%' in constant: {value}")
+                raise QueryError(f"Invalid character '%' in constant: {value}")
             return value
         else:
             # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
@@ -694,7 +696,7 @@ class _Printer(Visitor):
     def visit_field(self, node: ast.Field):
         if node.type is None:
             field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
-            raise HogQLException(f"Field {field} has no type")
+            raise ImpossibleASTError(f"Field {field} has no type")
 
         if self.dialect == "hogql":
             if node.chain == ["*"]:
@@ -704,17 +706,17 @@ class _Printer(Visitor):
 
         if node.type is not None:
             if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
-                raise HogQLException(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
+                raise QueryError(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
 
             return self.visit(node.type)
         else:
-            raise HogQLException(f"Unknown Type, can not print {type(node.type).__name__}")
+            raise ImpossibleASTError(f"Unknown Type, can not print {type(node.type).__name__}")
 
     def visit_call(self, node: ast.Call):
         if node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
             if len(node.args) != 2:
-                raise HogQLException(f"Comparison '{node.name}' requires exactly two arguments")
+                raise QueryError(f"Comparison '{node.name}' requires exactly two arguments")
             # We do "cleverer" logic with nullable types in visit_compare_operation
             return self.visit_compare_operation(
                 ast.CompareOperation(
@@ -735,7 +737,7 @@ class _Printer(Visitor):
             )
             if func_meta.min_params:
                 if node.params is None:
-                    raise HogQLException(f"Aggregation '{node.name}' requires parameters in addition to arguments")
+                    raise QueryError(f"Aggregation '{node.name}' requires parameters in addition to arguments")
                 validate_function_args(
                     node.params,
                     func_meta.min_params,
@@ -748,7 +750,7 @@ class _Printer(Visitor):
             # check that we're not running inside another aggregate
             for stack_node in self.stack:
                 if stack_node != node and isinstance(stack_node, ast.Call) and stack_node.name in HOGQL_AGGREGATIONS:
-                    raise HogQLException(
+                    raise QueryError(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
 
@@ -765,7 +767,7 @@ class _Printer(Visitor):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if func_meta.min_params:
                 if node.params is None:
-                    raise HogQLException(f"Function '{node.name}' requires parameters in addition to arguments")
+                    raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
                 validate_function_args(
                     node.params,
                     func_meta.min_params,
@@ -883,17 +885,17 @@ class _Printer(Visitor):
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source'))"
                 elif node.name == "hogql_lookupOrganicMediumType":
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
-            raise HogQLException(f"Unexpected unresolved HogQL function '{node.name}(...)'")
+            raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
-                raise HogQLException(
+                raise QueryError(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
                 )
-            raise HogQLException(f"Unsupported function call '{node.name}(...)'")
+            raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        raise HogQLException(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
+        raise QueryError(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
 
     def visit_alias(self, node: ast.Alias):
         # Skip hidden aliases completely.
@@ -926,7 +928,7 @@ class _Printer(Visitor):
             type_with_name_in_scope = (
                 lookup_field_by_name(last_select.type, type.name, self.context) if last_select else None
             )
-        except ResolverException:
+        except ResolutionError:
             type_with_name_in_scope = None
 
         if (
@@ -936,7 +938,7 @@ class _Printer(Visitor):
         ):
             resolved_field = type.resolve_database_field(self.context)
             if resolved_field is None:
-                raise HogQLException(f'Can\'t resolve field "{type.name}" on table.')
+                raise QueryError(f'Can\'t resolve field "{type.name}" on table.')
             if isinstance(resolved_field, Table):
                 if isinstance(type.table_type, ast.VirtualTableType):
                     return self.visit(ast.AsteriskType(table_type=ast.TableType(table=resolved_field)))
@@ -990,7 +992,7 @@ class _Printer(Visitor):
             error = f"Can't access field '{type.name}' on a table with type '{type.table_type.__class__.__name__}'."
             if isinstance(type.table_type, ast.LazyJoinType):
                 error += f" Lazy joins should have all been replaced in the resolver."
-            raise HogQLException(error)
+            raise ImpossibleASTError(error)
 
         return field_sql
 
@@ -1017,7 +1019,7 @@ class _Printer(Visitor):
                 else:
                     table_name = table.table.to_printed_hogql()
                 if field is None:
-                    raise HogQLException(f"Can't resolve field {field_type.name} on table {table_name}")
+                    raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
                 field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
                 materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
@@ -1084,22 +1086,22 @@ class _Printer(Visitor):
         return "*"
 
     def visit_lazy_join_type(self, type: ast.LazyJoinType):
-        raise HogQLException("Unexpected ast.LazyJoinType. Make sure LazyJoinResolver has run on the AST.")
+        raise ImpossibleASTError("Unexpected ast.LazyJoinType. Make sure LazyJoinResolver has run on the AST.")
 
     def visit_lazy_table_type(self, type: ast.LazyJoinType):
-        raise HogQLException("Unexpected ast.LazyTableType. Make sure LazyJoinResolver has run on the AST.")
+        raise ImpossibleASTError("Unexpected ast.LazyTableType. Make sure LazyJoinResolver has run on the AST.")
 
     def visit_field_traverser_type(self, type: ast.FieldTraverserType):
-        raise HogQLException("Unexpected ast.FieldTraverserType. This should have been resolved.")
+        raise ImpossibleASTError("Unexpected ast.FieldTraverserType. This should have been resolved.")
 
     def visit_unknown(self, node: AST):
-        raise HogQLException(f"Unknown AST node {type(node).__name__}")
+        raise ImpossibleASTError(f"Unknown AST node {type(node).__name__}")
 
     def visit_window_expr(self, node: ast.WindowExpr):
         strings: List[str] = []
         if node.partition_by is not None:
             if len(node.partition_by) == 0:
-                raise HogQLException("PARTITION BY must have at least one argument")
+                raise ImpossibleASTError("PARTITION BY must have at least one argument")
             strings.append("PARTITION BY")
             columns = []
             for expr in node.partition_by:
@@ -1108,7 +1110,7 @@ class _Printer(Visitor):
 
         if node.order_by is not None:
             if len(node.order_by) == 0:
-                raise HogQLException("ORDER BY must have at least one argument")
+                raise ImpossibleASTError("ORDER BY must have at least one argument")
             strings.append("ORDER BY")
             for expr in node.order_by:
                 strings.append(self.visit(expr))
@@ -1119,7 +1121,7 @@ class _Printer(Visitor):
             elif node.frame_method == "RANGE":
                 strings.append("RANGE")
             else:
-                raise HogQLException(f"Invalid frame method {node.frame_method}")
+                raise ImpossibleASTError(f"Invalid frame method {node.frame_method}")
             if node.frame_start and node.frame_end is None:
                 strings.append(self.visit(node.frame_start))
 
@@ -1130,7 +1132,7 @@ class _Printer(Visitor):
                 strings.append(self.visit(node.frame_end))
 
             else:
-                raise HogQLException("Frame start and end must be specified together")
+                raise ImpossibleASTError("Frame start and end must be specified together")
         return " ".join(strings)
 
     def visit_window_function(self, node: ast.WindowFunction):
@@ -1145,7 +1147,7 @@ class _Printer(Visitor):
         elif node.frame_type == "CURRENT ROW":
             return "CURRENT ROW"
         else:
-            raise HogQLException(f"Invalid frame type {node.frame_type}")
+            raise ImpossibleASTError(f"Invalid frame type {node.frame_type}")
 
     def _last_select(self) -> Optional[ast.SelectQuery]:
         """Find the last SELECT query in the stack."""
@@ -1212,9 +1214,9 @@ class _Printer(Visitor):
             if value is None:
                 continue
             if not isinstance(value, (int, float, str)):
-                raise HogQLException(f"Setting {key} must be a string, int, or float")
+                raise QueryError(f"Setting {key} must be a string, int, or float")
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
-                raise HogQLException(f"Setting {key} is not supported")
+                raise QueryError(f"Setting {key} is not supported")
             if isinstance(value, bool):
                 pairs.append(f"{key}={1 if value else 0}")
             elif isinstance(value, int) or isinstance(value, float):

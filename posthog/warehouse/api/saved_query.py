@@ -8,7 +8,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -84,7 +84,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 settings=None,
             )
         except Exception as err:
-            if isinstance(err, ValueError) or isinstance(err, HogQLException):
+            if isinstance(err, ExposedHogQLError):
                 error = str(err)
                 raise exceptions.ValidationError(detail=f"Invalid query: {error}")
             elif not settings.DEBUG:

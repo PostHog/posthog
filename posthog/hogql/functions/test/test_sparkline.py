@@ -1,4 +1,4 @@
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.test.base import BaseTest
 
@@ -20,6 +20,6 @@ class TestSparkline(BaseTest):
         )
 
     def test_sparkline_error(self):
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(f"SELECT sparkline()", self.team)
         self.assertEqual(str(e.exception), "Function 'sparkline' expects 1 argument, found 0")
