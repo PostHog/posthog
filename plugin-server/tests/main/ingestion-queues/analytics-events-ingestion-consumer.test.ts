@@ -115,20 +115,18 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
             const now = Date.now()
             const event = captureEndpointEvent1
             const [message] = createBatchWithMultipleEvents([event], now)
-            const originalKey = message.key
             const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
             const produce = jest.spyOn(queue.pluginsServer.kafkaProducer, 'produce')
 
             const tokenBlockList = buildStringMatcher('another_token,more_token', false)
             await eachBatchParallelIngestion(tokenBlockList, [message], queue, overflowMode)
 
-            // NOTE: can't use ``message.key`` below as it will already have been mutated
-            expect(consume).toHaveBeenCalledWith(originalKey, 1, now)
+            expect(consume).toHaveBeenCalledWith(message.key, 1, now)
             expect(captureIngestionWarning).not.toHaveBeenCalled()
             expect(produce).toHaveBeenCalledWith({
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
                 value: message.value,
-                key: overflowMode === IngestionOverflowMode.Reroute ? originalKey : null,
+                key: overflowMode === IngestionOverflowMode.Reroute ? message.key : null,
                 waitForAck: true,
             })
         }
