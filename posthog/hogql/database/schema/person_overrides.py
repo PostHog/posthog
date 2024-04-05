@@ -1,9 +1,11 @@
+from functools import partial
 from typing import Any, Dict, List
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
+    LazyJoin,
     Table,
     StringDatabaseField,
     DateTimeDatabaseField,
@@ -11,6 +13,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 
+from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.hogql.errors import ResolutionError
 from posthog.schema import HogQLQueryModifiers
 
@@ -21,6 +24,11 @@ PERSON_OVERRIDES_FIELDS: Dict[str, FieldOrTable] = {
     "oldest_event": DateTimeDatabaseField(name="oldest_event"),
     "merged_at": DateTimeDatabaseField(name="merged_at"),
     "created_at": DateTimeDatabaseField(name="created_at"),
+    "person": LazyJoin(
+        from_field=["override_person_id"],
+        join_table="persons",
+        join_function=partial(join_with_persons_table, from_field="override_person_id"),  # XXX: why is this needed
+    ),
 }
 
 
@@ -51,7 +59,7 @@ def join_with_person_overrides_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "event_person_id"]),
+            left=ast.Field(chain=[from_table, "_event_person_id"]),  # XXX: assumes LHS col?
             right=ast.Field(chain=[to_table, "old_person_id"]),
         )
     )

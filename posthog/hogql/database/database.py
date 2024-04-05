@@ -158,56 +158,59 @@ def create_hogql_database(
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-    if modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
-        if modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled:
-            # no overrides, just use whatever was written at ingestion time on the event
-            database.events.fields["person"] = FieldTraverser(chain=["poe"])
-            database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+    if modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled:
+        # no overrides, just use whatever was written at ingestion time on the event
+        database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 
-        elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled:
-            # person_id from person_overrides (deprecated)
-            database.events.fields["_event_person_id"] = StringDatabaseField(name="person_id")
-            database.events.fields["_override"] = LazyJoin(
-                from_field=["_event_person_id"],
-                join_table=PersonOverridesTable(),
-                join_function=join_with_person_overrides_table,
-            )
-            database.events.fields["person_id"] = ExpressionField(
-                name="person_id",
-                expr=parse_expr(
-                    "ifNull(nullIf(_override.override_person_id, '00000000-0000-0000-0000-000000000000'), _event_person_id)",
-                    start=None,
-                ),
-            )
+        database.events.fields["person"] = LazyJoin(
+            from_field=["person_id"],
+            join_table=PersonsTable(),
+            join_function=join_with_persons_table,
+        )
 
-        elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v3_enabled:
-            # person_id from person_distinct_id_overrides
-            database.events.fields["_event_person_id"] = StringDatabaseField(name="person_id")
-            database.events.fields["_override"] = LazyJoin(
-                from_field=["distinct_id"],
-                join_table=PersonDistinctIdOverridesTable(),
-                join_function=join_with_person_distinct_id_overrides_table,
-            )
-            database.events.fields["person_id"] = ExpressionField(
-                name="person_id",
-                expr=parse_expr(
-                    # NOTE: assumes `join_use_nulls = 0` (the default), as ``_override.distinct_id`` is not Nullable
-                    "if(not(empty(_override.distinct_id)), _override.person_id, _event_person_id)",
-                    start=None,
-                ),
-            )
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled:
+        # person_id from person_overrides (deprecated)
+        database.events.fields["_event_person_id"] = StringDatabaseField(name="person_id")
+        database.events.fields["_override"] = LazyJoin(
+            from_field=["_event_person_id"],
+            join_table=PersonOverridesTable(),
+            join_function=join_with_person_overrides_table,
+        )
+        database.events.fields["person_id"] = ExpressionField(
+            name="person_id",
+            expr=parse_expr(
+                "ifNull(nullIf(_override.override_person_id, '00000000-0000-0000-0000-000000000000'), _event_person_id)",
+                start=None,
+            ),
+        )
 
-        use_person_properties_from_event = True  # TODO: make dynamic via modifier
-        if use_person_properties_from_event:
-            # person.* from what was written at ingestion time by default (potentially stale)
-            database.events.fields["person"] = FieldTraverser(chain=["poe"])
-        else:
-            # person.* from the person record that is kept up-to-date
-            database.events.fields["person"] = LazyJoin(
-                from_field=["person_id"],
-                join_table=PersonsTable(),
-                join_function=join_with_persons_table,
-            )
+        # TODO: this should be able to avoid the join if all we're referencing is ``person.id``
+        database.events.fields["person"] = FieldTraverser(chain=["_override", "person"])
+
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v3_enabled:
+        # person_id from person_distinct_id_overrides
+        database.events.fields["_event_person_id"] = StringDatabaseField(name="person_id")
+        database.events.fields["_override"] = LazyJoin(
+            from_field=["distinct_id"],
+            join_table=PersonDistinctIdOverridesTable(),
+            join_function=join_with_person_distinct_id_overrides_table,
+        )
+        database.events.fields["person_id"] = ExpressionField(
+            name="person_id",
+            expr=parse_expr(
+                # NOTE: assumes `join_use_nulls = 0` (the default), as ``_override.distinct_id`` is not Nullable
+                "if(not(empty(_override.distinct_id)), _override.person_id, _event_person_id)",
+                start=None,
+            ),
+        )
+
+        # TODO: this should be able to avoid the join if all we're referencing is ``person.id``
+        database.events.fields["person"] = FieldTraverser(chain=["_override", "person"])
+
+    use_person_properties_from_event = True  # TODO: make dynamic via modifier
+    if use_person_properties_from_event:
+        # person.* from what was written at ingestion time by default (potentially stale)
+        database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
