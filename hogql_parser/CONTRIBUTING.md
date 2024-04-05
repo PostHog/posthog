@@ -58,6 +58,11 @@ The three pages below are must-reads though. They're key to writing production-r
     pip install ./hogql_parser
     ```
 
+   > If you're getting compilation errors like this on macOS Sonoma:  
+   > `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/cstring:66:5: error: <cstring> tried including <string.h> but didn't find libc++'s <string.h> header.`  
+   > Then you may need to remove Xcode Command Line Tools:  
+   > `sudo rm -rf /Library/Developer/CommandLineTools`
+
 1. If you now run tests, the locally-built version of `hogql_parser` will be used:
 
     ```bash

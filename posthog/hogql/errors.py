@@ -6,7 +6,7 @@ if TYPE_CHECKING:
 # Base
 
 
-class BaseHogQLException(Exception):
+class BaseHogQLError(Exception):
     """Base exception for HogQL. These are exposed to the user."""
 
     start: Optional[int]
@@ -32,13 +32,13 @@ class BaseHogQLException(Exception):
 # Exposed vs. internal
 
 
-class ExposedHogQLException(BaseHogQLException):
+class ExposedHogQLError(BaseHogQLError):
     """An exception that can be exposed to the user."""
 
     pass
 
 
-class InternalHogQLException(BaseHogQLException):
+class InternalHogQLError(BaseHogQLError):
     """An internal exception in the HogQL engine."""
 
     pass
@@ -47,37 +47,37 @@ class InternalHogQLException(BaseHogQLException):
 # Specific exceptions
 
 
-class SyntaxException(ExposedHogQLException):
+class SyntaxError(ExposedHogQLError):
     """The input does not conform to HogQL syntax."""
 
     pass
 
 
-class QueryException(ExposedHogQLException):
+class QueryError(ExposedHogQLError):
     """The query is invalid, though correct syntactically."""
 
     pass
 
 
-class NotImplementedException(InternalHogQLException):
+class NotImplementedError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 
     pass
 
 
-class ParsingException(InternalHogQLException):
+class ParsingError(InternalHogQLError):
     """Parsing failed."""
 
     pass
 
 
-class ImpossibleASTException(InternalHogQLException):
+class ImpossibleASTError(InternalHogQLError):
     """Parsing or resolution resulted in an impossible AST."""
 
     pass
 
 
-class ResolutionException(InternalHogQLException):
+class ResolutionError(InternalHogQLError):
     """Resolution of a table/field/expression failed."""
 
     pass

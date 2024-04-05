@@ -8,7 +8,7 @@ from posthog.hogql.constants import HogQLQuerySettings, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import ExposedHogQLException, QueryException
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, to_printed_hogql
@@ -50,14 +50,14 @@ class TestPrinter(BaseTest):
         expected_error,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ):
-        with self.assertRaises(ExposedHogQLException) as context:
+        with self.assertRaises(ExposedHogQLError) as context:
             self._expr(expr, None, dialect)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
 
     def _assert_select_error(self, statement, expected_error):
-        with self.assertRaises(ExposedHogQLException) as context:
+        with self.assertRaises(ExposedHogQLError) as context:
             self._select(statement, None)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
@@ -547,7 +547,7 @@ class TestPrinter(BaseTest):
             ),
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
-        with self.assertRaises(QueryException) as error_context:
+        with self.assertRaises(QueryError) as error_context:
             (
                 self._select(
                     "select 1 from {placeholder}",

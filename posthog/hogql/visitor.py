@@ -2,7 +2,7 @@ from typing import Optional, TypeVar, Generic, Any
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST, Expr
-from posthog.hogql.errors import BaseHogQLException
+from posthog.hogql.errors import BaseHogQLError
 
 
 def clone_expr(expr: Expr, clear_types=False, clear_locations=False) -> Expr:
@@ -24,7 +24,7 @@ class Visitor(Generic[T]):
 
         try:
             return node.accept(self)
-        except BaseHogQLException as e:
+        except BaseHogQLError as e:
             if e.start is None or e.end is None:
                 e.start = node.start
                 e.end = node.end
