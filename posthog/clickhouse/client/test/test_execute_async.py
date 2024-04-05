@@ -5,7 +5,7 @@ from django.test import TestCase
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.client import sync_execute
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.models import Organization, Team
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import patch, MagicMock
@@ -77,7 +77,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def test_async_query_client_errors(self):
         query = build_query("SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK")
         self.assertRaises(
-            HogQLException,
+            ExposedHogQLError,
             client.enqueue_process_query_task,
             **{"team_id": self.team_id, "user_id": self.user_id, "query_json": query, "_test_only_bypass_celery": True},
         )

@@ -52,7 +52,7 @@ from posthog.hogql.database.schema.session_replay_events import (
 )
 from posthog.hogql.database.schema.sessions import RawSessionsTable, SessionsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
@@ -117,7 +117,7 @@ class Database(BaseModel):
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
-            raise HogQLException(f"Unknown timezone: '{str(timezone)}'")
+            raise ValueError(f"Unknown timezone: '{str(timezone)}'")
         self._week_start_day = week_start_day
 
     def get_timezone(self) -> str:
@@ -132,7 +132,7 @@ class Database(BaseModel):
     def get_table(self, table_name: str) -> Table:
         if self.has_table(table_name):
             return getattr(self, table_name)
-        raise HogQLException(f'Table "{table_name}" not found in database')
+        raise QueryError(f'Table "{table_name}" not found in database')
 
     def get_all_tables(self) -> List[str]:
         return self._table_names + self._warehouse_table_names
@@ -275,12 +275,12 @@ def create_hogql_database(
 
             field = parse_expr(join.source_table_key)
             if not isinstance(field, ast.Field):
-                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
             from_field = field.chain
 
             field = parse_expr(join.joining_table_key)
             if not isinstance(field, ast.Field):
-                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
             to_field = field.chain
 
             source_table.fields[join.field_name] = LazyJoin(
@@ -359,7 +359,7 @@ def serialize_database(context: HogQLContext) -> Dict[str, List[SerializedField]
     tables: Dict[str, List[SerializedField]] = {}
 
     if context.database is None:
-        raise HogQLException("Must provide database to serialize_database")
+        raise ResolutionError("Must provide database to serialize_database")
 
     for table_key in context.database.model_fields.keys():
         field_input: Dict[str, Any] = {}
