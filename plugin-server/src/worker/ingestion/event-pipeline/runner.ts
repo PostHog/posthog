@@ -165,7 +165,7 @@ export class EventPipelineRunner {
             return this.registerLastStep('clientIngestionWarning', [event], [warningAck])
         }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
+        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event, processPerson], event.team_id)
         if (processedEvent == null) {
             // A plugin dropped the event.
             return this.registerLastStep('pluginsProcessEventStep', [event])
