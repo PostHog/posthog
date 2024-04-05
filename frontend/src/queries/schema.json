@@ -1528,6 +1528,9 @@
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
                 },
+                "breakdown_limit": {
+                    "type": "integer"
+                },
                 "breakdown_normalize_url": {
                     "type": "boolean"
                 },

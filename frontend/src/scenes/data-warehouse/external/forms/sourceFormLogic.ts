@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceCreatePayload, ExternalDataSourceType } from '~/types'
 
-import { getHubspotRedirectUri, sourceModalLogic } from '../sourceModalLogic'
+import { getHubspotRedirectUri, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import type { sourceFormLogicType } from './sourceFormLogicType'
 
 export interface SourceFormProps {
@@ -83,7 +83,7 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
     props({} as SourceFormProps),
     connect({
         actions: [
-            sourceModalLogic,
+            sourceWizardLogic,
             ['setDatabaseSchemas', 'onBack', 'onNext', 'selectConnector', 'toggleSourceModal', 'loadSources'],
         ],
     }),
@@ -102,7 +102,7 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
             lemonToast.success('New Data Resource Created')
             actions.toggleSourceModal(false)
             actions.resetExternalDataSource()
-            actions.loadSources()
+            actions.loadSources(null)
             router.actions.push(urls.dataWarehouseSettings())
         },
         submitDatabaseSchemaFormSuccess: () => {

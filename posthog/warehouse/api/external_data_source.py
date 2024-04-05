@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Dict
 
 import structlog
 from rest_framework import filters, serializers, status, viewsets
@@ -20,6 +20,7 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
+from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
@@ -69,7 +70,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
-        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True).data
+        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -96,6 +97,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["source_id"]
     ordering = "-created_at"
+
+    def get_serializer_context(self) -> Dict[str, Any]:
+        context = super().get_serializer_context()
+        context["database"] = create_hogql_database(team_id=self.team_id)
+        return context
 
     def get_queryset(self):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:

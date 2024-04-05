@@ -3546,9 +3546,9 @@
                     "type": null
                 },
                 {
-                    "key": "support_slas",
-                    "name": "Support SLAs",
-                    "description": "Support SLAs",
+                    "key": "support_response_time",
+                    "name": "Support response time",
+                    "description": "Get help from our team!",
                     "images": null,
                     "icon_key": null,
                     "type": null

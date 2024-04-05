@@ -1004,7 +1004,6 @@ describe('filtersToQueryNode', () => {
                 ],
                 actions: [],
                 display: ChartDisplayType.ActionsTable,
-                breakdown: '$current_url',
                 date_from: '-6m',
                 new_entity: [],
                 properties: {
@@ -1023,8 +1022,11 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                 },
+                breakdown: '$current_url',
                 breakdown_type: 'event',
                 breakdown_normalize_url: true,
+                breakdown_hide_other_aggregation: true,
+                breakdown_limit: 1,
             }
 
             const result = filtersToQueryNode(filters)
@@ -1045,6 +1047,8 @@ describe('filtersToQueryNode', () => {
                     breakdown: '$current_url',
                     breakdown_type: 'event',
                     breakdown_normalize_url: true,
+                    breakdown_hide_other_aggregation: true,
+                    breakdown_limit: 1,
                 },
                 dateRange: {
                     date_from: '-6m',

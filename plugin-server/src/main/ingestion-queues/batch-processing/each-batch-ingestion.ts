@@ -253,7 +253,7 @@ export async function eachBatchParallelIngestion(
     }
 }
 
-function computeKey(pluginEvent: PipelineEvent): string {
+export function computeKey(pluginEvent: PipelineEvent): string {
     return `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
 }
 

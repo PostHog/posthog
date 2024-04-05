@@ -4,7 +4,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { lowercaseFirstLetter } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -20,7 +19,10 @@ import { payGateMiniLogic } from './payGateMiniLogic'
 export interface PayGateMiniProps {
     feature: AvailableFeature
     currentUsage?: number
-    children: React.ReactNode
+    /**
+     * The content to show when the feature is available. Will show nothing if children is undefined.
+     */
+    children?: React.ReactNode
     overrideShouldShowGate?: boolean
     className?: string
     background?: boolean
@@ -41,7 +43,7 @@ export function PayGateMini({
     background = true,
     isGrandfathered,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, featureAvailableOnOrg, gateVariant } = useValues(
+    const { productWithFeature, featureInfo, featureAvailableOnOrg, gateVariant, isAddonProduct } = useValues(
         payGateMiniLogic({ featureKey: feature, currentUsage })
     )
     const { preflight } = useValues(preflightLogic)
@@ -67,7 +69,9 @@ export function PayGateMini({
         return null // Don't show anything if paid features are explicitly disabled
     }
 
-    return featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' ? (
+    return featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' &&
+        // we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page
+        !isAddonProduct ? (
         gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate ? (
             <div
                 className={clsx(
@@ -108,6 +112,10 @@ export function PayGateMini({
                         <p>
                             {gateVariant === 'move-to-cloud' ? (
                                 <>This feature is only available on PostHog Cloud.</>
+                            ) : isAddonProduct ? (
+                                <>
+                                    Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
+                                </>
                             ) : (
                                 <>
                                     Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
@@ -174,16 +182,22 @@ export function PayGateMini({
                     </p>
                 </div>
             ) : (
-                <p>
-                    {gateVariant === 'move-to-cloud' ? (
-                        <>On PostHog Cloud, you can </>
-                    ) : (
-                        <>
-                            Upgrade your <b>{productWithFeature?.name}</b> plan to{' '}
-                        </>
-                    )}
-                    {featureInfo.description ? lowercaseFirstLetter(featureInfo.description) : 'use this feature.'}
-                </p>
+                <>
+                    <p>{featureInfo.description}</p>
+                    <p>
+                        {gateVariant === 'move-to-cloud' ? (
+                            <>This feature is only available on PostHog Cloud.</>
+                        ) : isAddonProduct ? (
+                            <>
+                                Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
+                            </>
+                        ) : (
+                            <>
+                                Upgrade your <b>{productWithFeature?.name}</b> plan to use this feature.
+                            </>
+                        )}
+                    </p>
+                </>
             )}
             {isGrandfathered && (
                 <div className="flex gap-x-2 bg-side p-4 rounded text-left mb-4">
