@@ -78,5 +78,7 @@ class Heartbeatter:
         if tasks_to_wait:
             await asyncio.wait(tasks_to_wait)
 
+        activity.heartbeat(*self.details)
+
         self.heartbeat_task = None
         self.heartbeat_on_shutdown_task = None
