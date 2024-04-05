@@ -914,9 +914,6 @@ const api = {
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
-        async getCount(actionId: ActionType['id']): Promise<number> {
-            return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
         },
