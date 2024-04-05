@@ -3,6 +3,7 @@ import './CohortField.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
@@ -11,6 +12,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { useMemo } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
+    CohortEventFiltersFieldProps,
     CohortFieldBaseProps,
     CohortNumberFieldProps,
     CohortPersonPropertiesValuesFieldProps,
@@ -19,7 +21,7 @@ import {
     CohortTextFieldProps,
 } from 'scenes/cohorts/CohortFilters/types'
 
-import { PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
 
 let uniqueMemoizedIndex = 0
 
@@ -164,6 +166,50 @@ export function CohortPersonPropertiesValuesField({
             }}
             placeholder="Enter value..."
         />
+    )
+}
+
+export function CohortEventFiltersField({
+    fieldKey,
+    criteria,
+    cohortFilterLogicKey,
+    onChange: _onChange,
+    groupIndex,
+    index,
+}: CohortEventFiltersFieldProps): JSX.Element {
+    const { logic } = useCohortFieldLogic({
+        fieldKey,
+        criteria,
+        cohortFilterLogicKey,
+        onChange: _onChange,
+    })
+    const { value } = useValues(logic)
+    const { onChange } = useActions(logic)
+
+    // console.log('current criteria: ', criteria, value)
+    const valueExists = ((value as AnyPropertyFilter[]) || []).length > 0
+    return (
+        <>
+            {/* {valueExists && <div className="basis-full h-0" />} */}
+            <PropertyFilters
+                propertyFilters={(value as AnyPropertyFilter[]) || []}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ]}
+                onChange={(newValue: AnyPropertyFilter[]) => {
+                    onChange({ [fieldKey]: newValue })
+                }}
+                pageKey={`${fieldKey}-${groupIndex}-${index}`}
+                eventNames={criteria?.key ? [criteria?.key] : []}
+                disablePopover
+                hasRowOperator={valueExists ? true : false}
+                sendAllKeyUpdates
+            />
+        </>
     )
 }
 

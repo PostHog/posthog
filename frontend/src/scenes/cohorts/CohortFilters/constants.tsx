@@ -2,6 +2,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import {
+    CohortEventFiltersField,
     CohortNumberField,
     CohortPersonPropertiesValuesField,
     CohortSelectorField,
@@ -12,6 +13,7 @@ import {
     BehavioralFilterKey,
     BehavioralFilterType,
     CohortClientErrors,
+    CohortEventFiltersFieldProps,
     CohortFieldProps,
     CohortNumberFieldProps,
     CohortPersonPropertiesValuesFieldProps,
@@ -342,6 +344,10 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 hide: true,
             },
             {
+                fieldKey: 'event_filters',
+                type: FilterType.EventFilters,
+            },
+            {
                 type: FilterType.Text,
                 defaultValue: 'in the last',
             },
@@ -568,7 +574,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
-                type: FilterType.EventProperties,
+                type: FilterType.PersonProperties,
             },
             {
                 fieldKey: 'operator',
@@ -588,7 +594,7 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
         fields: [
             {
                 fieldKey: 'key',
-                type: FilterType.EventProperties,
+                type: FilterType.PersonProperties,
             },
             {
                 fieldKey: 'operator',
@@ -877,7 +883,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
             />
         )
     },
-    [FilterType.EventProperties]: function _renderField(p) {
+    [FilterType.PersonProperties]: function _renderField(p) {
         return (
             <CohortTaxonomicField
                 {...(p as CohortTaxonomicFieldProps)}
@@ -885,6 +891,9 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
                 placeholder="Choose person property"
             />
         )
+    },
+    [FilterType.EventFilters]: function _renderField(p) {
+        return <CohortEventFiltersField {...(p as CohortEventFiltersFieldProps)} />
     },
     [FilterType.PersonPropertyValues]: function _renderField(p) {
         return p.criteria['operator'] &&
@@ -926,7 +935,8 @@ export const CRITERIA_VALIDATIONS: Record<
     (d: string | number | null | undefined) => CohortClientErrors | undefined
 > = {
     [FilterType.EventsAndActions]: () => CohortClientErrors.EmptyEventsAndActions,
-    [FilterType.EventProperties]: () => CohortClientErrors.EmptyEventProperties,
+    [FilterType.EventFilters]: () => CohortClientErrors.EmptyEventFilters,
+    [FilterType.PersonProperties]: () => CohortClientErrors.EmptyPersonProperties,
     [FilterType.PersonPropertyValues]: () => CohortClientErrors.EmptyPersonPropertyValues,
     [FilterType.EventType]: () => CohortClientErrors.EmptyEventType,
     [FilterType.Number]: (d) => (Number(d) > 1 ? undefined : CohortClientErrors.EmptyNumber),

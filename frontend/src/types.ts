@@ -1086,6 +1086,7 @@ export interface CohortCriteriaType {
     seq_time_interval?: TimeUnitType | null
     negation?: boolean
     value_property?: string | null // Transformed into 'value' for api calls
+    event_filters?: AnyPropertyFilter[] | null
 }
 
 export type EmptyCohortGroupType = Partial<CohortGroupType>

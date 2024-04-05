@@ -15,6 +15,7 @@ import {
     ActionType,
     AnyCohortCriteriaType,
     AnyCohortGroupType,
+    AnyPropertyFilter,
     BehavioralCohortType,
     BehavioralEventType,
     BehavioralLifecycleType,
@@ -361,7 +362,7 @@ export function determineFilterType(
 export function resolveCohortFieldValue(
     criteria: AnyCohortCriteriaType,
     fieldKey: string
-): string | number | boolean | null | undefined {
+): string | number | boolean | null | undefined | AnyPropertyFilter[] {
     // Resolve correct behavioral filter type
     if (fieldKey === 'value') {
         return criteriaToBehavioralFilterType(criteria)

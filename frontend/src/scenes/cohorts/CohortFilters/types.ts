@@ -21,7 +21,8 @@ export enum FilterType {
     Value = 'value',
     Text = 'text',
     EventsAndActions = 'eventsAndActions',
-    EventProperties = 'eventProperties',
+    EventFilters = 'eventFilters',
+    PersonProperties = 'personProperties',
     PersonPropertyValues = 'personPropertyValues',
     EventType = 'eventType',
     Number = 'number',
@@ -86,6 +87,8 @@ export interface Row {
 
 export interface CohortFieldBaseProps extends Omit<CohortFieldLogicProps, 'cohortFilterLogicKey'> {
     cohortFilterLogicKey?: string
+    groupIndex?: number
+    index?: number
 }
 
 export interface CohortSelectorFieldProps extends CohortFieldBaseProps {
@@ -105,6 +108,10 @@ export interface CohortPersonPropertiesValuesFieldProps extends Omit<CohortField
     operator?: PropertyOperator
 }
 
+export interface CohortEventFiltersFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
+    fieldOptionGroupTypes: never
+}
+
 export interface CohortTextFieldProps extends CohortFieldBaseProps {
     value: string
 }
@@ -119,6 +126,7 @@ export type CohortFieldProps =
     | CohortTaxonomicFieldProps
     | CohortTextFieldProps
     | CohortPersonPropertiesValuesFieldProps
+    | CohortEventFiltersFieldProps
 
 export enum CohortClientErrors {
     NegationCriteriaMissingOther = 'Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.',
@@ -126,7 +134,8 @@ export enum CohortClientErrors {
     PeriodTimeMismatch = 'The lower bound period value must not be greater than the upper bound value.',
     SequentialTimeMismatch = 'The lower bound period sequential time value must not be greater than the upper bound time value.',
     EmptyEventsAndActions = 'Event or action cannot be empty.',
-    EmptyEventProperties = 'Event property cannot be empty.',
+    EmptyEventFilters = 'Event filter cannot be empty.',
+    EmptyPersonProperties = 'Person property name cannot be empty.',
     EmptyPersonPropertyValues = 'Person property value cannot be empty',
     EmptyEventType = 'Event type cannot be empty.',
     EmptyNumber = 'Period values must be at least 1 day and cannot be empty.',
