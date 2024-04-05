@@ -380,6 +380,10 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 hide: true,
             },
             {
+                fieldKey: 'event_filters',
+                type: FilterType.EventFilters,
+            },
+            {
                 type: FilterType.Text,
                 defaultValue: 'in the last',
             },
@@ -410,6 +414,10 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 type: FilterType.EventType,
                 defaultValue: TaxonomicFilterGroupType.Events,
                 hide: true,
+            },
+            {
+                fieldKey: 'event_filters',
+                type: FilterType.EventFilters,
             },
             {
                 fieldKey: 'operator',

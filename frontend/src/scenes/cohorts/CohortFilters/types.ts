@@ -134,7 +134,7 @@ export enum CohortClientErrors {
     PeriodTimeMismatch = 'The lower bound period value must not be greater than the upper bound value.',
     SequentialTimeMismatch = 'The lower bound period sequential time value must not be greater than the upper bound time value.',
     EmptyEventsAndActions = 'Event or action cannot be empty.',
-    EmptyEventFilters = 'Event filter cannot be empty.',
+    EmptyEventFilters = 'Event filters cannot be empty.',
     EmptyPersonProperties = 'Person property name cannot be empty.',
     EmptyPersonPropertyValues = 'Person property value cannot be empty',
     EmptyEventType = 'Event type cannot be empty.',

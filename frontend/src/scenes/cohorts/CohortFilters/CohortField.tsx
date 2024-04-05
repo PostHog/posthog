@@ -9,7 +9,7 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
     CohortEventFiltersFieldProps,
@@ -185,12 +185,31 @@ export function CohortEventFiltersField({
     })
     const { value } = useValues(logic)
     const { onChange } = useActions(logic)
+    const componentRef = useRef<HTMLDivElement>(null)
 
-    // console.log('current criteria: ', criteria, value)
     const valueExists = ((value as AnyPropertyFilter[]) || []).length > 0
+
+    useEffect(() => {
+        // :TRICKY: We check paremt has CohortCriteriaRow__Criteria__Field class and add basis-full class if value exists
+        // We need to do this because of how this list is generated, and we need to add a line-break programatically
+        // when the PropertyFilters take up too much space.
+        // Since the list of children is declared in the parent component, we can't add a class to the parent directly, without
+        // adding a lot of annoying complexity to the parent component.
+        // This is a hacky solution, but it works 🙈.
+
+        // find parent with className CohortCriteriaRow__Criteria__Field and add basis-full class if value exists
+        const parent = componentRef.current?.closest('.CohortCriteriaRow__Criteria__Field')
+        if (parent) {
+            if (valueExists) {
+                parent.classList.add('basis-full')
+            } else {
+                parent.classList.remove('basis-full')
+            }
+        }
+    }, [valueExists])
+
     return (
-        <>
-            {/* {valueExists && <div className="basis-full h-0" />} */}
+        <div ref={componentRef}>
             <PropertyFilters
                 propertyFilters={(value as AnyPropertyFilter[]) || []}
                 taxonomicGroupTypes={[
@@ -209,7 +228,7 @@ export function CohortEventFiltersField({
                 hasRowOperator={valueExists ? true : false}
                 sendAllKeyUpdates
             />
-        </>
+        </div>
     )
 }
 

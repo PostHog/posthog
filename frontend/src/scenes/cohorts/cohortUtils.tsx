@@ -1,5 +1,6 @@
 import equal from 'fast-deep-equal'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
@@ -273,6 +274,13 @@ export function validateGroup(
                 requiredFields = requiredFields.filter((f) => f.fieldKey !== 'value_property')
             }
 
+            // Handle EventFilters separately, since these are optional
+            requiredFields = requiredFields.filter((f) => f.fieldKey !== 'event_filters')
+            const eventFilterError =
+                c?.event_filters && c.event_filters.length > 0 && c.event_filters.some(isEmptyProperty)
+                    ? CohortClientErrors.EmptyEventFilters
+                    : undefined
+
             const criteriaErrors = Object.fromEntries(
                 requiredFields.map(({ fieldKey, type }) => [
                     fieldKey,
@@ -285,13 +293,15 @@ export function validateGroup(
                         : CRITERIA_VALIDATIONS?.[type](c[fieldKey]),
                 ])
             )
-            const consolidatedErrors = Object.values(criteriaErrors)
+
+            const allErrors = { ...criteriaErrors, event_filters: eventFilterError }
+            const consolidatedErrors = Object.values(allErrors)
                 .filter((e) => !!e)
                 .join(' ')
 
             return {
-                ...(areObjectValuesEmpty(criteriaErrors) ? {} : { id: consolidatedErrors }),
-                ...criteriaErrors,
+                ...(areObjectValuesEmpty(allErrors) ? {} : { id: consolidatedErrors }),
+                ...allErrors,
             }
         }),
     }
