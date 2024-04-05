@@ -719,9 +719,7 @@ class _Printer(Visitor):
                     op=op,
                 )
             )
-        elif node.name in HOGQL_AGGREGATIONS:
-            func_meta = HOGQL_AGGREGATIONS[node.name]
-
+        elif func_meta := HOGQL_AGGREGATIONS.get(node.name):
             validate_function_args(
                 node.args,
                 func_meta.min_args,
@@ -853,8 +851,7 @@ class _Printer(Visitor):
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
-        elif node.name in HOGQL_POSTHOG_FUNCTIONS:
-            func_meta = HOGQL_POSTHOG_FUNCTIONS[node.name]
+        elif func_meta := HOGQL_POSTHOG_FUNCTIONS.get(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
 
