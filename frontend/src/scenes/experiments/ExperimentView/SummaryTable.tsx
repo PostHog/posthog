@@ -102,7 +102,7 @@ export function SummaryTable(): JSX.Element {
         title: 'Win probability',
         sorter: (a, b) => {
             const aPercentage =
-                (experimentResults?.probability?.[a.key] != undefined &&
+                const aPercentage = (experimentResults?.probability?.[a.key] || 0)*100
                     experimentResults.probability?.[a.key] * 100) ||
                 0
             const bPercentage =
