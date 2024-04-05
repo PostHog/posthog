@@ -554,49 +554,48 @@ async def wait_for_mutation(inputs: MutationActivityInputs) -> None:
         database=settings.CLICKHOUSE_DATABASE,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
-    async with get_client() as clickhouse_client:
-        prepared_submit_query = clickhouse_client.prepare_query(submit_query, inputs.query_parameters)
-        query_command = parse_mutation_command(prepared_submit_query)
+    async with Heartbeatter():
+        async with get_client() as clickhouse_client:
+            prepared_submit_query = clickhouse_client.prepare_query(submit_query, inputs.query_parameters)
+            query_command = parse_mutation_command(prepared_submit_query)
 
-        try:
-            while True:
-                activity.heartbeat()
+            try:
+                while True:
+                    response = await clickhouse_client.read_query(
+                        MUTATIONS_IN_PROGRESS_IN_CLUSTER.format(
+                            database=settings.CLICKHOUSE_DATABASE,
+                            cluster=settings.CLICKHOUSE_CLUSTER,
+                        ),
+                        query_parameters={"query": query_command, "table": mutation.table},
+                    )
 
-                response = await clickhouse_client.read_query(
-                    MUTATIONS_IN_PROGRESS_IN_CLUSTER.format(
+                    mutations_in_progress, total_mutations = parse_mutation_counts(response)
+
+                    if mutations_in_progress == 0 and total_mutations > 0:
+                        break
+
+                    activity.logger.info("Still waiting for mutatio %s", inputs.name)
+
+                    await asyncio.sleep(5)
+
+            except asyncio.CancelledError:
+                activity.logger.warning(
+                    "Activity has been cancelled, attempting to kill in progress mutation %s",
+                    inputs.name,
+                )
+
+                await clickhouse_client.execute_query(
+                    KILL_MUTATION_IN_PROGRESS_ON_CLUSTER.format(
                         database=settings.CLICKHOUSE_DATABASE,
                         cluster=settings.CLICKHOUSE_CLUSTER,
+                        table=mutation.table,
                     ),
                     query_parameters={"query": query_command, "table": mutation.table},
                 )
+                raise
 
-                mutations_in_progress, total_mutations = parse_mutation_counts(response)
-
-                if mutations_in_progress == 0 and total_mutations > 0:
-                    break
-
-                activity.logger.info("Still waiting for mutatio %s", inputs.name)
-
-                await asyncio.sleep(5)
-
-        except asyncio.CancelledError:
-            activity.logger.warning(
-                "Activity has been cancelled, attempting to kill in progress mutation %s",
-                inputs.name,
-            )
-
-            await clickhouse_client.execute_query(
-                KILL_MUTATION_IN_PROGRESS_ON_CLUSTER.format(
-                    database=settings.CLICKHOUSE_DATABASE,
-                    cluster=settings.CLICKHOUSE_CLUSTER,
-                    table=mutation.table,
-                ),
-                query_parameters={"query": query_command, "table": mutation.table},
-            )
-            raise
-
-        else:
-            activity.logger.info("Mutation finished %s", inputs.name)
+            else:
+                activity.logger.info("Mutation finished %s", inputs.name)
 
 
 async def submit_and_wait_for_mutation(
