@@ -4,6 +4,7 @@
 # - `pip-compile --rebuild requirements.in`
 # - `pip-compile --rebuild requirements-dev.in`
 #
+
 aiohttp>=3.9.0
 aioboto3==12.0.0
 aiokafka>=0.8
