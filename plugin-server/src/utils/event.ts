@@ -120,20 +120,21 @@ export function convertToIngestionEvent(event: RawClickHouseEvent, skipElementsC
 export function normalizeProcessPerson(event: PluginEvent, processPerson: boolean): PluginEvent {
     const properties = event.properties ?? {}
 
-    // $process_person steps:
-    //   1. If person processing is disabled, $set, $set_once and $unset are dropped
-    //   2. Normalize the $process_person property on the event, if true, drop it since true is
-    //      the default. If it was false before plugins ran, ensure it's still set to false.
     if (!processPerson) {
         delete event.$set
         delete event.$set_once
+        // In an abundance of caution and future proofing, we delete the $unset field from the
+        // event if it is set. As of this writing we only *read* $unset out of `properties`, but
+        // we may as well future-proof this code path.
+        delete (event as any)['$unset']
         delete properties.$set
         delete properties.$set_once
         delete properties.$unset
-        properties.$process_person = false
-    } else {
-        delete properties.$process_person
     }
+
+    // We store the `person_mode` column if people want to see how an event was processed after
+    // the fact.
+    delete properties.$process_person
 
     event.properties = properties
     return event
