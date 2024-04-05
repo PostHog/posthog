@@ -166,7 +166,7 @@ describe('sessionRecordingDataLogic', () => {
 
         it('fetch metadata success and snapshots error', async () => {
             silenceKeaLoadersErrors()
-            // Unmount and r    emount the logic to trigger fetching the data again after the mock change
+            // Unmount and remount the logic to trigger fetching the data again after the mock change
             logic.unmount()
             useMocks({
                 get: {
