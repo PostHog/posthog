@@ -4,10 +4,12 @@ import { PopoverProps } from '../Popover/Popover'
 import { LemonButtonWithDropdown } from '.'
 import { LemonButtonProps, LemonButtonWithDropdownProps } from './LemonButton'
 
-export type MoreProps = Partial<Pick<PopoverProps, 'overlay' | 'placement'>> &
+export type MoreProps = Partial<Pick<PopoverProps, 'overlay' | 'placement' | 'onClickOutside'>> &
     LemonButtonProps & {
         'data-attr'?: string
         onClick?: LemonButtonWithDropdownProps['onClick']
+        closeOnClickInside?: boolean
+        dropdownVisible?: boolean
     }
 
 export function More({
@@ -15,6 +17,9 @@ export function More({
     placement = 'bottom-end',
     'data-attr': dataAttr,
     onClick,
+    onClickOutside,
+    closeOnClickInside = true,
+    dropdownVisible = false,
     ...buttonProps
 }: MoreProps): JSX.Element {
     return (
@@ -26,6 +31,9 @@ export function More({
                 placement,
                 actionable: true,
                 overlay,
+                closeOnClickInside,
+                visible: dropdownVisible,
+                onClickOutside: onClickOutside,
             }}
             size="small"
             {...buttonProps}

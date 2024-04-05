@@ -2,7 +2,7 @@ import '../Experiment.scss'
 
 import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -19,6 +19,7 @@ import { ExperimentResults, InsightShortId } from '~/types'
 import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentInsightColour, transformResultFilters } from '../utils'
+import { StartDatePicker } from './StartDatePicker'
 
 export function VariantTag({ variantKey }: { variantKey: string }): JSX.Element {
     const { experimentResults, getIndexForVariant } = useValues(experimentLogic)
@@ -171,7 +172,10 @@ export function PageHeaderCustom(): JSX.Element {
         setEditExperiment,
         loadExperimentResults,
         loadSecondaryMetricResults,
+        loadExperiment,
     } = useActions(experimentLogic)
+    const { updateExperiment } = useAsyncActions(experimentLogic)
+    const [isThreeDotMenuVisible, setIsThreeDotMenuVisible] = useState(false)
 
     return (
         <PageHeader
@@ -191,22 +195,52 @@ export function PageHeaderCustom(): JSX.Element {
                         <div className="flex flex-row gap-2">
                             <>
                                 <More
+                                    closeOnClickInside={false}
+                                    dropdownVisible={isThreeDotMenuVisible}
+                                    onClick={() => setIsThreeDotMenuVisible(!isThreeDotMenuVisible)}
+                                    onClickOutside={(e: Event) => {
+                                        let target: HTMLElement | null = e.target as HTMLElement
+                                        while (target) {
+                                            if (target.id == 'start-date-picker-container') {
+                                                return
+                                            }
+                                            target = target.parentElement
+                                        }
+                                        setIsThreeDotMenuVisible(false)
+                                    }}
                                     overlay={
                                         <>
                                             <LemonButton
-                                                onClick={() => loadExperimentResults(true)}
+                                                onClick={() => {
+                                                    loadExperimentResults(true)
+                                                    setIsThreeDotMenuVisible(false)
+                                                }}
                                                 fullWidth
                                                 data-attr="refresh-experiment"
                                             >
                                                 Refresh experiment results
                                             </LemonButton>
                                             <LemonButton
-                                                onClick={() => loadSecondaryMetricResults(true)}
+                                                onClick={() => {
+                                                    loadSecondaryMetricResults(true)
+                                                    setIsThreeDotMenuVisible(false)
+                                                }}
                                                 fullWidth
                                                 data-attr="refresh-secondary-metrics"
                                             >
                                                 Refresh secondary metrics
                                             </LemonButton>
+                                            <StartDatePicker
+                                                currentStartDate={experiment.start_date!}
+                                                updateStartDate={(newStartDate: string) => {
+                                                    setIsThreeDotMenuVisible(false)
+                                                    updateExperiment({ start_date: newStartDate })
+                                                        .then(() => loadExperiment())
+                                                        .catch((error) =>
+                                                            console.error('error on loading experiment:', error)
+                                                        )
+                                                }}
+                                            />
                                         </>
                                     }
                                 />
