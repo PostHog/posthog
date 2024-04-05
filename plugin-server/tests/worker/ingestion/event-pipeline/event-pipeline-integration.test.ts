@@ -159,7 +159,7 @@ describe('Event Pipeline integration test', () => {
         await ingestEvent(event)
 
         const expectedPayload = {
-            text: '[Test Action](https://example.com/action/69) was triggered by [abc](https://example.com/person/abc)',
+            text: '[Test Action](https://example.com/project/2/action/69) was triggered by [abc](https://example.com/project/2/person/abc)',
         }
 
         expect(fetch).toHaveBeenCalledWith('https://webhook.example.com/', {

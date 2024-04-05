@@ -8,7 +8,8 @@ from dlt.common import pendulum
 from dlt.sources import DltResource
 from pendulum import DateTime
 from asgiref.sync import sync_to_async
-from posthog.temporal.data_imports.pipelines.helpers import check_limit, aupdate_job_count
+from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.data_imports.pipelines.helpers import check_limit
 from posthog.warehouse.models import ExternalDataJob
 
 stripe.api_version = "2022-11-15"
@@ -73,7 +74,13 @@ async def stripe_pagination(
         Iterable[TDataItem]: Data items retrieved from the endpoint.
     """
 
+    logger = await bind_temporal_worker_logger(team_id)
+    logger.info(f"Stripe: getting {endpoint}")
+
     while True:
+        if starting_after is not None:
+            logger.info(f"Stripe: getting {endpoint} after {starting_after}")
+
         count = 0
 
         response = await stripe_get_data(
@@ -95,8 +102,6 @@ async def stripe_pagination(
 
         if not response["has_more"] or status == ExternalDataJob.Status.CANCELLED:
             break
-
-    await aupdate_job_count(job_id, team_id, count)
 
 
 @dlt.source(max_table_nesting=0)

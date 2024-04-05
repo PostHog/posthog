@@ -16,8 +16,6 @@ import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 import { captureIngestionWarning } from './utils'
 
-const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
-
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
     help: 'Number of person merge final failures.',
@@ -82,36 +80,23 @@ const isDistinctIdIllegal = (id: string): boolean => {
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
 export class PersonState {
-    event: PluginEvent
-    distinctId: string
-    teamId: number
-    eventProperties: Properties
-    timestamp: DateTime
-    newUuid: string
-    maxMergeAttempts: number
+    private eventProperties: Properties
+    private newUuid: string
 
-    private db: DB
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
 
     constructor(
-        event: PluginEvent,
-        teamId: number,
-        distinctId: string,
-        timestamp: DateTime,
-        db: DB,
+        private event: PluginEvent,
+        private teamId: number,
+        private distinctId: string,
+        private timestamp: DateTime,
+        private processPerson: boolean, // $process_person flag from the event
+        private db: DB,
         private personOverrideWriter?: DeferredPersonOverrideWriter,
-        uuid: UUIDT | undefined = undefined,
-        maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
+        uuid: UUIDT | undefined = undefined
     ) {
-        this.event = event
-        this.distinctId = distinctId
-        this.teamId = teamId
         this.eventProperties = event.properties!
-        this.timestamp = timestamp
         this.newUuid = (uuid || new UUIDT()).toString()
-        this.maxMergeAttempts = maxMergeAttempts
-
-        this.db = db
 
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
@@ -119,6 +104,21 @@ export class PersonState {
     }
 
     async update(): Promise<Person> {
+        if (!this.processPerson) {
+            // We don't need to handle any properties for `processPerson=false` events, so we can
+            // short circuit by just finding or creating a person and returning early.
+            //
+            // In the future, we won't even get or create a real Person for these events, and so
+            // the `processPerson` boolean can be removed from this class altogether, as this class
+            // shouldn't even need to be invoked.
+            const [person, _] = await this.createOrGetPerson()
+
+            // Ensure person properties don't propagate elsewhere, such as onto the event itself.
+            person.properties = {}
+
+            return person
+        }
+
         const person: Person | undefined = await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
         if (person) {
             // try to shortcut if we have the person from identify or alias
@@ -157,8 +157,13 @@ export class PersonState {
             return [person, false]
         }
 
-        const properties = this.eventProperties['$set'] || {}
-        const propertiesOnce = this.eventProperties['$set_once'] || {}
+        let properties = {}
+        let propertiesOnce = {}
+        if (this.processPerson) {
+            properties = this.eventProperties['$set']
+            propertiesOnce = this.eventProperties['$set_once']
+        }
+
         person = await this.createPerson(
             this.timestamp,
             properties || {},

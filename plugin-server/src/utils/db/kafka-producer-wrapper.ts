@@ -1,8 +1,8 @@
 import { Message, ProducerRecord } from 'kafkajs'
-import { HighLevelProducer, LibrdKafkaError, MessageHeader, MessageKey, MessageValue } from 'node-rdkafka'
+import { HighLevelProducer, LibrdKafkaError, MessageHeader, MessageValue } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { disconnectProducer, flushProducer, produce } from '../../kafka/producer'
+import { disconnectProducer, flushProducer, MessageKey, produce } from '../../kafka/producer'
 import { status } from '../../utils/status'
 import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
 

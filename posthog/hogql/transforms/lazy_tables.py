@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, cast, Literal
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoin, LazyTable
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -94,7 +94,7 @@ class LazyTableResolver(TraversingVisitor):
             else:
                 # Place the property in a list for processing in "visit_select_query"
                 if len(self.stack_of_fields) == 0:
-                    raise HogQLException("Can't access a lazy field when not in a SelectQuery context")
+                    raise ResolutionError("Can't access a lazy field when not in a SelectQuery context")
                 self.stack_of_fields[-1].append(node)
 
     def visit_field_type(self, node: ast.FieldType):
@@ -106,13 +106,13 @@ class LazyTableResolver(TraversingVisitor):
         if isinstance(table_type, ast.LazyJoinType) or isinstance(table_type, ast.LazyTableType):
             # Each time we find a field, we place it in a list for processing in "visit_select_query"
             if len(self.stack_of_fields) == 0:
-                raise HogQLException("Can't access a lazy field when not in a SelectQuery context")
+                raise ResolutionError("Can't access a lazy field when not in a SelectQuery context")
             self.stack_of_fields[-1].append(node)
 
     def visit_select_query(self, node: ast.SelectQuery):
         select_type = node.type
         if not select_type:
-            raise HogQLException("Select query must have a type")
+            raise ResolutionError("Select query must have a type")
 
         assert node.type is not None
         assert select_type is not None
@@ -170,7 +170,7 @@ class LazyTableResolver(TraversingVisitor):
                 property = field_or_property
                 field = property.field_type
             else:
-                raise HogQLException("Should not be reachable")
+                raise ResolutionError("Should not be reachable")
             table_type = field.table_type
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
@@ -382,7 +382,7 @@ class LazyTableResolver(TraversingVisitor):
             elif isinstance(field_or_property, ast.PropertyType):
                 table_type = field_or_property.field_type.table_type
             else:
-                raise HogQLException("Should not be reachable")
+                raise ResolutionError("Should not be reachable")
 
             table_name = get_long_table_name(select_type, table_type)
             table_type = select_type.tables[table_name]

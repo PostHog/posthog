@@ -30,23 +30,23 @@ export const insightsModel = kea<insightsModelType>([
         renameInsight: async ({ item }) => {
             LemonDialog.openForm({
                 title: 'Rename insight',
-                initialValues: { name: item.name },
+                initialValues: { insightName: item.name },
                 content: (
-                    <LemonField name="name">
+                    <LemonField name="insightName">
                         <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
                     </LemonField>
                 ),
                 errors: {
-                    name: (name) => (!name ? 'You must enter a name' : undefined),
+                    insightName: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ name }) => {
+                onSubmit: async ({ insightName }) => {
                     const updatedItem = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
-                        { name }
+                        { name: insightName }
                     )
                     lemonToast.success(
                         <>
-                            Renamed insight from <b>{item.name}</b> to <b>{name}</b>
+                            Renamed insight from <b>{item.name}</b> to <b>{insightName}</b>
                         </>
                     )
                     actions.renameInsightSuccess(updatedItem)
