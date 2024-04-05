@@ -95,7 +95,7 @@ describe('PersonState.update()', () => {
         await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
 
-    function personState(event: Partial<PluginEvent>, customHub?: Hub, maxMergeAttempts?: number) {
+    function personState(event: Partial<PluginEvent>, customHub?: Hub, processPerson = true) {
         const fullEvent = {
             team_id: teamId,
             properties: {},
@@ -107,10 +107,10 @@ describe('PersonState.update()', () => {
             teamId,
             event.distinct_id!,
             timestamp,
+            processPerson,
             customHub ? customHub.db : hub.db,
             overridesMode?.getWriter(customHub ?? hub),
-            uuid,
-            maxMergeAttempts ?? 3 // the default
+            uuid
         )
     }
 
@@ -171,6 +171,103 @@ describe('PersonState.update()', () => {
             // verify Postgres distinct_ids
             const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
+        })
+
+        it('creates person if they are new and $process_person=false', async () => {
+            // Note that eventually $process_person=false will be optimized so that the person is
+            // *not* created here.
+            const event_uuid = new UUIDT().toString()
+            const processPerson = false
+            const person = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: 'new-user',
+                    uuid: event_uuid,
+                    properties: { $process_person: false, $set: { a: 1 }, $set_once: { b: 2 } },
+                },
+                hub,
+                processPerson
+            ).update()
+            await hub.db.kafkaProducer.flush()
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: uuid.toString(),
+                    properties: {},
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: false,
+                })
+            )
+
+            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+            expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            // For parity with existing functionality, the Person created in the DB actually gets
+            // the $creator_event_uuid property. When we stop creating person rows this won't matter.
+            expect(persons[0]).toEqual({ ...person, properties: { $creator_event_uuid: event_uuid } })
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
+        })
+
+        it('does not attach existing person properties to $process_person=false events', async () => {
+            const originalEventUuid = new UUIDT().toString()
+            const person = await personState({
+                event: '$pageview',
+                distinct_id: 'new-user',
+                uuid: originalEventUuid,
+                properties: { $set: { c: 420 } },
+            }).update()
+            await hub.db.kafkaProducer.flush()
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: uuid.toString(),
+                    properties: { $creator_event_uuid: originalEventUuid, c: 420 },
+                    created_at: timestamp,
+                    version: 0,
+                    is_identified: false,
+                })
+            )
+
+            // verify Postgres persons
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(person)
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
+
+            // OK, a person now exists with { c: 420 }, let's prove the properties come back out
+            // of the DB.
+            const personVerifyProps = await personState({
+                event: '$pageview',
+                distinct_id: 'new-user',
+                uuid: new UUIDT().toString(),
+                properties: {},
+            }).update()
+            expect(personVerifyProps.properties).toEqual({ $creator_event_uuid: originalEventUuid, c: 420 })
+
+            // But they don't when $process_person=false
+            const processPersonFalseResult = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: 'new-user',
+                    uuid: new UUIDT().toString(),
+                    properties: {},
+                },
+                hub,
+                false
+            ).update()
+            expect(processPersonFalseResult.properties).toEqual({})
         })
 
         it('handles person being created in a race condition', async () => {
@@ -1907,8 +2004,7 @@ describe('PersonState.update()', () => {
                                 alias: 'second',
                             },
                         },
-                        hub,
-                        0
+                        hub
                     ).handleIdentifyOrAlias(),
                     personState(
                         {
@@ -1918,8 +2014,7 @@ describe('PersonState.update()', () => {
                                 alias: 'third',
                             },
                         },
-                        hub,
-                        0
+                        hub
                     ).handleIdentifyOrAlias(),
                 ])
 
@@ -1934,8 +2029,7 @@ describe('PersonState.update()', () => {
                                 alias: 'second',
                             },
                         },
-                        hub,
-                        0
+                        hub
                     ).handleIdentifyOrAlias(),
                     personState(
                         {
@@ -1945,8 +2039,7 @@ describe('PersonState.update()', () => {
                                 alias: 'third',
                             },
                         },
-                        hub,
-                        0
+                        hub
                     ).handleIdentifyOrAlias(),
                 ])
 
@@ -2026,8 +2119,7 @@ describe('PersonState.update()', () => {
                             alias: 'third',
                         },
                     },
-                    hub,
-                    0
+                    hub
                 ).handleIdentifyOrAlias()
 
                 await personState(
@@ -2038,8 +2130,7 @@ describe('PersonState.update()', () => {
                             alias: 'second',
                         },
                     },
-                    hub,
-                    0
+                    hub
                 ).handleIdentifyOrAlias()
 
                 // verify Postgres persons

@@ -29,6 +29,7 @@ from posthog.schema import (
     FunnelVizType,
 )
 from posthog.types import InsightQueryNode
+from posthog.utils import str_to_bool
 
 
 class MathAvailability(str, Enum):
@@ -140,7 +141,11 @@ INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "
 
 
 def _date_range(filter: Dict):
-    date_range = DateRange(date_from=filter.get("date_from"), date_to=filter.get("date_to"))
+    date_range = DateRange(
+        date_from=filter.get("date_from"),
+        date_to=filter.get("date_to"),
+        explicitDate=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,
+    )
 
     if len(date_range.model_dump(exclude_defaults=True)) == 0:
         return {}
