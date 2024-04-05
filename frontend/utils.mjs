@@ -458,7 +458,7 @@ export function startServer(opts = {}) {
         request.on('close', () => clients.delete(response))
     })
     app.get('*', async (req, res) => {
-        if (req.url.startsWith('/static/')) {
+        if (req.url !== '/') {
             if (ifPaused) {
                 if (!ifPaused.logged) {
                     console.log('⌛️ Waiting for build to complete...')

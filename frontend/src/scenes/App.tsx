@@ -7,7 +7,6 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Slide, ToastContainer } from 'react-toastify'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { appScenes } from 'scenes/appScenes'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
@@ -49,6 +48,7 @@ export const appLogic = kea<appLogicType>([
                 preflightLogic.selectors.preflight,
             ],
             (userLoading, user, receivedFeatureFlags, featureFlagsTimedOut, preflightLoading, preflight) => {
+                return true
                 return (
                     (!userLoading || user) &&
                     (receivedFeatureFlags || featureFlagsTimedOut) &&
@@ -71,7 +71,6 @@ export const appLogic = kea<appLogicType>([
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
-    useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(apiStatusLogic)
     useThemedHtml()
 

@@ -210,7 +210,7 @@ class ApiRequest {
     }
 
     public assembleFullUrl(includeLeadingSlash = false): string {
-        return (includeLeadingSlash ? '/api/' : 'api/') + this.assembleEndpointUrl()
+        return 'http://localhost:8000/' + (includeLeadingSlash ? '/api/' : 'api/') + this.assembleEndpointUrl()
     }
 
     // Generic endpoint composition
@@ -2147,7 +2147,10 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                    'Access-Control-Allow-Origin': 'http://localhost:8000',
                 },
+                mode: 'no-cors',
+                credentials: 'include',
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
                 signal: options?.signal,
             })

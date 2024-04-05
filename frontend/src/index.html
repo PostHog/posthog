@@ -2,6 +2,9 @@
 <html lang="en">
     <head>
         {% include "head.html" %}
+        <script id='posthog-app-user-preload'>
+            window.JS_URL = 'http://localhost:8234'
+        </script>
     </head>
     <body>
         {% include "overlays.html" %}

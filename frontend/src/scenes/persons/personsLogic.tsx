@@ -360,6 +360,9 @@ export const personsLogic = kea<personsLogicType>([
         navigateToCohort: ({ cohort }) => {
             router.actions.push(urls.cohort(cohort.id))
         },
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            actions.loadPersons()
+        },
     })),
     actionToUrl(({ values, props }) => ({
         setListFilters: () => {
@@ -430,12 +433,16 @@ export const personsLogic = kea<personsLogicType>([
         afterMount: () => {
             if (props.cohort && typeof props.cohort === 'number') {
                 actions.setListFilters({ cohort: props.cohort })
-                actions.loadPersons()
+                if (teamLogic.values.currentTeam) {
+                    actions.loadPersons()
+                }
             }
 
             if (props.fixedProperties) {
                 actions.setHiddenListProperties(props.fixedProperties)
-                actions.loadPersons()
+                if (teamLogic.values.currentTeam) {
+                    actions.loadPersons()
+                }
             }
         },
     })),

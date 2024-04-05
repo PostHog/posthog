@@ -60,7 +60,7 @@ INSTALLED_APPS = [
     "posthog.apps.PostHogConfig",
     "rest_framework",
     "loginas",
-    "corsheaders",
+    # "corsheaders",
     "social_django",
     "django_filters",
     "axes",
