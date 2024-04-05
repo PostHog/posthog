@@ -2,7 +2,7 @@ from typing import List
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr
 
@@ -22,7 +22,7 @@ def cohort_query_node(node: ast.Expr, context: HogQLContext) -> ast.Expr:
 def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.Expr:
     arg = args[0]
     if not isinstance(arg, ast.Constant):
-        raise HogQLException("cohort() takes only constant arguments", node=arg)
+        raise QueryError("cohort() takes only constant arguments", node=arg)
 
     from posthog.models import Cohort
 
@@ -38,7 +38,7 @@ def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.E
                 fix=escape_clickhouse_string(cohorts[0][2]),
             )
             return cohort_subquery(cohorts[0][0], cohorts[0][1])
-        raise HogQLException(f"Could not find cohort with id {arg.value}", node=arg)
+        raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
     if isinstance(arg.value, str):
         cohorts = Cohort.objects.filter(name=arg.value, team_id=context.team_id).values_list("id", "is_static")
@@ -51,7 +51,7 @@ def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.E
             )
             return cohort_subquery(cohorts[0][0], cohorts[0][1])
         elif len(cohorts) > 1:
-            raise HogQLException(f"Found multiple cohorts with name '{arg.value}'", node=arg)
-        raise HogQLException(f"Could not find a cohort with the name '{arg.value}'", node=arg)
+            raise QueryError(f"Found multiple cohorts with name '{arg.value}'", node=arg)
+        raise QueryError(f"Could not find a cohort with the name '{arg.value}'", node=arg)
 
-    raise HogQLException("cohort() takes exactly one string or integer argument", node=arg)
+    raise QueryError("cohort() takes exactly one string or integer argument", node=arg)

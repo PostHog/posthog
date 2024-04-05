@@ -7,7 +7,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import BaseHogQLError
 from posthog.models.signals import mutable_receiver
 from posthog.redis import get_client
 
@@ -67,7 +67,7 @@ class Action(models.Model):
                 self.bytecode = new_bytecode
                 self.bytecode_error = None
                 self.save(update_fields=["bytecode", "bytecode_error"])
-        except HogQLException as e:
+        except BaseHogQLError as e:
             # There are several known cases when bytecode generation can fail. Instead of spamming
             # Sentry with errors, ignore those cases for now.
             if self.bytecode is not None or self.bytecode_error != str(e):
