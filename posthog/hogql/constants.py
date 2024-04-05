@@ -4,8 +4,6 @@ from typing import Optional, Literal, TypeAlias, Tuple, List
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
 
-from posthog.hogql.errors import HogQLException
-
 ConstantDataType: TypeAlias = Literal[
     "int",
     "float",
@@ -52,7 +50,7 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
     else:
-        raise HogQLException(f"Unexpected LimitContext value: {limit_context}")
+        raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
 
 def get_default_limit_for_context(limit_context: LimitContext) -> int:
@@ -64,7 +62,7 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
     else:
-        raise HogQLException(f"Unexpected LimitContext value: {limit_context}")
+        raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
 
 # Settings applied at the SELECT level

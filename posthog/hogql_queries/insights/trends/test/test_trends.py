@@ -745,15 +745,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
+        self.assertEqual(response[0]["label"], "value")
         self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
         self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
 
-        self.assertEqual(response[1]["label"], "value")
-        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+        self.assertEqual(response[1]["label"], "other_value")
+        self.assertEqual(response[1]["labels"][4], "1-Jan-2020")
+        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
 
-        self.assertEqual(response[2]["label"], "other_value")
-        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+        self.assertEqual(response[2]["label"], "$$_posthog_breakdown_null_$$")
+        self.assertEqual(response[2]["labels"][4], "1-Jan-2020")
+        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -1617,8 +1619,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # value2 has: 10 seconds, 15 seconds (aggregated by session, so 15 is not double counted)
         # empty has: 1 seconds
         self.assertEqual(
-            sorted([resp["breakdown_value"] for resp in daily_response]),
-            sorted(["value1", "value2", "$$_posthog_breakdown_null_$$"]),
+            [resp["breakdown_value"] for resp in daily_response],
+            ["value1", "value2", "$$_posthog_breakdown_null_$$"],
         )
         self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), sorted([12.5, 10, 1]))
 
@@ -4915,14 +4917,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "sign up - $$_posthog_breakdown_null_$$")
-        self.assertEqual(response[1]["label"], "sign up - value")
-        self.assertEqual(response[2]["label"], "sign up - other_value")
+        self.assertEqual(response[0]["label"], "sign up - value")
+        self.assertEqual(response[1]["label"], "sign up - other_value")
+        self.assertEqual(response[2]["label"], "sign up - $$_posthog_breakdown_null_$$")
         self.assertEqual(response[3]["label"], "no events - $$_posthog_breakdown_null_$$")
 
         self.assertEqual(sum(response[0]["data"]), 2)
-        self.assertEqual(sum(response[1]["data"]), 2)
-        self.assertEqual(sum(response[2]["data"]), 1)
+        self.assertEqual(sum(response[1]["data"]), 1)
+        self.assertEqual(sum(response[2]["data"]), 2)
         self.assertEqual(sum(response[3]["data"]), 1)
 
     @also_test_with_materialized_columns(person_properties=["email"])
@@ -4976,9 +4978,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
-        self.assertEqual(response[1]["label"], "test@gmail.com")
-        self.assertEqual(response[2]["label"], "test@posthog.com")
+        self.assertEqual(response[0]["label"], "test@gmail.com")
+        self.assertEqual(response[1]["label"], "test@posthog.com")
+        self.assertEqual(response[2]["label"], "$$_posthog_breakdown_null_$$")
 
         self.assertEqual(response[0]["count"], 1)
         self.assertEqual(response[1]["count"], 1)
@@ -5034,9 +5036,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["label"], "$$_posthog_breakdown_null_$$")
-        self.assertEqual(response[1]["label"], "test@gmail.com")
-        self.assertEqual(response[2]["label"], "test@posthog.com")
+        self.assertEqual(response[0]["label"], "test@gmail.com")
+        self.assertEqual(response[1]["label"], "test@posthog.com")
+        self.assertEqual(response[2]["label"], "$$_posthog_breakdown_null_$$")
 
         self.assertEqual(response[0]["count"], 1)
         self.assertEqual(response[1]["count"], 1)
@@ -5320,14 +5322,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(event_response[1]["label"], "other_value")
-        self.assertEqual(event_response[2]["label"], "value")
+        self.assertEqual(event_response[0]["label"], "other_value")
+        self.assertEqual(event_response[1]["label"], "value")
+        self.assertEqual(event_response[2]["label"], "$$_posthog_breakdown_null_$$")
+
+        self.assertEqual(sum(event_response[0]["data"]), 1)
+        self.assertEqual(event_response[0]["data"][5], 1)
 
         self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][5], 1)
-
-        self.assertEqual(sum(event_response[2]["data"]), 1)
-        self.assertEqual(event_response[2]["data"][4], 1)  # property not defined
+        self.assertEqual(event_response[1]["data"][4], 1)  # property not defined
 
         self.assertEntityResponseEqual(action_response, event_response)
 
@@ -5365,14 +5368,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(event_response[1]["label"], "other_value")
-        self.assertEqual(event_response[2]["label"], "value")
+        self.assertEqual(event_response[0]["label"], "other_value")
+        self.assertEqual(event_response[1]["label"], "value")
+        self.assertEqual(event_response[2]["label"], "$$_posthog_breakdown_null_$$")
+
+        self.assertEqual(sum(event_response[0]["data"]), 1)
+        self.assertEqual(event_response[0]["data"][5], 1)
 
         self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][5], 1)
-
-        self.assertEqual(sum(event_response[2]["data"]), 1)
-        self.assertEqual(event_response[2]["data"][4], 1)  # property not defined
+        self.assertEqual(event_response[1]["data"][4], 1)  # property not defined
 
         self.assertEntityResponseEqual(action_response, event_response)
 
@@ -5562,7 +5566,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(action_response[0]["count"], 2)
+        self.assertEqual(action_response[0]["breakdown_value"], "other_value")
+        self.assertEqual(action_response[0]["count"], 1)
 
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     def test_breakdown_user_props_with_filter(self):

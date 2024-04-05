@@ -178,6 +178,10 @@ class DateRange(BaseModel):
     )
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    explicitDate: Optional[bool] = Field(
+        default=None,
+        description="Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+    )
 
 
 class DatetimeDay(RootModel[AwareDatetime]):
@@ -2568,6 +2572,7 @@ class FilterType(BaseModel):
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
     breakdown_hide_other_aggregation: Optional[bool] = None
+    breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None

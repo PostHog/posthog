@@ -23,7 +23,9 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import (
+    BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
@@ -245,9 +247,9 @@ class TrendsQueryRunner(QueryRunner):
                     label = cohort_name
                     value = value
                 elif value == BREAKDOWN_OTHER_STRING_LABEL:
-                    label = "Other (Groups all remaining values)"
+                    label = BREAKDOWN_OTHER_DISPLAY
                 elif value == BREAKDOWN_NULL_STRING_LABEL:
-                    label = "None (No value)"
+                    label = BREAKDOWN_NULL_DISPLAY
                 elif is_boolean_breakdown:
                     label = self._convert_boolean(value)
                 else:
