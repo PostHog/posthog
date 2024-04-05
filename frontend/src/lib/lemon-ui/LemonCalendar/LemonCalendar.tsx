@@ -18,6 +18,8 @@ export interface LemonCalendarProps {
     onLeftmostMonthChanged?: (date: dayjs.Dayjs) => void
     /** Use custom LemonButton properties for each date */
     getLemonButtonProps?: (opts: GetLemonButtonPropsOpts) => LemonButtonProps
+    /** Use custom LemonButton properties for each date */
+    getLemonButtonTimeProps?: (opts: GetLemonButtonTimePropsOpts) => LemonButtonProps
     /** Number of months */
     months?: number
     /** 0 or unset for Sunday, 1 for Monday. */
@@ -31,6 +33,10 @@ export interface GetLemonButtonPropsOpts {
     props: LemonButtonProps
     dayIndex: number
     weekIndex: number
+}
+export interface GetLemonButtonTimePropsOpts {
+    unit: 'hh' | 'mm' | 'a'
+    value: number | string
 }
 
 const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
@@ -150,18 +156,35 @@ export function LemonCalendar({ showTime = false, ...props }: LemonCalendarProps
             {showTime && (
                 <div className="LemonCalendar__time flex">
                     <div className="px-2 overflow-y-auto border-x">
-                        {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hour) => (
-                            <LemonButton key={hour}>{String(hour).padStart(2, '0')}</LemonButton>
-                        ))}
+                        {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hour) => {
+                            const buttonProps = props.getLemonButtonTimeProps?.({
+                                unit: 'hh',
+                                value: hour,
+                            })
+
+                            return (
+                                <LemonButton key={hour} {...buttonProps}>
+                                    {String(hour).padStart(2, '0')}
+                                </LemonButton>
+                            )
+                        })}
                     </div>
                     <div className="px-2 overflow-y-auto border-r">
-                        {range(0, 60).map((minute) => (
-                            <LemonButton key={minute}>{String(minute).padStart(2, '0')}</LemonButton>
-                        ))}
+                        {range(0, 60).map((minute) => {
+                            const buttonProps = props.getLemonButtonTimeProps?.({
+                                unit: 'mm',
+                                value: minute,
+                            })
+                            return (
+                                <LemonButton key={minute} {...buttonProps}>
+                                    {String(minute).padStart(2, '0')}
+                                </LemonButton>
+                            )
+                        })}
                     </div>
                     <div className="pl-2">
-                        <LemonButton>AM</LemonButton>
-                        <LemonButton>PM</LemonButton>
+                        <LemonButton {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'am' })}>AM</LemonButton>
+                        <LemonButton {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'pm' })}>PM</LemonButton>
                     </div>
                 </div>
             )}

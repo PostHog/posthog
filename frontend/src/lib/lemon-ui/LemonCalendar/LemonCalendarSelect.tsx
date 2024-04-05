@@ -42,6 +42,11 @@ export function LemonCalendarSelect({
                         }
                         return props
                     }}
+                    getLemonButtonTimeProps={({ value, unit }) => {
+                        const selected = selectValue ? selectValue.format(unit) : null
+                        debugger
+                        return { active: selected === value }
+                    }}
                     showTime={showTime}
                 />
             </div>
