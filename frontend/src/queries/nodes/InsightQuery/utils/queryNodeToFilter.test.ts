@@ -65,6 +65,12 @@ describe('queryNodeToFilter', () => {
         const query: TrendsQuery = {
             kind: NodeKind.TrendsQuery,
             series: [],
+            breakdownFilter: {
+                breakdown: '$browser',
+                breakdown_hide_other_aggregation: true,
+                breakdown_limit: 1,
+                breakdown_type: 'event',
+            },
             trendsFilter: {
                 smoothingIntervals: 3,
                 compare: true,
@@ -98,6 +104,10 @@ describe('queryNodeToFilter', () => {
             aggregation_axis_format: 'numeric',
             aggregation_axis_prefix: 'M',
             aggregation_axis_postfix: '$',
+            breakdown: '$browser',
+            breakdown_hide_other_aggregation: true,
+            breakdown_limit: 1,
+            breakdown_type: 'event',
             show_labels_on_series: true,
             show_percent_stack_view: true,
             show_legend: true,
