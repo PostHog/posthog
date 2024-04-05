@@ -117,7 +117,7 @@ def _cached_response_to_insight_result(response: dict) -> "InsightResult":
 
     # use only the keys of the response that are also present in the result
     result = InsightResult(
-        **{result_key: response[response_key] for result_key, response_key in zip(result_keys, response_keys)}
+        **{result_key: response.get(response_key) for result_key, response_key in zip(result_keys, response_keys)}
     )
     return result
 

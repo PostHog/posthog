@@ -520,9 +520,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         from posthog.caching.calculate_results import calculate_for_query_based_insight
 
         if insight.query:
-            return calculate_for_query_based_insight(
-                insight, refresh_requested=refresh_requested_by_client(self.context["request"])
-            )
+            try:
+                return calculate_for_query_based_insight(
+                    insight, refresh_requested=refresh_requested_by_client(self.context["request"])
+                )
+            except ExposedHogQLError as e:
+                raise ValidationError(str(e))
 
         if hogql_insights_enabled(
             self.context["request"].user, insight.filters.get("insight", schema.InsightType.TRENDS)
@@ -535,6 +538,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 return calculate_for_query_based_insight(
                     insight, refresh_requested=refresh_requested_by_client(self.context["request"])
                 )
+            except ExposedHogQLError as e:
+                raise ValidationError(str(e))
             finally:
                 insight.query = None
 
