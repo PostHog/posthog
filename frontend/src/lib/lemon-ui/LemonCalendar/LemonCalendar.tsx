@@ -22,6 +22,8 @@ export interface LemonCalendarProps {
     months?: number
     /** 0 or unset for Sunday, 1 for Monday. */
     weekStartDay?: number
+    /** Show a time picker */
+    showTime?: boolean
 }
 
 export interface GetLemonButtonPropsOpts {
@@ -33,7 +35,7 @@ export interface GetLemonButtonPropsOpts {
 
 const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
 
-export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
+export function LemonCalendar({ showTime = false, ...props }: LemonCalendarProps): JSX.Element {
     const { weekStartDay: teamWeekStartDay } = useValues(teamLogic)
 
     const months = Math.max(props.months ?? 1, 1)
@@ -145,6 +147,24 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                     </table>
                 )
             })}
+            {showTime && (
+                <div className="LemonCalendar__time flex">
+                    <div className="px-2 overflow-y-auto border-x">
+                        {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hour) => (
+                            <LemonButton key={hour}>{String(hour).padStart(2, '0')}</LemonButton>
+                        ))}
+                    </div>
+                    <div className="px-2 overflow-y-auto border-r">
+                        {range(0, 60).map((minute) => (
+                            <LemonButton key={minute}>{String(minute).padStart(2, '0')}</LemonButton>
+                        ))}
+                    </div>
+                    <div className="pl-2">
+                        <LemonButton>AM</LemonButton>
+                        <LemonButton>PM</LemonButton>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

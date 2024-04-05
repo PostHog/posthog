@@ -11,9 +11,16 @@ export interface LemonCalendarSelectProps {
     onChange: (date: dayjs.Dayjs) => void
     months?: number
     onClose?: () => void
+    showTime?: boolean
 }
 
-export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonCalendarSelectProps): JSX.Element {
+export function LemonCalendarSelect({
+    value,
+    onChange,
+    months,
+    onClose,
+    showTime,
+}: LemonCalendarSelectProps): JSX.Element {
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf('day') : null)
 
     return (
@@ -35,6 +42,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
                         }
                         return props
                     }}
+                    showTime={showTime}
                 />
             </div>
             <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">

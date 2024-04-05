@@ -1,5 +1,6 @@
 import {
     LemonButton,
+    LemonCalendarSelectInput,
     LemonCheckbox,
     LemonDivider,
     LemonSelect,
@@ -173,6 +174,13 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         showSecond={false}
                         format={DAYJS_FORMAT}
                         showNow={false}
+                    />
+                    <div>Test</div>
+                    <LemonCalendarSelectInput
+                        value={scheduleDateMarker}
+                        onChange={(value) => setScheduleDateMarker(value)}
+                        placeholder="Select date"
+                        showTime
                     />
                 </div>
             </div>

@@ -51,7 +51,7 @@ interface LemonInputPropsBase
 }
 
 export interface LemonInputPropsText extends LemonInputPropsBase {
-    type?: 'text' | 'email' | 'search' | 'url' | 'password'
+    type?: 'text' | 'email' | 'search' | 'url' | 'password' | 'time'
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
