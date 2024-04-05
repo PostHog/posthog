@@ -18,8 +18,8 @@ export function More({
     'data-attr': dataAttr,
     onClick,
     onClickOutside,
-    closeOnClickInside = true,
-    dropdownVisible = false,
+    closeOnClickInside,
+    dropdownVisible,
     ...buttonProps
 }: MoreProps): JSX.Element {
     return (
