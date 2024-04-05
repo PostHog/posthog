@@ -218,9 +218,7 @@ export async function eachBatchParallelIngestion(
                 op: 'emitToOverflow',
                 data: { eventCount: splitBatch.toOverflow.length },
             })
-            processingPromises.push(
-                emitToOverflow(queue, splitBatch.toOverflow, overflowMode === IngestionOverflowMode.RerouteRandomly)
-            )
+            processingPromises.push(emitToOverflow(queue, splitBatch.toOverflow, overflowMode))
             overflowSpan.finish()
         }
 
@@ -260,8 +258,9 @@ export function computeKey(pluginEvent: PipelineEvent): string {
     return `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
 }
 
-async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[], useRandomPartitioner: boolean) {
+async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[], overflowMode: IngestionOverflowMode) {
     ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
+    const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.produce({
@@ -270,7 +269,7 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
                 // ``message.key`` should not be undefined here, but in the
                 // (extremely) unlikely event that it is, set it to ``null``
                 // instead as that behavior is safer.
-                key: useRandomPartitioner ? null : message.key ?? null,
+                key: useRandomPartitioning ? null : message.key ?? null,
                 headers: message.headers,
                 waitForAck: true,
             })
