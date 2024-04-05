@@ -56,7 +56,7 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, PersonPropertiesSource, PersonsOnEventsMode
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -207,9 +207,7 @@ def create_hogql_database(
         # TODO: this should be able to avoid the join if all we're referencing is ``person.id``
         database.events.fields["person"] = FieldTraverser(chain=["_override", "person"])
 
-    use_person_properties_from_event = True  # TODO: make dynamic via modifier
-    if use_person_properties_from_event:
-        # person.* from what was written at ingestion time by default (potentially stale)
+    if modifiers.personPropertiesSource == PersonPropertiesSource.event:
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(

@@ -415,6 +415,11 @@ class MaterializationMode(str, Enum):
     disabled = "disabled"
 
 
+class PersonPropertiesSource(str, Enum):
+    person = "person"
+    event = "event"
+
+
 class PersonsArgMaxVersion(str, Enum):
     auto = "auto"
     v1 = "v1"
@@ -436,6 +441,7 @@ class HogQLQueryModifiers(BaseModel):
     dataWarehouseEventsModifiers: Optional[List[DataWarehouseEventsModifier]] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
+    personPropertiesSource: Optional[PersonPropertiesSource] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
 

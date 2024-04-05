@@ -64,7 +64,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                 </div>
                 <div className="flex gap-2">
                     <LemonLabel>
-                        POE:
+                        POE Overrides Source:
                         <LemonSelect
                             options={[
                                 { value: 'disabled', label: 'Disabled' },
@@ -80,6 +80,24 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                                 } as HogQLQuery)
                             }
                             value={query.modifiers?.personsOnEventsMode ?? response?.modifiers?.personsOnEventsMode}
+                        />
+                    </LemonLabel>
+                    <LemonLabel>
+                        POE Properties Source:
+                        <LemonSelect
+                            options={[
+                                { value: 'event', label: 'Event' },
+                                { value: 'person', label: 'Person' },
+                            ]}
+                            onChange={(value) =>
+                                setQuery({
+                                    ...query,
+                                    modifiers: { ...query.modifiers, personPropertiesSource: value },
+                                } as HogQLQuery)
+                            }
+                            value={
+                                query.modifiers?.personPropertiesSource ?? response?.modifiers?.personPropertiesSource
+                            }
                         />
                     </LemonLabel>
                     <LemonLabel>

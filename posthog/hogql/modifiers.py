@@ -4,6 +4,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     InCohortVia,
     MaterializationMode,
+    PersonPropertiesSource,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
 )
@@ -25,6 +26,13 @@ def create_default_modifiers_for_team(
             modifiers.personsOnEventsMode = PersonsOnEventsMode.v3_enabled
         else:
             modifiers.personsOnEventsMode = team.person_on_events_mode
+
+    if modifiers.personPropertiesSource is None:
+        modifiers.personPropertiesSource = (
+            PersonPropertiesSource.person
+            if modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled
+            else PersonPropertiesSource.event
+        )
 
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.auto
