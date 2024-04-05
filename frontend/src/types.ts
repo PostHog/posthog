@@ -3010,6 +3010,8 @@ export interface AppContext {
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
     year_in_hog_url?: string
+    /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
+    suggested_users_with_access?: UserBasicType[]
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

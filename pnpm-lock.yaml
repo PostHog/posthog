@@ -680,6 +680,9 @@ devDependencies:
   sucrase:
     specifier: ^3.29.0
     version: 3.29.0
+  tailwind-merge:
+    specifier: ^2.2.2
+    version: 2.2.2
   timekeeper:
     specifier: ^2.2.0
     version: 2.2.0
@@ -20384,6 +20387,12 @@ packages:
       slice-ansi: 4.0.0
       string-width: 4.2.3
       strip-ansi: 6.0.1
+    dev: true
+
+  /tailwind-merge@2.2.2:
+    resolution: {integrity: sha512-tWANXsnmJzgw6mQ07nE3aCDkCK4QdT3ThPMCzawoYA2Pws7vSTCvz3Vrjg61jVUGfFZPJzxEP+NimbcW+EdaDw==}
+    dependencies:
+      '@babel/runtime': 7.24.0
     dev: true
 
   /tailwindcss@3.4.0(ts-node@10.9.1):

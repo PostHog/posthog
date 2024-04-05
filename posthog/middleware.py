@@ -23,6 +23,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
+from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
@@ -183,6 +184,8 @@ class AutoProjectMiddleware:
         return self.get_response(request)
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
+        # TODO: Remove this method, as all relevant links now have `project_id_in_url``
+
         path_parts = request.path.strip("/").split("/")
         # Sync the paths with urls.ts!
         if len(path_parts) >= 2:
@@ -224,7 +227,14 @@ class AutoProjectMiddleware:
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
         if user_permissions.team(new_team).effective_membership_level is None:
-            # Do something to indicate that they don't have access to the team...
+            if user.is_staff:
+                # Staff users get a popup with suggested users to log in as, which makes support faster
+                # This is even more expensive in terms of Postgres queries, but VERY rare
+                request.suggested_users_with_access = UserBasicSerializer(
+                    new_team.all_users_with_access.order_by("first_name", "last_name", "id"), many=True
+                ).data
+            else:
+                pass  # Do something to indicate that they don't have access to the team
             return
 
         old_team_id = user.current_team_id

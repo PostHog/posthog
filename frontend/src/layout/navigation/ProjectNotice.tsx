@@ -100,7 +100,7 @@ export function ProjectNotice(): JSX.Element | null {
             type: 'warning',
         },
         is_impersonated: {
-            message: 'You are currently impersonating another user.',
+            message: 'You are currently logged in as a customer.',
             type: 'warning',
             action: {
                 'data-attr': 'stop-impersonation-cta',

@@ -290,6 +290,7 @@
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.3",
         "sucrase": "^3.29.0",
+        "tailwind-merge": "^2.2.2",
         "timekeeper": "^2.2.0",
         "ts-json-schema-generator": "^1.5.0",
         "ts-node": "^10.9.1",
