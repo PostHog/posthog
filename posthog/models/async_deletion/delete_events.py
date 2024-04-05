@@ -34,13 +34,15 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 "team_ids": list(set(row.team_id for row in deletions)),
             },
         )
-        temp_table_name = "{}.async_deletion_run".format(
-            CLICKHOUSE_DATABASE,
-        )
+        temp_table_name = f"{CLICKHOUSE_DATABASE}.async_deletion_run"
 
         self._fill_table(deletions, temp_table_name)
 
-        conditions, args = self._conditions(deletions)
+        # joinGet is not an obvious function to wrap your head around, but in this case it's essentially
+        # joinGet(async_deletion_run, [id, we're just looking for it to be non-zero], team_id, [deletion type], [key of the object to be deleted])
+        #
+        # the async_deletion_run table defines the keys you join on as (team_id, deletion_type, key)
+        # you always have to pass all of the join keys to joinGet
         sync_execute(
             f"""
             ALTER TABLE sharded_events
@@ -50,7 +52,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0 OR
                 joinGet({temp_table_name}, 'id', team_id, 1, toString(person_id)) > 0
             """,
-            args,
+            {},
             workload=Workload.OFFLINE,
         )
 
@@ -67,7 +69,6 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 "team_ids": list(set(row.team_id for row in deletions)),
             },
         )
-        conditions, args = self._conditions(team_deletions)
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
             sync_execute(
                 f"""
@@ -75,7 +76,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
                 DELETE WHERE joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0
                 """,
-                args,
+                {},
                 workload=Workload.OFFLINE,
             )
 
@@ -84,7 +85,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         sync_execute(
             CLICKHOUSE_ASYNC_DELETION_TABLE.format(table_name=temp_table_name, cluster=CLICKHOUSE_CLUSTER),
             workload=Workload.OFFLINE,
-        )  # probs remove
+        )
 
         for i in range(0, len(deletions), 1000):
             chunk = deletions[i : i + 1000]
