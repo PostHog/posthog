@@ -267,7 +267,10 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
             queue.pluginsServer.kafkaProducer.produce({
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
                 value: message.value,
-                key: useRandomPartitioner ? null : message.key,
+                // ``message.key`` should not be undefined here, but in the
+                // (extremely) unlikely event that it is, set it to ``null``
+                // instead as that behavior is safer.
+                key: useRandomPartitioner ? null : message.key ?? null,
                 headers: message.headers,
                 waitForAck: true,
             })
