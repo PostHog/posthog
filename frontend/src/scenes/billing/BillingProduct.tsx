@@ -613,7 +613,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
                                 <>
                                     <p className="ml-0 max-w-200">
-                                        {product.subscribed
+                                        {!upgradePlan && product.subscribed
                                             ? 'You now'
                                             : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                                             ? 'Subscribe to'
