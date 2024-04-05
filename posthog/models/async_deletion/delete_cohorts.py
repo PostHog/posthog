@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Set, Tuple
 from posthog.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
+from posthog.clickhouse.client.connection import Workload
 
 
 class AsyncCohortDeletion(AsyncDeletionProcess):
@@ -29,6 +30,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
             WHERE {" OR ".join(conditions)}
             """,
             args,
+            workload=Workload.OFFLINE,
         )
 
     def _verify_by_group(self, deletion_type: int, async_deletions: List[AsyncDeletion]) -> List[AsyncDeletion]:
@@ -49,6 +51,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
             WHERE {" OR ".join(conditions)}
             """,
             args,
+            workload=Workload.OFFLINE,
         )
         return set(tuple(row) for row in clickhouse_result)
 

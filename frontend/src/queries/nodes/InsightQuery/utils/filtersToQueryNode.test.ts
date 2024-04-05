@@ -283,6 +283,27 @@ describe('filtersToQueryNode', () => {
             } as InsightQueryNode
             expect(result).toEqual(query)
         })
+
+        it('converts date range with explicit date setting', () => {
+            const filters: Partial<FilterType> = {
+                insight: InsightType.RETENTION,
+                date_to: '2021-12-08',
+                date_from: '2021-12-08',
+                explicit_date: 'y',
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.RetentionQuery,
+                dateRange: {
+                    date_to: '2021-12-08',
+                    date_from: '2021-12-08',
+                    explicitDate: true,
+                },
+            } as InsightQueryNode
+            expect(result).toEqual(query)
+        })
     })
 
     describe('filter with series', () => {
@@ -1004,7 +1025,6 @@ describe('filtersToQueryNode', () => {
                 ],
                 actions: [],
                 display: ChartDisplayType.ActionsTable,
-                breakdown: '$current_url',
                 date_from: '-6m',
                 new_entity: [],
                 properties: {
@@ -1023,8 +1043,11 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                 },
+                breakdown: '$current_url',
                 breakdown_type: 'event',
                 breakdown_normalize_url: true,
+                breakdown_hide_other_aggregation: true,
+                breakdown_limit: 1,
             }
 
             const result = filtersToQueryNode(filters)
@@ -1045,6 +1068,8 @@ describe('filtersToQueryNode', () => {
                     breakdown: '$current_url',
                     breakdown_type: 'event',
                     breakdown_normalize_url: true,
+                    breakdown_hide_other_aggregation: true,
+                    breakdown_limit: 1,
                 },
                 dateRange: {
                     date_from: '-6m',

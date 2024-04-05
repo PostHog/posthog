@@ -1446,6 +1446,7 @@ export interface BillingProductV2AddonType {
     usage_key?: string
     free_allocation?: number | null
     percentage_usage?: number
+    features: BillingV2FeatureType[]
 }
 export interface BillingV2Type {
     customer_id: string
@@ -1946,6 +1947,8 @@ export interface FilterType {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_hide_other_aggregation?: boolean | null
+    /** @asType integer */
+    breakdown_limit?: number | null
     aggregation_group_type_index?: number // Groups aggregation
 }
 
