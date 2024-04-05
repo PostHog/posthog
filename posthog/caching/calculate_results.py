@@ -15,7 +15,6 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.hogql_queries.query_runner import CachedQueryResponse
 from posthog.logging.timing import timed
 from posthog.models import (
     Dashboard,
@@ -107,10 +106,10 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 
-def _cached_response_to_insight_result(response: CachedQueryResponse) -> "InsightResult":
+def _cached_response_to_insight_result(response: dict) -> "InsightResult":
+    """Response should be a dict-ified `CachedQueryResponse`."""
     from posthog.caching.fetch_from_cache import InsightResult
 
-    response_dict = response.model_dump()
     result_keys = InsightResult.__annotations__.keys()
 
     # replace 'result' with 'results' for schema compatibility
@@ -118,7 +117,7 @@ def _cached_response_to_insight_result(response: CachedQueryResponse) -> "Insigh
 
     # use only the keys of the response that are also present in the result
     result = InsightResult(
-        **{result_key: response_dict[response_key] for result_key, response_key in zip(result_keys, response_keys)}
+        **{result_key: response[response_key] for result_key, response_key in zip(result_keys, response_keys)}
     )
     return result
 
