@@ -179,6 +179,7 @@ export interface DataNode extends Node {
 
 /** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
 export interface HogQLQueryModifiers {
+    // XXX: `personOverridesMode` values must be include all values of `posthog.utils.PersonOnEventsMode`
     personOverridesMode?: 'disabled' | 'v1_enabled' | 'v2_enabled' | 'v3_enabled'
     personPropertiesSource?: 'person' | 'event'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'

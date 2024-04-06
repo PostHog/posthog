@@ -1303,6 +1303,7 @@ def patchable(fn):
     return inner
 
 
+# XXX: these values must also be present in `HogQLQueryModifiers`, see `frontend/src/queries/schema.ts``
 class PersonOnEventsMode(str, Enum):
     DISABLED = "disabled"
     V1_ENABLED = "v1_enabled"
