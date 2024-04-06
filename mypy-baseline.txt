@@ -9,7 +9,7 @@ posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "DateTime | Date | datetime | date | str | float | int | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Item "None" of "DateTime | None" has no attribute "int_timestamp"  [union-attr]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "str | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
-posthog/hogql/modifiers.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonsOnEventsMode | None")  [assignment]
+posthog/hogql/modifiers.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonOverridesMode | None")  [assignment]
 posthog/hogql/database/argmax.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/database/argmax.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/argmax.py:0: note: Consider using "Sequence" instead, which is covariant
@@ -299,14 +299,14 @@ posthog/hogql/printer.py:0: error: Name "args" already defined on line 0  [no-re
 posthog/hogql/printer.py:0: error: Name "args" already defined on line 0  [no-redef]
 posthog/hogql/printer.py:0: error: Argument 1 to "lookup_field_by_name" has incompatible type "SelectQueryType | None"; expected "SelectQueryType"  [arg-type]
 posthog/hogql/printer.py:0: error: Item "TableType" of "TableType | TableAliasType" has no attribute "alias"  [union-attr]
-posthog/hogql/printer.py:0: error: Non-overlapping equality check (left operand type: "PersonsOnEventsMode | None", right operand type: "Literal[PersonOnEventsMode.DISABLED]")  [comparison-overlap]
+posthog/hogql/printer.py:0: error: Non-overlapping equality check (left operand type: "PersonOverridesMode | None", right operand type: "Literal[PersonOnEventsMode.DISABLED]")  [comparison-overlap]
 posthog/hogql/printer.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/printer.py:0: error: "FieldOrTable" has no attribute "name"  [attr-defined]
-posthog/hogql/printer.py:0: error: Non-overlapping equality check (left operand type: "PersonsOnEventsMode | None", right operand type: "Literal[PersonOnEventsMode.DISABLED]")  [comparison-overlap]
+posthog/hogql/printer.py:0: error: Non-overlapping equality check (left operand type: "PersonOverridesMode | None", right operand type: "Literal[PersonOnEventsMode.DISABLED]")  [comparison-overlap]
 posthog/hogql/printer.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/printer.py:0: error: "FieldOrTable" has no attribute "name"  [attr-defined]
 posthog/hogql/printer.py:0: error: Argument 2 to "_get_materialized_column" of "_Printer" has incompatible type "str | int"; expected "str"  [arg-type]
-posthog/hogql/printer.py:0: error: Non-overlapping equality check (left operand type: "PersonsOnEventsMode | None", right operand type: "Literal[PersonOnEventsMode.DISABLED]")  [comparison-overlap]
+posthog/hogql/printer.py:0: error: Non-overlapping equality check (left operand type: "PersonOverridesMode | None", right operand type: "Literal[PersonOnEventsMode.DISABLED]")  [comparison-overlap]
 posthog/hogql/printer.py:0: error: Argument 2 to "_get_materialized_column" of "_Printer" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/hogql/printer.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/printer.py:0: error: Argument 1 to "_print_identifier" of "_Printer" has incompatible type "str | None"; expected "str"  [arg-type]
@@ -445,8 +445,8 @@ posthog/session_recordings/queries/session_recording_list_from_replay_summary.py
 posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: note: If the method is meant to be abstract, use @abc.abstractmethod
 posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Missing return statement  [empty-body]
 posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: note: If the method is meant to be abstract, use @abc.abstractmethod
-posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonsOnEventsMode | None")  [assignment]
-posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonsOnEventsMode | None")  [assignment]
+posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonOverridesMode | None")  [assignment]
+posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonOverridesMode | None")  [assignment]
 posthog/hogql_queries/test/test_query_runner.py:0: error: Variable "TestQueryRunner" is not valid as a type  [valid-type]
 posthog/hogql_queries/test/test_query_runner.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
 posthog/hogql_queries/test/test_query_runner.py:0: error: Invalid base class "TestQueryRunner"  [misc]
