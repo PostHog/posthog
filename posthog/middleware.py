@@ -231,7 +231,7 @@ class AutoProjectMiddleware:
                 # Staff users get a popup with suggested users to log in as, which makes support faster
                 # This is even more expensive in terms of Postgres queries, but VERY rare
                 request.suggested_users_with_access = UserBasicSerializer(
-                    new_team.all_users_with_access.order_by("first_name", "last_name", "id"), many=True
+                    new_team.all_users_with_access().order_by("first_name", "last_name", "id"), many=True
                 ).data
             else:
                 pass  # Do something to indicate that they don't have access to the team

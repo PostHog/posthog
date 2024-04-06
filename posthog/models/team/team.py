@@ -429,7 +429,6 @@ class Team(UUIDClassicModel):
                 continue
         return filters
 
-    @cached_property
     def all_users_with_access(self) -> QuerySet["User"]:
         from ee.models.explicit_team_membership import ExplicitTeamMembership
         from posthog.models.organization import OrganizationMembership
