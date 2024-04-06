@@ -64,13 +64,13 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                 </div>
                 <div className="flex gap-2">
                     <LemonLabel>
-                        POE Overrides Source:
+                        POE Person Overrides Mode:
                         <LemonSelect
                             options={[
-                                { value: 'disabled', label: 'Disabled' },
-                                { value: 'v1_enabled', label: 'V1 Enabled' },
-                                { value: 'v2_enabled', label: 'V2 Enabled' },
-                                { value: 'v3_enabled', label: 'V3 Enabled (Join)' },
+                                { value: 'disabled', label: 'Disabled: join on person_distinct_id2' },
+                                { value: 'v1_enabled', label: 'V1: event.person_id (no override join)' },
+                                { value: 'v2_enabled', label: 'V2: join on person_overrides (deprecated)' },
+                                { value: 'v3_enabled', label: 'V3: join on person_distinct_id_overrides' },
                             ]}
                             onChange={(value) =>
                                 setQuery({
@@ -82,7 +82,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         />
                     </LemonLabel>
                     <LemonLabel>
-                        POE Properties Source:
+                        POE person.properties Source:
                         <LemonSelect
                             options={[
                                 { value: 'event', label: 'Event' },
