@@ -56,7 +56,7 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers, PersonPropertiesSource, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, PersonPropertiesSource, PersonOverridesMode
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -158,7 +158,7 @@ def create_hogql_database(
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-    if modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled:
+    if modifiers.personOverridesMode == PersonOverridesMode.v1_enabled:
         # no overrides, just use whatever was written at ingestion time on the event
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 
@@ -168,7 +168,7 @@ def create_hogql_database(
             join_function=join_with_persons_table,
         )
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled:
+    elif modifiers.personOverridesMode == PersonOverridesMode.v2_enabled:
         # person_id from person_overrides (deprecated)
         database.events.fields["_event_person_id"] = StringDatabaseField(name="person_id")
         database.events.fields["_override"] = LazyJoin(
@@ -187,7 +187,7 @@ def create_hogql_database(
         # TODO: this should be able to avoid the join if all we're referencing is ``person.id``
         database.events.fields["person"] = FieldTraverser(chain=["_override", "person"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v3_enabled:
+    elif modifiers.personOverridesMode == PersonOverridesMode.v3_enabled:
         # person_id from person_distinct_id_overrides
         database.events.fields["_event_person_id"] = StringDatabaseField(name="person_id")
         database.events.fields["_override"] = LazyJoin(

@@ -569,7 +569,7 @@ class SessionIdEventsQuery(EventQuery):
         return person_id_clause, person_id_params
 
     def matching_events(self) -> List[str]:
-        self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
+        self._filter.hogql_context.modifiers.personOverridesMode = self._person_on_events_mode
         query, query_params = self.get_query(select_event_ids=True)
         query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
         results = [row[0] for row in query_results]
@@ -675,7 +675,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
     def run(self) -> SessionRecordingQueryResult:
         try:
-            self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
+            self._filter.hogql_context.modifiers.personOverridesMode = self._person_on_events_mode
             query, query_params = self.get_query()
 
             query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})

@@ -415,6 +415,13 @@ class MaterializationMode(str, Enum):
     disabled = "disabled"
 
 
+class PersonOverridesMode(str, Enum):
+    disabled = "disabled"
+    v1_enabled = "v1_enabled"
+    v2_enabled = "v2_enabled"
+    v3_enabled = "v3_enabled"
+
+
 class PersonPropertiesSource(str, Enum):
     person = "person"
     event = "event"
@@ -426,13 +433,6 @@ class PersonsArgMaxVersion(str, Enum):
     v2 = "v2"
 
 
-class PersonsOnEventsMode(str, Enum):
-    disabled = "disabled"
-    v1_enabled = "v1_enabled"
-    v2_enabled = "v2_enabled"
-    v3_enabled = "v3_enabled"
-
-
 class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -440,9 +440,9 @@ class HogQLQueryModifiers(BaseModel):
     dataWarehouseEventsModifiers: Optional[List[DataWarehouseEventsModifier]] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
+    personOverridesMode: Optional[PersonOverridesMode] = None
     personPropertiesSource: Optional[PersonPropertiesSource] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
-    personsOnEventsMode: Optional[PersonsOnEventsMode] = None
 
 
 class Compare(str, Enum):

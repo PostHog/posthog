@@ -2615,16 +2615,16 @@
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
                 },
+                "personOverridesMode": {
+                    "enum": ["disabled", "v1_enabled", "v2_enabled", "v3_enabled"],
+                    "type": "string"
+                },
                 "personPropertiesSource": {
                     "enum": ["person", "event"],
                     "type": "string"
                 },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
-                    "type": "string"
-                },
-                "personsOnEventsMode": {
-                    "enum": ["disabled", "v1_enabled", "v2_enabled", "v3_enabled"],
                     "type": "string"
                 }
             },

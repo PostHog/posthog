@@ -224,7 +224,7 @@ class PropertySwapper(CloningVisitor):
     ):
         property_name = str(node.chain[-1])
         if property_type == "person":
-            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:  # type: ignore[comparison-overlap]
+            if self.context.modifiers.personOverridesMode != PersonOnEventsMode.DISABLED:  # type: ignore[comparison-overlap]
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", property_name, "properties")  # type: ignore[unreachable]

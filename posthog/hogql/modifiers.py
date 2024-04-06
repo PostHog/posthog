@@ -6,7 +6,7 @@ from posthog.schema import (
     MaterializationMode,
     PersonPropertiesSource,
     PersonsArgMaxVersion,
-    PersonsOnEventsMode,
+    PersonOverridesMode,
 )
 
 if TYPE_CHECKING:
@@ -21,16 +21,16 @@ def create_default_modifiers_for_team(
     else:
         modifiers = modifiers.model_copy()
 
-    if modifiers.personsOnEventsMode is None:
+    if modifiers.personOverridesMode is None:
         if team.person_on_events_v3_querying_enabled:
-            modifiers.personsOnEventsMode = PersonsOnEventsMode.v3_enabled
+            modifiers.personOverridesMode = PersonOverridesMode.v3_enabled
         else:
-            modifiers.personsOnEventsMode = team.person_on_events_mode
+            modifiers.personOverridesMode = team.person_on_events_mode
 
     if modifiers.personPropertiesSource is None:
         modifiers.personPropertiesSource = (
             PersonPropertiesSource.person
-            if modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled
+            if modifiers.personOverridesMode == PersonOverridesMode.disabled
             else PersonPropertiesSource.event
         )
 

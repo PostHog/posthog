@@ -75,10 +75,10 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                             onChange={(value) =>
                                 setQuery({
                                     ...query,
-                                    modifiers: { ...query.modifiers, personsOnEventsMode: value },
+                                    modifiers: { ...query.modifiers, personOverridesMode: value },
                                 } as HogQLQuery)
                             }
-                            value={query.modifiers?.personsOnEventsMode ?? response?.modifiers?.personsOnEventsMode}
+                            value={query.modifiers?.personOverridesMode ?? response?.modifiers?.personOverridesMode}
                         />
                     </LemonLabel>
                     <LemonLabel>
