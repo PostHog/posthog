@@ -255,7 +255,8 @@ class Resolver(CloningVisitor):
             if cte:
                 node = cast(ast.JoinExpr, clone_expr(node))
                 node.table = clone_expr(cte.expr)
-                node.alias = node.alias or table_name
+                if node.alias is None:
+                    node.alias = table_name
 
                 self.cte_counter += 1
                 response = self.visit(node)
