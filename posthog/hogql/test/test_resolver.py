@@ -232,6 +232,16 @@ class TestResolver(BaseTest):
             ),
         )
 
+    def test_ctes_with_aliases(self):
+        self.assertEqual(
+            self._print_hogql(
+                "with a as (select 1 as a), b as (select 1 as b) select a from a AS a_alias JOIN b AS b_alias ON (a_alias.a = b_alias.b)"
+            ),
+            self._print_hogql(
+                "select a from (select 1 as a) AS a_alias JOIN (select 1 as b) AS b_alias ON (a_alias.a = b_alias.b)"
+            ),
+        )
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_table(self):
