@@ -269,9 +269,6 @@ class Resolver(CloningVisitor):
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            if not self.database.has_table(table_name):
-                raise QueryError(f'Unknown table "{table_name}".')
-
             database_table = self.database.get_table(table_name)
 
             if isinstance(database_table, SavedQuery):
