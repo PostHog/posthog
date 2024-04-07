@@ -516,7 +516,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     type="number"
                                                                     size="small"
                                                                     min={0}
-                                                                    value={value?.seenSurveyWaitPeriodInDays}
+                                                                    value={value?.seenSurveyWaitPeriodInDays || NaN}
                                                                     onChange={(val) => {
                                                                         if (val !== undefined && val > 0) {
                                                                             onChange({
@@ -595,6 +595,37 @@ export default function SurveyEdit(): JSX.Element {
                                         </>
                                     )}
                                 </LemonField.Pure>
+                            ),
+                        },
+                        {
+                            key: SurveyEditSection.CompletionConditions,
+                            header: 'Completion conditions',
+                            content: (
+                                <div className="flex flex-row gap-2 items-center">
+                                    <LemonCheckbox
+                                        checked={!!survey.responses_limit}
+                                        onChange={(checked) => {
+                                            const newValue = checked ? 100 : null
+                                            setSurveyValue('responses_limit', newValue)
+                                        }}
+                                    />
+                                    Stop the survey once received
+                                    <LemonInput
+                                        type="number"
+                                        size="small"
+                                        min={1}
+                                        value={survey.responses_limit || NaN}
+                                        onChange={(value) => {
+                                            if (value > 0) {
+                                                setSurveyValue('responses_limit', value)
+                                            } else {
+                                                setSurveyValue('responses_limit', null)
+                                            }
+                                        }}
+                                        className="w-16"
+                                    />{' '}
+                                    responses.
+                                </div>
                             ),
                         },
                     ]}
