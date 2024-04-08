@@ -414,7 +414,8 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -451,7 +452,8 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -488,10 +490,12 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 day
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
             countIf(timestamp > now() - INTERVAL 2 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_level_1_0,
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_level_1_0,
             minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
                                AND event = '$autocapture'))) >= now() - INTERVAL 2 week
      AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
@@ -637,7 +641,8 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_1_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -677,7 +682,8 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -726,10 +732,12 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 7 day
                     AND timestamp < now()
-                    AND event = '$new_view') > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
+                    AND event = '$new_view'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_1_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
