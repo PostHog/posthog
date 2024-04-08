@@ -759,7 +759,9 @@ HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
 }
 
-CLICKHOUSE_FUNCTION_RETURN_TYPES: Dict[str, ConstantType] = {"fromUnixTimestamp": ast.DateTimeType}
+CLICKHOUSE_FUNCTION_RETURN_TYPES = {
+    "fromUnixTimestamp": ast.DateTimeType,
+}
 
 ALL_EXPOSED_FUNCTION_NAMES = [
     name for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys()) if not name.startswith("_")
