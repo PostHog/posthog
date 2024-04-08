@@ -24,6 +24,7 @@ import {
     CohortCriteriaType,
     CohortType,
     FilterLogicalOperator,
+    PropertyFilterType,
     PropertyOperator,
     TimeUnitType,
 } from '~/types'
@@ -277,7 +278,9 @@ export function validateGroup(
             // Handle EventFilters separately, since these are optional
             requiredFields = requiredFields.filter((f) => f.fieldKey !== 'event_filters')
             const eventFilterError =
-                c?.event_filters && c.event_filters.length > 0 && c.event_filters.some(isEmptyProperty)
+                c?.event_filters &&
+                c.event_filters.length > 0 &&
+                c.event_filters.some((prop) => prop?.type !== PropertyFilterType.HogQL && isEmptyProperty(prop))
                     ? CohortClientErrors.EmptyEventFilters
                     : undefined
 

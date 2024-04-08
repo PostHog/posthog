@@ -103,6 +103,18 @@ VALIDATE_PROP_TYPES = {
     "hogql": ["key"],
 }
 
+VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
+    BehavioralPropertyType.PERFORMED_EVENT: [
+        {"time_value", "time_interval"},
+        {"explicit_datetime"},
+    ],
+    BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
+        {"time_value", "time_interval"},
+        {"explicit_datetime"},
+    ],
+}
+
+
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
         "key",
@@ -188,6 +200,8 @@ class Property:
     operator_value: Optional[int]
     time_value: Optional[int]
     time_interval: Optional[OperatorInterval]
+    # Alternative to time_value & time_interval, for explicit date bound rather than relative
+    explicit_datetime: Optional[str]
     # Query people who did event '$pageview' in last week, but not in the previous 30 days
     # translates into:
     # key = '$pageview', value = 'restarted_performing_event'
@@ -221,6 +235,7 @@ class Property:
         operator_value: Optional[int] = None,
         time_value: Optional[int] = None,
         time_interval: Optional[OperatorInterval] = None,
+        explicit_datetime: Optional[str] = None,
         total_periods: Optional[int] = None,
         min_periods: Optional[int] = None,
         seq_event_type: Optional[str] = None,
@@ -239,6 +254,7 @@ class Property:
         self.operator_value = operator_value
         self.time_value = time_value
         self.time_interval = time_interval
+        self.explicit_datetime = explicit_datetime
         self.total_periods = total_periods
         self.min_periods = min_periods
         self.seq_event_type = seq_event_type
@@ -268,6 +284,19 @@ class Property:
             for attr in VALIDATE_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]:
                 if getattr(self, attr, None) is None:
                     raise ValueError(f"Missing required attr {attr} for property type {self.type}::{self.value}")
+
+            if cast(BehavioralPropertyType, self.value) in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES:
+                matches_attr_list = False
+                condition_list = VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]
+                for attr_list in condition_list:
+                    if all(getattr(self, attr, None) is not None for attr in attr_list):
+                        matches_attr_list = True
+                        break
+
+                if not matches_attr_list:
+                    raise ValueError(
+                        f"Missing required parameters, atleast one of values ({'), ('.join([' & '.join(condition) for condition in condition_list])}) for property type {self.type}::{self.value}"
+                    )
 
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())

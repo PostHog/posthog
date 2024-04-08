@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+from freezegun import freeze_time
+
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
@@ -232,7 +234,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
     @snapshot_clickhouse_queries
-    def test_performed_event_with_event_filters(self):
+    @freeze_time("2024-04-05 13:01:01")
+    def test_performed_event_with_event_filters_and_explicit_date(self):
         p1 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
@@ -258,6 +261,14 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             distinct_id="p2",
             timestamp=datetime.now() - timedelta(days=2),
         )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$filter_prop": "something"},
+            distinct_id="p2",
+            # rejected because explicit datetime is set to 3 days ago
+            timestamp=datetime.now() - timedelta(days=5),
+        )
         flush_persons_and_events()
 
         filter = Filter(
@@ -268,6 +279,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         {
                             "key": "$pageview",
                             "event_type": "events",
+                            "explicit_datetime": datetime.now()
+                            - timedelta(days=3),  # overrides time_value and time_interval
                             "time_value": 1,
                             "time_interval": "week",
                             "value": "performed_event",

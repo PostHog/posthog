@@ -474,7 +474,22 @@ class FOSSCohortQuery(EventQuery):
             params.update(prop_params)
             return prop_query, params
         else:
-            return "1=1", {}
+            return "AND 1=1", {}
+
+    def _get_entity_datetime_filters(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+        if prop.explicit_datetime:
+            # Explicit datetime filter
+            # TODO: Confirm if we need to validate the datetime
+            date_param = f"{prepend}_explicit_date_{idx}"
+            return f"timestamp > %({date_param})s", {f"{date_param}": prop.explicit_datetime}
+        else:
+            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+            date_interval = validate_interval(prop.time_interval)
+            date_param = f"{prepend}_date_{idx}"
+
+            self._check_earliest_date((date_value, date_interval))
+
+            return f"timestamp > now() - INTERVAL %({date_param})s {date_interval}", {f"{date_param}": date_value}
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -482,18 +497,14 @@ class FOSSCohortQuery(EventQuery):
 
         entity_query, entity_params = self._get_entity(event, prepend, idx)
         entity_filters, entity_filters_params = self._get_entity_event_filters(prop, prepend, idx)
-        date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-        date_interval = validate_interval(prop.time_interval)
-        date_param = f"{prepend}_date_{idx}"
+        date_filter, date_params = self._get_entity_datetime_filters(prop, prepend, idx)
 
-        self._check_earliest_date((date_value, date_interval))
-
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query} {entity_filters}) > 0 AS {column_name}"
+        field = f"countIf({date_filter} AND timestamp < now() AND {entity_query} {entity_filters}) > 0 AS {column_name}"
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
         return f"{'NOT' if prop.negation else ''} {column_name}", {
-            f"{date_param}": date_value,
+            **date_params,
             **entity_params,
             **entity_filters_params,
         }
@@ -504,15 +515,12 @@ class FOSSCohortQuery(EventQuery):
 
         entity_query, entity_params = self._get_entity(event, prepend, idx)
         entity_filters, entity_filters_params = self._get_entity_event_filters(prop, prepend, idx)
+        date_filter, date_params = self._get_entity_datetime_filters(prop, prepend, idx)
+
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
-        date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-        date_interval = validate_interval(prop.time_interval)
-        date_param = f"{prepend}_date_{idx}"
         operator_value_param = f"{prepend}_operator_value_{idx}"
 
-        self._check_earliest_date((date_value, date_interval))
-
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query} {entity_filters}) {get_count_operator(prop.operator)} %({operator_value_param})s AS {column_name}"
+        field = f"countIf({date_filter} AND timestamp < now() AND {entity_query} {entity_filters}) {get_count_operator(prop.operator)} %({operator_value_param})s AS {column_name}"
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
@@ -520,7 +528,7 @@ class FOSSCohortQuery(EventQuery):
             f"{'NOT' if prop.negation else ''} {column_name}",
             {
                 f"{operator_value_param}": count,
-                f"{date_param}": date_value,
+                **date_params,
                 **entity_params,
                 **entity_filters_params,
             },
