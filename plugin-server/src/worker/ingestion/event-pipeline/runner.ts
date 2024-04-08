@@ -165,7 +165,14 @@ export class EventPipelineRunner {
             return this.registerLastStep('clientIngestionWarning', [event], [warningAck])
         }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
+        // Some expensive, deprecated plugins are skipped when `$process_person=false`
+        const runDeprecatedPlugins = processPerson
+        const processedEvent = await this.runStep(
+            pluginsProcessEventStep,
+            [this, event, runDeprecatedPlugins],
+            event.team_id
+        )
+
         if (processedEvent == null) {
             // A plugin dropped the event.
             return this.registerLastStep('pluginsProcessEventStep', [event])

@@ -36,7 +36,7 @@
 
 .CardMeta {
     position: relative;
-    z-index: 101; // Elevate above viz
+    z-index: var(--z-raised); // Elevate above viz
     display: flex;
     flex-direction: column;
     flex-shrink: 0;

@@ -30,7 +30,7 @@ class TestLifecycleBase(ClickhouseTestMixin, APIBaseTest):
         sorted_results = [
             {"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])
         ]
-        sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
+        sorted_expected = sorted(expected, key=lambda r: r["status"])
 
         self.assertListEqual(sorted_results, sorted_expected)
 

@@ -58,7 +58,7 @@ def infer_taxonomy_for_team(team_id: int) -> Tuple[int, int, int]:
 def _get_events_last_seen_at(team_id: int) -> Dict[str, timezone.datetime]:
     from posthog.client import sync_execute
 
-    return {event: last_seen_at for event, last_seen_at in sync_execute(_GET_EVENTS_LAST_SEEN_AT, {"team_id": team_id})}
+    return dict(sync_execute(_GET_EVENTS_LAST_SEEN_AT, {"team_id": team_id}))
 
 
 def _get_property_types(team_id: int) -> Dict[str, Optional[PropertyType]]:
