@@ -160,8 +160,6 @@ def create_hogql_database(
 
     if modifiers.personOverridesMode == PersonOverridesMode.v1_enabled:
         # no overrides, just use whatever was written at ingestion time on the event
-        database.events.fields["person_id"] = StringDatabaseField(name="person_id")
-
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],
             join_table=PersonsTable(),
@@ -183,8 +181,7 @@ def create_hogql_database(
                 start=None,
             ),
         )
-
-        # TODO: this should be able to avoid the join if all we're referencing is ``person.id``
+        # TODO: this is wrong -- join needs to be on `person_id` instead
         database.events.fields["person"] = FieldTraverser(chain=["_override", "person"])
 
     elif modifiers.personOverridesMode == PersonOverridesMode.v3_enabled:
@@ -203,8 +200,7 @@ def create_hogql_database(
                 start=None,
             ),
         )
-
-        # TODO: this should be able to avoid the join if all we're referencing is ``person.id``
+        # TODO: this is wrong -- join needs to be on `person_id` instead
         database.events.fields["person"] = FieldTraverser(chain=["_override", "person"])
 
     if modifiers.personPropertiesSource == PersonPropertiesSource.event:
