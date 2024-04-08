@@ -46,15 +46,15 @@ SESSION_RECORDINGS_FILTER_IDS = "session_ids"
 
 # Sync with frontend DISPLAY_TYPES_TO_CATEGORIES
 DISPLAY_TYPES_TO_CATEGORIES: dict[ChartDisplayType, ChartDisplayCategory] = {
-    [ChartDisplayType.ActionsLineGraph]: ChartDisplayCategory.TimeSeries,
-    [ChartDisplayType.ActionsBar]: ChartDisplayCategory.TimeSeries,
-    [ChartDisplayType.ActionsAreaGraph]: ChartDisplayCategory.TimeSeries,
-    [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayCategory.CumulativeTimeSeries,
-    [ChartDisplayType.BoldNumber]: ChartDisplayCategory.TotalValue,
-    [ChartDisplayType.ActionsPie]: ChartDisplayCategory.TotalValue,
-    [ChartDisplayType.ActionsBarValue]: ChartDisplayCategory.TotalValue,
-    [ChartDisplayType.ActionsTable]: ChartDisplayCategory.TotalValue,
-    [ChartDisplayType.WorldMap]: ChartDisplayCategory.TotalValue,
+    ChartDisplayType.ActionsLineGraph: ChartDisplayCategory.TimeSeries,
+    ChartDisplayType.ActionsBar: ChartDisplayCategory.TimeSeries,
+    ChartDisplayType.ActionsAreaGraph: ChartDisplayCategory.TimeSeries,
+    ChartDisplayType.ActionsLineGraphCumulative: ChartDisplayCategory.CumulativeTimeSeries,
+    ChartDisplayType.BoldNumber: ChartDisplayCategory.TotalValue,
+    ChartDisplayType.ActionsPie: ChartDisplayCategory.TotalValue,
+    ChartDisplayType.ActionsBarValue: ChartDisplayCategory.TotalValue,
+    ChartDisplayType.ActionsTable: ChartDisplayCategory.TotalValue,
+    ChartDisplayType.WorldMap: ChartDisplayCategory.TotalValue,
 }
 NON_TIME_SERIES_DISPLAY_TYPES = [
     display_type
