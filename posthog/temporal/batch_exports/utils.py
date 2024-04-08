@@ -2,7 +2,6 @@ import asyncio
 import collections.abc
 import typing
 import uuid
-
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import update_batch_export_run
 

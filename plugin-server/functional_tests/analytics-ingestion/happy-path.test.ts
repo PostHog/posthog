@@ -251,7 +251,7 @@ test.concurrent(
             expect(event).toEqual(
                 expect.objectContaining({
                     person_properties: {},
-                    properties: { $process_person: false, uuid: properylessUuid, $sent_at: expect.any(String) },
+                    properties: { uuid: properylessUuid, $sent_at: expect.any(String) },
                     person_mode: 'propertyless',
                 })
             )

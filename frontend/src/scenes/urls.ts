@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 import { toParams } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
 import { HogQLFilters } from '~/queries/schema'
@@ -33,9 +34,12 @@ import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
  *
  * Sync the paths with AutoProjectMiddleware!
  */
+
 export const urls = {
+    absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
+    currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,

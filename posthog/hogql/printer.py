@@ -13,10 +13,10 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
-    HOGQL_CLICKHOUSE_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
     HOGQL_AGGREGATIONS,
     HOGQL_POSTHOG_FUNCTIONS,
+    find_clickhouse_function,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
@@ -725,9 +725,7 @@ class _Printer(Visitor):
                     op=op,
                 )
             )
-        elif node.name in HOGQL_AGGREGATIONS:
-            func_meta = HOGQL_AGGREGATIONS[node.name]
-
+        elif func_meta := HOGQL_AGGREGATIONS.get(node.name):
             validate_function_args(
                 node.args,
                 func_meta.min_args,
@@ -761,9 +759,7 @@ class _Printer(Visitor):
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
             return f"{func_meta.clickhouse_name}{params_part}{args_part}"
 
-        elif node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
-            func_meta = HOGQL_CLICKHOUSE_FUNCTIONS[node.name]
-
+        elif func_meta := find_clickhouse_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if func_meta.min_params:
                 if node.params is None:
@@ -861,8 +857,7 @@ class _Printer(Visitor):
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
-        elif node.name in HOGQL_POSTHOG_FUNCTIONS:
-            func_meta = HOGQL_POSTHOG_FUNCTIONS[node.name]
+        elif func_meta := HOGQL_POSTHOG_FUNCTIONS.get(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
 
