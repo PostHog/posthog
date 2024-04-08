@@ -1,5 +1,6 @@
 .TreeRow {
     display: flex;
+    flex-direction: row;
 
     &:hover {
         cursor: pointer;

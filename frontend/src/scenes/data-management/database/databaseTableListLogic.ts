@@ -1,8 +1,6 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
 
 import { query } from '~/queries/query'
@@ -16,9 +14,6 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
     loaders(({ values }) => ({
         database: [
             null as Required<DatabaseSchemaQuery['response']> | null,
@@ -72,10 +67,8 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 })),
         ],
     }),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
         actions.loadDatabase()
-        if (values.featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
-            actions.loadDataWarehouse()
-        }
+        actions.loadDataWarehouse()
     }),
 ])

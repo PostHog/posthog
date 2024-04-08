@@ -23,7 +23,7 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     ExpressionField,
 )
-from posthog.hogql.errors import HogQLException, NotImplementedException
+from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
@@ -48,20 +48,20 @@ class FieldAliasType(Type):
             return self.type.resolve_database_field(context)
         if isinstance(self.type, PropertyType):
             return self.type.field_type.resolve_database_field(context)
-        raise NotImplementedException("FieldAliasType.resolve_database_field not implemented")
+        raise NotImplementedError("FieldAliasType.resolve_database_field not implemented")
 
     def resolve_table_type(self, context: HogQLContext):
         if isinstance(self.type, FieldType):
             return self.type.table_type
         if isinstance(self.type, PropertyType):
             return self.type.field_type.table_type
-        raise NotImplementedException("FieldAliasType.resolve_table_type not implemented")
+        raise NotImplementedError("FieldAliasType.resolve_table_type not implemented")
 
 
 @dataclass(kw_only=True)
 class BaseTableType(Type):
     def resolve_database_table(self, context: HogQLContext) -> Table:
-        raise NotImplementedException("BaseTableType.resolve_database_table not overridden")
+        raise NotImplementedError("BaseTableType.resolve_database_table not overridden")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.resolve_database_table(context).has_field(name)
@@ -82,7 +82,7 @@ class BaseTableType(Type):
             if isinstance(field, ExpressionField):
                 return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
             return FieldType(name=name, table_type=self)
-        raise HogQLException(f"Field not found: {name}")
+        raise QueryError(f"Field not found: {name}")
 
 
 TableOrSelectType = Union[
@@ -165,7 +165,7 @@ class SelectQueryType(Type):
             return AsteriskType(table_type=self)
         if name in self.columns:
             return FieldType(name=name, table_type=self)
-        raise HogQLException(f"Column not found: {name}")
+        raise QueryError(f"Column not found: {name}")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return name in self.columns
@@ -198,7 +198,7 @@ class SelectViewType(Type):
             return FieldType(name=name, table_type=self)
         if self.view_name:
             if context.database is None:
-                raise HogQLException("Database must be set for queries with views")
+                raise ResolutionError("Database must be set for queries with views")
 
             field = context.database.get_table(self.view_name).get_field(name)
 
@@ -213,12 +213,12 @@ class SelectViewType(Type):
             if isinstance(field, ExpressionField):
                 return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
             return FieldType(name=name, table_type=self)
-        raise HogQLException(f"Field {name} not found on view query with name {self.view_name}")
+        raise ResolutionError(f"Field {name} not found on view query with name {self.view_name}")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         if self.view_name:
             if context.database is None:
-                raise HogQLException("Database must be set for queries with views")
+                raise ResolutionError("Database must be set for queries with views")
             try:
                 context.database.get_table(self.view_name).get_field(name)
                 return True
@@ -239,7 +239,7 @@ class SelectQueryAliasType(Type):
         if self.select_query_type.has_child(name, context):
             return FieldType(name=name, table_type=self)
 
-        raise HogQLException(f"Field {name} not found on query with alias {self.alias}")
+        raise ResolutionError(f"Field {name} not found on query with alias {self.alias}")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.select_query_type.has_child(name, context)
@@ -385,12 +385,12 @@ class FieldType(Type):
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         database_field = self.resolve_database_field(context)
         if database_field is None:
-            raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
+            raise ResolutionError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
             return PropertyType(chain=[name], field_type=self)
-        raise HogQLException(
+        raise ResolutionError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 

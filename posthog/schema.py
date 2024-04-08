@@ -178,6 +178,10 @@ class DateRange(BaseModel):
     )
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    explicitDate: Optional[bool] = Field(
+        default=None,
+        description="Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+    )
 
 
 class DatetimeDay(RootModel[AwareDatetime]):
@@ -602,8 +606,6 @@ class PathsFilter(BaseModel):
     edgeLimit: Optional[int] = None
     endPoint: Optional[str] = None
     excludeEvents: Optional[List[str]] = None
-    funnelFilter: Optional[Dict[str, Any]] = None
-    funnelPaths: Optional[FunnelPathType] = None
     includeEventTypes: Optional[List[PathType]] = None
     localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
     maxEdgeWeight: Optional[int] = None
@@ -2570,6 +2572,7 @@ class FilterType(BaseModel):
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
     breakdown_hide_other_aggregation: Optional[bool] = None
+    breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
@@ -2741,40 +2744,13 @@ class NamedParametersTypeofDateRangeForFilter(BaseModel):
     source: Optional[FilterType] = None
 
 
-class PathsQuery(BaseModel):
+class FunnelPathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
-    )
-    kind: Literal["PathsQuery"] = "PathsQuery"
-    pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                    DataWarehousePropertyFilter,
-                    DataWarehousePersonPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = Field(default=None, description="Property filters for all series")
-    response: Optional[PathsQueryResponse] = None
-    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    funnelPathType: Optional[FunnelPathType] = None
+    funnelSource: FunnelsQuery
+    funnelStep: Optional[int] = None
 
 
 class FunnelsActorsQuery(BaseModel):
@@ -2804,6 +2780,60 @@ class FunnelsActorsQuery(BaseModel):
     source: FunnelsQuery
 
 
+class PathsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=None, description="Exclude internal and test users by applying the respective filters"
+    )
+    funnelPathsFilter: Optional[FunnelPathsFilter] = Field(
+        default=None, description="Used for displaying paths in relation to funnel steps."
+    )
+    kind: Literal["PathsQuery"] = "PathsQuery"
+    pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
+    properties: Optional[
+        Union[
+            List[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingDurationFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+    ] = Field(default=None, description="Property filters for all series")
+    response: Optional[PathsQueryResponse] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
+class FunnelCorrelationQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelCorrelationEventExcludePropertyNames: Optional[List[str]] = None
+    funnelCorrelationEventNames: Optional[List[str]] = None
+    funnelCorrelationExcludeEventNames: Optional[List[str]] = None
+    funnelCorrelationExcludeNames: Optional[List[str]] = None
+    funnelCorrelationNames: Optional[List[str]] = None
+    funnelCorrelationType: FunnelCorrelationResultsType
+    kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
+    response: Optional[FunnelCorrelationResponse] = None
+    source: FunnelsActorsQuery
+
+
 class InsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2826,41 +2856,6 @@ class InsightVizNode(BaseModel):
     )
     suppressSessionAnalysisWarning: Optional[bool] = None
     vizSpecificOptions: Optional[VizSpecificOptions] = None
-
-
-class FunnelCorrelationQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    funnelCorrelationEventExcludePropertyNames: Optional[List[str]] = None
-    funnelCorrelationEventNames: Optional[List[str]] = None
-    funnelCorrelationExcludeEventNames: Optional[List[str]] = None
-    funnelCorrelationExcludeNames: Optional[List[str]] = None
-    funnelCorrelationNames: Optional[List[str]] = None
-    funnelCorrelationType: FunnelCorrelationResultsType
-    kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
-    response: Optional[FunnelCorrelationResponse] = None
-    source: FunnelsActorsQuery
-
-
-class InsightActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: Optional[Union[str, int]] = None
-    compare: Optional[Compare] = None
-    day: Optional[Union[str, int]] = None
-    includeRecordings: Optional[bool] = None
-    interval: Optional[int] = Field(
-        default=None, description="An interval selected out of available intervals in source query."
-    )
-    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
-    response: Optional[ActorsQueryResponse] = None
-    series: Optional[int] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
-    status: Optional[str] = None
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
@@ -2891,6 +2886,26 @@ class FunnelCorrelationActorsQuery(BaseModel):
     kind: Literal["FunnelCorrelationActorsQuery"] = "FunnelCorrelationActorsQuery"
     response: Optional[ActorsQueryResponse] = None
     source: FunnelCorrelationQuery
+
+
+class InsightActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[Union[str, int]] = None
+    compare: Optional[Compare] = None
+    day: Optional[Union[str, int]] = None
+    includeRecordings: Optional[bool] = None
+    interval: Optional[int] = Field(
+        default=None, description="An interval selected out of available intervals in source query."
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
+    status: Optional[str] = None
 
 
 class InsightActorsQueryOptions(BaseModel):

@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -8,7 +8,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema'
-import { AnyPropertyFilter, Breadcrumb, DataWarehouseTable } from '~/types'
+import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
@@ -95,17 +95,6 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             {
                 setDataTableQuery: (_, { query }) => query,
             },
-        ],
-    }),
-    selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: 'new',
-                    name: 'New',
-                },
-            ],
         ],
     }),
     forms(({ actions, props }) => ({
