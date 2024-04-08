@@ -91,31 +91,29 @@ function DebugCHQueries(): JSX.Element {
 
     return (
         <>
-            {!!paths?.length && (
-                <div className="flex gap-4 items-end justify-between mb-4">
-                    <div className="flex flex-wrap gap-2">
-                        {paths.map(([path, count]) => (
-                            <LemonButton
-                                key={path}
-                                type={pathFilter === path ? 'primary' : 'tertiary'}
-                                size="small"
-                                onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
-                            >
-                                {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
-                            </LemonButton>
-                        ))}
-                    </div>
-                    <LemonButton
-                        icon={<IconRefresh />}
-                        disabledReason={queriesLoading ? 'Loading…' : null}
-                        onClick={() => loadQueries()}
-                        size="small"
-                        type="secondary"
-                    >
-                        Refresh
-                    </LemonButton>
+            <div className="flex gap-4 items-end justify-between mb-4">
+                <div className="flex flex-wrap gap-2">
+                    {paths?.map(([path, count]) => (
+                        <LemonButton
+                            key={path}
+                            type={pathFilter === path ? 'primary' : 'tertiary'}
+                            size="small"
+                            onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
+                        >
+                            {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
+                        </LemonButton>
+                    ))}
                 </div>
-            )}
+                <LemonButton
+                    icon={<IconRefresh />}
+                    disabledReason={queriesLoading ? 'Loading…' : null}
+                    onClick={() => loadQueries()}
+                    size="small"
+                    type="secondary"
+                >
+                    Refresh
+                </LemonButton>
+            </div>
 
             <LemonTable
                 columns={[

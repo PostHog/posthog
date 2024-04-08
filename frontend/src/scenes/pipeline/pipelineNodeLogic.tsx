@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
@@ -6,9 +6,10 @@ import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { batchExportFormFields } from 'scenes/batch_exports/batchExportEditLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
+import { Breadcrumb, PipelineNodeTab, PipelineStage, PluginType } from '~/types'
 
 import {
     defaultConfigForPlugin,
@@ -17,7 +18,11 @@ import {
     getConfigSchemaArray,
     getPluginConfigFormData,
 } from './configUtils'
+import { pipelineDestinationsLogic } from './destinationsLogic'
+import { frontendAppsLogic } from './frontendAppsLogic'
+import { importAppsLogic } from './importAppsLogic'
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
+import { pipelineTransformationsLogic } from './transformationsLogic'
 import {
     BatchExportBasedStep,
     convertToPipelineNode,
@@ -42,35 +47,57 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
     key(({ id }) => id),
     path((id) => ['scenes', 'pipeline', 'pipelineNodeLogic', id]),
+    connect(() => ({
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            pipelineDestinationsLogic,
+            ['plugins as destinationPlugins'],
+            pipelineTransformationsLogic,
+            ['plugins as transformationPlugins'],
+            frontendAppsLogic,
+            ['plugins as frontendAppsPlugins'],
+            importAppsLogic,
+            ['plugins as importAppsPlugins'],
+        ],
+    })),
     actions({
         setCurrentTab: (tab: PipelineNodeTab = PipelineNodeTab.Configuration) => ({ tab }),
         loadNode: true,
         updateNode: (payload: PluginUpdatePayload | BatchExportUpdatePayload) => ({
             payload,
         }),
+        createNode: (payload: PluginUpdatePayload | BatchExportUpdatePayload) => ({
+            payload,
+        }),
+        setNewConfigurationServiceOrPluginID: (id: number | string | null) => ({ id }),
     }),
-    reducers({
+    reducers(() => ({
         currentTab: [
             PipelineNodeTab.Configuration as PipelineNodeTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
             },
         ],
-    }),
+        newConfigurationServiceOrPluginID: [
+            // TODO: this doesn't clear properly if I exit out of the page and more importantly switching to a different stage
+            null as null | number | string,
+            {
+                setNewConfigurationServiceOrPluginID: (_, { id }) => id,
+            },
+        ],
+    })),
     loaders(({ props, values }) => ({
         node: [
             null as PipelineNode | null,
             {
                 loadNode: async (_, breakpoint) => {
-                    if (!props.stage) {
+                    if (!props.stage || props.id === 'new') {
                         return null
                     }
                     let node: PipelineNode | null = null
                     try {
                         if (typeof props.id === 'string') {
-                            if (props.stage !== PipelineStage.Destination) {
-                                return null
-                            }
                             const batchExport = await api.batchExports.get(props.id)
                             node = convertToPipelineNode(batchExport, props.stage)
                         } else {
@@ -84,6 +111,33 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                     }
                     breakpoint()
                     return node
+                },
+                createNode: async ({ payload }) => {
+                    if (!values.newConfigurationServiceOrPluginID || !values.stage) {
+                        return null
+                    }
+                    if (values.nodeBackend === PipelineBackend.BatchExport) {
+                        payload = payload as BatchExportUpdatePayload
+                        const batchExport = await api.batchExports.create({
+                            paused: !payload.enabled,
+                            name: payload.name,
+                            interval: payload.interval,
+                            destination: payload.service,
+                        })
+                        return convertToPipelineNode(batchExport, values.stage)
+                    } else if (values.maybeNodePlugin) {
+                        payload = payload as PluginUpdatePayload
+                        const formdata = getPluginConfigFormData(
+                            values.maybeNodePlugin.config_schema,
+                            defaultConfigForPlugin(values.maybeNodePlugin),
+                            { ...payload, enabled: true } // Default enable on creation
+                        )
+                        formdata.append('plugin', values.maybeNodePlugin.id.toString())
+                        formdata.append('order', '99') // TODO: fix this should be at the end of latest here for transformations
+                        const pluginConfig = await api.pluginConfigs.create(formdata)
+                        return convertToPipelineNode(pluginConfig, values.stage)
+                    }
+                    return null
                 },
                 updateNode: async ({ payload }) => {
                     if (!values.node) {
@@ -112,7 +166,7 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     })),
     forms(({ props, values, asyncActions }) => ({
         configuration: {
-            defaults: {} as Record<string, any>,
+            defaults: { name: '', description: '' } as Record<string, any>,
             errors: (form) => {
                 if (values.nodeBackend === PipelineBackend.BatchExport) {
                     return batchExportFormFields(props.id === 'new', form as any, { isPipeline: true })
@@ -126,12 +180,18 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                 }
             },
             submit: async (formValues) => {
-                // @ts-expect-error - Sadly Kea logics can't be generic based on props, so TS complains here
-                await asyncActions.updateNode(formValues)
+                if (values.isNew) {
+                    // @ts-expect-error - Sadly Kea logics can't be generic based on props, so TS complains here
+                    return await asyncActions.createNode(formValues)
+                } else {
+                    // @ts-expect-error - Sadly Kea logics can't be generic based on props, so TS complains here
+                    await asyncActions.updateNode(formValues)
+                }
             },
         },
     })),
     selectors(() => ({
+        isNew: [(_, p) => [p.id], (id): boolean => id === 'new'],
         breadcrumbs: [
             (s, p) => [p.id, p.stage, s.node, s.nodeLoading],
             (id, stage, node, nodeLoading): Breadcrumb[] => [
@@ -152,12 +212,87 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             ],
         ],
         nodeBackend: [
-            (_, p) => [p.id],
-            (id): PipelineBackend => (typeof id === 'string' ? PipelineBackend.BatchExport : PipelineBackend.Plugin),
+            (s, p) => [s.node, p.id, s.newConfigurationServiceOrPluginID],
+            (node, id, newConfigurationServiceOrPluginID): PipelineBackend | null => {
+                if (node) {
+                    return node.backend
+                }
+                if (id === 'new') {
+                    if (newConfigurationServiceOrPluginID === null) {
+                        return null
+                    } else if (typeof newConfigurationServiceOrPluginID === 'string') {
+                        return PipelineBackend.BatchExport
+                    }
+                    return PipelineBackend.Plugin
+                }
+                if (typeof id === 'string') {
+                    return PipelineBackend.BatchExport
+                }
+                return PipelineBackend.Plugin
+            },
+        ],
+        maybeNodePlugin: [
+            (s) => [s.node, s.newConfigurationServiceOrPluginID, s.newConfigurationPlugins],
+            (node, maybePluginId, plugins): PluginType | null => {
+                if (node) {
+                    return node.backend === PipelineBackend.Plugin ? node.plugin : null
+                }
+                if (typeof maybePluginId === 'number') {
+                    // in case of new config creations
+                    return plugins[maybePluginId] || null
+                }
+                return null
+            },
+        ],
+        newConfigurationBatchExports: [
+            (_, p) => [p.stage],
+            (stage): Record<string, string> => {
+                if (stage === PipelineStage.Destination) {
+                    return {
+                        BigQuery: 'BigQuery',
+                        Postgres: 'PostgreSQL',
+                        Redshift: 'Redshift',
+                        S3: 'S3',
+                        Snowflake: 'Snowflake',
+                    }
+                }
+                return {}
+            },
+        ],
+        newConfigurationPlugins: [
+            (s, p) => [
+                p.stage,
+                s.destinationPlugins,
+                s.transformationPlugins,
+                s.frontendAppsPlugins,
+                s.importAppsPlugins,
+            ],
+            (
+                stage,
+                destinationPlugins,
+                transformationPlugins,
+                frontendAppsPlugins,
+                importAppsPlugins
+            ): Record<string, PluginType> => {
+                if (stage === PipelineStage.Transformation) {
+                    return transformationPlugins
+                } else if (stage === PipelineStage.Destination) {
+                    return destinationPlugins
+                } else if (stage === PipelineStage.SiteApp) {
+                    return frontendAppsPlugins
+                } else if (stage === PipelineStage.ImportApp) {
+                    return importAppsPlugins
+                }
+                return {}
+            },
         ],
         tabs: [
             (_, p) => [p.id],
             (id) => {
+                if (id === 'new') {
+                    // not used, but just in case
+                    return [PipelineNodeTab.Configuration]
+                }
                 const tabs = Object.values(PipelineNodeTab)
                 if (typeof id === 'string') {
                     // Batch export
@@ -167,36 +302,41 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             },
         ],
         savedConfiguration: [
-            (s) => [s.node],
-            (node): Record<string, any> | null =>
-                node
-                    ? node.backend === PipelineBackend.Plugin
+            (s) => [s.node, s.maybeNodePlugin],
+            (node, maybeNodePlugin): Record<string, any> | null => {
+                if (node) {
+                    return node.backend === PipelineBackend.Plugin
                         ? node.config || defaultConfigForPlugin(node.plugin)
                         : { interval: node.interval, destination: node.service.type, ...node.service.config }
-                    : null,
+                }
+                if (maybeNodePlugin) {
+                    return defaultConfigForPlugin(maybeNodePlugin)
+                }
+                return null
+            },
         ],
         hiddenFields: [
-            (s) => [s.node, s.configuration],
-            (node, configuration): string[] => {
-                if (node?.backend === PipelineBackend.Plugin) {
-                    return determineInvisibleFields((fieldName) => configuration[fieldName], node.plugin)
+            (s) => [s.maybeNodePlugin, s.configuration],
+            (maybeNodePlugin, configuration): string[] => {
+                if (maybeNodePlugin) {
+                    return determineInvisibleFields((fieldName) => configuration[fieldName], maybeNodePlugin)
                 }
                 return []
             },
         ],
         requiredFields: [
-            (s) => [s.node, s.configuration],
-            (node, configuration): string[] => {
-                if (node?.backend === PipelineBackend.Plugin) {
-                    return determineRequiredFields((fieldName) => configuration[fieldName], node.plugin)
+            (s) => [s.maybeNodePlugin, s.configuration],
+            (maybeNodePlugin, configuration): string[] => {
+                if (maybeNodePlugin) {
+                    return determineRequiredFields((fieldName) => configuration[fieldName], maybeNodePlugin)
                 }
                 return []
             },
         ],
         isConfigurable: [
-            (s) => [s.node],
-            (node): boolean =>
-                node?.backend === PipelineBackend.Plugin && getConfigSchemaArray(node.plugin.config_schema).length > 0,
+            (s) => [s.maybeNodePlugin],
+            (maybeNodePlugin): boolean =>
+                !maybeNodePlugin || getConfigSchemaArray(maybeNodePlugin.config_schema).length > 0,
         ],
         id: [(_, p) => [p.id], (id) => id],
         stage: [(_, p) => [p.stage], (stage) => stage],
@@ -205,6 +345,9 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
         loadNodeSuccess: () => {
             actions.resetConfiguration(values.savedConfiguration || {})
             // TODO: Update entry in the relevant list logic
+        },
+        setNewSelected: () => {
+            actions.resetConfiguration({}) // If the user switches to a different plugin/batch export, then clear the form
         },
         setConfigurationValue: async ({ name, value }) => {
             if (name[0] === 'json_config_file' && value) {
@@ -244,7 +387,9 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadNode()
+    afterMount(({ values, actions }) => {
+        if (!values.isNew) {
+            actions.loadNode()
+        }
     }),
 ])
