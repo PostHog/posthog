@@ -2232,6 +2232,9 @@
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
+                "forceEnableHogQL": {
+                    "type": "boolean"
+                },
                 "funnelsFilter": {
                     "$ref": "#/definitions/FunnelsFilter",
                     "description": "Properties specific to the funnels insight"
@@ -3063,6 +3066,9 @@
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
+                "forceEnableHogQL": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "$ref": "#/definitions/NodeKind"
                 },
@@ -3132,6 +3138,9 @@
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "forceEnableHogQL": {
                     "type": "boolean"
                 },
                 "interval": {
@@ -3431,6 +3440,9 @@
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "forceEnableHogQL": {
                     "type": "boolean"
                 },
                 "funnelPathsFilter": {
@@ -4690,6 +4702,9 @@
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
+                "forceEnableHogQL": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "RetentionQuery",
                     "type": "string"
@@ -5068,6 +5083,9 @@
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
+                "forceEnableHogQL": {
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
@@ -5385,6 +5403,9 @@
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "forceEnableHogQL": {
                     "type": "boolean"
                 },
                 "interval": {

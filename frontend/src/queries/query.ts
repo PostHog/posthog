@@ -205,6 +205,7 @@ export async function query<N extends DataNode = DataNode>(
             )
         } else if (isInsightQueryNode(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl)) {
             if (
+                (isInsightQueryNode(queryNode) && queryNode.forceEnableHogQL) ||
                 (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
                 (hogQLInsightsPathsFlagEnabled &&
                     (isPathsQuery(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl))) ||

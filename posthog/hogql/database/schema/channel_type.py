@@ -147,13 +147,13 @@ POSSIBLE_CHANNEL_TYPES = [
     'Paid Video',
     'Paid Shopping',
     'Paid Other',
-    'Direct'
+    'Direct',
     'Organic Search',
     'Organic Video',
     'Organic Shopping',
     'Push',
-    'SMS'
-    'Audio'
+    'SMS',
+    'Audio',
     "Email",
     "Referral",
     "Affiliate",

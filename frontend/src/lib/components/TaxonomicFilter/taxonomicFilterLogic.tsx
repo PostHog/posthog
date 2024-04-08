@@ -503,6 +503,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (option: any) => option.name,
                         getValue: (option: any) => option.value,
                         getPopoverHeader: () => 'Session',
+                        endpoint: `api/projects/${teamId}/sessions/`,
                     },
                     {
                         name: 'HogQL',

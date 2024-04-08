@@ -35,7 +35,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
     )
 
     type = serializers.ChoiceField(
-        choices=["event", "person", "group"],
+        choices=["event", "person", "group", "session"],
         help_text="What property definitions to return",
         default="event",
     )

@@ -472,6 +472,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
+                                        forceEnableHogQL: true,
                                     },
                                     hidePersonsModal: true,
                                     embedded: true,
@@ -505,6 +506,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
+                                        forceEnableHogQL: true,
                                     },
                                     hidePersonsModal: true,
                                     embedded: true,
@@ -538,6 +540,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
+                                        forceEnableHogQL: true,
                                     },
                                     suppressSessionAnalysisWarning: true,
                                     hidePersonsModal: true,
@@ -783,6 +786,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
+                                        forceEnableHogQL: true,
                                     },
                                     hidePersonsModal: true,
                                     vizSpecificOptions: {
@@ -872,6 +876,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               },
                                               filterTestAccounts: true,
                                               properties: webAnalyticsFilters,
+                                              forceEnableHogQL: true,
                                           },
                                           hidePersonsModal: true,
                                           embedded: true,
@@ -958,6 +963,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     totalIntervals: isGreaterThanMd ? 8 : 5,
                                     period: RetentionPeriod.Week,
                                 },
+                                forceEnableHogQL: true,
                             },
                             vizSpecificOptions: {
                                 [InsightType.RETENTION]: {

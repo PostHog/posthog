@@ -2452,6 +2452,7 @@ class RetentionQuery(BaseModel):
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
+    forceEnableHogQL: Optional[bool] = None
     kind: Literal["RetentionQuery"] = "RetentionQuery"
     properties: Optional[
         Union[
@@ -2487,6 +2488,7 @@ class StickinessQuery(BaseModel):
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
+    forceEnableHogQL: Optional[bool] = None
     interval: Optional[IntervalType] = Field(
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
@@ -2531,6 +2533,7 @@ class TrendsQuery(BaseModel):
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
+    forceEnableHogQL: Optional[bool] = None
     interval: Optional[IntervalType] = Field(
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
@@ -2627,6 +2630,7 @@ class FunnelsQuery(BaseModel):
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
+    forceEnableHogQL: Optional[bool] = None
     funnelsFilter: Optional[FunnelsFilter] = Field(
         default=None, description="Properties specific to the funnels insight"
     )
@@ -2670,6 +2674,7 @@ class InsightsQueryBase(BaseModel):
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
+    forceEnableHogQL: Optional[bool] = None
     kind: NodeKind
     properties: Optional[
         Union[
@@ -2703,6 +2708,7 @@ class LifecycleQuery(BaseModel):
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
+    forceEnableHogQL: Optional[bool] = None
     interval: Optional[IntervalType] = Field(
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
@@ -2790,6 +2796,7 @@ class PathsQuery(BaseModel):
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
+    forceEnableHogQL: Optional[bool] = None
     funnelPathsFilter: Optional[FunnelPathsFilter] = Field(
         default=None, description="Used for displaying paths in relation to funnel steps."
     )

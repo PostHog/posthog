@@ -1,12 +1,17 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api, { ApiMethodOptions } from 'lib/api'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { colonDelimitedDuration } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { groupsModel } from '~/models/groupsModel'
 import {
     BreakdownKeyType,
     GroupTypeIndex,
@@ -119,8 +124,42 @@ const checkOrLoadPropertyDefinition = (
     return null
 }
 
+const getEndpoint = (
+    teamId: number,
+    type: PropertyDefinitionType,
+    propertyKey: string,
+    eventNames: string[] | undefined,
+    newInput: string | undefined
+): string => {
+    let eventParams = ''
+    for (const eventName of eventNames || []) {
+        eventParams += `&event_name=${eventName}`
+    }
+
+    if (type === PropertyDefinitionType.Session) {
+        return (
+            `api/projects/${teamId}/${type}s/values/?key=` +
+            encodeURIComponent(propertyKey) +
+            (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
+            eventParams
+        )
+    }
+
+    return (
+        'api/' +
+        type +
+        '/values/?key=' +
+        encodeURIComponent(propertyKey) +
+        (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
+        eventParams
+    )
+}
+
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     path(['models', 'propertyDefinitionsModel']),
+    connect({
+        values: [teamLogic, ['currentTeamId']],
+    }),
     actions({
         // public
         loadPropertyDefinitions: (
@@ -209,7 +248,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             // take the first 50 pending properties to avoid the 4k query param length limit
             const allPending = values.pendingProperties.slice(0, 50)
             const pendingByType: Record<
-                'event' | 'person' | 'group/0' | 'group/1' | 'group/2' | 'group/3' | 'group/4',
+                'event' | 'person' | 'group/0' | 'group/1' | 'group/2' | 'group/3' | 'group/4' | 'session',
                 string[]
             > = {
                 event: [],
@@ -219,6 +258,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 'group/2': [],
                 'group/3': [],
                 'group/4': [],
+                session: [],
             }
             for (const key of allPending) {
                 let [type, ...rest] = key.split('/')
@@ -298,10 +338,11 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         },
 
         loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames }, breakpoint) => {
-            if (['cohort', 'session'].includes(type)) {
+            console.log({ type, propertyKey, endpoint, taxonomicGroups: values.taxonomicGroups })
+            if (['cohort'].includes(type)) {
                 return
             }
-            if (!propertyKey) {
+            if (!propertyKey || values.currentTeamId === null) {
                 return
             }
 
@@ -316,19 +357,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 signal: cache.abortController.signal,
             }
 
-            let eventParams = ''
-            for (const eventName of eventNames || []) {
-                eventParams += `&event_name=${eventName}`
-            }
-
             const propValues: PropValue[] = await api.get(
-                endpoint ||
-                    'api/' +
-                        type +
-                        '/values/?key=' +
-                        encodeURIComponent(propertyKey) +
-                        (newInput ? '&value=' + encodeURIComponent(newInput) : '') +
-                        eventParams,
+                endpoint || getEndpoint(values.currentTeamId, type, propertyKey, eventNames, newInput),
                 methodOptions
             )
             breakpoint()

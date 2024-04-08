@@ -631,6 +631,8 @@ export interface InsightsQueryBase extends Node {
     aggregation_group_type_index?: integer
     /** Sampling rate */
     samplingFactor?: number | null
+
+    forceEnableHogQL?: boolean
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
