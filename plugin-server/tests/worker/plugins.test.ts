@@ -117,8 +117,8 @@ describe('plugins', () => {
 
         // Personless event skips the plugin
         const personlessEvent = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-        const processPerson = false
-        const returnedPersonlessEvent = await runProcessEvent(hub, personlessEvent, processPerson)
+        const runDeprecatedPlugins = false
+        const returnedPersonlessEvent = await runProcessEvent(hub, personlessEvent, runDeprecatedPlugins)
         expect(personlessEvent.properties!['processed']).toEqual(undefined)
         expect(returnedPersonlessEvent!.properties!['processed']).toEqual(undefined)
     })
