@@ -320,39 +320,38 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
 
 
 def validate_event_variants(funnel_results, variants):
-    if not funnel_results or not funnel_results[0]:
-        raise ValidationError("No experiment events have been ingested yet.", code="no-events")
+    errors = {"no-events": True, "no-flag-info": True, "no-control-variant": True, "no-test-variant": True}
 
+    if not funnel_results or not funnel_results[0]:
+        raise ValidationError(detail=errors)
+
+    errors["no-events"] = False
+
+    # Funnels: the first step must be present for *any* results to show up
+    # Trends: always a single event/action, so order is always 0
     eventsWithOrderZero = []
     for eventArr in funnel_results:
         for event in eventArr:
             if event.get("order") == 0:
                 eventsWithOrderZero.append(event)
 
-    missing_variants = []
-
     # Check if "control" is present
-    control_found = False
     for event in eventsWithOrderZero:
         event_variant = event.get("breakdown_value")[0]
         if event_variant == "control":
-            control_found = True
+            errors["no-control-variant"] = False
+            errors["no-flag-info"] = False
             break
-    if not control_found:
-        missing_variants.append("control")
 
     # Check if at least one of the test variants is present
     test_variants = [variant for variant in variants if variant != "control"]
-    test_variant_found = False
     for event in eventsWithOrderZero:
         event_variant = event.get("breakdown_value")[0]
         if event_variant in test_variants:
-            test_variant_found = True
+            errors["no-test-variant"] = False
+            errors["no-flag-info"] = False
             break
-    if not test_variant_found:
-        missing_variants.extend(test_variants)
 
-    if not len(missing_variants) == 0:
-        missing_variants_str = ", ".join(missing_variants)
-        message = f"No experiment events have been ingested yet for the following variants: {missing_variants_str}"
-        raise ValidationError(message, code=f"missing-flag-variants::{missing_variants_str}")
+    has_errors = any(errors.values())
+    if has_errors:
+        raise ValidationError(detail=errors)
