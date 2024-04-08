@@ -9,7 +9,7 @@ export function PluginsSearch(): JSX.Element {
         <LemonInput
             type="search"
             data-attr="plugins-search"
-            placeholder="Search for apps"
+            placeholder="Search for connectors"
             autoFocus
             value={searchTerm || ''}
             onChange={setSearchTerm}
