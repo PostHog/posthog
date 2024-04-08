@@ -52,7 +52,9 @@ runs:
               token: ${{ inputs.token }}
 
         # uv is a fast pip alternative: https://github.com/astral-sh/uv/
-        - run: pip install uv
+        - name: Install uv
+          shell: bash
+          run: pip install uv
 
         - name: Determine if hogql-parser has changed compared to master
           shell: bash
