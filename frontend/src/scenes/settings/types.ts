@@ -58,6 +58,7 @@ export type SettingId =
     | 'authorized-toolbar-urls'
     | 'integration-webhooks'
     | 'integration-slack'
+    | 'integration-ip-allowlist'
     | 'project-access-control'
     | 'project-role-based-access-control'
     | 'project-delete'

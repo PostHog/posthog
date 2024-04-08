@@ -1,11 +1,12 @@
-import { LemonDivider, LemonFileInput } from '@posthog/lemon-ui'
+import { LemonDivider, LemonFileInput, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum } from 'lib/constants'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -36,6 +37,17 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
+    }
+
+    if (cohortLoading) {
+        return (
+            <div className="space-y-2">
+                <LemonSkeleton active className="h-4 w-2/5" />
+                <LemonSkeleton active className="h-4 w-full" />
+                <LemonSkeleton active className="h-4 w-full" />
+                <LemonSkeleton active className="h-4 w-3/5" />
+            </div>
+        )
     }
     return (
         <div className="cohort">
@@ -120,7 +132,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                 />
-                <div className="space-y-2 max-w-160">
+                <div className="space-y-2 max-w-200">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <LemonField name="name" label="Name">
@@ -147,6 +159,34 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 )}
                             </LemonField>
                         </div>
+                        {!isNewCohort && !cohort?.is_static && (
+                            <div className="max-w-70 w-fit">
+                                <div className="flex gap-1 flex-col">
+                                    <LemonLabel>Last calculated</LemonLabel>
+                                    {cohort.is_calculating ? (
+                                        <div className="text-s">In progress...</div>
+                                    ) : cohort.last_calculation ? (
+                                        <div className="flex flex-1 flex-row gap-1">
+                                            <TZLabel time={cohort.last_calculation} />
+                                            {cohort.errors_calculating ? (
+                                                <Tooltip
+                                                    title={
+                                                        "The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation."
+                                                    }
+                                                >
+                                                    <div className="text-danger">
+                                                        <IconErrorOutline className="text-danger text-xl shrink-0" />
+                                                    </div>
+                                                </Tooltip>
+                                            ) : null}
+                                        </div>
+                                    ) : (
+                                        <div className="text-s">Not yet calculated</div>
+                                    )}
+                                    <div className="text-muted text-xs">Cohorts are recalculated every 24 hours</div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                     {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && (
                         <div className="ph-ignore-input">

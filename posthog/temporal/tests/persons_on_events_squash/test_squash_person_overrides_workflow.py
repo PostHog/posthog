@@ -461,7 +461,7 @@ async def assert_events_have_been_overriden(overriden_events, person_overrides):
                 query_parameters={"uuid": event["uuid"]},
             )
             row = response.decode("utf-8").splitlines()[0]
-            values = [value for value in row.split("\t")]
+            values = list(row.split("\t"))
             new_event = {
                 "uuid": UUID(values[0]),
                 "event": values[1],
@@ -598,7 +598,7 @@ SETTINGS
             query_parameters={"uuid": event["uuid"]},
         )
         row = response.decode("utf-8").splitlines()[0]
-        values = [value for value in row.split("\t")]
+        values = list(row.split("\t"))
         new_event = {
             "uuid": UUID(values[0]),
             "event": values[1],

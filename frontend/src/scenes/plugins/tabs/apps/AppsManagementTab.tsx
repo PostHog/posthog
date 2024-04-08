@@ -67,7 +67,7 @@ export function AppsManagementTab(): JSX.Element {
                                 loading={checkingForUpdates}
                             >
                                 {checkingForUpdates
-                                    ? `Checking app ${Object.keys(updateStatus).length + 1} out of ${
+                                    ? `Checking connector ${Object.keys(updateStatus).length + 1} out of ${
                                           Object.keys(installedPluginUrls).length
                                       }`
                                     : pluginsNeedingUpdates.length > 0
@@ -76,21 +76,26 @@ export function AppsManagementTab(): JSX.Element {
                             </LemonButton>
                         )}
                         <LemonButton type="secondary" onClick={openAdvancedInstallModal}>
-                            Install app (advanced)
+                            Install connector (advanced)
                         </LemonButton>
                     </div>
                 </div>
 
                 {filteredPluginsNeedingUpdates.length > 0 && (
                     <AppsTable
-                        title="Apps to Update"
+                        title="Connectors to update"
                         plugins={filteredPluginsNeedingUpdates}
                         loading={loading || checkingForUpdates}
                         renderfn={renderfn}
                     />
                 )}
 
-                <AppsTable title="Installed Apps" plugins={installedPlugins} loading={loading} renderfn={renderfn} />
+                <AppsTable
+                    title="Installed connectors"
+                    plugins={installedPlugins}
+                    loading={loading}
+                    renderfn={renderfn}
+                />
 
                 {canGloballyManagePlugins(user?.organization) && (
                     <>

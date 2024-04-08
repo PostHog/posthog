@@ -1,7 +1,6 @@
 import { IconCopy } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { base64Encode } from 'lib/utils'
@@ -19,15 +18,14 @@ export type NotebookShareProps = {
 }
 export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
     const { content, isLocalOnly } = useValues(notebookLogic({ shortId }))
-    const url = combineUrl(`${window.location.origin}${urls.notebook(shortId)}`).url
 
-    const canvasUrl =
-        combineUrl(`${window.location.origin}${urls.canvas()}`).url + `#🦔=${base64Encode(JSON.stringify(content))}`
+    const notebookUrl = urls.absolute(urls.currentProject(urls.notebook(shortId)))
+    const canvasUrl = urls.absolute(urls.canvas()) + `#🦔=${base64Encode(JSON.stringify(content))}`
 
     const [interestTracked, setInterestTracked] = useState(false)
 
     const trackInterest = (): void => {
-        posthog.capture('pressed interested in notebook sharing', { url })
+        posthog.capture('pressed interested in notebook sharing', { url: notebookUrl })
     }
 
     return (
@@ -50,10 +48,10 @@ export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
                         fullWidth
                         center
                         sideIcon={<IconCopy />}
-                        onClick={() => void copyToClipboard(url, 'notebook link')}
-                        title={url}
+                        onClick={() => void copyToClipboard(notebookUrl, 'notebook link')}
+                        title={notebookUrl}
                     >
-                        <span className="truncate">{url}</span>
+                        <span className="truncate">{notebookUrl}</span>
                     </LemonButton>
 
                     <LemonDivider className="my-4" />
@@ -75,7 +73,7 @@ export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
                 center
                 sideIcon={<IconCopy />}
                 onClick={() => void copyToClipboard(canvasUrl, 'canvas link')}
-                title={url}
+                title={canvasUrl}
             >
                 <span className="truncate">{canvasUrl}</span>
             </LemonButton>

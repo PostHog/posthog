@@ -90,7 +90,7 @@ class Command(BaseCommand):
         out_of_sync_hosts: Dict[HostName, Set[TableName]],
         create_table_queries: Dict[TableName, Query],
     ):
-        missing_tables = set(table for tables in out_of_sync_hosts.values() for table in tables)
+        missing_tables = {table for tables in out_of_sync_hosts.values() for table in tables}
 
         logger.info("Creating missing tables", missing_tables=missing_tables)
         for table in missing_tables:

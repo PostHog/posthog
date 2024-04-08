@@ -389,6 +389,7 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
+    skipped_for_personless?: boolean
     public_jobs?: Record<string, JobSpec>
     log_level?: PluginLogLevel
 }
