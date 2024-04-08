@@ -829,7 +829,6 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
                     </div>
-                    <h2 className="font-semibold text-lg m-0 mt-4">Experiment result</h2>
                     <ExperimentResult />
                     <SecondaryMetricsResult />
                 </div>
