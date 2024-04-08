@@ -598,7 +598,7 @@ export class SessionRecordingIngester {
                 const highOffset = offsetsByPartition[partition]
 
                 if (highOffset && metrics.lastMessageOffset) {
-                    // High watermark is highest offset plus one
+                    // High watermark is reported as highest message offset plus one
                     metrics.offsetLag = highOffset - 1 - metrics.lastMessageOffset
                     // NOTE: This is an important metric used by the autoscaler
                     gaugeLag.set({ partition }, Math.max(0, metrics.offsetLag))
