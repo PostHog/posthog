@@ -245,7 +245,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Apps]: {
         projectBased: true,
-        name: 'Apps',
+        name: 'Pipeline',
         activityScope: ActivityScope.PLUGIN,
         defaultDocsPath: '/docs/cdp',
     },
@@ -257,7 +257,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.AppMetrics]: {
         projectBased: true,
-        name: 'Apps',
+        name: 'Pipeline',
         activityScope: ActivityScope.PLUGIN,
         defaultDocsPath: '/docs/cdp',
     },
