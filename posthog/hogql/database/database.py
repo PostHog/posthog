@@ -177,7 +177,7 @@ def create_hogql_database(
         database.events.fields["person_id"] = ExpressionField(
             name="person_id",
             expr=parse_expr(
-                "ifNull(nullIf(_override.override_person_id, '00000000-0000-0000-0000-000000000000'), _event_person_id)",
+                "if(notEmpty(_override.override_person_id), _override.override_person_id, _event_person_id)",
                 start=None,
             ),
         )
@@ -196,7 +196,7 @@ def create_hogql_database(
             name="person_id",
             expr=parse_expr(
                 # NOTE: assumes `join_use_nulls = 0` (the default), as ``_override.distinct_id`` is not Nullable
-                "if(not(empty(_override.distinct_id)), _override.person_id, _event_person_id)",
+                "if(notEmpty(_override.distinct_id), _override.person_id, _event_person_id)",
                 start=None,
             ),
         )
