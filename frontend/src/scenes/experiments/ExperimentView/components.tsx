@@ -141,10 +141,10 @@ export function NoResultsEmptyState(): JSX.Element {
                 <h2 className="font-semibold text-lg">Results</h2>
                 <div className="border rounded bg-bg-light py-2">
                     <div className="flex space-x-2">
-                        <div className="w-1/2 py-4 px-6 space-y-4 items-center">
-                            <div className="flex items-center mt-2">
-                                <div className="font-semibold leading-tight text-lg text-current">
-                                    Results not yet available
+                        <div className="w-1/2 my-auto px-6 space-y-4 items-center">
+                            <div className="flex items-center">
+                                <div className="font-semibold leading-tight text-base text-current">
+                                    Experiment results not yet available
                                 </div>
                             </div>
                             <div className="text-muted">
