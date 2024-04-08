@@ -213,7 +213,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         source: [
-            { payload: {}, prefix: '' } as Pick<ExternalDataSourceCreatePayload, 'payload' | 'prefix'>,
+            { payload: {}, prefix: '' } as {
+                prefix: string
+                payload: Record<string, any>
+            },
             {
                 updateSource: (state, { source }) => {
                     return {
