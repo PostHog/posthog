@@ -185,6 +185,11 @@ class Insight(models.Model):
 
     @property
     def query(self):
+        # return query if present
+        if self._query is not None:
+            return self._query
+
+        # convert filters to query if feature flag is on
         from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
@@ -194,7 +199,12 @@ class Insight(models.Model):
             except Exception as e:
                 capture_exception(e)
 
-        return self._query
+        # null by default
+        return None
+
+    @query.setter
+    def query(self, value):
+        self._query = value
 
 
 class InsightViewed(models.Model):
