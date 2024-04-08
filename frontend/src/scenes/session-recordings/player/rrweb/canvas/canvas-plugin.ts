@@ -1,6 +1,5 @@
 import { CanvasArg, canvasMutationData, canvasMutationParam, eventWithTime } from '@rrweb/types'
-import { EventType, IncrementalSource, Replayer } from 'rrweb'
-import { canvasMutation } from 'rrweb/es/rrweb/packages/rrweb/src/replay/canvas'
+import { canvasMutation, EventType, IncrementalSource, Replayer } from 'rrweb'
 import { ReplayPlugin } from 'rrweb/typings/types'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
@@ -84,6 +83,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     target: target,
                     imageMap,
                     canvasEventMap,
+                    errorHandler: () => {},
                 })
 
                 const img = containers.get(e.data.id)
