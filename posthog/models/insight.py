@@ -1,5 +1,6 @@
 from typing import Optional
 
+from sentry_sdk import capture_exception
 import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -36,7 +37,7 @@ class Insight(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters: models.JSONField = models.JSONField(default=dict)
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    query: models.JSONField = models.JSONField(null=True, blank=True)
+    _query: models.JSONField = models.JSONField(null=True, blank=True, db_column="query")
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     saved: models.BooleanField = models.BooleanField(default=False)
@@ -181,6 +182,19 @@ class Insight(models.Model):
     @property
     def url(self):
         return absolute_uri(f"/insights/{self.short_id}")
+
+    @property
+    def query(self):
+        from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
+        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+
+        if hogql_insights_replace_filters(self.team.pk) and self.filters:
+            try:
+                return {"kind": "InsightVizNode", "source": filter_to_query(self.filters).model_dump(), "full": True}
+            except Exception as e:
+                capture_exception(e)
+
+        return self._query
 
 
 class InsightViewed(models.Model):

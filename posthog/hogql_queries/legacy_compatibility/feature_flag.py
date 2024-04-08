@@ -5,6 +5,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.models.user import User
 from django.contrib.auth.models import AnonymousUser
 
+REPLACE_FILTERS_FLAG = "hogql-insights-replace-filters"
+
 
 def hogql_insights_enabled(user: User | AnonymousUser) -> bool:
     if settings.HOGQL_INSIGHTS_OVERRIDE is not None:
@@ -24,3 +26,15 @@ def hogql_insights_enabled(user: User | AnonymousUser) -> bool:
         )
     else:
         return False
+
+
+def hogql_insights_replace_filters(team_id: int) -> bool:
+    return posthoganalytics.feature_enabled(
+        REPLACE_FILTERS_FLAG,
+        f"team_{team_id}",
+        group_properties={
+            "project": {"id": team_id},
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
