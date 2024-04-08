@@ -163,7 +163,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             <div className="max-w-70 w-fit">
                                 <div className="flex gap-1 flex-col">
                                     <LemonLabel>Last calculated</LemonLabel>
-                                    {cohort.last_calculation ? (
+                                    {cohort.is_calculating ? (
+                                        <div className="text-s">In progress...</div>
+                                    ) : cohort.last_calculation ? (
                                         <div className="flex flex-1 flex-row gap-1">
                                             <TZLabel time={cohort.last_calculation} />
                                             {cohort.errors_calculating ? (
@@ -179,7 +181,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                             ) : null}
                                         </div>
                                     ) : (
-                                        <div className="text-s">N/A</div>
+                                        <div className="text-s">Not yet calculated</div>
                                     )}
                                     <div className="text-muted text-xs">Cohorts are recalculated every 24 hours</div>
                                 </div>
