@@ -162,7 +162,7 @@ export class EventPipelineRunner {
                 { alwaysSend: true }
             )
 
-            return this.registerLastStep('clientIngestionWarning', [], [warningAck])
+            return this.registerLastStep('clientIngestionWarning', [event], [warningAck])
         }
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
