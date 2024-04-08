@@ -12,7 +12,7 @@ from ee.clickhouse.queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
-from posthog.constants import ExperimentSignificanceCode
+from posthog.constants import ExperimentSignificanceCode, ExperimentNoResultsErrorKeys
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -321,12 +321,17 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
 
 
 def validate_event_variants(funnel_results, variants):
-    errors = {"no-events": True, "no-flag-info": True, "no-control-variant": True, "no-test-variant": True}
+    errors = {
+        ExperimentNoResultsErrorKeys.NO_EVENTS: True,
+        ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+    }
 
     if not funnel_results or not funnel_results[0]:
         raise ValidationError(code="no-results", detail=json.dumps(errors))
 
-    errors["no-events"] = False
+    errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
 
     # Funnels: the first step must be present for *any* results to show up
     eventsWithOrderZero = []
@@ -339,8 +344,8 @@ def validate_event_variants(funnel_results, variants):
     for event in eventsWithOrderZero:
         event_variant = event.get("breakdown_value")[0]
         if event_variant == "control":
-            errors["no-control-variant"] = False
-            errors["no-flag-info"] = False
+            errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
+            errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
             break
 
     # Check if at least one of the test variants is present
@@ -348,8 +353,8 @@ def validate_event_variants(funnel_results, variants):
     for event in eventsWithOrderZero:
         event_variant = event.get("breakdown_value")[0]
         if event_variant in test_variants:
-            errors["no-test-variant"] = False
-            errors["no-flag-info"] = False
+            errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
+            errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
             break
 
     has_errors = any(errors.values())
