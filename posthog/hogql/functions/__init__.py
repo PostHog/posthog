@@ -6,6 +6,7 @@ from .mapping import (
     HOGQL_POSTHOG_FUNCTIONS,
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
+    CLICKHOUSE_FUNCTION_RETURN_TYPES,
 )
 from .cohort import cohort
 from .sparkline import sparkline

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
+from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, CLICKHOUSE_FUNCTION_RETURN_TYPES
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     StringJSONDatabaseField,
@@ -406,11 +406,17 @@ class Resolver(CloningVisitor):
                     param_types.append(param.type.resolve_constant_type(self.context) or ast.UnknownType())
                 else:
                     param_types.append(ast.UnknownType())
+
+        try:
+            return_type = CLICKHOUSE_FUNCTION_RETURN_TYPES[node.name]
+        except KeyError:
+            return_type = ast.UnknownType()
+
         node.type = ast.CallType(
             name=node.name,
             arg_types=arg_types,
             param_types=param_types,
-            return_type=ast.UnknownType(),
+            return_type=return_type,
         )
         return node
 
