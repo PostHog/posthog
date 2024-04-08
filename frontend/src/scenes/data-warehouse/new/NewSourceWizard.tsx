@@ -7,13 +7,16 @@ import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 import zendeskLogo from 'public/zendesk-logo.png'
+import { useCallback } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { SourceConfig } from '~/types'
 
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
-import { SourceConfig, sourceWizardLogic } from './sourceWizardLogic'
+import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
     component: NewSourceWizard,
@@ -22,9 +25,9 @@ export const scene: SceneExport = {
 export function NewSourceWizard(): JSX.Element {
     const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
     const { onBack, onSubmit } = useActions(sourceWizardLogic)
-    const { currentStep } = useValues(sourceWizardLogic)
+    const { currentStep, isLoading } = useValues(sourceWizardLogic)
 
-    const footer = (): JSX.Element | null => {
+    const footer = useCallback(() => {
         if (currentStep === 1) {
             return null
         }
@@ -34,12 +37,18 @@ export function NewSourceWizard(): JSX.Element {
                 <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onBack}>
                     Back
                 </LemonButton>
-                <LemonButton type="primary" center onClick={() => onSubmit()} data-attr="source-link">
+                <LemonButton
+                    loading={isLoading}
+                    type="primary"
+                    center
+                    onClick={() => onSubmit()}
+                    data-attr="source-link"
+                >
                     Link
                 </LemonButton>
             </div>
         )
-    }
+    }, [currentStep, isLoading])
 
     return (
         <>
@@ -155,7 +164,7 @@ function SecondStep(): JSX.Element {
 
     return (
         <ModalPage page={2}>
-            {selectedConnector ? <SourceForm sourceType={selectedConnector.name} /> : <DatawarehouseTableForm />}
+            {selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <DatawarehouseTableForm />}
         </ModalPage>
     )
 }

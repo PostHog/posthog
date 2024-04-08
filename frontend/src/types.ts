@@ -3832,3 +3832,18 @@ export enum SidePanelTab {
     Status = 'status',
     Exports = 'exports',
 }
+
+export interface SourceFieldConfig {
+    name: string
+    label: string
+    type: string
+    required: boolean
+    placeholder: string
+}
+
+export interface SourceConfig {
+    name: ExternalDataSourceType
+    caption: string | React.ReactNode
+    fields: SourceFieldConfig[]
+    disabledReason?: string | null
+}
