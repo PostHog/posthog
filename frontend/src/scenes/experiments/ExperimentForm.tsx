@@ -190,7 +190,10 @@ const StepGoal = (): JSX.Element => {
                     </div>
                 )}
                 <div>
-                    <h3>Goal type</h3>
+                    <h3 className="mb-1">Goal type</h3>
+                    <div className="text-xs text-muted font-medium tracking-normal">
+                        You can always adjust your experiment goal later
+                    </div>
                     <LemonDivider />
                     <LemonRadio
                         className="space-y-2 -mt-2"
