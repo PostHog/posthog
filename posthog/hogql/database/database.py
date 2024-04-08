@@ -181,8 +181,12 @@ def create_hogql_database(
                 start=None,
             ),
         )
-        # TODO: this is wrong -- join needs to be on `person_id` instead
-        database.events.fields["person"] = FieldTraverser(chain=["_override", "person"])
+        # XXX: doesn't work yet
+        database.events.fields["person"] = LazyJoin(
+            from_field=["person_id"],
+            join_table=PersonsTable(),
+            join_function=join_with_persons_table,
+        )
 
     elif modifiers.personOverridesMode == PersonOverridesMode.v3_enabled:
         # person_id from person_distinct_id_overrides
@@ -200,8 +204,12 @@ def create_hogql_database(
                 start=None,
             ),
         )
-        # TODO: this is wrong -- join needs to be on `person_id` instead
-        database.events.fields["person"] = FieldTraverser(chain=["_override", "person"])
+        # XXX: doesn't work yet
+        database.events.fields["person"] = LazyJoin(
+            from_field=["person_id"],
+            join_table=PersonsTable(),
+            join_function=join_with_persons_table,
+        )
 
     if modifiers.personPropertiesSource == PersonPropertiesSource.event:
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
