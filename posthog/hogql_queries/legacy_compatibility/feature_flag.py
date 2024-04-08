@@ -2,6 +2,7 @@ from typing import cast
 import posthoganalytics
 from django.conf import settings
 from posthog.cloud_utils import is_cloud
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from django.contrib.auth.models import AnonymousUser
 
@@ -28,12 +29,15 @@ def hogql_insights_enabled(user: User | AnonymousUser) -> bool:
         return False
 
 
-def hogql_insights_replace_filters(team_id: int) -> bool:
+def hogql_insights_replace_filters(team: Team) -> bool:
     return posthoganalytics.feature_enabled(
         REPLACE_FILTERS_FLAG,
-        f"team_{team_id}",
+        str(team.uuid),
+        groups={"organization": str(team.organization.id)},
         group_properties={
-            "project": {"id": team_id},
+            "organization": {
+                "id": str(team.organization.id),
+            }
         },
         only_evaluate_locally=True,
         send_feature_flag_events=False,

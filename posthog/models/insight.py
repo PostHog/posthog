@@ -193,7 +193,7 @@ class Insight(models.Model):
         from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
-        if hogql_insights_replace_filters(self.team.pk) and self.filters:
+        if hogql_insights_replace_filters(self.team) and self.filters:
             try:
                 return {"kind": "InsightVizNode", "source": filter_to_query(self.filters).model_dump(), "full": True}
             except Exception as e:
