@@ -333,6 +333,18 @@ export const billingJson: BillingV2Type = {
             addons: [
                 {
                     name: 'Group analytics',
+                    inclusion_only: false,
+                    features: [
+                        {
+                            key: 'group_analytics',
+                            name: 'Group analytics',
+                            description:
+                                'Associate events with a group - such as a company, community, or project - and analyze them in that context.',
+                            unit: null,
+                            limit: null,
+                            note: null,
+                        },
+                    ],
                     description:
                         'Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more.',
                     price_description: null,
@@ -512,6 +524,18 @@ export const billingJson: BillingV2Type = {
                 },
                 {
                     name: 'Data pipelines',
+                    inclusion_only: false,
+                    features: [
+                        {
+                            key: 'data_pipelines',
+                            name: 'Data pipelines',
+                            description:
+                                'Get your PostHog data into your data warehouse or other tools like BigQuery, Redshift, Customer.io, and more.',
+                            unit: null,
+                            limit: null,
+                            note: null,
+                        },
+                    ],
                     description:
                         'Get your PostHog data into your data warehouse or other tools like BigQuery, Redshift, Customer.io, and more.',
                     price_description: null,
@@ -2448,9 +2472,9 @@ export const billingJson: BillingV2Type = {
                         },
                         {
                             key: 'apps',
-                            name: 'Apps',
+                            name: 'Data connectors',
                             description:
-                                'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                                'Use connectors to transform, filter, and modify your incoming data. (Export destinations not included, see the Data pipelines addon for product analytics.)',
                             unit: null,
                             limit: null,
                             note: null,
@@ -2508,9 +2532,9 @@ export const billingJson: BillingV2Type = {
                         },
                         {
                             key: 'apps',
-                            name: 'Apps',
+                            name: 'Data connectors',
                             description:
-                                'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                                'Use connectors to transform, filter, and modify your incoming data. (Export destinations not included, see the Data pipelines addon for product analytics.)',
                             unit: null,
                             limit: null,
                             note: null,
@@ -2551,9 +2575,9 @@ export const billingJson: BillingV2Type = {
             features: [
                 {
                     key: 'apps',
-                    name: 'Apps',
+                    name: 'Data connectors',
                     description:
-                        'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                        'Use connectors to transform, filter, and modify your incoming data. (Export destinations not included, see the Data pipelines addon for product analytics.)',
                     images: null,
                     icon_key: null,
                     type: null,
@@ -2691,7 +2715,7 @@ export const billingJson: BillingV2Type = {
                 {
                     plan_key: 'paid-20240208',
                     product_key: 'platform_and_support',
-                    name: 'With subscription',
+                    name: 'With Pay-per-use',
                     description: 'SSO, permission management, and support.',
                     image_url: 'https://posthog.com/images/product/product-icons/platform.svg',
                     docs_url: 'https://posthog.com/docs',
@@ -3427,9 +3451,9 @@ export const billingJson: BillingV2Type = {
                     type: null,
                 },
                 {
-                    key: 'support_slas',
-                    name: 'Support SLAs',
-                    description: 'Support SLAs',
+                    key: 'support_response_time',
+                    name: 'Support response time',
+                    description: 'Get help from our team!',
                     images: null,
                     icon_key: null,
                     type: null,

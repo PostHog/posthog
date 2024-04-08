@@ -1,5 +1,6 @@
 import { LemonTable, LemonTableColumn, LemonTag, lemonToast, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -10,7 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 
-import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
+import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
@@ -30,17 +31,19 @@ export function Destinations(): JSX.Element {
 
     return (
         <>
-            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                <ProductIntroduction
-                    productName="Pipeline destinations"
-                    thingName="destination"
-                    productKey={ProductKey.PIPELINE_DESTINATIONS}
-                    description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
-                    docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
-                    isEmpty={true}
-                />
-            )}
+            <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
+                {(shouldShowEmptyState || shouldShowProductIntroduction) && (
+                    <ProductIntroduction
+                        productName="Pipeline destinations"
+                        thingName="destination"
+                        productKey={ProductKey.PIPELINE_DESTINATIONS}
+                        description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
+                        docsURL="https://posthog.com/docs/cdp"
+                        actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
+                        isEmpty={true}
+                    />
+                )}
+            </PayGateMini>
             <DestinationsTable />
         </>
     )
@@ -134,7 +137,7 @@ export const DestinationMoreOverlay = ({
     destination: Destination
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
 
     return (
@@ -145,9 +148,11 @@ export const DestinationMoreOverlay = ({
                           {
                               label: destination.enabled ? 'Pause destination' : 'Unpause destination',
                               onClick: () => toggleEnabled(destination, !destination.enabled),
-                              disabledReason: canConfigurePlugins
-                                  ? undefined
-                                  : 'You do not have permission to enable/disable destinations.',
+                              disabledReason: !canConfigurePlugins
+                                  ? 'You do not have permission to enable/disable destinations.'
+                                  : !canEnableNewDestinations && !destination.enabled
+                                  ? 'Data pipelines add-on is required for enabling new destinations'
+                                  : undefined,
                           },
                       ]
                     : []),

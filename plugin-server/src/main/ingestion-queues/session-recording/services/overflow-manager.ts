@@ -2,6 +2,7 @@ import { Redis } from 'ioredis'
 import LRUCache from 'lru-cache'
 import { Gauge } from 'prom-client'
 
+import { status } from '../../../../utils/status'
 import { Limiter } from '../../../../utils/token-bucket'
 
 export const overflowTriggeredGauge = new Gauge({
@@ -31,6 +32,11 @@ export class OverflowManager {
     ) {
         this.limiter = new Limiter(burstCapacity, replenishRate)
         this.triggered = new LRUCache({ max: 1_000_000, maxAge: cooldownSeconds * 1000 })
+        status.info('🚛 ', '[overflow-manager] manager stated', {
+            redis_key: this.redisKey,
+            burstCapacity,
+            replenishRate,
+        })
     }
 
     public async observe(key: string, quantity: number, now?: number): Promise<void> {
@@ -50,6 +56,11 @@ export class OverflowManager {
         // The zset value is a timestamp in seconds.
         const expiration = (now ?? Date.now()) / 1000 + this.cooldownSeconds
         await this.redisClient.zadd(this.redisKey, 'NX', expiration, key)
+        status.info('🚛 ', '[overflow-manager] added new overflow record', {
+            redis_key: this.redisKey,
+            key,
+            expiration,
+        })
 
         // Cleanup old entries with values expired more than one hour ago.
         // We run the cleanup here because we assume this will only run a dozen times per day per region.

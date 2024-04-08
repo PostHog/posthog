@@ -2,7 +2,6 @@ import './PropertiesTable.scss'
 
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { Input } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
@@ -39,20 +38,24 @@ interface ValueDisplayType extends BasePropertyType {
 }
 
 function EditTextValueComponent({
-    value,
+    initialValue,
     onChange,
 }: {
-    value: any
-    onChange: (newValue: any, save: boolean) => void
+    initialValue: any
+    onChange: (newValue: any) => void
 }): JSX.Element {
+    const [value, setValue] = useState(initialValue)
+
     return (
-        <Input
-            defaultValue={value}
+        <LemonInput
             autoFocus
-            onBlur={() => onChange(null, false)}
-            onPressEnter={(e) => onChange((e.target as HTMLInputElement).value, true)}
+            value={value}
+            onChange={setValue}
+            onBlur={() => onChange(initialValue)}
+            onPressEnter={() => onChange(value)}
             autoComplete="off"
             autoCapitalize="off"
+            size="xsmall"
         />
     )
 }
@@ -82,9 +85,9 @@ function ValueDisplay({
 
     const valueString: string = value === null ? 'null' : String(value) // typeof null returns 'object' ¯\_(ツ)_/¯
 
-    const handleValueChange = (newValue: any, save: boolean): void => {
+    const handleValueChange = (newValue: any): void => {
         setEditing(false)
-        if (rootKey !== undefined && save && onEdit && newValue != value) {
+        if (rootKey !== undefined && onEdit && newValue != value) {
             onEdit(rootKey, newValue, value)
         }
     }
@@ -121,15 +124,16 @@ function ValueDisplay({
                             items={[
                                 {
                                     label: 'true',
-                                    onClick: () => handleValueChange(true, true),
+                                    onClick: () => handleValueChange(true),
                                 },
                                 {
                                     label: 'false',
-                                    onClick: () => handleValueChange(false, true),
+                                    onClick: () => handleValueChange(false),
                                 },
                                 {
                                     label: 'null',
-                                    onClick: () => handleValueChange(null, true),
+                                    onClick: () => handleValueChange(null),
+                                    status: 'danger',
                                 },
                             ]}
                         >
@@ -154,7 +158,7 @@ function ValueDisplay({
                             }
                         >
                             <LemonTag
-                                className="ml-1 font-mono uppercase"
+                                className="font-mono uppercase ml-1"
                                 type={isTypeMismatched ? 'danger' : 'muted'}
                                 icon={isTypeMismatched ? <IconWarning /> : undefined}
                             >
@@ -165,7 +169,7 @@ function ValueDisplay({
                     </Tooltip>
                 </>
             ) : (
-                <EditTextValueComponent value={value} onChange={handleValueChange} />
+                <EditTextValueComponent initialValue={value} onChange={handleValueChange} />
             )}
         </div>
     )
@@ -377,7 +381,7 @@ export function PropertiesTable({
         return (
             <>
                 {(searchable || filterable) && (
-                    <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex justify-between items-center gap-2 mb-2">
                         <span className="flex justify-between gap-2">
                             {searchable && (
                                 <LemonInput

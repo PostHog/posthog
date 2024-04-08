@@ -65,9 +65,9 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             },
         ],
         localBreakdownLimit: [
-            25 as number | undefined,
+            undefined as number | undefined,
             {
-                setBreakdownLimit: (_, { value }) => value ?? 25,
+                setBreakdownLimit: (_, { value }) => value,
             },
         ],
     }),

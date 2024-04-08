@@ -1,6 +1,7 @@
 import { LemonDropdown, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
+import { FunnelPathsFilter } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
 
 import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
@@ -15,10 +16,11 @@ export type PathNodeCardProps = {
 }
 
 export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Element | null {
-    const { pathsFilter } = useValues(pathsDataLogic(insightProps))
+    const { pathsFilter: _pathsFilter, funnelPathsFilter: _funnelPathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsDataLogic(insightProps))
 
-    const filter = pathsFilter || {}
+    const pathsFilter = _pathsFilter || {}
+    const funnelPathsFilter = _funnelPathsFilter || ({} as FunnelPathsFilter)
 
     if (!node.visible) {
         return null
@@ -49,11 +51,13 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                         openPersonsModal={openPersonsModal}
                     />
                 }
-                placement="bottom"
                 trigger="hover"
+                placement="bottom"
+                padded={false}
+                matchWidth
             >
                 <div
-                    className="absolute p-1 rounded bg-bg-light"
+                    className="absolute rounded bg-bg-light p-1"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: PATH_NODE_CARD_WIDTH,
@@ -64,7 +68,9 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                             ? node.y0 + PATH_NODE_CARD_TOP_OFFSET
                             : // use middle for end nodes
                               node.y0 + (node.y1 - node.y0) / 2,
-                        border: `1px solid ${isSelectedPathStartOrEnd(filter, node) ? 'purple' : 'var(--border)'}`,
+                        border: `1px solid ${
+                            isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node) ? 'purple' : 'var(--border)'
+                        }`,
                     }}
                     data-attr="path-node-card-button"
                 >
@@ -75,7 +81,7 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                         viewPathToFunnel={viewPathToFunnel}
                         openPersonsModal={openPersonsModal}
                         setFilter={updateInsightFilter}
-                        filter={filter}
+                        filter={pathsFilter}
                     />
                 </div>
             </LemonDropdown>

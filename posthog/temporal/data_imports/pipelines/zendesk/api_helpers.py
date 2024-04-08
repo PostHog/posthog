@@ -98,6 +98,6 @@ def process_ticket_field(field: DictStrAny, custom_fields_state: Dict[str, TCust
             if key not in existing_options:
                 existing_options[key] = value
     else:
-        custom_fields_state[field_id] = dict(title=field["title"], options=new_options)
+        custom_fields_state[field_id] = {"title": field["title"], "options": new_options}
         return_dict["initial_title"] = field["title"]
     return return_dict

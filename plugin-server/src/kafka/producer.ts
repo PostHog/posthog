@@ -2,7 +2,7 @@ import {
     ClientMetrics,
     HighLevelProducer as RdKafkaProducer,
     MessageHeader,
-    MessageKey,
+    MessageKey as RdKafkaMessageKey,
     MessageValue,
     NumberNullUndefined,
     ProducerGlobalConfig,
@@ -17,6 +17,11 @@ export type KafkaProducerConfig = {
     KAFKA_PRODUCER_BATCH_SIZE: number
     KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number
 }
+
+// Disallow use of ``undefined`` with ``HighLevelProducer`` since it will result
+// in messages that are never produced, and the corresponding callback is never
+// called, causing the promise returned to never settle.
+export type MessageKey = Exclude<RdKafkaMessageKey, undefined>
 
 export const ingestEventKafkaProduceLatency = new Summary({
     name: 'ingest_event_kafka_produce_latency',

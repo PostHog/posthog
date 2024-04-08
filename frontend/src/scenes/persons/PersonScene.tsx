@@ -1,7 +1,5 @@
-import './PersonScene.scss'
-
-import { IconCopy, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonSelect, Link } from '@posthog/lemon-ui'
+import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -48,29 +46,32 @@ export const scene: SceneExport = {
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <div>
-                <span className="text-muted">IDs:</span>{' '}
-                <CopyToClipboardInline
-                    tooltipMessage={null}
-                    description="person distinct ID"
-                    style={{ justifyContent: 'flex-end' }}
-                >
-                    {person.distinct_ids[0]}
-                </CopyToClipboardInline>
+            <div className="flex space-x-1">
+                <div>
+                    <span className="text-muted">IDs:</span>{' '}
+                    <CopyToClipboardInline
+                        tooltipMessage={null}
+                        description="person distinct ID"
+                        style={{ justifyContent: 'flex-end' }}
+                    >
+                        {person.distinct_ids[0]}
+                    </CopyToClipboardInline>
+                </div>
+                {person.distinct_ids.length > 1 && (
+                    <LemonMenu
+                        items={person.distinct_ids.slice(1).map((distinct_id: string) => ({
+                            label: distinct_id,
+                            sideIcon: <IconCopy className="text-primary-3000" />,
+                            onClick: () => copyToClipboard(distinct_id, 'distinct id'),
+                        }))}
+                    >
+                        <LemonTag type="primary" className="inline-flex">
+                            <span>+{person.distinct_ids.length - 1}</span>
+                            <IconChevronDown className="w-4 h-4" />
+                        </LemonTag>
+                    </LemonMenu>
+                )}
             </div>
-            {person.distinct_ids.length > 1 && (
-                <LemonMenu
-                    items={person.distinct_ids.slice(1).map((distinct_id: string) => ({
-                        label: distinct_id,
-                        icon: <IconCopy />,
-                        onClick: async () => await copyToClipboard(distinct_id, 'person distinct ID'),
-                    }))}
-                >
-                    <LemonButton size="small" data-attr="copy-id">
-                        + {person.distinct_ids.length - 1}
-                    </LemonButton>
-                </LemonMenu>
-            )}
             <div>
                 <span className="text-muted">First seen:</span>{' '}
                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
@@ -259,7 +260,7 @@ export function PersonScene(): JSX.Element | null {
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
                               content: (
                                   <>
-                                      <div className="flex items-center mb-2 space-x-2">
+                                      <div className="flex space-x-2 items-center mb-2">
                                           <div className="flex items-center">
                                               Choose ID:
                                               <Tooltip title="Feature flags values can depend on person distincts IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">

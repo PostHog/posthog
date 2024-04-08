@@ -48,7 +48,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             data-attr="events-table-event-link"
                             onClick={() =>
                                 void copyToClipboard(
-                                    `${window.location.origin}${urls.event(String(event.uuid), event.timestamp)}`,
+                                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
                                     'link to event'
                                 )
                             }
