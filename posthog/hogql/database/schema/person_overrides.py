@@ -51,7 +51,10 @@ def join_with_person_overrides_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, "_event_person_id"]),  # XXX: assumes LHS col?
+            # XXX: The LHS column seems redundant to/unnecessarily coupled with
+            # the `LazyJoin` definition -- seems like there should be a better
+            # way to do this?
+            left=ast.Field(chain=[from_table, "_event_person_id"]),
             right=ast.Field(chain=[to_table, "old_person_id"]),
         )
     )
