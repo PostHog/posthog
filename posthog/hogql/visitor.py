@@ -2,7 +2,7 @@ from typing import Optional, TypeVar, Generic, Any
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST, Expr
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import BaseHogQLError
 
 
 def clone_expr(expr: Expr, clear_types=False, clear_locations=False) -> Expr:
@@ -24,7 +24,7 @@ class Visitor(Generic[T]):
 
         try:
             return node.accept(self)
-        except HogQLException as e:
+        except BaseHogQLError as e:
             if e.start is None or e.end is None:
                 e.start = node.start
                 e.end = node.end
@@ -33,9 +33,6 @@ class Visitor(Generic[T]):
 
 class TraversingVisitor(Visitor[None]):
     """Visitor that traverses the AST tree without returning anything"""
-
-    def visit_expr(self, node: Expr):
-        raise HogQLException("Can not visit generic Expr node")
 
     def visit_cte(self, node: ast.CTE):
         pass
@@ -274,9 +271,6 @@ class CloningVisitor(Visitor[Any]):
     ):
         self.clear_types = clear_types
         self.clear_locations = clear_locations
-
-    def visit_expr(self, node: Expr):
-        raise HogQLException("Can not visit generic Expr node")
 
     def visit_cte(self, node: ast.CTE):
         return ast.CTE(

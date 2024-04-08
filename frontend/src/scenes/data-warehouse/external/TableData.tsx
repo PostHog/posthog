@@ -77,7 +77,7 @@ export function TableData(): JSX.Element {
     return table ? (
         <div className="px-4 py-3 col-span-2">
             <div className="flex flex-row justify-between items-center">
-                <h3>{table.name}</h3>
+                <h3 className="w-3/4 text-wrap break-all">{table.name}</h3>
                 {isEditingSavedQuery ? (
                     <LemonButton type="secondary" onClick={() => setIsEditingSavedQuery(false)}>
                         Cancel

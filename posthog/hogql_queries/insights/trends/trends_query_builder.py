@@ -8,6 +8,7 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
+from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -377,6 +378,19 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             )
             query.group_by = [ast.Field(chain=["breakdown_value"])]
+            query.order_by.insert(
+                0,
+                cast(
+                    ast.OrderExpr,
+                    parse_expr(
+                        "breakdown_value = {other} ? 2 : breakdown_value = {nil} ? 1 : 0",
+                        placeholders={
+                            "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                            "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                        },
+                    ),
+                ),
+            )
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
 
         return query
@@ -458,6 +472,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Dates
         if is_actors_query and actors_query_time_frame is not None:
             actors_from, actors_to = self.query_date_range.interval_bounds_from_str(actors_query_time_frame)
+            query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
+            if self.query.dateRange and self.query.dateRange.explicitDate:
+                query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
+                # exclude events before the query start
+                if query_from > actors_from:
+                    actors_from = query_from
+                # exclude events after the query end
+                if query_to < actors_to:
+                    actors_to = query_to
             filters.extend(
                 [
                     ast.CompareOperation(

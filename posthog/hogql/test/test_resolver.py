@@ -16,11 +16,12 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
 )
+from posthog.hogql.errors import QueryError
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, print_prepared_ast
-from posthog.hogql.resolver import ResolverException, resolve_types
+from posthog.hogql.resolver import ResolutionError, resolve_types
 from posthog.test.base import BaseTest
 
 
@@ -54,7 +55,7 @@ class TestResolver(BaseTest):
     def test_will_not_run_twice(self):
         expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
         expr = resolve_types(expr, self.context, dialect="clickhouse")
-        with self.assertRaises(ResolverException) as context:
+        with self.assertRaises(ResolutionError) as context:
             expr = resolve_types(expr, self.context, dialect="clickhouse")
         self.assertEqual(
             str(context.exception),
@@ -84,7 +85,7 @@ class TestResolver(BaseTest):
         expr = self._select(
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )
-        with self.assertRaises(ResolverException) as e:
+        with self.assertRaises(QueryError) as e:
             expr = resolve_types(expr, self.context, dialect="clickhouse")
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
 
@@ -120,7 +121,7 @@ class TestResolver(BaseTest):
             "SELECT x.y FROM (SELECT event as y FROM events AS x) AS t",
         ]
         for query in queries:
-            with self.assertRaises(ResolverException) as e:
+            with self.assertRaises(QueryError) as e:
                 resolve_types(self._select(query), self.context, dialect="clickhouse")
             self.assertIn("Unable to resolve field:", str(e.exception))
 
@@ -173,7 +174,7 @@ class TestResolver(BaseTest):
         assert pretty_dataclasses(node) == self.snapshot
 
     def test_ctes_loop(self):
-        with self.assertRaises(ResolverException) as e:
+        with self.assertRaises(QueryError) as e:
             self._print_hogql("with cte as (select * from cte) select * from cte")
         self.assertIn("Too many CTE expansions (50+). Probably a CTE loop.", str(e.exception))
 
@@ -189,7 +190,7 @@ class TestResolver(BaseTest):
         )
 
     def test_ctes_field_access(self):
-        with self.assertRaises(ResolverException) as e:
+        with self.assertRaises(QueryError) as e:
             self._print_hogql("with properties as cte select cte.$browser from events")
         self.assertIn("Cannot access fields on CTE cte yet", str(e.exception))
 
@@ -278,7 +279,7 @@ class TestResolver(BaseTest):
 
     def test_asterisk_expander_multiple_table_error(self):
         node = self._select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
-        with self.assertRaises(ResolverException) as e:
+        with self.assertRaises(QueryError) as e:
             resolve_types(node, self.context, dialect="clickhouse")
         self.assertEqual(
             str(e.exception),

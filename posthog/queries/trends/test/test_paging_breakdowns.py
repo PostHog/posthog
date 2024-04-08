@@ -2,6 +2,7 @@ from typing import Dict, Optional
 
 from freezegun import freeze_time
 
+from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_DISPLAY
 from posthog.models import Filter
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import APIBaseTest
@@ -61,12 +62,12 @@ class TestPagingBreakdowns(APIBaseTest):
         response = self._run({"breakdown": "wildcard_route", "breakdown_type": "event"})
 
         assert len(response) == 26
-        page_labels = [r["label"] for r in response if r["label"] != "Other"]
+        page_labels = [r["label"] for r in response if r["label"] != BREAKDOWN_OTHER_DISPLAY]
         assert len(page_labels) == 25
         assert sorted(page_labels), sorted(list(set(page_labels)))  # all values are unique
 
         second_page_response = self._run({"breakdown": "wildcard_route", "breakdown_type": "event", "offset": 25})
-        second_page_labels = [r["label"] for r in second_page_response if r["label"] != "Other"]
+        second_page_labels = [r["label"] for r in second_page_response if r["label"] != BREAKDOWN_OTHER_DISPLAY]
 
         assert len(page_labels) == len(second_page_labels)  # should be two pages of different results
 

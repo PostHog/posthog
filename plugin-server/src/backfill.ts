@@ -150,6 +150,14 @@ async function handleEvent(db: DB, event: RawClickHouseEvent): Promise<void> {
     // single CH event handlin
     const pluginEvent = formPluginEvent(event)
     const ts: DateTime = DateTime.fromISO(pluginEvent.timestamp as string)
-    const personState = new PersonState(pluginEvent, pluginEvent.team_id, pluginEvent.distinct_id, ts, db)
+    const processPerson = true
+    const personState = new PersonState(
+        pluginEvent,
+        pluginEvent.team_id,
+        pluginEvent.distinct_id,
+        ts,
+        processPerson,
+        db
+    )
     await personState.handleIdentifyOrAlias()
 }
