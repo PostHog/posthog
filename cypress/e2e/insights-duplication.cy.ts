@@ -47,7 +47,7 @@ describe('Insights', () => {
 
             cy.get('[data-attr="insight-save-dropdown"]').click()
             cy.get('[data-attr="insight-save-as-new-insight"]').click()
-            cy.get('.ant-modal-content .ant-btn-primary').click()
+            cy.get('button[type=submit]').click()
             cy.get('[data-attr="top-bar-name"] .EditableField__display').should('contain', `${insightName} (copy)`)
 
             savedInsights.checkInsightIsInListView(`${insightName} (copy)`)

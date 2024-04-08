@@ -3,7 +3,7 @@ from itertools import chain
 from typing import List, Optional, Dict, Tuple, Type
 from posthog.hogql import ast
 from posthog.hogql.base import ConstantType
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import QueryError
 
 
 def validate_function_args(
@@ -18,15 +18,15 @@ def validate_function_args(
     too_few = len(args) < min_args
     too_many = max_args is not None and len(args) > max_args
     if min_args == max_args and (too_few or too_many):
-        raise HogQLException(
+        raise QueryError(
             f"{function_term.capitalize()} '{function_name}' expects {min_args} {argument_term}{'s' if min_args != 1 else ''}, found {len(args)}"
         )
     if too_few:
-        raise HogQLException(
+        raise QueryError(
             f"{function_term.capitalize()} '{function_name}' expects at least {min_args} {argument_term}{'s' if min_args != 1 else ''}, found {len(args)}"
         )
     if too_many:
-        raise HogQLException(
+        raise QueryError(
             f"{function_term.capitalize()} '{function_name}' expects at most {max_args} {argument_term}{'s' if max_args != 1 else ''}, found {len(args)}"
         )
 
@@ -287,9 +287,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "tryBase64Decode": HogQLFunctionMeta("tryBase64Decode", 1, 1),
     "endsWith": HogQLFunctionMeta("endsWith", 2, 2),
     "startsWith": HogQLFunctionMeta("startsWith", 2, 2),
-    "trim": HogQLFunctionMeta("trimBoth", 1, 1),
-    "trimLeft": HogQLFunctionMeta("trimLeft", 1, 1),
-    "trimRight": HogQLFunctionMeta("trimRight", 1, 1),
+    "trim": HogQLFunctionMeta("trim", 1, 2),
+    "trimLeft": HogQLFunctionMeta("trimLeft", 1, 2),
+    "trimRight": HogQLFunctionMeta("trimRight", 1, 2),
     "encodeXMLComponent": HogQLFunctionMeta("encodeXMLComponent", 1, 1),
     "decodeXMLComponent": HogQLFunctionMeta("decodeXMLComponent", 1, 1),
     "extractTextFromHTML": HogQLFunctionMeta("extractTextFromHTML", 1, 1),

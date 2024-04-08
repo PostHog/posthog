@@ -3,7 +3,7 @@ from typing import List, Optional
 from dateutil.parser import isoparse
 
 from posthog.hogql import ast
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import CloningVisitor
@@ -45,7 +45,7 @@ class ReplaceFilters(CloningVisitor):
                 last_join = last_join.next_join
 
             if not found_events:
-                raise HogQLException(
+                raise QueryError(
                     "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events table."
                 )
 

@@ -163,7 +163,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             fields[column] = hogql_type(name=column)
 
         # Replace fields with any redefined fields if they exist
-        fields = external_tables.get(self.table_name_without_prefix(), fields)
+        external_table_fields = external_tables.get(self.table_name_without_prefix())
+        if external_table_fields is not None:
+            default_fields = external_tables.get("*", {})
+            fields = {**external_table_fields, **default_fields}
 
         return S3Table(
             name=self.name,
