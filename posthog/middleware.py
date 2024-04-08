@@ -258,7 +258,7 @@ class AutoProjectMiddleware:
         if user_permissions.team(new_team).effective_membership_level is None:
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
-                request.suggested_users_with_access = UserBasicSerializer(
+                request.suggested_users_with_access = UserBasicSerializer(  # type: ignore
                     new_team.all_users_with_access().order_by("first_name", "last_name", "id"), many=True
                 ).data
             return False
