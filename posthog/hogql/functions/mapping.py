@@ -161,10 +161,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "toFloat": HogQLFunctionMeta("toFloat64OrNull", 1, 1),
     "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 1, 1),
     "toDate": HogQLFunctionMeta(
-        "toDateOrNull",
+        "toDate",
         1,
         2,
-        overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
         tz_aware=True,
     ),
     "toDateTime": HogQLFunctionMeta(
