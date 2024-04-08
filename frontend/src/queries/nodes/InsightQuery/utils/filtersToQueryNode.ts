@@ -18,7 +18,9 @@ import {
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelPathsFilter,
     FunnelsFilter,
+    FunnelsQuery,
     InsightNodeKind,
     InsightQueryNode,
     InsightsQueryBase,
@@ -210,6 +212,26 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
     return record
 }
 
+const processBool = (value: string | boolean | null | undefined): boolean | undefined => {
+    if (value == null) {
+        return undefined
+    } else if (typeof value === 'boolean') {
+        return value
+    } else if (typeof value == 'string') {
+        return strToBool(value)
+    } else {
+        return false
+    }
+}
+
+const strToBool = (value: any): boolean | undefined => {
+    if (value == null) {
+        return undefined
+    } else {
+        return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
+    }
+}
+
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
     const captureException = (message: string): void => {
         Sentry.captureException(new Error(message), {
@@ -235,6 +257,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     query.dateRange = objectCleanWithEmpty({
         date_to: filters.date_to,
         date_from: filters.date_from,
+        explicitDate: processBool(filters.explicit_date),
     })
 
     // series + interval
@@ -303,6 +326,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // paths filter
     if (isPathsFilter(filters) && isPathsQuery(query)) {
         query.pathsFilter = pathsFilterToQuery(filters)
+        query.funnelPathsFilter = filtersToFunnelPathsQuery(filters)
     }
 
     // stickiness filter
@@ -378,8 +402,6 @@ export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilt
         startPoint: filters.start_point,
         endPoint: filters.end_point,
         pathGroupings: filters.path_groupings,
-        funnelPaths: filters.funnel_paths,
-        funnelFilter: filters.funnel_filter,
         excludeEvents: filters.exclude_events,
         stepLimit: filters.step_limit,
         pathReplacements: filters.path_replacements,
@@ -388,6 +410,18 @@ export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilt
         minEdgeWeight: filters.min_edge_weight,
         maxEdgeWeight: filters.max_edge_weight,
     })
+}
+
+export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): FunnelPathsFilter | undefined => {
+    if (filters.funnel_paths === undefined || filters.funnel_filter === undefined) {
+        return undefined
+    }
+
+    return {
+        funnelPathType: filters.funnel_paths,
+        funnelSource: filtersToQueryNode(filters.funnel_filter) as FunnelsQuery,
+        funnelStep: filters.funnel_filter?.funnel_step,
+    }
 }
 
 export const stickinessFilterToQuery = (filters: Record<string, any>): StickinessFilter => {
@@ -414,6 +448,7 @@ export const breakdownFilterToQuery = (filters: Record<string, any>, isTrends: b
         breakdown_normalize_url: filters.breakdown_normalize_url,
         breakdowns: filters.breakdowns,
         breakdown_group_type_index: filters.breakdown_group_type_index,
+        breakdown_limit: filters.breakdown_limit,
         ...(isTrends
             ? {
                   breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,

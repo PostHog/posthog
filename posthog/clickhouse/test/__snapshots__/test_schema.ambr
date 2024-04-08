@@ -24,7 +24,8 @@
       group1_created_at DateTime64,
       group2_created_at DateTime64,
       group3_created_at DateTime64,
-      group4_created_at DateTime64
+      group4_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1)
       
       
       
@@ -106,7 +107,8 @@
       group1_created_at DateTime64,
       group2_created_at DateTime64,
       group3_created_at DateTime64,
-      group4_created_at DateTime64
+      group4_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1)
       
       
       
@@ -491,7 +493,8 @@
       group1_created_at DateTime64,
       group2_created_at DateTime64,
       group3_created_at DateTime64,
-      group4_created_at DateTime64
+      group4_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1)
       
       , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
@@ -600,6 +603,7 @@
   group2_created_at,
   group3_created_at,
   group4_created_at,
+  person_mode,
   NOW64() AS inserted_at,
   _timestamp,
   _offset
@@ -753,7 +757,8 @@
       group1_created_at DateTime64,
       group2_created_at DateTime64,
       group3_created_at DateTime64,
-      group4_created_at DateTime64
+      group4_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1)
       
       
       
@@ -1673,7 +1678,9 @@
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS sessions_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_sessions
-  AS SELECT
+  AS
+  
+  SELECT
   
   `$session_id` as session_id,
   team_id,
@@ -1715,6 +1722,7 @@
   FROM posthog_test.sharded_events
   WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
   GROUP BY `$session_id`, team_id
+  
   
   '''
 # ---
@@ -1771,7 +1779,8 @@
       group1_created_at DateTime64,
       group2_created_at DateTime64,
       group3_created_at DateTime64,
-      group4_created_at DateTime64
+      group4_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1)
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
@@ -2062,7 +2071,8 @@
       group1_created_at DateTime64,
       group2_created_at DateTime64,
       group3_created_at DateTime64,
-      group4_created_at DateTime64
+      group4_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1)
       
       
   , _timestamp DateTime
@@ -2589,7 +2599,8 @@
       group1_created_at DateTime64,
       group2_created_at DateTime64,
       group3_created_at DateTime64,
-      group4_created_at DateTime64
+      group4_created_at DateTime64,
+      person_mode Enum8('full' = 0, 'propertyless' = 1)
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'

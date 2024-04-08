@@ -6,11 +6,16 @@ import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartit
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
-import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
+import {
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+} from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
+import { createKafkaProducer } from '../../../kafka/producer'
 import { PluginsServerConfig, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { createRedisPool } from '../../../utils/utils'
@@ -41,6 +46,7 @@ require('@sentry/tracing')
 
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
+const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'session-recordings-blob-overflow'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
@@ -139,7 +145,8 @@ export class SessionRecordingIngester {
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     latestOffsetsRefresher: BackgroundRefresher<Record<number, number | undefined>>
     config: PluginsServerConfig
-    topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+    topic: string
+    consumerGroupId: string
     totalNumPartitions = 0
     isStopping = false
 
@@ -148,15 +155,22 @@ export class SessionRecordingIngester {
     // this allows us to output more information for that partition
     private debugPartition: number | undefined = undefined
 
+    private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
+
     constructor(
         private globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage,
+        private consumeOverflow: boolean,
         captureRedis: Redis | undefined
     ) {
         this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
             ? parseInt(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION)
             : undefined
+        this.topic = consumeOverflow
+            ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
+            : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
 
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
@@ -165,7 +179,7 @@ export class SessionRecordingIngester {
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 
-        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis) {
+        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis && !consumeOverflow) {
             this.overflowDetection = new OverflowManager(
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
@@ -203,7 +217,7 @@ export class SessionRecordingIngester {
         this.latestOffsetsRefresher = new BackgroundRefresher(async () => {
             const results = await Promise.all(
                 this.assignedTopicPartitions.map(({ partition }) =>
-                    queryWatermarkOffsets(this.connectedBatchConsumer, partition).catch((err) => {
+                    queryWatermarkOffsets(this.connectedBatchConsumer, this.topic, partition).catch((err) => {
                         // NOTE: This can error due to a timeout or the consumer being disconnected, not stop the process
                         // as it is currently only used for reporting lag.
                         captureException(err)
@@ -242,8 +256,8 @@ export class SessionRecordingIngester {
          */
         this.promises.add(promise)
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        promise.finally(() => this.promises.delete(promise))
+        // we void the promise returned by finally here to avoid the need to await it
+        void promise.finally(() => this.promises.delete(promise))
 
         return promise
     }
@@ -255,40 +269,38 @@ export class SessionRecordingIngester {
 
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
-        // TODO: use this for session key too if it's safe to do so
-        const overflowKey = `${team_id}:${session_id}`
 
         const { partition, highOffset } = event.metadata
-        if (this.debugPartition === partition) {
+        const isDebug = this.debugPartition === partition
+        if (isDebug) {
             status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', { ...event.metadata })
+        }
+
+        function dropEvent(dropCause: string) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: dropCause,
+                })
+                .inc()
+            if (isDebug) {
+                status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - dropping event', {
+                    ...event.metadata,
+                    dropCause,
+                })
+            }
         }
 
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
         if (
-            await this.persistentHighWaterMarker.isBelowHighWaterMark(
-                event.metadata,
-                KAFKA_CONSUMER_GROUP_ID,
-                highOffset
-            )
+            await this.persistentHighWaterMarker.isBelowHighWaterMark(event.metadata, this.consumerGroupId, highOffset)
         ) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark_partition',
-                })
-                .inc()
-
+            dropEvent('high_water_mark_partition')
             return
         }
 
         if (await this.sessionHighWaterMarker.isBelowHighWaterMark(event.metadata, session_id, highOffset)) {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'high_water_mark',
-                })
-                .inc()
-
+            dropEvent('high_water_mark')
             return
         }
 
@@ -310,7 +322,7 @@ export class SessionRecordingIngester {
 
         await Promise.allSettled([
             this.sessions[key]?.add(event),
-            this.overflowDetection?.observe(overflowKey, event.metadata.rawSize, event.metadata.timestamp),
+            this.overflowDetection?.observe(session_id, event.metadata.rawSize, event.metadata.timestamp),
         ])
     }
 
@@ -346,11 +358,14 @@ export class SessionRecordingIngester {
 
                             counterKafkaMessageReceived.inc({ partition })
 
-                            const recordingMessage = await parseKafkaMessage(message, (token) =>
-                                this.teamsRefresher.get().then((teams) => ({
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                }))
+                            const recordingMessage = await parseKafkaMessage(
+                                message,
+                                (token) =>
+                                    this.teamsRefresher.get().then((teams) => ({
+                                        teamId: teams[token]?.teamId || null,
+                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                    })),
+                                this.sharedClusterProducerWrapper
                             )
 
                             if (recordingMessage) {
@@ -447,28 +462,36 @@ export class SessionRecordingIngester {
         await this.teamsRefresher.refresh()
 
         // NOTE: This is the only place where we need to use the shared server config
+        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
+        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
+
+        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
+            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
+        )
+        this.sharedClusterProducerWrapper.producer.connect()
+
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
-            this.consoleLogsIngester = new ConsoleLogsIngester(this.globalServerConfig, this.persistentHighWaterMarker)
-            await this.consoleLogsIngester.start()
+            this.consoleLogsIngester = new ConsoleLogsIngester(
+                this.sharedClusterProducerWrapper.producer,
+                this.persistentHighWaterMarker
+            )
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
             this.replayEventsIngester = new ReplayEventsIngester(
-                this.globalServerConfig,
+                this.sharedClusterProducerWrapper.producer,
                 this.persistentHighWaterMarker
             )
-            await this.replayEventsIngester.start()
         }
-
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
-
+        // the batch consumer reads from the session replay kafka cluster
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
         this.batchConsumer = await startBatchConsumer({
-            connectionConfig,
-            groupId: KAFKA_CONSUMER_GROUP_ID,
-            topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+            connectionConfig: replayClusterConnectionConfig,
+            groupId: this.consumerGroupId,
+            topic: this.topic,
             autoCommit: false,
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
@@ -491,7 +514,7 @@ export class SessionRecordingIngester {
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
 
-        this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer)).length
+        this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer, this.topic)).length
 
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
@@ -541,14 +564,11 @@ export class SessionRecordingIngester {
         void this.scheduleWork(this.onRevokePartitions(assignedPartitions))
         void this.scheduleWork(this.realtimeManager.unsubscribe())
 
-        if (this.replayEventsIngester) {
-            void this.scheduleWork(this.replayEventsIngester.stop())
-        }
-        if (this.consoleLogsIngester) {
-            void this.scheduleWork(this.consoleLogsIngester.stop())
-        }
-
         const promiseResults = await Promise.allSettled(this.promises)
+
+        if (this.sharedClusterProducerWrapper) {
+            await this.sharedClusterProducerWrapper.disconnect()
+        }
 
         // Finally we clear up redis once we are sure everything else has been handled
         await this.redisPool.drain()
@@ -804,7 +824,7 @@ export class SessionRecordingIngester {
                 })
 
                 // Store the committed offset to the persistent store to avoid rebalance issues
-                await this.persistentHighWaterMarker.add(tp, KAFKA_CONSUMER_GROUP_ID, highestOffsetToCommit)
+                await this.persistentHighWaterMarker.add(tp, this.consumerGroupId, highestOffsetToCommit)
                 // Clear all session offsets below the committed offset (as we know they have been flushed)
                 await this.sessionHighWaterMarker.clear(tp, highestOffsetToCommit)
                 gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)

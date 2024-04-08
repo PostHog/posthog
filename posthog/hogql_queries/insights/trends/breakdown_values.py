@@ -21,8 +21,10 @@ from functools import cached_property
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
 BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compatibility
+BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 
 
 class BreakdownValues:
@@ -35,6 +37,7 @@ class BreakdownValues:
     histogram_bin_count: Optional[int]
     group_type_index: Optional[int]
     hide_other_aggregation: Optional[bool]
+    normalize_url: Optional[bool]
     breakdown_limit: Optional[int]
     query_date_range: QueryDateRange
     modifiers: HogQLQueryModifiers
@@ -66,6 +69,7 @@ class BreakdownValues:
             else None
         )
         self.hide_other_aggregation = breakdown_filter.breakdown_hide_other_aggregation
+        self.normalize_url = breakdown_filter.breakdown_normalize_url
         self.breakdown_limit = breakdown_filter.breakdown_limit
         self.query_date_range = query_date_range
         self.modifiers = modifiers
@@ -98,6 +102,12 @@ class BreakdownValues:
             )
 
         if not self.histogram_bin_count:
+            if self.normalize_url:
+                select_field.expr = parse_expr(
+                    "empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')",
+                    placeholders={"node": select_field.expr},
+                )
+
             select_field.expr = ast.Call(name="toString", args=[select_field.expr])
 
         if self.chart_display_type == ChartDisplayType.WorldMap:

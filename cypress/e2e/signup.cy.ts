@@ -66,6 +66,56 @@ describe('Signup', () => {
         cy.location('pathname').should('match', /\/verify_email\/[a-zA-Z0-9_.-]*/)
     })
 
+    it('Can submit the signup form multiple times if there is a generic email set', () => {
+        cy.intercept('POST', '/api/signup/').as('signupRequest')
+
+        // Create initial account
+        const email = `new_user+generic_error_test@posthog.com`
+        cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
+        cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
+        cy.get('[data-attr=signup-start]').click()
+        cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
+        cy.get('[data-attr=signup-submit]').click()
+
+        cy.wait('@signupRequest').then((interception) => {
+            expect(interception.request.body).to.have.property('first_name')
+            expect(interception.request.body.first_name).to.equal('Alice')
+            expect(interception.request.body).to.have.property('last_name')
+            expect(interception.request.body.last_name).to.equal('Bob')
+        })
+
+        cy.visit('/signup')
+
+        // Try to recreate account with same email- should fail
+        cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
+        cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
+        cy.get('[data-attr=signup-start]').click()
+        cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
+        cy.get('[data-attr=signup-submit]').click()
+
+        cy.wait('@signupRequest').then((interception) => {
+            cy.get('.LemonBanner').should('contain', 'There is already an account with this email address.')
+        })
+
+        cy.get('[data-attr=signup-go-back]').click()
+
+        // Update email to generic email
+        const newEmail = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
+        cy.get('[data-attr=signup-email]').clear().type(newEmail).should('have.value', newEmail)
+        cy.get('[data-attr=signup-start]').click()
+        cy.get('[data-attr=signup-submit]').click()
+
+        cy.wait('@signupRequest').then((interception) => {
+            expect(interception.request.body).to.have.property('first_name')
+            expect(interception.request.body.first_name).to.equal('Alice')
+            expect(interception.request.body).to.have.property('last_name')
+            expect(interception.request.body.last_name).to.equal('Bob')
+        })
+
+        // lazy regex for a guid
+        cy.location('pathname').should('match', /\/verify_email\/[a-zA-Z0-9_.-]*/)
+    })
+
     it('Can create user account with just a first name', () => {
         cy.intercept('POST', '/api/signup/').as('signupRequest')
 
