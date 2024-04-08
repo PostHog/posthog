@@ -102,7 +102,7 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
             lemonToast.success('New Data Resource Created')
             actions.toggleSourceModal(false)
             actions.resetExternalDataSource()
-            actions.loadSources()
+            actions.loadSources(null)
             router.actions.push(urls.dataWarehouseSettings())
         },
         submitDatabaseSchemaFormSuccess: () => {

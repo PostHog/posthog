@@ -12,7 +12,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     SavedQuery,
 )
-from posthog.hogql.errors import ResolverException
+from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
@@ -50,7 +50,7 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
         return ast.DateType()
     if isinstance(constant, UUID) or isinstance(constant, UUIDT):
         return ast.UUIDType()
-    raise ResolverException(f"Unsupported constant type: {type(constant)}")
+    raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
 def resolve_types(
@@ -92,11 +92,11 @@ class Resolver(CloningVisitor):
 
     def visit(self, node: ast.Expr) -> ast.Expr:
         if isinstance(node, ast.Expr) and node.type is not None:
-            raise ResolverException(
+            raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
             )
         if self.cte_counter > 50:
-            raise ResolverException("Too many CTE expansions (50+). Probably a CTE loop.")
+            raise QueryError("Too many CTE expansions (50+). Probably a CTE loop.")
         return super().visit(node)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
@@ -142,7 +142,7 @@ class Resolver(CloningVisitor):
             array_join_aliases = ac.aliases
             for key in array_join_aliases:
                 if key in node_type.aliases:
-                    raise ResolverException(f"Cannot redefine an alias with the name: {key}")
+                    raise QueryError(f"Cannot redefine an alias with the name: {key}")
                 node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
@@ -233,15 +233,15 @@ class Resolver(CloningVisitor):
             if isinstance(select, ast.SelectQueryType):
                 return [ast.Field(chain=[key]) for key in select.columns.keys()]
             else:
-                raise ResolverException("Can't expand asterisk (*) on subquery")
+                raise QueryError("Can't expand asterisk (*) on subquery")
         else:
-            raise ResolverException(f"Can't expand asterisk (*) on a type of type {type(asterisk.table_type).__name__}")
+            raise QueryError(f"Can't expand asterisk (*) on a type of type {type(asterisk.table_type).__name__}")
 
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
 
         if len(self.scopes) == 0:
-            raise ResolverException("Unexpected JoinExpr outside a SELECT query")
+            raise ImpossibleASTError("Unexpected JoinExpr outside a SELECT query")
 
         scope = self.scopes[-1]
 
@@ -266,7 +266,7 @@ class Resolver(CloningVisitor):
             table_name = node.table.chain[0]
             table_alias = node.alias or table_name
             if table_alias in scope.tables:
-                raise ResolverException(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
+                raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
             if self.database.has_table(table_name):
                 database_table = self.database.get_table(table_name)
@@ -275,7 +275,7 @@ class Resolver(CloningVisitor):
                     self.current_view_depth += 1
 
                     if self.current_view_depth > self.context.max_view_depth:
-                        raise ResolverException("Nested views are not supported")
+                        raise QueryError("Nested views are not supported")
 
                     node.table = parse_select(str(database_table.query))
 
@@ -328,7 +328,7 @@ class Resolver(CloningVisitor):
 
                 return node
             else:
-                raise ResolverException(f'Unknown table "{table_name}".')
+                raise QueryError(f'Unknown table "{table_name}".')
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectUnionQuery):
             node = cast(ast.JoinExpr, clone_expr(node))
@@ -336,7 +336,7 @@ class Resolver(CloningVisitor):
             node.table = super().visit(node.table)
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
                 if node.alias in scope.tables:
-                    raise ResolverException(
+                    raise QueryError(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
                 node.type = ast.SelectViewType(
@@ -345,7 +345,7 @@ class Resolver(CloningVisitor):
                 scope.tables[node.alias] = node.type
             elif node.alias is not None:
                 if node.alias in scope.tables:
-                    raise ResolverException(
+                    raise QueryError(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
                 node.type = ast.SelectQueryAliasType(alias=node.alias, select_query_type=node.table.type)
@@ -361,7 +361,7 @@ class Resolver(CloningVisitor):
 
             return node
         else:
-            raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
+            raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         return self.visit(convert_hogqlx_tag(node, self.context.team_id))
@@ -369,13 +369,13 @@ class Resolver(CloningVisitor):
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
         if len(self.scopes) == 0:
-            raise ResolverException("Aliases are allowed only within SELECT queries")
+            raise QueryError("Aliases are allowed only within SELECT queries")
 
         scope = self.scopes[-1]
         if node.alias in scope.aliases and not node.hidden:
-            raise ResolverException(f"Cannot redefine an alias with the name: {node.alias}")
+            raise QueryError(f"Cannot redefine an alias with the name: {node.alias}")
         if node.alias == "":
-            raise ResolverException("Alias cannot be empty")
+            raise ImpossibleASTError("Alias cannot be empty")
 
         node = super().visit_alias(node)
         node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
@@ -437,7 +437,7 @@ class Resolver(CloningVisitor):
     def visit_field(self, node: ast.Field):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
         if len(node.chain) == 0:
-            raise ResolverException("Invalid field access with empty chain")
+            raise ResolutionError("Invalid field access with empty chain")
 
         node = super().visit_field(node)
 
@@ -459,9 +459,9 @@ class Resolver(CloningVisitor):
         if name == "*" and len(node.chain) == 1:
             table_count = len(scope.anonymous_tables) + len(scope.tables)
             if table_count == 0:
-                raise ResolverException("Cannot use '*' when there are no tables in the query")
+                raise QueryError("Cannot use '*' when there are no tables in the query")
             if table_count > 1:
-                raise ResolverException("Cannot use '*' without table name when there are multiple tables in the query")
+                raise QueryError("Cannot use '*' without table name when there are multiple tables in the query")
             table_type = (
                 scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
             )
@@ -475,7 +475,7 @@ class Resolver(CloningVisitor):
             cte = lookup_cte_by_name(self.scopes, name)
             if cte:
                 if len(node.chain) > 1:
-                    raise ResolverException(f"Cannot access fields on CTE {cte.name} yet")
+                    raise QueryError(f"Cannot access fields on CTE {cte.name} yet")
                 # SubQuery CTEs ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
                 # which is handled in visit_join_expr. Referring to it here means we want to access its value.
                 if cte.cte_type == "subquery":
@@ -486,7 +486,7 @@ class Resolver(CloningVisitor):
                 return response
 
         if not type:
-            raise ResolverException(f"Unable to resolve field: {name}")
+            raise QueryError(f"Unable to resolve field: {name}")
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         field_name = node.chain[-1]
@@ -510,7 +510,7 @@ class Resolver(CloningVisitor):
 
             loop_type = loop_type.get_child(next_chain, self.context)
             if loop_type is None:
-                raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
+                raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
 
         if isinstance(node.type, ast.ExpressionFieldType):

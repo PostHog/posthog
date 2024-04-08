@@ -1,5 +1,5 @@
 from typing import Literal
-from posthog.hogql.errors import SyntaxException
+from posthog.hogql.errors import SyntaxError
 from posthog.hogql.parse_string import parse_string as parse_string_py
 from hogql_parser import unquote_string as unquote_string_cpp
 from posthog.test.base import BaseTest
@@ -52,7 +52,7 @@ def parse_string_test_factory(backend: Literal["python", "cpp"]):
 
         def test_raises_on_mismatched_quotes(self):
             self.assertRaisesMessage(
-                SyntaxException,
+                SyntaxError,
                 "Invalid string literal, must start and end with the same quote type: `asd'",
                 parse_string,
                 "`asd'",

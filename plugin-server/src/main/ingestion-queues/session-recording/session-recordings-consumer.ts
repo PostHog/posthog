@@ -595,20 +595,22 @@ export class SessionRecordingIngester {
         for (let partition = 0; partition < this.totalNumPartitions; partition++) {
             if (assignedPartitions.includes(partition)) {
                 const metrics = this.partitionMetrics[partition] || {}
-                if (metrics.lastMessageTimestamp) {
-                    gaugeLagMilliseconds
-                        .labels({
-                            partition: partition.toString(),
-                        })
-                        .set(now() - metrics.lastMessageTimestamp)
-                }
-
                 const highOffset = offsetsByPartition[partition]
 
                 if (highOffset && metrics.lastMessageOffset) {
-                    metrics.offsetLag = highOffset - metrics.lastMessageOffset
+                    // High watermark is reported as highest message offset plus one
+                    metrics.offsetLag = highOffset - 1 - metrics.lastMessageOffset
                     // NOTE: This is an important metric used by the autoscaler
                     gaugeLag.set({ partition }, Math.max(0, metrics.offsetLag))
+                }
+
+                if (metrics.offsetLag && metrics.offsetLag < 1) {
+                    // Consumer caught up, let's not report lag.
+                    // Code path active on overflow when sessions end and the partition is empty.
+                    gaugeLagMilliseconds.labels({ partition }).set(0)
+                } else if (metrics.lastMessageTimestamp) {
+                    // Not caught up, compute the processing lag based on the latest message we read.
+                    gaugeLagMilliseconds.labels({ partition }).set(now() - metrics.lastMessageTimestamp)
                 }
             } else {
                 delete this.partitionMetrics[partition]

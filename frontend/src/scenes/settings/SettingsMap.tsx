@@ -11,6 +11,7 @@ import { AutocaptureSettings, ExceptionAutocaptureSettings } from './project/Aut
 import { CorrelationConfig } from './project/CorrelationConfig'
 import { DataAttributes } from './project/DataAttributes'
 import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
+import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
@@ -219,6 +220,12 @@ export const SettingsMap: SettingSection[] = [
                 id: 'integration-slack',
                 title: 'Slack integration',
                 component: <SlackIntegration />,
+            },
+            {
+                id: 'integration-ip-allowlist',
+                title: 'Static IP addresses',
+                flag: 'IP_ALLOWLIST_SETTING',
+                component: <IPAllowListInfo />,
             },
         ],
     },
