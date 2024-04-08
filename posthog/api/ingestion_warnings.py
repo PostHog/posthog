@@ -47,4 +47,4 @@ def _calculate_summaries(warning_events):
         summaries[warning_type]["warnings"].append({"type": warning_type, "timestamp": timestamp, "details": details})
         summaries[warning_type]["count"] += 1
 
-    return list(sorted(summaries.values(), key=lambda summary: summary["lastSeen"], reverse=True))
+    return sorted(summaries.values(), key=lambda summary: summary["lastSeen"], reverse=True)
