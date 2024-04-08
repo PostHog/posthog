@@ -760,7 +760,7 @@ HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
 }
 
 CLICKHOUSE_FUNCTION_RETURN_TYPES = {
-    "fromUnixTimestamp": ast.DateTimeType,
+    "fromUnixTimestamp": ast.DateTimeType(),
 }
 
 ALL_EXPOSED_FUNCTION_NAMES = [

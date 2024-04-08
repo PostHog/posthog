@@ -819,7 +819,7 @@ class _Printer(Visitor):
                             overload_types,
                             overload_clickhouse_name,
                         ) in func_meta.overloads:
-                            if first_arg_constant_type in overload_types:
+                            if isinstance(first_arg_constant_type, overload_types):
                                 relevant_clickhouse_name = overload_clickhouse_name
                                 break  # Found an overload matching the first function org
 
