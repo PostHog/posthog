@@ -7,13 +7,14 @@ import { EventPipelineRunner } from './runner'
 
 export async function pluginsProcessEventStep(
     runner: EventPipelineRunner,
-    event: PluginEvent
+    event: PluginEvent,
+    runDeprecatedPlugins: boolean
 ): Promise<PluginEvent | null> {
     const processedEvent = await runInstrumentedFunction({
         timeoutContext: () => ({
             event: JSON.stringify(event),
         }),
-        func: () => runProcessEvent(runner.hub, event),
+        func: () => runProcessEvent(runner.hub, event, runDeprecatedPlugins),
         statsKey: 'kafka_queue.single_event',
         timeoutMessage: 'Still running plugins on event. Timeout warning after 30 sec!',
         teamId: event.team_id,
