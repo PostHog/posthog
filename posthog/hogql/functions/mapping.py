@@ -46,6 +46,8 @@ class HogQLFunctionMeta:
     """Overloads allow for using a different ClickHouse function depending on the type of the first arg."""
     tz_aware: bool = False
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
+    case_sensitive: bool = True
+    """Not all ClickHouse functions are case-insensitive. See https://clickhouse.com/docs/en/sql-reference/syntax#keywords."""
 
 
 HOGQL_COMPARISON_MAPPING: Dict[str, ast.CompareOperationOp] = {
@@ -75,18 +77,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "moduloOrZero": HogQLFunctionMeta("moduloOrZero", 2, 2),
     "positiveModulo": HogQLFunctionMeta("positiveModulo", 2, 2),
     "negate": HogQLFunctionMeta("negate", 1, 1),
-    "abs": HogQLFunctionMeta("abs", 1, 1),
+    "abs": HogQLFunctionMeta("abs", 1, 1, case_sensitive=False),
     "gcd": HogQLFunctionMeta("gcd", 2, 2),
     "lcm": HogQLFunctionMeta("lcm", 2, 2),
-    "max2": HogQLFunctionMeta("max2", 2, 2),
-    "min2": HogQLFunctionMeta("min2", 2, 2),
+    "max2": HogQLFunctionMeta("max2", 2, 2, case_sensitive=False),
+    "min2": HogQLFunctionMeta("min2", 2, 2, case_sensitive=False),
     "multiplyDecimal": HogQLFunctionMeta("multiplyDecimal", 2, 3),
     "divideDecimal": HogQLFunctionMeta("divideDecimal", 2, 3),
     # arrays and strings common
     "empty": HogQLFunctionMeta("empty", 1, 1),
     "notEmpty": HogQLFunctionMeta("notEmpty", 1, 1),
-    "length": HogQLFunctionMeta("length", 1, 1),
-    "reverse": HogQLFunctionMeta("reverse", 1, 1),
+    "length": HogQLFunctionMeta("length", 1, 1, case_sensitive=False),
+    "reverse": HogQLFunctionMeta("reverse", 1, 1, case_sensitive=False),
     # arrays
     "array": HogQLFunctionMeta("array", 0, None),
     "range": HogQLFunctionMeta("range", 1, 3),
@@ -152,7 +154,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "and": HogQLFunctionMeta("and", 2, None),
     "or": HogQLFunctionMeta("or", 2, None),
     "xor": HogQLFunctionMeta("xor", 2, None),
-    "not": HogQLFunctionMeta("not", 1, 1),
+    "not": HogQLFunctionMeta("not", 1, 1, case_sensitive=False),
     # type conversions
     "toInt": HogQLFunctionMeta("toInt64OrNull", 1, 1),
     "_toInt64": HogQLFunctionMeta("toInt64", 1, 1),
@@ -219,8 +221,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "dateSub": HogQLFunctionMeta("dateSub", 3, 3),
     "timeStampAdd": HogQLFunctionMeta("timeStampAdd", 2, 2),
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
-    "now": HogQLFunctionMeta("now64", 0, 1, tz_aware=True),
-    "NOW": HogQLFunctionMeta("now64", 0, 1, tz_aware=True),
+    "now": HogQLFunctionMeta("now64", 0, 1, tz_aware=True, case_sensitive=False),
     "nowInBlock": HogQLFunctionMeta("nowInBlock", 1, 1),
     "today": HogQLFunctionMeta("today"),
     "yesterday": HogQLFunctionMeta("yesterday"),
@@ -265,17 +266,17 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "rightPad": HogQLFunctionMeta("rightPad", 2, 3),
     "leftPadUTF8": HogQLFunctionMeta("leftPadUTF8", 2, 3),
     "rightPadUTF8": HogQLFunctionMeta("rightPadUTF8", 2, 3),
-    "lower": HogQLFunctionMeta("lower", 1, 1),
-    "upper": HogQLFunctionMeta("upper", 1, 1),
+    "lower": HogQLFunctionMeta("lower", 1, 1, case_sensitive=False),
+    "upper": HogQLFunctionMeta("upper", 1, 1, case_sensitive=False),
     "lowerUTF8": HogQLFunctionMeta("lowerUTF8", 1, 1),
     "upperUTF8": HogQLFunctionMeta("upperUTF8", 1, 1),
     "isValidUTF8": HogQLFunctionMeta("isValidUTF8", 1, 1),
     "toValidUTF8": HogQLFunctionMeta("toValidUTF8", 1, 1),
-    "repeat": HogQLFunctionMeta("repeat", 2, 2),
+    "repeat": HogQLFunctionMeta("repeat", 2, 2, case_sensitive=False),
     "format": HogQLFunctionMeta("format", 2, None),
     "reverseUTF8": HogQLFunctionMeta("reverseUTF8", 1, 1),
-    "concat": HogQLFunctionMeta("concat", 2, None),
-    "substring": HogQLFunctionMeta("substring", 3, 3),
+    "concat": HogQLFunctionMeta("concat", 2, None, case_sensitive=False),
+    "substring": HogQLFunctionMeta("substring", 3, 3, case_sensitive=False),
     "substringUTF8": HogQLFunctionMeta("substringUTF8", 3, 3),
     "appendTrailingCharIfAbsent": HogQLFunctionMeta("appendTrailingCharIfAbsent", 2, 2),
     "convertCharset": HogQLFunctionMeta("convertCharset", 3, 3),
@@ -287,16 +288,16 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "tryBase64Decode": HogQLFunctionMeta("tryBase64Decode", 1, 1),
     "endsWith": HogQLFunctionMeta("endsWith", 2, 2),
     "startsWith": HogQLFunctionMeta("startsWith", 2, 2),
-    "trim": HogQLFunctionMeta("trim", 1, 2),
+    "trim": HogQLFunctionMeta("trim", 1, 2, case_sensitive=False),
     "trimLeft": HogQLFunctionMeta("trimLeft", 1, 2),
     "trimRight": HogQLFunctionMeta("trimRight", 1, 2),
     "encodeXMLComponent": HogQLFunctionMeta("encodeXMLComponent", 1, 1),
     "decodeXMLComponent": HogQLFunctionMeta("decodeXMLComponent", 1, 1),
     "extractTextFromHTML": HogQLFunctionMeta("extractTextFromHTML", 1, 1),
-    "ascii": HogQLFunctionMeta("ascii", 1, 1),
+    "ascii": HogQLFunctionMeta("ascii", 1, 1, case_sensitive=False),
     "concatWithSeparator": HogQLFunctionMeta("concatWithSeparator", 2, None),
     # searching in strings
-    "position": HogQLFunctionMeta("position", 2, 3),
+    "position": HogQLFunctionMeta("position", 2, 3, case_sensitive=False),
     "positionCaseInsensitive": HogQLFunctionMeta("positionCaseInsensitive", 2, 3),
     "positionUTF8": HogQLFunctionMeta("positionUTF8", 2, 3),
     "positionCaseInsensitiveUTF8": HogQLFunctionMeta("positionCaseInsensitiveUTF8", 2, 3),
@@ -312,7 +313,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "multiFuzzyMatchAny": HogQLFunctionMeta("multiFuzzyMatchAny", 3, 3),
     "multiFuzzyMatchAnyIndex": HogQLFunctionMeta("multiFuzzyMatchAnyIndex", 3, 3),
     "multiFuzzyMatchAllIndices": HogQLFunctionMeta("multiFuzzyMatchAllIndices", 3, 3),
-    "extract": HogQLFunctionMeta("extract", 2, 2),
+    "extract": HogQLFunctionMeta("extract", 2, 2, case_sensitive=False),
     "extractAll": HogQLFunctionMeta("extractAll", 2, 2),
     "extractAllGroupsHorizontal": HogQLFunctionMeta("extractAllGroupsHorizontal", 2, 2),
     "extractAllGroupsVertical": HogQLFunctionMeta("extractAllGroupsVertical", 2, 2),
@@ -328,7 +329,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "countMatches": HogQLFunctionMeta("countMatches", 2, 2),
     "regexpExtract": HogQLFunctionMeta("regexpExtract", 2, 3),
     # replacing in strings
-    "replace": HogQLFunctionMeta("replace", 3, 3),
+    "replace": HogQLFunctionMeta("replace", 3, 3, case_sensitive=False),
     "replaceAll": HogQLFunctionMeta("replaceAll", 3, 3),
     "replaceOne": HogQLFunctionMeta("replaceOne", 3, 3),
     "replaceRegexpAll": HogQLFunctionMeta("replaceRegexpAll", 3, 3),
@@ -337,32 +338,32 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "translate": HogQLFunctionMeta("translate", 3, 3),
     "translateUTF8": HogQLFunctionMeta("translateUTF8", 3, 3),
     # conditional
-    "if": HogQLFunctionMeta("if", 3, 3),
+    "if": HogQLFunctionMeta("if", 3, 3, case_sensitive=False),
     "multiIf": HogQLFunctionMeta("multiIf", 3, None),
     # mathematical
     "e": HogQLFunctionMeta("e"),
     "pi": HogQLFunctionMeta("pi"),
-    "exp": HogQLFunctionMeta("exp", 1, 1),
-    "log": HogQLFunctionMeta("log", 1, 1),
-    "ln": HogQLFunctionMeta("ln", 1, 1),
+    "exp": HogQLFunctionMeta("exp", 1, 1, case_sensitive=False),
+    "log": HogQLFunctionMeta("log", 1, 1, case_sensitive=False),
+    "ln": HogQLFunctionMeta("ln", 1, 1, case_sensitive=False),
     "exp2": HogQLFunctionMeta("exp2", 1, 1),
-    "log2": HogQLFunctionMeta("log2", 1, 1),
+    "log2": HogQLFunctionMeta("log2", 1, 1, case_sensitive=False),
     "exp10": HogQLFunctionMeta("exp10", 1, 1),
-    "log10": HogQLFunctionMeta("log10", 1, 1),
-    "sqrt": HogQLFunctionMeta("sqrt", 1, 1),
+    "log10": HogQLFunctionMeta("log10", 1, 1, case_sensitive=False),
+    "sqrt": HogQLFunctionMeta("sqrt", 1, 1, case_sensitive=False),
     "cbrt": HogQLFunctionMeta("cbrt", 1, 1),
     "erf": HogQLFunctionMeta("erf", 1, 1),
     "erfc": HogQLFunctionMeta("erfc", 1, 1),
     "lgamma": HogQLFunctionMeta("lgamma", 1, 1),
     "tgamma": HogQLFunctionMeta("tgamma", 1, 1),
-    "sin": HogQLFunctionMeta("sin", 1, 1),
-    "cos": HogQLFunctionMeta("cos", 1, 1),
-    "tan": HogQLFunctionMeta("tan", 1, 1),
-    "asin": HogQLFunctionMeta("asin", 1, 1),
-    "acos": HogQLFunctionMeta("acos", 1, 1),
-    "atan": HogQLFunctionMeta("atan", 1, 1),
-    "pow": HogQLFunctionMeta("pow", 2, 2),
-    "power": HogQLFunctionMeta("power", 2, 2),
+    "sin": HogQLFunctionMeta("sin", 1, 1, case_sensitive=False),
+    "cos": HogQLFunctionMeta("cos", 1, 1, case_sensitive=False),
+    "tan": HogQLFunctionMeta("tan", 1, 1, case_sensitive=False),
+    "asin": HogQLFunctionMeta("asin", 1, 1, case_sensitive=False),
+    "acos": HogQLFunctionMeta("acos", 1, 1, case_sensitive=False),
+    "atan": HogQLFunctionMeta("atan", 1, 1, case_sensitive=False),
+    "pow": HogQLFunctionMeta("pow", 2, 2, case_sensitive=False),
+    "power": HogQLFunctionMeta("power", 2, 2, case_sensitive=False),
     "intExp2": HogQLFunctionMeta("intExp2", 1, 1),
     "intExp10": HogQLFunctionMeta("intExp10", 1, 1),
     "cosh": HogQLFunctionMeta("cosh", 1, 1),
@@ -373,16 +374,16 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "atan2": HogQLFunctionMeta("atan2", 2, 2),
     "hypot": HogQLFunctionMeta("hypot", 2, 2),
     "log1p": HogQLFunctionMeta("log1p", 1, 1),
-    "sign": HogQLFunctionMeta("sign", 1, 1),
-    "degrees": HogQLFunctionMeta("degrees", 1, 1),
-    "radians": HogQLFunctionMeta("radians", 1, 1),
-    "factorial": HogQLFunctionMeta("factorial", 1, 1),
+    "sign": HogQLFunctionMeta("sign", 1, 1, case_sensitive=False),
+    "degrees": HogQLFunctionMeta("degrees", 1, 1, case_sensitive=False),
+    "radians": HogQLFunctionMeta("radians", 1, 1, case_sensitive=False),
+    "factorial": HogQLFunctionMeta("factorial", 1, 1, case_sensitive=False),
     "width_bucket": HogQLFunctionMeta("width_bucket", 4, 4),
     # rounding
-    "floor": HogQLFunctionMeta("floor", 1, 2),
-    "ceil": HogQLFunctionMeta("ceil", 1, 2),
-    "trunc": HogQLFunctionMeta("trunc", 1, 2),
-    "round": HogQLFunctionMeta("round", 1, 2),
+    "floor": HogQLFunctionMeta("floor", 1, 2, case_sensitive=False),
+    "ceil": HogQLFunctionMeta("ceil", 1, 2, case_sensitive=False),
+    "trunc": HogQLFunctionMeta("trunc", 1, 2, case_sensitive=False),
+    "round": HogQLFunctionMeta("round", 1, 2, case_sensitive=False),
     "roundBankers": HogQLFunctionMeta("roundBankers", 1, 2),
     "roundToExp2": HogQLFunctionMeta("roundToExp2", 1, 1),
     "roundDuration": HogQLFunctionMeta("roundDuration", 1, 1),
@@ -508,11 +509,11 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "geohashDecode": HogQLFunctionMeta("geohashDecode", 1, 1),
     "geohashesInBox": HogQLFunctionMeta("geohashesInBox", 5, 5),
     # nullable
-    "isNull": HogQLFunctionMeta("isNull", 1, 1),
+    "isnull": HogQLFunctionMeta("isNull", 1, 1, case_sensitive=False),
     "isNotNull": HogQLFunctionMeta("isNotNull", 1, 1),
-    "coalesce": HogQLFunctionMeta("coalesce", 1, None),
-    "ifNull": HogQLFunctionMeta("ifNull", 2, 2),
-    "nullIf": HogQLFunctionMeta("nullIf", 2, 2),
+    "coalesce": HogQLFunctionMeta("coalesce", 1, None, case_sensitive=False),
+    "ifnull": HogQLFunctionMeta("ifNull", 2, 2, case_sensitive=False),
+    "nullif": HogQLFunctionMeta("nullIf", 2, 2, case_sensitive=False),
     "assumeNotNull": HogQLFunctionMeta("assumeNotNull", 1, 1),
     "toNullable": HogQLFunctionMeta("toNullable", 1, 1),
     # tuples
@@ -540,8 +541,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "formatReadableSize": HogQLFunctionMeta("formatReadableSize", 1, 1),
     "formatReadableQuantity": HogQLFunctionMeta("formatReadableQuantity", 1, 1),
     "formatReadableTimeDelta": HogQLFunctionMeta("formatReadableTimeDelta", 1, 2),
-    "least": HogQLFunctionMeta("least", 2, 2),
-    "greatest": HogQLFunctionMeta("greatest", 2, 2),
+    "least": HogQLFunctionMeta("least", 2, 2, case_sensitive=False),
+    "greatest": HogQLFunctionMeta("greatest", 2, 2, case_sensitive=False),
     # time window
     "tumble": HogQLFunctionMeta("tumble", 2, 2),
     "hop": HogQLFunctionMeta("hop", 3, 3),
@@ -778,3 +779,19 @@ FIRST_ARG_DATETIME_FUNCTIONS = (
     "hopStart",
     "hopEnd",
 )
+
+
+def find_clickhouse_function(name: str) -> Optional[HogQLFunctionMeta]:
+    func = HOGQL_CLICKHOUSE_FUNCTIONS.get(name)
+    if func is not None:
+        return func
+
+    func = HOGQL_CLICKHOUSE_FUNCTIONS.get(name.lower())
+    if func is None:
+        return None
+    # If we haven't found a function with the case preserved, but we have found it in lowercase,
+    # then the function names are different case-wise only.
+    if func.case_sensitive:
+        return None
+
+    return func
