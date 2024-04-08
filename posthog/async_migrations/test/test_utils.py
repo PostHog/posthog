@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from posthog.async_migrations.definition import AsyncMigrationOperationSQL
+from posthog.async_migrations.definition import AsyncMigrationOperationSQL, AnalyticsDBMS
 from posthog.async_migrations.test.util import (
     AsyncMigrationBaseTest,
     create_async_migration,
@@ -16,7 +16,6 @@ from posthog.async_migrations.utils import (
     process_error,
     trigger_migration,
 )
-from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigrationError, MigrationStatus
 
 pytestmark = pytest.mark.async_migrations

@@ -2,9 +2,9 @@ from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
+    AnalyticsDBMS,
 )
 from posthog.client import sync_execute
-from posthog.constants import AnalyticsDBMS
 from posthog.models.person.sql import (
     KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
     PERSONS_DISTINCT_ID_TABLE,

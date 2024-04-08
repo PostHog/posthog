@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -9,13 +10,17 @@ from typing import (
     Union,
 )
 
-from posthog.constants import AnalyticsDBMS
 from posthog.models.utils import sane_repr
 from posthog.settings import ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
 from posthog.version_requirement import ServiceVersionRequirement
 
 if TYPE_CHECKING:
     from posthog.models.async_migration import AsyncMigration
+
+
+class AnalyticsDBMS(str, Enum):
+    POSTGRES = "postgres"
+    CLICKHOUSE = "clickhouse"
 
 
 class AsyncMigrationOperation:

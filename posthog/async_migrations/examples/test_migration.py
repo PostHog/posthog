@@ -2,8 +2,8 @@ from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
+    AnalyticsDBMS,
 )
-from posthog.constants import AnalyticsDBMS
 
 # For testing purposes
 

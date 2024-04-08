@@ -236,12 +236,6 @@ RETENTION_FIRST_TIME = "retention_first_time"
 DISTINCT_ID_FILTER = "distinct_id"
 PERSON_UUID_FILTER = "person_uuid"
 
-
-class AnalyticsDBMS(str, Enum):
-    POSTGRES = "postgres"
-    CLICKHOUSE = "clickhouse"
-
-
 UNIQUE_USERS = "dau"
 UNIQUE_GROUPS = "unique_group"
 WEEKLY_ACTIVE = "weekly_active"
