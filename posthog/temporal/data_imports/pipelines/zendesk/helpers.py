@@ -1,4 +1,4 @@
-from typing import Iterator, List, Optional, Iterable, Tuple
+from typing import Iterator, Optional, Iterable, Tuple
 from itertools import chain
 
 import dlt
@@ -6,6 +6,9 @@ from dlt.common import pendulum
 from dlt.common.time import ensure_pendulum_datetime
 from dlt.common.typing import TDataItem, TAnyDateTime, TDataItems
 from dlt.sources import DltResource
+
+from posthog.temporal.common.logger import bind_temporal_worker_logger
+
 
 from .api_helpers import process_ticket, process_ticket_field
 from .talk_api import PaginationType, ZendeskAPIClient
@@ -245,7 +248,7 @@ def zendesk_support(
         end_date_iso_str = end_date_obj.isoformat()
 
     @dlt.resource(name="ticket_events", primary_key="id", write_disposition="append")
-    def ticket_events(
+    async def ticket_events(
         zendesk_client: ZendeskAPIClient,
         timestamp: dlt.sources.incremental[int] = dlt.sources.incremental(  # noqa: B008
             "timestamp",
@@ -253,9 +256,12 @@ def zendesk_support(
             end_value=end_date_ts,
             allow_external_schedulers=True,
         ),
-    ) -> Iterator[TDataItem]:
+    ):
         # URL For ticket events
         # 'https://d3v-dlthub.zendesk.com/api/v2/incremental/ticket_events.json?start_time=946684800'
+        logger = await bind_temporal_worker_logger(team_id)
+        logger.info("Zendesk: getting ticket_events")
+
         event_pages = zendesk_client.get_pages(
             "/api/v2/incremental/ticket_events.json",
             "ticket_events",
@@ -276,7 +282,7 @@ def zendesk_support(
             "custom_fields": {"data_type": "complex"},
         },
     )
-    def ticket_table(
+    async def ticket_table(
         zendesk_client: ZendeskAPIClient,
         pivot_fields: bool = True,
         updated_at: dlt.sources.incremental[pendulum.DateTime] = dlt.sources.incremental(  # noqa: B008
@@ -285,7 +291,7 @@ def zendesk_support(
             end_value=end_date_obj,
             allow_external_schedulers=True,
         ),
-    ) -> Iterator[TDataItem]:
+    ):
         """
         Resource for tickets table. Uses DLT state to handle column renaming of custom fields to prevent changing the names of said columns.
         This resource uses pagination, loading and side loading to make API calls more efficient.
@@ -300,9 +306,9 @@ def zendesk_support(
         Yields:
             TDataItem: Dictionary containing the ticket data.
         """
-        # grab the custom fields from dlt state if any
-        if pivot_fields:
-            load_ticket_fields_state(zendesk_client)
+        logger = await bind_temporal_worker_logger(team_id)
+        logger.info("Zendesk: getting tickets")
+
         fields_dict = dlt.current.source_state().setdefault(CUSTOM_FIELDS_STATE_KEY, {})
         # include_objects = ["users", "groups", "organisation", "brands"]
         ticket_pages = zendesk_client.get_pages(
@@ -319,7 +325,7 @@ def zendesk_support(
                 return
 
     @dlt.resource(name="ticket_metric_events", primary_key="id", write_disposition="append")
-    def ticket_metric_table(
+    async def ticket_metric_table(
         zendesk_client: ZendeskAPIClient,
         time: dlt.sources.incremental[str] = dlt.sources.incremental(  # noqa: B008
             "time",
@@ -327,7 +333,7 @@ def zendesk_support(
             end_value=end_date_iso_str,
             allow_external_schedulers=True,
         ),
-    ) -> Iterator[TDataItem]:
+    ):
         """
         Resource for ticket metric events table. Returns all the ticket metric events from the starting date,
         with the default starting date being January 1st of the current year.
@@ -341,6 +347,9 @@ def zendesk_support(
         Yields:
             TDataItem: Dictionary containing the ticket metric event data.
         """
+        logger = await bind_temporal_worker_logger(team_id)
+        logger.info("Zendesk: getting ticket_metric_events")
+
         # "https://example.zendesk.com/api/v2/incremental/ticket_metric_events?start_time=1332034771"
         metric_event_pages = zendesk_client.get_pages(
             "/api/v2/incremental/ticket_metric_events",
@@ -356,7 +365,7 @@ def zendesk_support(
             if time.end_out_of_range:
                 return
 
-    def ticket_fields_table(zendesk_client: ZendeskAPIClient) -> Iterator[TDataItem]:
+    async def ticket_fields_table(zendesk_client: ZendeskAPIClient):
         """
         Loads ticket fields data from Zendesk API.
 
@@ -366,6 +375,9 @@ def zendesk_support(
         Yields:
             TDataItem: Dictionary containing the ticket fields data.
         """
+        logger = await bind_temporal_worker_logger(team_id)
+        logger.info("Zendesk: getting ticket_fields")
+
         # get dlt state
         ticket_custom_fields = dlt.current.source_state().setdefault(CUSTOM_FIELDS_STATE_KEY, {})
         # get all custom fields and update state if needed, otherwise just load dicts into tables
@@ -378,52 +390,43 @@ def zendesk_support(
         for field in all_fields:
             yield process_ticket_field(field, ticket_custom_fields)
 
-    def load_ticket_fields_state(
-        zendesk_client: ZendeskAPIClient,
-    ) -> None:
-        for _ in ticket_fields_table(zendesk_client):
-            pass
-
     ticket_fields_resource = dlt.resource(name="ticket_fields", write_disposition="replace")(ticket_fields_table)
 
     # Authenticate
     zendesk_client = ZendeskAPIClient(credentials)
 
     all_endpoints = SUPPORT_ENDPOINTS + SUPPORT_EXTRA_ENDPOINTS
-    resource_list: List[DltResource] = []
 
     for endpoint in endpoints:
         # loading base tables
         if endpoint == "ticket_fields":
-            resource_list.append(ticket_fields_resource(zendesk_client=zendesk_client))
+            yield ticket_fields_resource(zendesk_client=zendesk_client)
         elif endpoint == "ticket_events":
-            resource_list.append(ticket_events(zendesk_client=zendesk_client))
+            yield ticket_events(zendesk_client=zendesk_client)
         elif endpoint == "tickets":
-            resource_list.append(ticket_table(zendesk_client=zendesk_client, pivot_fields=pivot_ticket_fields))
+            yield ticket_table(zendesk_client=zendesk_client, pivot_fields=pivot_ticket_fields)
         elif endpoint == "ticket_metric_events":
-            resource_list.append(ticket_metric_table(zendesk_client=zendesk_client))
+            yield ticket_metric_table(zendesk_client=zendesk_client)
         else:
             # other tables to be loaded
             for resource, endpoint_url, data_key, cursor_paginated in all_endpoints:
                 if endpoint == resource:
-                    resource_list.append(
-                        dlt.resource(
-                            basic_resource(zendesk_client, endpoint_url, data_key or resource, cursor_paginated),
-                            name=resource,
-                            write_disposition="replace",
-                        )
-                    )
+                    yield dlt.resource(
+                        basic_resource,
+                        name=resource,
+                        write_disposition="replace",
+                    )(zendesk_client, endpoint_url, data_key or resource, cursor_paginated, team_id)
+
                     break
 
-    return resource_list
 
-
-def basic_resource(
+async def basic_resource(
     zendesk_client: ZendeskAPIClient,
     endpoint_url: str,
     data_key: str,
     cursor_paginated: bool,
-) -> Iterator[TDataItem]:
+    team_id: int,
+):
     """
     Basic loader for most endpoints offered by Zenpy. Supports pagination. Expects to be called as a DLT Resource.
 
@@ -436,9 +439,12 @@ def basic_resource(
         TDataItem: Dictionary containing the resource data.
     """
 
+    logger = await bind_temporal_worker_logger(team_id)
+    logger.info(f"Zendesk: getting {endpoint_url}")
+
     pages = zendesk_client.get_pages(
         endpoint_url,
         data_key,
         PaginationType.CURSOR if cursor_paginated else PaginationType.OFFSET,
     )
-    yield from pages
+    yield pages

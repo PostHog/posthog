@@ -17,6 +17,7 @@ from posthog.constants import (
     PropertyOperatorType,
     TREND_FILTER_TYPE_EVENTS,
 )
+from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_NULL_DISPLAY, BREAKDOWN_OTHER_DISPLAY
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
@@ -740,11 +741,11 @@ class TrendsBreakdown:
         if breakdown_type == "cohort":
             return get_breakdown_cohort_name(breakdown_value)
         elif str(value) == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
-            return "Other"
+            return BREAKDOWN_OTHER_DISPLAY
         elif str(value) == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:
-            return "none"
+            return BREAKDOWN_NULL_DISPLAY
         else:
-            return str(value) or "none"
+            return str(value) or BREAKDOWN_NULL_DISPLAY
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
         if self.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:

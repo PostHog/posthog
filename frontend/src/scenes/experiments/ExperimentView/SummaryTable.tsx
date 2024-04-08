@@ -14,6 +14,7 @@ import { VariantTag } from './components'
 export function SummaryTable(): JSX.Element {
     const {
         experimentResults,
+        tabularExperimentResults,
         experimentInsightType,
         exposureCountDataForVariant,
         conversionRateForVariant,
@@ -86,8 +87,11 @@ export function SummaryTable(): JSX.Element {
             key: 'conversionRate',
             title: 'Conversion rate',
             render: function Key(_, item): JSX.Element {
+                const conversionRate = conversionRateForVariant(experimentResults, item.key)
                 return (
-                    <div className="font-semibold">{`${conversionRateForVariant(experimentResults, item.key)}%`}</div>
+                    <div className="font-semibold">
+                        {conversionRate === '--' ? conversionRate : `${conversionRate}%`}
+                    </div>
                 )
             },
         })
@@ -96,6 +100,11 @@ export function SummaryTable(): JSX.Element {
     columns.push({
         key: 'winProbability',
         title: 'Win probability',
+        sorter: (a, b) => {
+            const aPercentage = (experimentResults?.probability?.[a.key] || 0) * 100
+            const bPercentage = (experimentResults?.probability?.[b.key] || 0) * 100
+            return aPercentage - bPercentage
+        },
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
             const percentage =
@@ -122,7 +131,7 @@ export function SummaryTable(): JSX.Element {
 
     return (
         <div className="mb-4">
-            <LemonTable loading={false} columns={columns} dataSource={experimentResults?.variants || []} />
+            <LemonTable loading={false} columns={columns} dataSource={tabularExperimentResults} />
         </div>
     )
 }
