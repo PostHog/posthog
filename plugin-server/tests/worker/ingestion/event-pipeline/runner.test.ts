@@ -248,6 +248,41 @@ describe('EventPipelineRunner', () => {
                 expect(pipelineStepDLQCounterSpy).not.toHaveBeenCalled()
             })
         })
+
+        describe('client ingestion error event', () => {
+            it('drops events and adds a warning for special $$client_ingestion_warning event', async () => {
+                const event = {
+                    ...pipelineEvent,
+                    properties: { $$client_ingestion_warning_message: 'My warning message!' },
+                    event: '$$client_ingestion_warning',
+                    team_id: 9,
+                }
+
+                const hub: any = {
+                    db: {
+                        kafkaProducer: { queueMessage: jest.fn() },
+                    },
+                }
+                const runner = new TestEventPipelineRunner(hub, event)
+                jest.mocked(populateTeamDataStep).mockResolvedValue(event)
+
+                await runner.runEventPipeline(event)
+                expect(runner.steps).toEqual(['populateTeamDataStep'])
+                expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledTimes(1)
+                expect(
+                    JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].kafkaMessage.messages[0].value)
+                ).toMatchObject({
+                    team_id: 9,
+                    type: 'client_ingestion_warning',
+                    details: JSON.stringify({
+                        eventUuid: 'uuid1',
+                        event: '$$client_ingestion_warning',
+                        distinctId: 'my_id',
+                        message: 'My warning message!',
+                    }),
+                })
+            })
+        })
     })
 })
 
