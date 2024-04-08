@@ -288,6 +288,7 @@ export const PlanComparison = ({
                 )}
                 {includeAddons &&
                     product.addons?.map((addon) => {
+                        // TODO: integrated_persons addon will show up here when we add a price plan. Make sure this can handle it.
                         return addon.tiered ? (
                             <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
                                 <th scope="row">

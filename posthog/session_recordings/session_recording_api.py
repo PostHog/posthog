@@ -440,8 +440,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         elif source == "blob":
             blob_key = request.GET.get("blob_key", "")
-            if not blob_key:
-                raise exceptions.ValidationError("Must provide a snapshot file blob key")
+            self._validate_blob_key(blob_key)
 
             # very short-lived pre-signed URL
             if recording.object_storage_path:
@@ -480,6 +479,18 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = SessionRecordingSnapshotsSerializer(response_data)
 
         return Response(serializer.data)
+
+    @staticmethod
+    def _validate_blob_key(blob_key: Any) -> None:
+        if not blob_key:
+            raise exceptions.ValidationError("Must provide a snapshot file blob key")
+
+        if not isinstance(blob_key, str):
+            raise exceptions.ValidationError("Invalid blob key: " + blob_key)
+
+        # blob key should be a string of the form 1619712000-1619712060
+        if not all(x.isdigit() for x in blob_key.split("-")):
+            raise exceptions.ValidationError("Invalid blob key: " + blob_key)
 
     @staticmethod
     def _distinct_id_from_request(request):

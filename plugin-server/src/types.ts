@@ -77,6 +77,7 @@ export enum PluginServerMode {
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
+    recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_ingestion_v3 = 'recordings-ingestion-v3',
     person_overrides = 'person-overrides',
 }
@@ -306,6 +307,7 @@ export interface PluginServerCapabilities {
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
+    sessionRecordingBlobOverflowIngestion?: boolean
     sessionRecordingV3Ingestion?: boolean
     personOverrides?: boolean
     appManagementSingleton?: boolean
@@ -633,6 +635,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group2_created_at?: ClickHouseTimestamp
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
+    person_mode: 'full' | 'propertyless'
 }
 
 /** Parsed event row from ClickHouse. */
@@ -653,6 +656,7 @@ export interface ClickHouseEvent extends BaseEvent {
     group2_created_at?: DateTime | null
     group3_created_at?: DateTime | null
     group4_created_at?: DateTime | null
+    person_mode: 'full' | 'propertyless'
 }
 
 /** Event in a database-agnostic shape, AKA an ingestion event.
@@ -871,6 +875,14 @@ export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
 }
 
+export interface DataWarehousePropertyFilter extends PropertyFilterWithOperator {
+    type: 'data_warehouse'
+}
+
+export interface DataWarehousePersonPropertyFilter extends PropertyFilterWithOperator {
+    type: 'data_warehouse_person_property'
+}
+
 /** Sync with posthog/frontend/src/types.ts */
 export interface ElementPropertyFilter extends PropertyFilterWithOperator {
     type: 'element'
@@ -886,7 +898,13 @@ export interface CohortPropertyFilter extends PropertyFilterBase {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
-export type PropertyFilter = EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter
+export type PropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | CohortPropertyFilter
+    | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {

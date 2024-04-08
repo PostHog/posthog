@@ -4,7 +4,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ExternalDataSourceType } from '~/types'
 
-import { SOURCE_DETAILS } from '../sourceModalLogic'
+import { SOURCE_DETAILS } from '../../new/sourceWizardLogic'
 import { sourceFormLogic } from './sourceFormLogic'
 
 interface SourceFormProps {
@@ -16,7 +16,7 @@ export default function SourceForm({ sourceType }: SourceFormProps): JSX.Element
         <Form
             logic={sourceFormLogic}
             props={{ sourceType }}
-            formKey={sourceType == 'Postgres' ? 'databaseSchemaForm' : 'externalDataSource'}
+            formKey="sourceConnectionDetails"
             className="space-y-4"
             enableFormOnSubmit
         >

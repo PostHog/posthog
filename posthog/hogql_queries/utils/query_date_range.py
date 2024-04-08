@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
@@ -55,11 +55,12 @@ class QueryDateRange:
                 now=self.now_with_timezone,
             )
 
-        is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
-        if not self.is_hourly:
-            date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
-        elif is_relative:
-            date_to = date_to.replace(minute=59, second=59, microsecond=999999)
+        if not self._date_range or not self._date_range.explicitDate:
+            is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
+            if not self.is_hourly:
+                date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+            elif is_relative:
+                date_to = date_to.replace(minute=59, second=59, microsecond=999999)
 
         return date_to
 
@@ -232,7 +233,7 @@ class QueryDateRange:
             case "month":
                 return ast.Call(name="toStartOfMonth", args=[date])
             case _:
-                raise HogQLException(message="Unknown interval name")
+                raise ImpossibleASTError(message="Unknown interval name")
 
     def date_from_to_start_of_interval_hogql(self) -> ast.Call:
         return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())

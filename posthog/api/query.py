@@ -24,7 +24,7 @@ from posthog.clickhouse.client.execute_async import (
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -78,7 +78,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         try:
             result = process_query_model(self.team, data.query, refresh_requested=data.refresh)
             return Response(result)
-        except (HogQLException, ExposedCHQueryError) as e:
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except Exception as e:
             self.handle_column_ch_error(e)
@@ -92,8 +92,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         },
     )
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
-        status = get_query_status(team_id=self.team.pk, query_id=pk)
-        return JsonResponse(status.__dict__, safe=False)
+        query_status = get_query_status(team_id=self.team.pk, query_id=pk)
+
+        http_code: int = status.HTTP_202_ACCEPTED
+        if query_status.error:
+            if query_status.error_message:
+                http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
+            else:
+                http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise
+        elif query_status.complete:
+            http_code = status.HTTP_200_OK
+
+        return JsonResponse(query_status.model_dump(), safe=False, status=http_code)
 
     @extend_schema(
         description="(Experimental)",
