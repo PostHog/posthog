@@ -1588,3 +1588,18 @@ class TestPrinter(BaseTest):
             self._expr("CoALESce(1)", context),
             "coalesce(1)",
         )
+
+    def test_clickhouse_type_override(self):
+        # fromUnixTimestamp returns a DateTime so toDate should stay as toDate rather than toDateOrNull (which only accepts strings)
+        query = parse_select("select toDate(fromUnixTimestamp(423543535))")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+
+        assert printed == (
+            "SELECT toDate(fromUnixTimestamp(423543535), %(hogql_val_0)s) LIMIT 10000 SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
+        )
