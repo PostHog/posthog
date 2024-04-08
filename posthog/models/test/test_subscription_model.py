@@ -25,16 +25,16 @@ class TestSubscription(BaseTest):
     def _create_insight_subscription(self, **kwargs):
         insight = Insight.objects.create(team=self.team)
 
-        params = dict(
-            team=self.team,
-            title="My Subscription",
-            insight=insight,
-            target_type="email",
-            target_value="tests@posthog.com",
-            frequency="weekly",
-            interval=2,
-            start_date=datetime(2022, 1, 1, 0, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
-        )
+        params = {
+            "team": self.team,
+            "title": "My Subscription",
+            "insight": insight,
+            "target_type": "email",
+            "target_value": "tests@posthog.com",
+            "frequency": "weekly",
+            "interval": 2,
+            "start_date": datetime(2022, 1, 1, 0, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+        }
         params.update(**kwargs)
 
         return Subscription.objects.create(**params)

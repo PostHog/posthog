@@ -177,6 +177,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                               ],
                           },
                           full: true,
+                          showPropertyFilter: false,
+                          showEventFilter: false,
                       }
                     : {
                           kind: NodeKind.DataTableNode,
@@ -185,6 +187,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                               cohort: props.id,
                           },
                           columns: undefined,
+                          showPropertyFilter: false,
+                          showEventFilter: true,
                           full: true,
                       }) as any as DataTableNode,
             {
@@ -312,7 +316,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, key }) => ({
+    listeners(({ actions, values }) => ({
         deleteCohort: () => {
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
@@ -339,14 +343,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 if (values.pollTimeout) {
                     clearTimeout(values.pollTimeout)
                     actions.setPollTimeout(null)
-                }
-                if ((cohort.errors_calculating ?? 0) > 0) {
-                    lemonToast.error(
-                        'Cohort error. There was an error calculating this cohort. Make sure the cohort filters are correct.',
-                        {
-                            toastId: `cohort-calculation-error-${key}`,
-                        }
-                    )
                 }
             }
         },

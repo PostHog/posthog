@@ -44,9 +44,11 @@ describe('plugins', () => {
     })
 
     test('setupPlugins and runProcessEvent', async () => {
-        getPluginRows.mockReturnValueOnce([{ ...plugin60 }])
+        // Use a Plugin URL that is skipped for "personless" ($process_person=false) events.
+        const plugin = { ...plugin60, url: 'https://github.com/posthog/first-event-today' }
+        getPluginRows.mockReturnValueOnce([plugin])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+        getPluginConfigRows.mockReturnValueOnce([{ ...pluginConfig39, plugin: plugin }])
 
         await setupPlugins(hub)
         const { plugins, pluginConfigs } = hub
@@ -67,7 +69,7 @@ describe('plugins', () => {
         expect(pluginConfig.error).toEqual(pluginConfig39.error)
 
         expect(pluginConfig.plugin).toEqual({
-            ...plugin60,
+            ...plugin,
             capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
         })
 
@@ -95,7 +97,7 @@ describe('plugins', () => {
             [
                 60,
                 {
-                    ...plugin60,
+                    ...plugin,
                     capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
                 },
             ],
@@ -112,6 +114,13 @@ describe('plugins', () => {
         const returnedEvent = await runProcessEvent(hub, event)
         expect(event.properties!['processed']).toEqual(true)
         expect(returnedEvent!.properties!['processed']).toEqual(true)
+
+        // Personless event skips the plugin
+        const personlessEvent = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        const runDeprecatedPlugins = false
+        const returnedPersonlessEvent = await runProcessEvent(hub, personlessEvent, runDeprecatedPlugins)
+        expect(personlessEvent.properties!['processed']).toEqual(undefined)
+        expect(returnedPersonlessEvent!.properties!['processed']).toEqual(undefined)
     })
 
     test('stateless plugins', async () => {

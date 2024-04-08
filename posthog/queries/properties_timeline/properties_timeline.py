@@ -146,7 +146,7 @@ class PropertiesTimeline:
                 )
                 for timestamp, properties, relevant_event_count in raw_query_result
             ],
-            crucial_property_keys=list(sorted(crucial_property_keys)),
+            crucial_property_keys=sorted(crucial_property_keys),
             effective_date_from=event_query.effective_date_from.isoformat(),
             effective_date_to=event_query.effective_date_to.isoformat(),
         )

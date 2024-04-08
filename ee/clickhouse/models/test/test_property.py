@@ -1773,18 +1773,16 @@ TEST_PROPERTIES = [
 @freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, property, expected_event_indexes, team):
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
-    uuids = list(
-        sorted(
-            [
-                str(uuid)
-                for (uuid,) in sync_execute(
-                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
-                    {"team_id": team.pk, **params},
-                )
-            ]
-        )
+    uuids = sorted(
+        [
+            str(uuid)
+            for (uuid,) in sync_execute(
+                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                {"team_id": team.pk, **params},
+            )
+        ]
     )
-    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+    expected = sorted([test_events[index] for index in expected_event_indexes])
 
     assert len(uuids) == len(expected)  # helpful when diagnosing assertion failure below
     assert uuids == expected
@@ -1801,18 +1799,16 @@ def test_prop_filter_json_extract_materialized(
 
     assert "JSONExtract" not in query
 
-    uuids = list(
-        sorted(
-            [
-                str(uuid)
-                for (uuid,) in sync_execute(
-                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
-                    {"team_id": team.pk, **params},
-                )
-            ]
-        )
+    uuids = sorted(
+        [
+            str(uuid)
+            for (uuid,) in sync_execute(
+                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                {"team_id": team.pk, **params},
+            )
+        ]
     )
-    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+    expected = sorted([test_events[index] for index in expected_event_indexes])
 
     assert uuids == expected
 
@@ -1837,18 +1833,16 @@ def test_prop_filter_json_extract_person_on_events_materialized(
     )
     assert "JSON" not in query
 
-    uuids = list(
-        sorted(
-            [
-                str(uuid)
-                for (uuid,) in sync_execute(
-                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
-                    {"team_id": team.pk, **params},
-                )
-            ]
-        )
+    uuids = sorted(
+        [
+            str(uuid)
+            for (uuid,) in sync_execute(
+                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                {"team_id": team.pk, **params},
+            )
+        ]
     )
-    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+    expected = sorted([test_events[index] for index in expected_event_indexes])
 
     assert uuids == expected
 

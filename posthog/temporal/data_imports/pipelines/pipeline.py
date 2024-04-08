@@ -82,7 +82,7 @@ class DataImportPipeline:
         row_counts = pipeline.last_trace.last_normalize_info.row_counts
         # Remove any DLT tables from the counts
         filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
-        total_rows_synced = sum(map(lambda pair: pair[1], filtered_rows))
+        total_rows_synced = sum((pair[1] for pair in filtered_rows))
 
         return total_rows_synced
 
