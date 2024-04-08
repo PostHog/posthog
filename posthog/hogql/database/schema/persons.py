@@ -88,7 +88,6 @@ def join_with_persons_table(
     requested_fields: Dict[str, List[str | int]],
     context: HogQLContext,
     node: SelectQuery,
-    from_field: str = "person_id",
 ):
     from posthog.hogql import ast
 
@@ -100,7 +99,7 @@ def join_with_persons_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[from_table, from_field]),
+            left=ast.Field(chain=[from_table, "person_id"]),
             right=ast.Field(chain=[to_table, "id"]),
         )
     )
