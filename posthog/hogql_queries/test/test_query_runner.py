@@ -29,7 +29,7 @@ class TestQueryRunner(BaseTest):
             query_type: TestQuery = TestQuery  # type: ignore[assignment]
 
             def calculate(self) -> QueryResponse:
-                return QueryResponse(results=list())
+                return QueryResponse(results=[])
 
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)

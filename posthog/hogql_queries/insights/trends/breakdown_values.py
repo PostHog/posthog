@@ -21,8 +21,10 @@ from functools import cached_property
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
 BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compatibility
+BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 
 
 class BreakdownValues:

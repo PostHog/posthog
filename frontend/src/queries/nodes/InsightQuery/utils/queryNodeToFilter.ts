@@ -123,6 +123,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_to: query.dateRange?.date_to,
         // TODO: not used by retention queries
         date_from: query.dateRange?.date_from,
+        explicit_date: query.dateRange?.explicitDate,
         entity_type: 'events',
         sampling_factor: query.samplingFactor,
     })

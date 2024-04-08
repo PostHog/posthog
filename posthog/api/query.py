@@ -24,7 +24,7 @@ from posthog.clickhouse.client.execute_async import (
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -78,7 +78,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         try:
             result = process_query_model(self.team, data.query, refresh_requested=data.refresh)
             return Response(result)
-        except (HogQLException, ExposedCHQueryError) as e:
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except Exception as e:
             self.handle_column_ch_error(e)

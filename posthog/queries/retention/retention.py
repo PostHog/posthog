@@ -94,7 +94,7 @@ class Retention:
                     f"{urlencode(RetentionFilter({**filter._data, 'display': 'ActionsTable', 'breakdown_values': breakdown_values}).to_params())}"
                 ),
             }
-            for breakdown_values in set(cohort_key.breakdown_values for cohort_key in resultset.keys())
+            for breakdown_values in {cohort_key.breakdown_values for cohort_key in resultset.keys()}
         ]
 
         return result

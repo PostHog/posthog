@@ -102,5 +102,5 @@ phonenumberslite==8.13.6
 openai==1.10.0
 tiktoken==0.6.0
 nh3==0.2.14
-hogql-parser==1.0.6
+hogql-parser==1.0.7
 urllib3[secure,socks]==1.26.18
