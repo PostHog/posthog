@@ -1,16 +1,19 @@
 import { FunnelLayout } from 'lib/constants'
 
 import { hiddenLegendItemsToKeys, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import { FunnelsQuery, LifecycleQuery, NodeKind, PathsQuery, TrendsQuery } from '~/queries/schema'
 import {
     BreakdownAttributionType,
     ChartDisplayType,
     FunnelConversionWindowTimeUnit,
+    FunnelPathType,
     FunnelsFilterType,
     FunnelStepReference,
     FunnelVizType,
     InsightType,
     LifecycleFilterType,
+    PathsFilterType,
+    PathType,
     StepOrderValue,
     TrendsFilterType,
 } from '~/types'
@@ -62,6 +65,12 @@ describe('queryNodeToFilter', () => {
         const query: TrendsQuery = {
             kind: NodeKind.TrendsQuery,
             series: [],
+            breakdownFilter: {
+                breakdown: '$browser',
+                breakdown_hide_other_aggregation: true,
+                breakdown_limit: 1,
+                breakdown_type: 'event',
+            },
             trendsFilter: {
                 smoothingIntervals: 3,
                 compare: true,
@@ -95,6 +104,10 @@ describe('queryNodeToFilter', () => {
             aggregation_axis_format: 'numeric',
             aggregation_axis_prefix: 'M',
             aggregation_axis_postfix: '$',
+            breakdown: '$browser',
+            breakdown_hide_other_aggregation: true,
+            breakdown_limit: 1,
+            breakdown_type: 'event',
             show_labels_on_series: true,
             show_percent_stack_view: true,
             show_legend: true,
@@ -175,6 +188,102 @@ describe('queryNodeToFilter', () => {
             hidden_legend_keys: undefined,
             funnel_aggregate_by_hogql: undefined,
             entity_type: 'events',
+        }
+        expect(result).toEqual(filters)
+    })
+
+    test('converts a pathsFilter and funnelPathsFilter into filter properties', () => {
+        const query: PathsQuery = {
+            kind: NodeKind.PathsQuery,
+            pathsFilter: {
+                includeEventTypes: [PathType.Screen, PathType.PageView],
+                startPoint: 'a',
+                endPoint: 'b',
+                pathGroupings: ['c', 'd'],
+                excludeEvents: ['e', 'f'],
+                stepLimit: 1,
+                pathReplacements: true,
+                localPathCleaningFilters: [{ alias: 'home' }],
+                edgeLimit: 1,
+                minEdgeWeight: 1,
+                maxEdgeWeight: 1,
+            },
+            funnelPathsFilter: {
+                funnelPathType: FunnelPathType.between,
+                funnelStep: 1,
+                funnelSource: {
+                    funnelsFilter: {
+                        funnelVizType: FunnelVizType.Steps,
+                    },
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        {
+                            event: '$pageview',
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                        },
+                        {
+                            event: null,
+                            kind: NodeKind.EventsNode,
+                        },
+                    ],
+                },
+            },
+        }
+
+        const result = queryNodeToFilter(query)
+
+        const filters: Partial<PathsFilterType> = {
+            insight: InsightType.PATHS,
+            include_event_types: [PathType.Screen, PathType.PageView],
+            start_point: 'a',
+            end_point: 'b',
+            path_groupings: ['c', 'd'],
+            funnel_paths: FunnelPathType.between,
+            entity_type: 'events',
+            funnel_filter: {
+                entity_type: 'events',
+                events: [
+                    {
+                        id: '$pageview',
+                        name: '$pageview',
+                        order: 0,
+                        type: 'events',
+                    },
+                    {
+                        id: null,
+                        order: 1,
+                        type: 'events',
+                    },
+                ],
+                exclusions: undefined,
+                funnel_step: 1,
+                funnel_viz_type: 'steps',
+                insight: 'FUNNELS',
+                bin_count: undefined,
+                breakdown_attribution_type: undefined,
+                breakdown_attribution_value: undefined,
+                funnel_aggregate_by_hogql: undefined,
+                funnel_from_step: undefined,
+                funnel_to_step: undefined,
+                funnel_order_type: undefined,
+                funnel_step_reference: undefined,
+                funnel_window_interval: undefined,
+                funnel_window_interval_unit: undefined,
+                hidden_legend_keys: undefined,
+                interval: undefined,
+            },
+            exclude_events: ['e', 'f'],
+            step_limit: 1,
+            // path_start_key: 'g',
+            // path_end_key: 'h',
+            // path_dropoff_key: 'i',
+            path_replacements: true,
+            local_path_cleaning_filters: [{ alias: 'home' }],
+            edge_limit: 1,
+            min_edge_weight: 1,
+            max_edge_weight: 1,
+            paths_hogql_expression: undefined,
         }
         expect(result).toEqual(filters)
     })

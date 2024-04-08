@@ -55,6 +55,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Whether to hide the table background and inner borders. **/
     stealth?: boolean
     loading?: boolean
+    /** Whether the table is still interactable while `loading` is `true`. Defaults to `true`. **/
+    disableTableWhileLoading?: boolean
     pagination?: PaginationAuto | PaginationManual
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
@@ -102,6 +104,7 @@ export function LemonTable<T extends Record<string, any>>({
     embedded = false,
     stealth = false,
     loading,
+    disableTableWhileLoading = true,
     pagination,
     expandable,
     showHeader = true,
@@ -217,7 +220,7 @@ export function LemonTable<T extends Record<string, any>>({
                 'LemonTable',
                 size && size !== 'middle' && `LemonTable--${size}`,
                 inset && 'LemonTable--inset',
-                loading && 'LemonTable--loading',
+                loading && disableTableWhileLoading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',

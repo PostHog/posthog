@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 import time
 import structlog
-from typing import Dict, List, Optional, Tuple, Union, cast
+from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 from prometheus_client import Counter
 from django.conf import settings
@@ -62,6 +62,9 @@ FLAG_CACHE_HIT_COUNTER = Counter(
     "Whether we could get all flags from the cache or not.",
     labelnames=[LABEL_TEAM_ID, "cache_hit"],
 )
+
+ENTITY_EXISTS_PREFIX = "flag_entity_exists_"
+PERSON_KEY = "person"
 
 
 class FeatureFlagMatchReason(str, Enum):
@@ -326,7 +329,13 @@ class FeatureFlagMatcher:
                     )
                 condition_match = all(match_property(property, target_properties) for property in properties)
             else:
-                condition_match = self._condition_matches(feature_flag, condition_index)
+                match_if_entity_doesnt_exist = check_pure_is_not_set_operator_condition(condition)
+                condition_match = self._condition_matches(
+                    feature_flag,
+                    condition_index,
+                    match_if_entity_doesnt_exist,
+                    feature_flag.aggregation_group_type_index,
+                )
 
             if not condition_match:
                 return False, FeatureFlagMatchReason.NO_CONDITION_MATCH
@@ -344,14 +353,34 @@ class FeatureFlagMatcher:
     def _super_condition_is_set(self, feature_flag: FeatureFlag) -> Optional[bool]:
         return self._get_query_condition(f"flag_{feature_flag.pk}_super_condition_is_set")
 
-    def _condition_matches(self, feature_flag: FeatureFlag, condition_index: int) -> bool:
-        return self._get_query_condition(f"flag_{feature_flag.pk}_condition_{condition_index}")
+    def _condition_matches(
+        self,
+        feature_flag: FeatureFlag,
+        condition_index: int,
+        match_if_entity_doesnt_exist: bool = False,
+        group_type_index: Optional[GroupTypeIndex] = None,
+    ) -> bool:
+        return self._get_query_condition(
+            f"flag_{feature_flag.pk}_condition_{condition_index}", match_if_entity_doesnt_exist, group_type_index
+        )
 
-    def _get_query_condition(self, key: str) -> bool:
+    def _get_query_condition(
+        self, key: str, match_if_entity_doesnt_exist: bool = False, group_type_index: Optional[GroupTypeIndex] = None
+    ) -> bool:
         if self.failed_to_fetch_conditions:
             raise DatabaseError("Failed to fetch conditions for feature flag previously, not trying again.")
         if self.skip_database_flags:
             raise DatabaseError("Database healthcheck failed, not fetching flag conditions.")
+
+        # :TRICKY: Currently this option is only set with the is_not_set operator, but we can shortcircuit the condition check
+        # if the person doesn't exist. This is important as it allows resolving flags correctly for non-ingested persons.
+        if match_if_entity_doesnt_exist:
+            existence_key = f"{ENTITY_EXISTS_PREFIX}{group_type_index if group_type_index is not None else PERSON_KEY}"
+            entity_doesnt_exist = self.query_conditions.get(existence_key) is False
+            # :TRICKY: We only return if entity doesn't exist, because if it does, we still need to check the condition properly.
+            if entity_doesnt_exist:
+                return True
+
         return self.query_conditions.get(key, False)
 
     # Define contiguous sub-domains within [0, 1].
@@ -396,6 +425,20 @@ class FeatureFlagMatcher:
 
                 person_fields: List[str] = []
 
+                for existence_condition_key in self.has_pure_is_not_set_conditions:
+                    if existence_condition_key == PERSON_KEY:
+                        person_exists = person_query.exists()
+                        all_conditions[f"{ENTITY_EXISTS_PREFIX}{PERSON_KEY}"] = person_exists
+                    else:
+                        if existence_condition_key not in group_query_per_group_type_mapping:
+                            continue
+
+                        group_query, _ = group_query_per_group_type_mapping[
+                            cast(GroupTypeIndex, existence_condition_key)
+                        ]
+                        group_exists = group_query.exists()
+                        all_conditions[f"{ENTITY_EXISTS_PREFIX}{existence_condition_key}"] = group_exists
+
                 def condition_eval(key, condition):
                     team_id = self.feature_flags[0].team_id
                     expr = None
@@ -411,10 +454,13 @@ class FeatureFlagMatcher:
                         # Feature Flags don't support OR filtering yet
                         target_properties = self.property_value_overrides
                         if feature_flag.aggregation_group_type_index is not None:
-                            target_properties = self.group_property_value_overrides.get(
-                                self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index],
-                                {},
-                            )
+                            if feature_flag.aggregation_group_type_index not in self.cache.group_type_index_to_name:
+                                target_properties = {}
+                            else:
+                                target_properties = self.group_property_value_overrides.get(
+                                    self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index],
+                                    {},
+                                )
 
                         expr = properties_to_Q(
                             team_id,
@@ -535,10 +581,12 @@ class FeatureFlagMatcher:
                     group_query,
                     group_fields,
                 ) in group_query_per_group_type_mapping.values():
-                    group_query = group_query.values(*group_fields)
-                    if len(group_query) > 0:
-                        assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
-                        all_conditions = {**all_conditions, **group_query[0]}
+                    # Only query the group if there's a field to query
+                    if len(group_fields) > 0:
+                        group_query = group_query.values(*group_fields)
+                        if len(group_query) > 0:
+                            assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
+                            all_conditions = {**all_conditions, **group_query[0]}
                 return all_conditions
         except DatabaseError as e:
             self.failed_to_fetch_conditions = True
@@ -596,8 +644,6 @@ class FeatureFlagMatcher:
                 return False
             if property.key not in target_properties:
                 return False
-            if property.operator == "is_not_set":
-                return False
         return True
 
     def get_highest_priority_match_evaluation(
@@ -611,6 +657,19 @@ class FeatureFlagMatcher:
             return new_match, new_index
 
         return current_match, current_index
+
+    @cached_property
+    def has_pure_is_not_set_conditions(self) -> set[Literal["person"] | GroupTypeIndex]:
+        entity_to_condition_check: set[Literal["person"] | GroupTypeIndex] = set()
+        for feature_flag in self.feature_flags:
+            for condition in feature_flag.conditions:
+                if check_pure_is_not_set_operator_condition(condition):
+                    if feature_flag.aggregation_group_type_index is not None:
+                        entity_to_condition_check.add(feature_flag.aggregation_group_type_index)
+                    else:
+                        entity_to_condition_check.add("person")
+
+        return entity_to_condition_check
 
 
 def get_feature_flag_hash_key_overrides(
@@ -974,3 +1033,10 @@ def add_local_person_and_group_properties(distinct_id, groups, person_properties
             }
 
     return all_person_properties, all_group_properties
+
+
+def check_pure_is_not_set_operator_condition(condition: dict) -> bool:
+    properties = condition.get("properties", [])
+    if properties and all(prop.get("operator") == "is_not_set" for prop in properties):
+        return True
+    return False

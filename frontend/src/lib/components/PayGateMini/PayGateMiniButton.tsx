@@ -5,7 +5,7 @@ import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { PlanComparisonModal } from 'scenes/billing/PlanComparison'
 import { urls } from 'scenes/urls'
 
-import { BillingProductV2Type, BillingV2FeatureType } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType } from '~/types'
 
 export const PayGateMiniButton = ({
     product,
@@ -13,13 +13,19 @@ export const PayGateMiniButton = ({
     featureInfo,
     onClick,
 }: {
-    product: BillingProductV2Type
+    product: BillingProductV2Type | BillingProductV2AddonType
     featureInfo: BillingV2FeatureType
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud'
     onClick?: () => void
 }): JSX.Element => {
     const { isPlanComparisonModalOpen } = useValues(billingProductLogic({ product }))
     const { toggleIsPlanComparisonModalOpen } = useActions(billingProductLogic({ product }))
+
+    // We know that the product is a BillingProductV2Type because that's the only
+    // type that can be used here from the PayGateMini component. But TypeScript doesn't
+    // know that, so we need to cast it to the correct type, and it's simpler to do this
+    // here than in the PayGateMini component.
+    const typedProduct = product as BillingProductV2Type
 
     return (
         <>
@@ -53,7 +59,7 @@ export const PayGateMiniButton = ({
             </LemonButton>
             <PlanComparisonModal
                 key={`modal-${featureInfo.key}`}
-                product={product}
+                product={typedProduct}
                 modalOpen={isPlanComparisonModalOpen}
                 onClose={() => toggleIsPlanComparisonModalOpen()}
             />

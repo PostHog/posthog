@@ -33,9 +33,10 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
-    ExternalDataPostgresSchema,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
+    ExternalDataSourceSyncSchema,
+    ExternalDataSourceType,
     ExternalDataStripeSource,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
@@ -1494,6 +1495,9 @@ const api = {
         async update(id: PluginConfigTypeNew['id'], data: FormData): Promise<PluginConfigWithPluginInfoNew> {
             return await new ApiRequest().pluginConfig(id).update({ data })
         },
+        async create(data: FormData): Promise<PluginConfigWithPluginInfoNew> {
+            return await new ApiRequest().pluginConfigs().create({ data })
+        },
         async list(): Promise<PaginatedResponse<PluginConfigTypeNew>> {
             return await new ApiRequest().pluginConfigs().get()
         },
@@ -1912,8 +1916,8 @@ const api = {
     },
 
     externalDataSources: {
-        async list(): Promise<PaginatedResponse<ExternalDataStripeSource>> {
-            return await new ApiRequest().externalDataSources().get()
+        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
+            return await new ApiRequest().externalDataSources().get(options)
         },
         async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<ExternalDataSourceCreatePayload> {
             return await new ApiRequest().externalDataSources().create({ data })
@@ -1925,17 +1929,18 @@ const api = {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
         async database_schema(
-            host: string,
-            port: string,
-            dbname: string,
-            user: string,
-            password: string,
-            schema: string
-        ): Promise<ExternalDataPostgresSchema[]> {
+            source_type: ExternalDataSourceType,
+            host?: string,
+            port?: string,
+            dbname?: string,
+            user?: string,
+            password?: string,
+            schema?: string
+        ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
                 .externalDataSources()
                 .withAction('database_schema')
-                .create({ data: { host, port, dbname, user, password, schema } })
+                .create({ data: { source_type, host, port, dbname, user, password, schema } })
         },
     },
 

@@ -13,6 +13,7 @@ import {
     SidePanelExports,
     SidePanelExportsIcon,
 } from '~/layout/navigation-3000/sidepanel/panels/exports/SidePanelExports'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
@@ -97,6 +98,7 @@ export const SIDE_PANEL_TABS: Record<
 const DEFAULT_WIDTH = 512
 
 export function SidePanel(): JSX.Element | null {
+    const { theme } = useValues(themeLogic)
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
@@ -176,6 +178,7 @@ export function SidePanel(): JSX.Element | null {
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: sidePanelOpenAndAvailable ? desiredWidth ?? DEFAULT_WIDTH : undefined,
+                ...(theme?.sidebarStyle ?? {}),
             }}
         >
             <Resizer {...resizerLogicProps} />
