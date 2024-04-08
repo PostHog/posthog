@@ -501,6 +501,10 @@
             "required": ["column"],
             "type": "object"
         },
+        "ChartDisplayCategory": {
+            "enum": ["TimeSeries", "CumulativeTimeSeries", "TotalValue"],
+            "type": "string"
+        },
         "ChartDisplayType": {
             "enum": [
                 "ActionsLineGraph",

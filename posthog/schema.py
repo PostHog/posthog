@@ -119,6 +119,12 @@ class ChartAxis(BaseModel):
     column: str
 
 
+class ChartDisplayCategory(str, Enum):
+    TimeSeries = "TimeSeries"
+    CumulativeTimeSeries = "CumulativeTimeSeries"
+    TotalValue = "TotalValue"
+
+
 class ChartDisplayType(str, Enum):
     ActionsLineGraph = "ActionsLineGraph"
     ActionsBar = "ActionsBar"

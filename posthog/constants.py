@@ -3,6 +3,8 @@ from typing import Literal
 
 from semantic_version import Version
 
+from posthog.schema import ChartDisplayCategory, ChartDisplayType, InsightType
+
 FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted version, just for backwards compat now
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 
@@ -42,45 +44,52 @@ TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"
 
 SESSION_RECORDINGS_FILTER_IDS = "session_ids"
 
-TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
-TRENDS_LINEAR = "ActionsLineGraph"
-TRENDS_TABLE = "ActionsTable"
-TRENDS_FUNNEL = "FunnelViz"
-TRENDS_PIE = "ActionsPie"
-TRENDS_PATHS = "PathsViz"
-TRENDS_BAR = "ActionsBar"
-TRENDS_BAR_VALUE = "ActionsBarValue"
-TRENDS_WORLD_MAP = "WorldMap"
-TRENDS_BOLD_NUMBER = "BoldNumber"
-
-# Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
+# Sync with frontend DISPLAY_TYPES_TO_CATEGORIES
+DISPLAY_TYPES_TO_CATEGORIES: dict[ChartDisplayType, ChartDisplayCategory] = {
+    [ChartDisplayType.ActionsLineGraph]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsBar]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsAreaGraph]: ChartDisplayCategory.TimeSeries,
+    [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayCategory.CumulativeTimeSeries,
+    [ChartDisplayType.BoldNumber]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ActionsPie]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ActionsBarValue]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ActionsTable]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.WorldMap]: ChartDisplayCategory.TotalValue,
+}
 NON_TIME_SERIES_DISPLAY_TYPES = [
-    TRENDS_TABLE,
-    TRENDS_PIE,
-    TRENDS_BAR_VALUE,
-    TRENDS_WORLD_MAP,
-    TRENDS_BOLD_NUMBER,
+    display_type
+    for display_type, category in DISPLAY_TYPES_TO_CATEGORIES.items()
+    if category == ChartDisplayCategory.TotalValue
 ]
-# Sync with frontend NON_BREAKDOWN_DISPLAY_TYPES
-NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER]
 
-# CONSTANTS
-INSIGHT_TRENDS = "TRENDS"
-INSIGHT_STICKINESS = "STICKINESS"
-INSIGHT_LIFECYCLE = "LIFECYCLE"
-INSIGHT_FUNNELS = "FUNNELS"
-INSIGHT_PATHS = "PATHS"
-INSIGHT_RETENTION = "RETENTION"
+# Sync with frontend NON_BREAKDOWN_DISPLAY_TYPES
+NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
+
+# Legacy aliases
+TRENDS_CUMULATIVE = ChartDisplayType.ActionsLineGraphCumulative
+TRENDS_LINEAR = ChartDisplayType.ActionsLineGraph
+TRENDS_TABLE = ChartDisplayType.ActionsTable
+TRENDS_PIE = ChartDisplayType.ActionsPie
+TRENDS_BAR = ChartDisplayType.ActionsBar
+TRENDS_BAR_VALUE = ChartDisplayType.ActionsBarValue
+TRENDS_WORLD_MAP = ChartDisplayType.WorldMap
+TRENDS_BOLD_NUMBER = ChartDisplayType.BoldNumber
+# Don't be fooled by the TRENDS prefix, these are separate insight types
+TRENDS_STICKINESS = "Stickiness"
+TRENDS_LIFECYCLE = "Lifecycle"
+
+INSIGHT_TRENDS = InsightType.TRENDS
+INSIGHT_STICKINESS = InsightType.STICKINESS
+INSIGHT_LIFECYCLE = InsightType.LIFECYCLE
+INSIGHT_FUNNELS = InsightType.FUNNELS
+INSIGHT_PATHS = InsightType.PATHS
+INSIGHT_RETENTION = InsightType.RETENTION
 
 INSIGHT_TO_DISPLAY = {
-    INSIGHT_TRENDS: TRENDS_LINEAR,
-    INSIGHT_STICKINESS: TRENDS_LINEAR,
-    INSIGHT_LIFECYCLE: TRENDS_LINEAR,
-    INSIGHT_FUNNELS: TRENDS_FUNNEL,
-    INSIGHT_PATHS: TRENDS_PATHS,
-    INSIGHT_RETENTION: TRENDS_TABLE,
-    # :KLUDGE: Sessions insight is no longer supported, but this is needed to make updating these insights possible.
-    "SESSIONS": TRENDS_LINEAR,
+    InsightType.TRENDS: ChartDisplayType.ActionsLineGraph,
+    InsightType.STICKINESS: ChartDisplayType.ActionsLineGraph,
+    InsightType.LIFECYCLE: ChartDisplayType.ActionsLineGraph,
+    InsightType.RETENTION: ChartDisplayType.ActionsTable,
 }
 
 DISPLAY_TYPES = Literal[
@@ -93,15 +102,6 @@ DISPLAY_TYPES = Literal[
     "WorldMap",
     "BoldNumber",
 ]
-
-DEPRECATED_DISPLAY_TYPES = Literal[
-    "PathsViz",
-    "FunnelViz",
-]
-
-
-TRENDS_STICKINESS = "Stickiness"
-TRENDS_LIFECYCLE = "Lifecycle"
 
 SCREEN_EVENT = "$screen"
 AUTOCAPTURE_EVENT = "$autocapture"
