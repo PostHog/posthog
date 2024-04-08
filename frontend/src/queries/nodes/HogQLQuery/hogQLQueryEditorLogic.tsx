@@ -1,8 +1,9 @@
 import type { Monaco } from '@monaco-editor/react'
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
-import { promptLogic } from 'lib/logic/promptLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:
 // `export const suggestWidgetStatusbarMenu = new MenuId('suggestWidgetStatusBar')`
@@ -45,7 +46,6 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     }),
     connect({
         actions: [dataWarehouseSavedQueriesLogic, ['createDataWarehouseSavedQuery']],
-        logic: [promptLogic({ key: `save-as-view` })],
     }),
     actions({
         saveQuery: true,
@@ -170,12 +170,18 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             }
         },
         saveAsView: async () => {
-            promptLogic({ key: `save-as-view` }).actions.prompt({
+            LemonDialog.openForm({
                 title: 'Save as view',
-                placeholder: 'Please enter the name of the view',
-                value: '',
-                error: 'You must enter a name',
-                success: actions.saveAsViewSuccess,
+                initialValues: { viewName: '' },
+                content: (
+                    <LemonField name="viewName">
+                        <LemonInput placeholder="Please enter the name of the view" autoFocus />
+                    </LemonField>
+                ),
+                errors: {
+                    viewName: (name) => (!name ? 'You must enter a name' : undefined),
+                },
+                onSubmit: ({ viewName }) => actions.saveAsViewSuccess(viewName),
             })
         },
         saveAsViewSuccess: async ({ name }) => {

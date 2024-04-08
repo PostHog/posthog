@@ -13,7 +13,7 @@ from posthog.constants import (
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.functions import HOGQL_AGGREGATIONS
-from posthog.hogql.errors import NotImplementedException
+from posthog.hogql.errors import NotImplementedError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.models import (
@@ -101,13 +101,13 @@ def property_to_expr(
             and property.type != PropertyOperatorType.AND
             and property.type != PropertyOperatorType.OR
         ):
-            raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
+            raise NotImplementedError(f'PropertyGroup of unknown type "{property.type}"')
         if (
             (isinstance(property, PropertyGroupFilter) or isinstance(property, PropertyGroupFilterValue))
             and property.type != FilterLogicalOperator.AND
             and property.type != FilterLogicalOperator.OR
         ):
-            raise NotImplementedException(f'PropertyGroupFilter of unknown type "{property.type}"')
+            raise NotImplementedError(f'PropertyGroupFilter of unknown type "{property.type}"')
 
         if len(property.values) == 0:
             return ast.Constant(value=True)
@@ -126,9 +126,7 @@ def property_to_expr(
             # TODO: revert this when removing legacy insights?
             return ast.Constant(value=True)
     else:
-        raise NotImplementedException(
-            f"property_to_expr with property of type {type(property).__name__} not implemented"
-        )
+        raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
     if property.type == "hogql":
         return parse_expr(property.key)
@@ -142,7 +140,7 @@ def property_to_expr(
         or property.type == "session"
     ):
         if scope == "person" and property.type != "person":
-            raise NotImplementedException(
+            raise NotImplementedError(
                 f"The '{property.type}' property filter only works in 'event' scope, not in '{scope}' scope"
             )
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
@@ -154,7 +152,7 @@ def property_to_expr(
                 table, value = property.value.split(": ")
                 chain = ["person", table]
             else:
-                raise NotImplementedException("Data warehouse person property filter value must be a string")
+                raise NotImplementedError("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "data_warehouse":
@@ -267,7 +265,7 @@ def property_to_expr(
         elif operator == PropertyOperator.gte:
             op = ast.CompareOperationOp.GtEq
         else:
-            raise NotImplementedException(f"PropertyOperator {operator} not implemented")
+            raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
         # For Boolean and untyped properties, treat "true" and "false" as boolean values
         if (
@@ -293,9 +291,7 @@ def property_to_expr(
 
     elif property.type == "element":
         if scope == "person":
-            raise NotImplementedException(
-                f"property_to_expr for scope {scope} not implemented for type '{property.type}'"
-            )
+            raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")
         value = property.value
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         if isinstance(value, list):
@@ -326,7 +322,7 @@ def property_to_expr(
 
         if property.key == "selector" or property.key == "tag_name":
             if operator != PropertyOperator.exact and operator != PropertyOperator.is_not:
-                raise NotImplementedException(
+                raise NotImplementedError(
                     f"property_to_expr for element {property.key} only supports exact and is_not operators, not {operator}"
                 )
             expr = selector_to_expr(str(value)) if property.key == "selector" else tag_name_to_expr(str(value))
@@ -340,7 +336,7 @@ def property_to_expr(
         if property.key == "text":
             return element_chain_key_filter("text", str(value), operator)
 
-        raise NotImplementedException(f"property_to_expr for type element not implemented for key {property.key}")
+        raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
@@ -353,7 +349,7 @@ def property_to_expr(
 
     # TODO: Add support for these types: "recording", "behavioral"
 
-    raise NotImplementedException(
+    raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
     )
 
@@ -458,7 +454,7 @@ def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
     elif operator == PropertyOperator.exact or operator == PropertyOperator.is_not:
         value = re.escape(escaped)
     else:
-        raise NotImplementedException(f"element_href_to_expr not implemented for operator {operator}")
+        raise NotImplementedError(f"element_href_to_expr not implemented for operator {operator}")
 
     regex = f'({key}="{value}")'
     if operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains:

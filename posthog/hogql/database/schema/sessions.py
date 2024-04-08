@@ -14,7 +14,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr
 from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ResolutionError
 
 SESSIONS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
     "id": StringDatabaseField(
@@ -178,7 +178,7 @@ def join_events_table_to_sessions_table(
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise HogQLException("No fields requested from events")
+        raise ResolutionError("No fields requested from events")
 
     join_expr = ast.JoinExpr(table=select_from_sessions_table(requested_fields, node, context))
     join_expr.join_type = "LEFT JOIN"

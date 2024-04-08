@@ -389,6 +389,7 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
+    skipped_for_personless?: boolean
     public_jobs?: Record<string, JobSpec>
     log_level?: PluginLogLevel
 }
@@ -635,6 +636,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group2_created_at?: ClickHouseTimestamp
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
+    person_mode: 'full' | 'propertyless'
 }
 
 /** Parsed event row from ClickHouse. */
@@ -655,6 +657,7 @@ export interface ClickHouseEvent extends BaseEvent {
     group2_created_at?: DateTime | null
     group3_created_at?: DateTime | null
     group4_created_at?: DateTime | null
+    person_mode: 'full' | 'propertyless'
 }
 
 /** Event in a database-agnostic shape, AKA an ingestion event.

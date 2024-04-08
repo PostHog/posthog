@@ -215,10 +215,6 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     monaco.languages.registerCompletionItemProvider('mysql', {
                                         triggerCharacters: [' ', ',', '.'],
                                         provideCompletionItems: async (model, position) => {
-                                            if (!featureFlags[FEATURE_FLAGS.HOGQL_AUTOCOMPLETE]) {
-                                                return undefined
-                                            }
-
                                             const word = model.getWordUntilPosition(position)
 
                                             const startOffset = model.getOffsetAt({

@@ -32,6 +32,7 @@ import {
     Experiment,
     ExperimentResults,
     FilterType,
+    FunnelExperimentVariant,
     FunnelStep,
     FunnelVizType,
     InsightType,
@@ -1022,6 +1023,40 @@ export const experimentLogic = kea<experimentLogicType>([
                 return []
             },
         ],
+        tabularExperimentResults: [
+            (s) => [s.experiment, s.experimentResults, s.experimentInsightType],
+            (experiment, experimentResults, experimentInsightType): any => {
+                const tabularResults = []
+
+                if (experimentResults) {
+                    for (const variantObj of experimentResults.variants) {
+                        if (experimentInsightType === InsightType.FUNNELS) {
+                            const { key, success_count, failure_count } = variantObj as FunnelExperimentVariant
+                            tabularResults.push({ key, success_count, failure_count })
+                        } else if (experimentInsightType === InsightType.TRENDS) {
+                            const { key, count, exposure, absolute_exposure } = variantObj as TrendExperimentVariant
+                            tabularResults.push({ key, count, exposure, absolute_exposure })
+                        }
+                    }
+                }
+
+                if (experiment.feature_flag?.filters.multivariate?.variants) {
+                    for (const { key } of experiment.feature_flag.filters.multivariate.variants) {
+                        if (tabularResults.find((variantObj) => variantObj.key === key)) {
+                            continue
+                        }
+
+                        if (experimentInsightType === InsightType.FUNNELS) {
+                            tabularResults.push({ key, success_count: null, failure_count: null })
+                        } else if (experimentInsightType === InsightType.TRENDS) {
+                            tabularResults.push({ key, count: null, exposure: null, absolute_exposure: null })
+                        }
+                    }
+                }
+
+                return tabularResults
+            },
+        ],
         tabularSecondaryMetricResults: [
             (s) => [s.experiment, s.secondaryMetricResults],
             (experiment, secondaryMetricResults): TabularSecondaryMetricResults[] => {
@@ -1040,7 +1075,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         results: metricResults,
                     })
                 })
-
                 return variantsWithResults
             },
         ],
@@ -1057,7 +1091,15 @@ export const experimentLogic = kea<experimentLogicType>([
                     const conversionRate = parseFloat(conversionRateForVariant(experimentResults, variant))
                     conversionRates.push({ key: variant, conversionRate, index })
                 }
-                return conversionRates.sort((a, b) => b.conversionRate - a.conversionRate)
+                return conversionRates.sort((a, b) => {
+                    if (!a.conversionRate) {
+                        return 1
+                    } // Push a to the end if it doesn't exist
+                    if (!b.conversionRate) {
+                        return -1
+                    }
+                    return b.conversionRate - a.conversionRate
+                })
             },
         ],
     }),

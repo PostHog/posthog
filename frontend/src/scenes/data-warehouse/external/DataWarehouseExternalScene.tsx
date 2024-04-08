@@ -32,7 +32,7 @@ const TABS_TO_CONTENT = {
 
 export function DataWarehouseExternalScene(): JSX.Element {
     const { activeSceneTab } = useValues(dataWarehouseSceneLogic)
-    const { toggleSourceModal, setSceneTab } = useActions(dataWarehouseSceneLogic)
+    const { setSceneTab } = useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleNewJoinModal } = useActions(viewLinkLogic)
 
@@ -57,7 +57,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                                     type="primary"
                                     data-attr="new-data-warehouse-easy-link"
                                     key="new-data-warehouse-easy-link"
-                                    onClick={() => toggleSourceModal()}
+                                    to={urls.dataWarehouseTable()}
                                 >
                                     Link Source
                                 </LemonButton>
