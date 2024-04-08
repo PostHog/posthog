@@ -1,3 +1,4 @@
+import json
 import unittest
 from ee.clickhouse.queries.experiments.funnel_experiment_result import (
     validate_event_variants as validate_funnel_event_variants,
@@ -7,20 +8,26 @@ from ee.clickhouse.queries.experiments.trend_experiment_result import (
 )
 from rest_framework.exceptions import ValidationError
 
+from posthog.constants import ExperimentNoResultsErrorKeys
+
 
 class TestFunnelExperiments(unittest.TestCase):
     def test_validate_event_variants_no_events(self):
         funnel_results = []
 
-        expected_errors = {"no-events": True, "no-flag-info": True, "no-control-variant": True, "no-test-variant": True}
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EVENTS: True,
+                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+            }
+        )
 
         with self.assertRaises(ValidationError) as context:
             validate_funnel_event_variants(funnel_results, ["test", "control"])
 
-        # Convert ErrorDetail objects to booleans
-        received_errors = {key: (value == "True") for key, value in context.exception.detail.items()}
-
-        self.assertEqual(received_errors, expected_errors)
+        self.assertEqual(context.exception.detail[0], expected_errors)
 
     def test_validate_event_variants_no_control(self):
         funnel_results = [
@@ -42,20 +49,19 @@ class TestFunnelExperiments(unittest.TestCase):
             ]
         ]
 
-        expected_errors = {
-            "no-events": False,
-            "no-flag-info": False,
-            "no-control-variant": True,
-            "no-test-variant": False,
-        }
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
+                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
+            }
+        )
 
         with self.assertRaises(ValidationError) as context:
             validate_funnel_event_variants(funnel_results, ["test", "control"])
 
-        # Convert ErrorDetail objects to booleans
-        received_errors = {key: (value == "True") for key, value in context.exception.detail.items()}
-
-        self.assertEqual(received_errors, expected_errors)
+        self.assertEqual(context.exception.detail[0], expected_errors)
 
     def test_validate_event_variants_no_test(self):
         funnel_results = [
@@ -77,20 +83,19 @@ class TestFunnelExperiments(unittest.TestCase):
             ]
         ]
 
-        expected_errors = {
-            "no-events": False,
-            "no-flag-info": False,
-            "no-control-variant": False,
-            "no-test-variant": True,
-        }
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
+                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+            }
+        )
 
         with self.assertRaises(ValidationError) as context:
             validate_funnel_event_variants(funnel_results, ["test", "control"])
 
-        # Convert ErrorDetail objects to booleans
-        received_errors = {key: (value == "True") for key, value in context.exception.detail.items()}
-
-        self.assertEqual(received_errors, expected_errors)
+        self.assertEqual(context.exception.detail[0], expected_errors)
 
     def test_validate_event_variants_no_flag_info(self):
         funnel_results = [
@@ -112,20 +117,19 @@ class TestFunnelExperiments(unittest.TestCase):
             ]
         ]
 
-        expected_errors = {
-            "no-events": False,
-            "no-flag-info": True,
-            "no-control-variant": True,
-            "no-test-variant": True,
-        }
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
+                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+            }
+        )
 
         with self.assertRaises(ValidationError) as context:
             validate_funnel_event_variants(funnel_results, ["test", "control"])
 
-        # Convert ErrorDetail objects to booleans
-        received_errors = {key: (value == "True") for key, value in context.exception.detail.items()}
-
-        self.assertEqual(received_errors, expected_errors)
+        self.assertEqual(context.exception.detail[0], expected_errors)
 
 
 class TestTrendExperiments(unittest.TestCase):
