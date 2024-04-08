@@ -156,7 +156,7 @@ class AutoProjectMiddleware:
         if request.user.is_authenticated:
             path_parts = request.path.strip("/").split("/")
             project_id_in_url = None
-            current_team = request.user.team
+            user = cast(User, request.user)
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].startswith("phc_"):
                 try:
@@ -169,8 +169,8 @@ class AutoProjectMiddleware:
                     return redirect("/" + "/".join(path_parts))
 
                 except Team.DoesNotExist:
-                    if current_team:
-                        path_parts[1] = str(current_team.pk)
+                    if user.team:
+                        path_parts[1] = str(user.team.pk)
                         return redirect("/" + "/".join(path_parts))
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
@@ -184,7 +184,7 @@ class AutoProjectMiddleware:
             ):
                 project_id_in_url = int(path_parts[2])
 
-            if project_id_in_url and current_team and current_team.pk != project_id_in_url:
+            if project_id_in_url and user.team and user.team.pk != project_id_in_url:
                 try:
                     new_team = Team.objects.get(pk=project_id_in_url)
                     self.switch_team_if_allowed(new_team, request)
