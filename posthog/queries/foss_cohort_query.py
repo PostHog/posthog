@@ -18,7 +18,7 @@ from posthog.models.property import (
     PropertyGroup,
     PropertyName,
 )
-from posthog.models.property.util import prop_filter_json_extract
+from posthog.models.property.util import prop_filter_json_extract, parse_prop_grouped_clauses
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import PersonOnEventsMode
@@ -458,24 +458,44 @@ class FOSSCohortQuery(EventQuery):
         query, params = format_static_cohort_query(cohort, idx, prepend)
         return f"id {'NOT' if prop.negation else ''} IN ({query})", params
 
+    def _get_entity_event_filters(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+        params: Dict[str, Any] = {}
+
+        if prop.event_filters:
+            prop_query, prop_params = parse_prop_grouped_clauses(
+                team_id=self._team_id,
+                property_group=Filter(data={"properties": prop.event_filters}).property_groups,
+                prepend=f"{prepend}_{idx}_event_filters",
+                # should be no person properties in these filters, but if there are, use
+                # the inefficient person subquery default mode
+                person_properties_mode=PersonPropertiesMode.USING_SUBQUERY,
+                hogql_context=self._filter.hogql_context,
+            )
+            params.update(prop_params)
+            return prop_query, params
+        else:
+            return "1=1", {}
+
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
         column_name = f"performed_event_condition_{prepend}_{idx}"
 
         entity_query, entity_params = self._get_entity(event, prepend, idx)
+        entity_filters, entity_filters_params = self._get_entity_event_filters(prop, prepend, idx)
         date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         date_interval = validate_interval(prop.time_interval)
         date_param = f"{prepend}_date_{idx}"
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}"
+        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query} {entity_filters}) > 0 AS {column_name}"
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
         return f"{'NOT' if prop.negation else ''} {column_name}", {
             f"{date_param}": date_value,
             **entity_params,
+            **entity_filters_params,
         }
 
     def get_performed_event_multiple(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
@@ -483,6 +503,7 @@ class FOSSCohortQuery(EventQuery):
         column_name = f"performed_event_multiple_condition_{prepend}_{idx}"
 
         entity_query, entity_params = self._get_entity(event, prepend, idx)
+        entity_filters, entity_filters_params = self._get_entity_event_filters(prop, prepend, idx)
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
         date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         date_interval = validate_interval(prop.time_interval)
@@ -491,7 +512,7 @@ class FOSSCohortQuery(EventQuery):
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) {get_count_operator(prop.operator)} %({operator_value_param})s AS {column_name}"
+        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query} {entity_filters}) {get_count_operator(prop.operator)} %({operator_value_param})s AS {column_name}"
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
@@ -501,6 +522,7 @@ class FOSSCohortQuery(EventQuery):
                 f"{operator_value_param}": count,
                 f"{date_param}": date_value,
                 **entity_params,
+                **entity_filters_params,
             },
         )
 

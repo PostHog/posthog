@@ -231,6 +231,61 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
+    @snapshot_clickhouse_queries
+    def test_performed_event_with_event_filters(self):
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$filter_prop": "something"},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                            "event_filters": [
+                                {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"}
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
     def test_performed_event_multiple(self):
         p1 = _create_person(
             team_id=self.team.pk,
@@ -281,6 +336,78 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "time_interval": "week",
                             "value": "performed_event_multiple",
                             "type": "behavioral",
+                        }
+                    ],
+                }
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    def test_performed_event_multiple_with_event_filters(self):
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$filter_prop": "something"},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$filter_prop": "something"},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=4),
+        )
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=4),
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 1,
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event_multiple",
+                            "type": "behavioral",
+                            "event_filters": [
+                                {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"},
+                                {"key": "$filter_prop", "value": "some", "operator": "icontains", "type": "event"},
+                            ],
                         }
                     ],
                 }
