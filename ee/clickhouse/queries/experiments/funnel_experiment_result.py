@@ -1,5 +1,6 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
+import json
 from typing import List, Optional, Tuple, Type
 from zoneinfo import ZoneInfo
 
@@ -323,12 +324,11 @@ def validate_event_variants(funnel_results, variants):
     errors = {"no-events": True, "no-flag-info": True, "no-control-variant": True, "no-test-variant": True}
 
     if not funnel_results or not funnel_results[0]:
-        raise ValidationError(detail=errors)
+        raise ValidationError(code="no-results", detail=json.dumps(errors))
 
     errors["no-events"] = False
 
     # Funnels: the first step must be present for *any* results to show up
-    # Trends: always a single event/action, so order is always 0
     eventsWithOrderZero = []
     for eventArr in funnel_results:
         for event in eventArr:
@@ -354,4 +354,4 @@ def validate_event_variants(funnel_results, variants):
 
     has_errors = any(errors.values())
     if has_errors:
-        raise ValidationError(detail=errors)
+        raise ValidationError(detail=json.dumps(errors))

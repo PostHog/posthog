@@ -1,5 +1,6 @@
 import '../Experiment.scss'
 
+import { IconCheckbox } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -7,6 +8,7 @@ import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
+import { IconSquare } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
@@ -14,7 +16,7 @@ import { useEffect, useState } from 'react'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { ExperimentResults, InsightShortId } from '~/types'
+import { ExperimentResults, InsightShortId, InsightType } from '~/types'
 
 import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
@@ -101,17 +103,68 @@ export function ResultsQuery({
 }
 
 export function NoResultsEmptyState(): JSX.Element {
-    const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
+    const { experimentResultsLoading, experimentResultCalculationError, experimentInsightType } =
+        useValues(experimentLogic)
+
+    function ChecklistItem({ failureReason, checked }: { failureReason: string; checked: boolean }): JSX.Element {
+        const failureReasonToText = {
+            'no-events': 'Events have been received',
+            'no-flag-info': 'Feature flag information is present on the events',
+            'no-control-variant': 'Events with the control variant received',
+            'no-test-variant': 'Events with at least one test variant received',
+        }
+
+        return (
+            <div className="flex items-center space-x-1">
+                {checked ? (
+                    <IconCheckbox className={`w-6 ${checked ? 'text-success' : ''}`} />
+                ) : (
+                    <IconSquare color="var(--muted)" fontSize="24" />
+                )}
+                <span>{failureReasonToText[failureReason]}</span>
+            </div>
+        )
+    }
 
     if (experimentResultsLoading) {
         return <></>
     }
 
+    if (experimentInsightType === InsightType.FUNNELS && experimentResultCalculationError) {
+        const checklistItems = []
+        for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError))) {
+            checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
+        }
+
+        return (
+            <div>
+                <h2 className="font-semibold text-lg">Results</h2>
+                <div className="border rounded bg-bg-light pt-6 pb-8">
+                    <div className="flex space-x-2">
+                        <div className="w-1/2 py-4 px-6 space-y-4">
+                            <div className="font-semibold leading-tight text-lg text-current">
+                                Results not yet available
+                            </div>
+                            <div className="text-muted">
+                                Results will be calculated once we've received the necessary minimum events. The
+                                checklist on the right shows what's still needed.
+                            </div>
+                        </div>
+                        <LemonDivider vertical />
+                        <div className="w-1/2 flex py-4 px-6 items-center">
+                            <div className="space-y-2">{checklistItems}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div>
             <h2 className="font-semibold text-lg">Results</h2>
-            <div className="border rounded bg-bg-light pt-6 pb-8 text-muted">
-                <div className="flex flex-col items-center mx-auto">
+            <div className="border rounded bg-bg-light pt-6 pb-8">
+                <div className="flex flex-col items-center mx-auto text-muted">
                     <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                     <h2 className="text-xl font-semibold leading-tight">There are no experiment results yet</h2>
                     {!!experimentResultCalculationError && (
