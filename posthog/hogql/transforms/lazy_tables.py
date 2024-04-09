@@ -128,15 +128,6 @@ class LazyTableResolver(TraversingVisitor):
         joins_to_add: Dict[str, JoinToAdd] = {}
         tables_to_add: Dict[str, TableToAdd] = {}
 
-        # First properties, then fields. This way we always get the smallest units to query first.
-        matched_properties: List[ast.PropertyType | ast.FieldType] = [
-            property for property in field_collector if isinstance(property, ast.PropertyType)
-        ]
-        matched_fields: List[ast.PropertyType | ast.FieldType] = [
-            field for field in field_collector if isinstance(field, ast.FieldType)
-        ]
-        sorted_properties: List[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
-
         # Look for tables without requested fields to support cases like `select count() from table`
         join = node.select_from
         while join:
@@ -161,6 +152,15 @@ class LazyTableResolver(TraversingVisitor):
                     table_name = join.alias or get_long_table_name(select_type, join.table.type)
                     tables_to_add[table_name] = TableToAdd(fields_accessed={}, lazy_table=join.table.type.table)
             join = join.next_join
+
+        # First properties, then fields. This way we always get the smallest units to query first.
+        matched_properties: List[ast.PropertyType | ast.FieldType] = [
+            property for property in field_collector if isinstance(property, ast.PropertyType)
+        ]
+        matched_fields: List[ast.PropertyType | ast.FieldType] = [
+            field for field in field_collector if isinstance(field, ast.FieldType)
+        ]
+        sorted_properties: List[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
 
         for field_or_property in sorted_properties:
             if isinstance(field_or_property, ast.FieldType):
@@ -332,6 +332,10 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
+            # TODO: This JoinExpr value needs to be analyzed to determine
+            # whether or not there are additional lazy values to be resolved
+            # (e.g. the join constraint references a field that is part of a
+            # sibling join that itself needs to be added to the query.)
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
                 join_scope.from_table,
                 join_scope.to_table,
