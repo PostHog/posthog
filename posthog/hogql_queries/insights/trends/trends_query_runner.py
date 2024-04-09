@@ -675,17 +675,17 @@ class TrendsQueryRunner(QueryRunner):
                 if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
                     new_results = []
                     num_series = len(self.query.series)
-                    for i in range(0, len(results), num_series):
-                        breakdown_results = results[i : i + num_series]
+                    num_breakdown_values = int(len(results) / num_series)
+                    for i in range(0, num_breakdown_values):
+                        breakdown_results = [results[i], results[i + num_breakdown_values]]
                         series_data = [s["data"] for s in breakdown_results]
-                        breakdown = breakdown_results[0]["breakdown_value"]
                         new_series_data = FormulaAST(series_data).call(formula)
 
-                        new_result = results[0]
+                        new_result = breakdown_results[0]
                         new_result["data"] = new_series_data
                         new_result["count"] = float(sum(new_series_data))
-                        # TODO: build breakdown name for cohorts
-                        new_result["label"] = f"Formula ({formula}) - {breakdown}"
+                        new_result["action"] = None
+                        new_result["label"] = f"Formula ({formula})"
 
                         new_results.append(new_result)
                     return new_results
