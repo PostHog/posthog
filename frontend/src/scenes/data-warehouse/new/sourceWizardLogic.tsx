@@ -1,10 +1,12 @@
-import { Link } from '@posthog/lemon-ui'
+import { lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ExternalDataSourceSyncSchema, ExternalDataSourceType } from '~/types'
+import { Breadcrumb, ExternalDataSourceCreatePayload, ExternalDataSourceSyncSchema, SourceConfig } from '~/types'
 
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import { sourceFormLogic } from '../external/forms/sourceFormLogic'
@@ -13,20 +15,6 @@ import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
-
-export interface SourceConfig {
-    name: ExternalDataSourceType
-    caption: string | React.ReactNode
-    fields: FieldConfig[]
-    disabledReason?: string | null
-}
-interface FieldConfig {
-    name: string
-    label: string
-    type: string
-    required: boolean
-    placeholder: string
-}
 
 export const SOURCE_DETAILS: Record<string, SourceConfig> = {
     Stripe: {
@@ -167,6 +155,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onSubmit: true,
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
         selectSchema: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
+        clearSource: true,
+        updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
+        createSource: true,
+        setIsLoading: (isLoading: boolean) => ({ isLoading }),
     }),
     connect({
         values: [
@@ -218,6 +210,31 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }))
                     return newSchema
                 },
+            },
+        ],
+        source: [
+            { payload: {}, prefix: '' } as {
+                prefix: string
+                payload: Record<string, any>
+            },
+            {
+                updateSource: (state, { source }) => {
+                    return {
+                        prefix: source.prefix ?? state.prefix,
+                        payload: {
+                            ...(state.payload ?? {}),
+                            ...(source.payload ?? {}),
+                        },
+                    }
+                },
+                clearSource: () => ({ payload: {}, prefix: '' }),
+            },
+        ],
+        isLoading: [
+            false as boolean,
+            {
+                onNext: () => false,
+                setIsLoading: (_, { isLoading }) => isLoading,
             },
         ],
     }),
@@ -308,8 +325,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     listeners(({ actions, values }) => ({
         onClear: () => {
             actions.selectConnector(null)
+            actions.clearSource()
             actions.toggleManualLinkFormVisible(false)
             actions.resetTable()
+            actions.setIsLoading(false)
         },
         onSubmit: () => {
             // Shared function that triggers different actions depending on the current step
@@ -320,28 +339,41 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (values.currentStep === 2) {
                 if (values.selectedConnector?.name) {
-                    const logic = sourceFormLogic({ sourceType: values.selectedConnector?.name })
+                    const logic = sourceFormLogic({ sourceConfig: values.selectedConnector })
                     logic.actions.submitSourceConnectionDetails()
-                    if (logic.values.isSourceConnectionDetailsValid) {
-                        // Ugly mess with multiple forms. TODO: clean this up
-                        logic.actions.setExternalDataSourceValues({ ...logic.values.sourceConnectionDetails })
-                        logic.actions.setDatabaseSchemaFormValues({ ...logic.values.sourceConnectionDetails })
-                        logic.actions.submitDatabaseSchemaForm()
-                    }
                 } else {
                     dataWarehouseTableLogic.actions.submitTable()
                 }
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
-                const logic = sourceFormLogic({ sourceType: values.selectedConnector?.name })
-
-                logic.actions.setExternalDataSourceValue('payload', {
-                    ...logic.values.externalDataSource.payload,
-                    schemas: values.databaseSchema.filter((schema) => schema.should_sync).map((schema) => schema.table),
+                actions.updateSource({
+                    payload: {
+                        schemas: values.databaseSchema
+                            .filter((schema) => schema.should_sync)
+                            .map((schema) => schema.table),
+                    },
                 })
-                logic.actions.setExternalDataSourceValue('prefix', logic.values.externalDataSource.prefix)
-                logic.actions.submitExternalDataSource()
+                actions.setIsLoading(true)
+                actions.createSource()
+            }
+        },
+        createSource: async () => {
+            if (values.selectedConnector === null) {
+                // This should never happen
+                return
+            }
+            try {
+                await api.externalDataSources.create({ ...values.source, source_type: values.selectedConnector.name })
+                lemonToast.success('New Data Resource Created')
+                actions.toggleSourceModal(false)
+                actions.clearSource()
+                actions.loadSources(null)
+                router.actions.push(urls.dataWarehouseSettings())
+            } catch (e: any) {
+                lemonToast.error(e.data?.message ?? e.message)
+            } finally {
+                actions.setIsLoading(false)
             }
         },
     })),

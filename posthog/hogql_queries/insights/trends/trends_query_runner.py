@@ -637,7 +637,7 @@ class TrendsQueryRunner(QueryRunner):
                 group_list = list(group)
 
                 if self._trends_display.should_aggregate_values():
-                    series_data = list(map(lambda s: [s["aggregated_value"]], group_list))
+                    series_data = [[s["aggregated_value"]] for s in group_list]
                     new_series_data = FormulaAST(series_data).call(formula)
 
                     new_result = group_list[0]
@@ -647,7 +647,7 @@ class TrendsQueryRunner(QueryRunner):
                     new_result["label"] = f"Formula ({formula})"
                     res.append(new_result)
                 else:
-                    series_data = list(map(lambda s: s["data"], group_list))
+                    series_data = [s["data"] for s in group_list]
                     new_series_data = FormulaAST(series_data).call(formula)
 
                     new_result = group_list[0]
@@ -659,7 +659,7 @@ class TrendsQueryRunner(QueryRunner):
 
         if len(results) > 0:
             if self._trends_display.should_aggregate_values():
-                series_data = list(map(lambda s: [s["aggregated_value"]], results))
+                series_data = [[s["aggregated_value"]] for s in results]
                 new_series_data = FormulaAST(series_data).call(formula)
 
                 new_result = results[0]
@@ -668,7 +668,7 @@ class TrendsQueryRunner(QueryRunner):
                 new_result["count"] = 0
                 new_result["label"] = f"Formula ({formula})"
             else:
-                series_data = list(map(lambda s: s["data"], results))
+                series_data = [s["data"] for s in results]
                 new_series_data = FormulaAST(series_data).call(formula)
 
                 new_result = results[0]

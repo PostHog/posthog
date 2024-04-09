@@ -117,7 +117,7 @@ def _deliver_subscription_report(
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
     if not is_new_subscription_target:
-        subscription.set_next_delivery_date(subscription.next_delivery_date)
+        subscription.set_next_delivery_date()
         subscription.save()
 
 

@@ -520,3 +520,51 @@ index e9a8ab2ba94093198f3dc42c9f6c4915f99cbc1d..182662fff8cca2eb4c63d956f0fce946
          }
      }
      applyMutation(d, isSync) {
+diff --git a/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js b/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
+index 342e1df171368d312dc0372dace0c6b5a1eb9c61..e98368347aab6f22902e691e1909aa0333232140 100644
+--- a/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
++++ b/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
+@@ -1254,16 +1254,40 @@ function parse(css, options = {}) {
+         if (!m) {
+             return;
+         }
+-        return trim(m[0])
++        return splitRootSelectors(trim(m[0])
+             .replace(/\/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*\/+/g, '')
+             .replace(/"(?:\\"|[^"])*"|'(?:\\'|[^'])*'/g, (m) => {
+             return m.replace(/,/g, '\u200C');
+-        })
+-            .split(/\s*(?![^(]*\)),\s*/)
++        }))
+             .map((s) => {
+             return s.replace(/\u200C/g, ',');
+         });
+     }
++    function splitRootSelectors(input) {
++        let parts = [];
++        let nestedLevel = 0;
++        let currentPart = '';
++
++        for (let i = 0; i < input.length; i++) {
++            const char = input[i];
++            currentPart += char;
++
++            if (char === '(') {
++                nestedLevel++;
++            } else if (char === ')') {
++                nestedLevel--;
++            } else if (char === ',' && nestedLevel === 0) {
++                parts.push(currentPart.slice(0, -1).trim());
++                currentPart = '';
++            }
++        }
++
++        if (currentPart.trim() !== '') {
++            parts.push(currentPart.trim());
++        }
++
++        return parts;
++    }
+     function declaration() {
+         const pos = position();
+         const propMatch = match(/^(\*?[-#\/\*\\\w]+(\[[0-9a-z_-]+\])?)\s*/);

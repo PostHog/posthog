@@ -416,6 +416,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         options = [{"table": row, "should_sync": False} for row in schemas]
         return Response(status=status.HTTP_200_OK, data=options)
 
+    @action(methods=["POST"], detail=False)
+    def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        if self.prefix_required(source_type):
+            if not prefix:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Source type already exists. Prefix is required"},
+                )
+            elif self.prefix_exists(source_type, prefix):
+                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+
+        return Response(status=status.HTTP_200_OK)
+
     def _validate_postgres_host(self, host: str, team_id: int) -> bool:
         if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):
             if is_cloud():
