@@ -188,7 +188,9 @@ class LifecycleEventQuery(EventQuery):
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = self._person_on_events_mode != PersonOnEventsMode.V1_ENABLED
+        self._should_join_distinct_ids = (
+            self._person_on_events_mode != PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+        )
 
     def _determine_should_join_persons(self) -> None:
         self._should_join_persons = self._person_on_events_mode == PersonOnEventsMode.DISABLED
