@@ -281,7 +281,7 @@ export const SidePanelSupport = (): JSX.Element => {
                             ) : (
                                 <p>
                                     Can't find what you need in the docs?{' '}
-                                    <Link onClick={() => openEmailForm()}>Email an engineer</Link>
+                                    <Link onClick={() => openEmailForm()}>Open a ticket</Link>
                                 </p>
                             )}
                         </Section>
