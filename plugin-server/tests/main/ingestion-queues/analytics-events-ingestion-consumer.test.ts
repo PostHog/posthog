@@ -56,7 +56,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
     let closeServer: () => Promise<void>
     let queue: any
 
-    function createBatchWithMultipleEvents(events: any[], timestamp?: any, withKey: boolean = true): Message[] {
+    function createBatchWithMultipleEvents(events: any[], timestamp?: any, withKey = true): Message[] {
         return events.map((event, i) => ({
             partition: 0,
             topic: KAFKA_EVENTS_PLUGIN_INGESTION,

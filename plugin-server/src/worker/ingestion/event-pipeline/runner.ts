@@ -120,49 +120,76 @@ export class EventPipelineRunner {
             this.poEEmbraceJoin = true
         }
 
-        let processPerson = true
-        if (event.properties && event.properties.$process_person === false) {
-            // We are purposefully being very explicit here. The `$process_person` property *must*
-            // exist and be set to `false` (not missing, or null, or any other value) to disable
-            // person processing.
-            processPerson = false
+        const kafkaAcks: Promise<void>[] = []
 
-            if (['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'].includes(event.event)) {
-                const warningAck = captureIngestionWarning(
+        let processPerson = true // The default.
+        if (event.properties && '$process_person' in event.properties) {
+            const propValue = event.properties.$process_person
+            if (propValue === true) {
+                // This is the default, and `true` is one of the two valid values.
+            } else if (propValue === false) {
+                // Only a boolean `false` disables person processing.
+                processPerson = false
+
+                if (['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'].includes(event.event)) {
+                    kafkaAcks.push(
+                        captureIngestionWarning(
+                            this.hub.db.kafkaProducer,
+                            event.team_id,
+                            'invalid_event_when_process_person_is_false',
+                            {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                            { alwaysSend: true }
+                        )
+                    )
+
+                    return this.registerLastStep('invalidEventForProvidedFlags', [event], kafkaAcks)
+                }
+
+                // If person processing is disabled, go ahead and remove person related keys before
+                // any plugins have a chance to see them.
+                event = normalizeProcessPerson(event, processPerson)
+            } else {
+                // Anything other than `true` or `false` is invalid, and the default (true) will be
+                // used.
+                kafkaAcks.push(
+                    captureIngestionWarning(
+                        this.hub.db.kafkaProducer,
+                        event.team_id,
+                        'invalid_process_person',
+                        {
+                            eventUuid: event.uuid,
+                            event: event.event,
+                            distinctId: event.distinct_id,
+                            $process_person: propValue,
+                            message: 'Only a boolean value is valid for the $process_person property',
+                        },
+                        { alwaysSend: false }
+                    )
+                )
+            }
+        }
+
+        if (event.event === '$$client_ingestion_warning') {
+            kafkaAcks.push(
+                captureIngestionWarning(
                     this.hub.db.kafkaProducer,
                     event.team_id,
-                    'invalid_event_when_process_person_is_false',
+                    'client_ingestion_warning',
                     {
                         eventUuid: event.uuid,
                         event: event.event,
                         distinctId: event.distinct_id,
+                        message: event.properties?.$$client_ingestion_warning_message,
                     },
                     { alwaysSend: true }
                 )
-
-                return this.registerLastStep('invalidEventForProvidedFlags', [event], [warningAck])
-            }
-
-            // If person processing is disabled, go ahead and remove person related keys before
-            // any plugins have a chance to see them.
-            event = normalizeProcessPerson(event, processPerson)
-        }
-
-        if (event.event === '$$client_ingestion_warning') {
-            const warningAck = captureIngestionWarning(
-                this.hub.db.kafkaProducer,
-                event.team_id,
-                'client_ingestion_warning',
-                {
-                    eventUuid: event.uuid,
-                    event: event.event,
-                    distinctId: event.distinct_id,
-                    message: event.properties?.$$client_ingestion_warning_message,
-                },
-                { alwaysSend: true }
             )
 
-            return this.registerLastStep('clientIngestionWarning', [event], [warningAck])
+            return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
         }
 
         // Some expensive, deprecated plugins are skipped when `$process_person=false`
@@ -175,7 +202,7 @@ export class EventPipelineRunner {
 
         if (processedEvent == null) {
             // A plugin dropped the event.
-            return this.registerLastStep('pluginsProcessEventStep', [event])
+            return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
         const [normalizedEvent, timestamp] = await this.runStep(
@@ -202,7 +229,8 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        return this.registerLastStep('createEventStep', [rawClickhouseEvent], [eventAck])
+        kafkaAcks.push(eventAck)
+        return this.registerLastStep('createEventStep', [rawClickhouseEvent], kafkaAcks)
     }
 
     registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {

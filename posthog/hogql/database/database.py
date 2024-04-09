@@ -132,7 +132,7 @@ class Database(BaseModel):
     def get_table(self, table_name: str) -> Table:
         if self.has_table(table_name):
             return getattr(self, table_name)
-        raise QueryError(f'Table "{table_name}" not found in database')
+        raise QueryError(f'Unknown table "{table_name}".')
 
     def get_all_tables(self) -> List[str]:
         return self._table_names + self._warehouse_table_names
