@@ -658,40 +658,33 @@ class TrendsQueryRunner(QueryRunner):
 
             return base_result
 
-        # empty results
         if len(results) == 0:
+            # empty results
             return []
-        # with compare
         elif self.query.trendsFilter is not None and self.query.trendsFilter.compare:
+            # with compare
             sorted_results = sorted(results, key=itemgetter("compare_label"))
             computed_results = []
-            for _, group in groupby(sorted_results, key=itemgetter("compare_label")):
+            for _key, group in groupby(sorted_results, key=itemgetter("compare_label")):
                 results_group = list(group)
-
-                if self._trends_display.should_aggregate_values():
-                    computed_result = apply_formula_to_result_group(results_group, aggregate_values=True)
-                else:
-                    computed_result = apply_formula_to_result_group(results_group)
-
-                computed_results.append(computed_result)
+                aggregate_values = self._trends_display.should_aggregate_values()
+                computed_results.append(apply_formula_to_result_group(results_group, aggregate_values))
             return computed_results
-        # with breakdown
+
         elif self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
-            num_series = len(self.query.series)
-            num_breakdown_values = int(len(results) / num_series)
+            # with breakdown
+            breakdown_values_count = int(len(results) / len(self.query.series))
             computed_results = []
-            for i in range(0, num_breakdown_values):
-                results_group = [results[i], results[i + num_breakdown_values]]
-                computed_result = apply_formula_to_result_group(results_group)
-                computed_results.append(computed_result)
-            return computed_results  # with total value aggregation
+            for i in range(0, breakdown_values_count):
+                results_group = [results[i], results[i + breakdown_values_count]]
+                computed_results.append(apply_formula_to_result_group(results_group))
+            return computed_results
         elif self._trends_display.should_aggregate_values():
-            computed_result = apply_formula_to_result_group(results, aggregate_values=True)
-            return [computed_result]
-        # default case
+            # with total value aggregation
+            return [apply_formula_to_result_group(results, aggregate_values=True)]
         else:
-            computed_result = apply_formula_to_result_group(results)
-            return [computed_result]
+            # default case
+            return [apply_formula_to_result_group(results)]
 
     def _is_breakdown_field_boolean(self):
         if not self.query.breakdownFilter or not self.query.breakdownFilter.breakdown_type:
