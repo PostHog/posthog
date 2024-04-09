@@ -184,7 +184,7 @@ export const SidePanelSupport = (): JSX.Element => {
 
                     {hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT) ? (
                         <>
-                            <Section title="Ask an engineer">
+                            <Section title="Contact us">
                                 <p>Can't find what you need in the docs?</p>
                                 <LemonButton
                                     type="primary"
@@ -194,7 +194,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                     targetBlank
                                     className="mt-2"
                                 >
-                                    Open a ticket
+                                    Email an engineer
                                 </LemonButton>
                             </Section>
                             {isEmailFormOpen ? <SupportFormBlock onCancel={() => closeEmailForm()} /> : null}
