@@ -44,7 +44,7 @@ class Type(AST):
         return self.get_child(name, context) is not None
 
     def resolve_constant_type(self, context: "HogQLContext") -> Optional["ConstantType"]:
-        return UnknownType()
+        raise NotImplementedError(f"{self.__class__.__name__}.resolve_constant_type not overridden")
 
 
 @dataclass(kw_only=True)
@@ -65,6 +65,7 @@ class CTE(Expr):
 @dataclass(kw_only=True)
 class ConstantType(Type):
     data_type: ConstantDataType
+    nullable: bool = field(default=True)
 
     def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         return self

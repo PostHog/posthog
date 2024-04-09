@@ -369,3 +369,55 @@ class TestResolver(BaseTest):
         )
 
         assert hogql == expected
+
+    def test_arithmetic_types(self):
+        node: ast.SelectQuery = self._select("select 1 + 2 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.IntegerType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select key from (select 1 + 2 as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.IntegerType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select 1.0 + 2.0 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.FloatType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select 100 + 2.0 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.FloatType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select 1.0 + 200 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.FloatType(nullable=False))
+
+    def test_boolean_types(self):
+        node: ast.SelectQuery = self._select("select true and false as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.BooleanType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select key from (select true or false as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.BooleanType(nullable=False))
+
+    def test_compare_types(self):
+        node: ast.SelectQuery = self._select("select 1 < 2 from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.BooleanType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select key from (select 3 = 4 as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.BooleanType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select key from (select 3 = null as key from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.BooleanType(nullable=False))
+
+    def test_function_types(self):
+        node: ast.SelectQuery = self._select("select 'a' || 'b' from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.StringType(nullable=False))
+
+        node: ast.SelectQuery = self._select("select plus(1, 2) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.NumericType(nullable=False))

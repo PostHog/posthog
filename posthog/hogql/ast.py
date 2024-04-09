@@ -12,12 +12,6 @@ from posthog.hogql.database.models import (
     Table,
     VirtualTable,
     LazyTable,
-    IntegerDatabaseField,
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    BooleanDatabaseField,
-    DateDatabaseField,
-    FloatDatabaseField,
     FieldOrTable,
     DatabaseField,
     StringArrayDatabaseField,
@@ -170,6 +164,14 @@ class SelectQueryType(Type):
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return name in self.columns
 
+    def resolve_constant_type(self, context: HogQLContext) -> "ConstantType":
+        columns = list(self.columns.values())
+        if len(columns) == 1:
+            return columns[0].resolve_constant_type()
+        return TupleType(
+            item_types=[column.resolve_constant_type() for column in self.columns.values()],
+        )
+
 
 @dataclass(kw_only=True)
 class SelectUnionQueryType(Type):
@@ -246,7 +248,15 @@ class SelectQueryAliasType(Type):
 
 
 @dataclass(kw_only=True)
-class IntegerType(ConstantType):
+class NumericType(ConstantType):
+    data_type: ConstantDataType = field(default="numeric", init=False)
+
+    def print_type(self) -> str:
+        return "Numeric"
+
+
+@dataclass(kw_only=True)
+class IntegerType(NumericType):
     data_type: ConstantDataType = field(default="int", init=False)
 
     def print_type(self) -> str:
@@ -254,7 +264,7 @@ class IntegerType(ConstantType):
 
 
 @dataclass(kw_only=True)
-class FloatType(ConstantType):
+class FloatType(NumericType):
     data_type: ConstantDataType = field(default="float", init=False)
 
     def print_type(self) -> str:
@@ -304,7 +314,7 @@ class UUIDType(ConstantType):
 @dataclass(kw_only=True)
 class ArrayType(ConstantType):
     data_type: ConstantDataType = field(default="array", init=False)
-    item_type: ConstantType
+    item_type: Optional[ConstantType] = None  # none means any type
 
     def print_type(self) -> str:
         return "Array"
@@ -314,6 +324,7 @@ class ArrayType(ConstantType):
 class TupleType(ConstantType):
     data_type: ConstantDataType = field(default="tuple", init=False)
     item_types: List[ConstantType]
+    repeat: bool = False
 
     def print_type(self) -> str:
         return "Tuple"
@@ -333,6 +344,9 @@ class CallType(Type):
 @dataclass(kw_only=True)
 class AsteriskType(Type):
     table_type: TableOrSelectType
+
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return UnknownType()
 
 
 @dataclass(kw_only=True)
@@ -367,20 +381,41 @@ class FieldType(Type):
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        database_field = self.resolve_database_field(context)
-        if isinstance(database_field, IntegerDatabaseField):
-            return IntegerType()
-        elif isinstance(database_field, FloatDatabaseField):
-            return FloatType()
-        elif isinstance(database_field, StringDatabaseField):
-            return StringType()
-        elif isinstance(database_field, BooleanDatabaseField):
-            return BooleanType()
-        elif isinstance(database_field, DateTimeDatabaseField):
-            return DateTimeType()
-        elif isinstance(database_field, DateDatabaseField):
-            return DateType()
-        return UnknownType()
+        table_type = self.table_type
+        while True:
+            if isinstance(table_type, SelectQueryAliasType):
+                table_type = table_type.select_query_type
+                continue
+
+            if isinstance(table_type, SelectQueryType):
+                field_type = table_type.columns.get(self.name)
+                constant_type = field_type.resolve_constant_type(context)
+                return constant_type
+
+            if isinstance(table_type, BaseTableType):
+                table: Table = table_type.resolve_database_table(context)
+                database_field = None
+                if table is not None:
+                    database_field = table.get_field(self.name)
+                if isinstance(database_field, DatabaseField):
+                    constant_type = database_field.get_constant_type()
+                    return constant_type
+                else:
+                    raise NotImplementedError(
+                        f"FieldType.resolve_constant_type, for BaseTableType: unknown database_field type: {str(database_field.__class__)}"
+                    )
+
+            if isinstance(table_type, SelectUnionQueryType):
+                table_type = table_type.types[0]
+                continue
+
+            if isinstance(table_type, SelectViewType):
+                table_type = table_type.select_query_type
+                continue
+
+            raise NotImplementedError(
+                f"FieldType.resolve_constant_type found unexpected table_type: {str(table_type.__class__)}"
+            )
 
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         database_field = self.resolve_database_field(context)
@@ -413,10 +448,16 @@ class PropertyType(Type):
     def has_child(self, name: str | int, context: HogQLContext) -> bool:
         return True
 
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return self.field_type.resolve_constant_type(context)
+
 
 @dataclass(kw_only=True)
 class LambdaArgumentType(Type):
     name: str
+
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        return UnknownType()
 
 
 @dataclass(kw_only=True)

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import List, Optional, Dict, Tuple, Type
 from posthog.hogql import ast
+from posthog.hogql.ast import StringType, TupleType, NumericType
 from posthog.hogql.base import ConstantType
 from posthog.hogql.errors import QueryError
 
@@ -48,6 +49,24 @@ class HogQLFunctionMeta:
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
     case_sensitive: bool = True
     """Not all ClickHouse functions are case-insensitive. See https://clickhouse.com/docs/en/sql-reference/syntax#keywords."""
+    signatures: Optional[List[Tuple[Tuple[Type[ConstantType]], Type[ConstantType]]]] = None
+    """Signatures allow for specifying the types of the arguments and the return type of the function."""
+
+
+def compare_types(arg_types, sig_arg_types):
+    _arg_types = list(arg_types)
+    _sig_arg_types = list(sig_arg_types)
+    if len(arg_types) != len(sig_arg_types):
+        return False
+
+    for arg_type in arg_types:
+        for _sig_arg_type in _sig_arg_types:
+            if isinstance(arg_type, _sig_arg_type.__class__):
+                _arg_types.remove(arg_type)
+                _sig_arg_types.remove(_sig_arg_type)
+                break
+
+    return not _arg_types
 
 
 HOGQL_COMPARISON_MAPPING: Dict[str, ast.CompareOperationOp] = {
@@ -67,7 +86,21 @@ HOGQL_COMPARISON_MAPPING: Dict[str, ast.CompareOperationOp] = {
 
 HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     # arithmetic
-    "plus": HogQLFunctionMeta("plus", 2, 2),
+    "plus": HogQLFunctionMeta(
+        "plus",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+            (
+                (
+                    TupleType(item_types=[NumericType()], repeat=True),
+                    TupleType(item_types=[NumericType()], repeat=True),
+                ),
+                TupleType(item_types=[NumericType()], repeat=True),
+            ),
+        ],
+    ),
     "minus": HogQLFunctionMeta("minus", 2, 2),
     "multiply": HogQLFunctionMeta("multiply", 2, 2),
     "divide": HogQLFunctionMeta("divide", 2, 2),
@@ -275,7 +308,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "repeat": HogQLFunctionMeta("repeat", 2, 2, case_sensitive=False),
     "format": HogQLFunctionMeta("format", 2, None),
     "reverseUTF8": HogQLFunctionMeta("reverseUTF8", 1, 1),
-    "concat": HogQLFunctionMeta("concat", 2, None, case_sensitive=False),
+    "concat": HogQLFunctionMeta("concat", 2, None, case_sensitive=False, signatures=[(None, StringType())]),
     "substring": HogQLFunctionMeta("substring", 3, 3, case_sensitive=False),
     "substringUTF8": HogQLFunctionMeta("substringUTF8", 3, 3),
     "appendTrailingCharIfAbsent": HogQLFunctionMeta("appendTrailingCharIfAbsent", 2, 2),

@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import ConfigDict, BaseModel
 
 ConstantDataType: TypeAlias = Literal[
+    "numeric",
     "int",
     "float",
     "str",
