@@ -90,6 +90,9 @@ INSIGHT_TO_DISPLAY = {
     InsightType.STICKINESS: ChartDisplayType.ActionsLineGraph,
     InsightType.LIFECYCLE: ChartDisplayType.ActionsLineGraph,
     InsightType.RETENTION: ChartDisplayType.ActionsTable,
+    # Very legacy mapping, since `display` is now Trends-only (but still used pro forma in places, as of Apr 2024)
+    InsightType.FUNNELS: "FunnelViz",
+    InsightType.PATHS: "PathsViz",
 }
 
 DISPLAY_TYPES = Literal[
