@@ -128,7 +128,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
         def assertActionEventsMatch(self, action, expected_events):
             events = _get_events_for_action(action)
 
-            self.assertCountEqual([e.uuid for e in events], [event_uuid for event_uuid in expected_events])
+            self.assertCountEqual([e.uuid for e in events], list(expected_events))
 
         def test_with_normal_filters(self):
             # this test also specifically tests the back to back receipt of

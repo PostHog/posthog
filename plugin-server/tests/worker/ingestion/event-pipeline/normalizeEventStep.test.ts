@@ -94,6 +94,7 @@ describe('normalizeEventStep()', () => {
             ...event,
             properties: {
                 $browser: 'Chrome',
+                $process_person: false,
             },
         })
 

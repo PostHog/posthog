@@ -15,6 +15,7 @@ export const DataWarehouseTables = (): JSX.Element => {
         externalTablesBySourceType,
         dataWarehouseLoading,
         posthogTables,
+        databaseLoading,
         savedQueriesFormatted,
         selectedRow,
         dataWarehouseSavedQueriesLoading,
@@ -46,6 +47,7 @@ export const DataWarehouseTables = (): JSX.Element => {
                     table: table,
                     icon: <IconDatabase />,
                 })),
+                isLoading: databaseLoading,
             },
         ]
 

@@ -51,12 +51,13 @@ class QueryDateRange:
             date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
                 self._date_range.date_to,
                 self._team.timezone_info,
-                always_truncate=True,
+                always_truncate=False,
                 now=self.now_with_timezone,
             )
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
+
             if not self.is_hourly:
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
@@ -256,9 +257,11 @@ class QueryDateRange:
             "date_to": self.date_to_as_hogql(),
             "date_from_start_of_interval": self.date_from_to_start_of_interval_hogql(),
             "date_to_start_of_interval": self.date_to_to_start_of_interval_hogql(),
-            "date_from_with_adjusted_start_of_interval": self.date_from_to_start_of_interval_hogql()
-            if self.use_start_of_interval()
-            else self.date_from_as_hogql(),
+            "date_from_with_adjusted_start_of_interval": (
+                self.date_from_to_start_of_interval_hogql()
+                if self.use_start_of_interval()
+                else self.date_from_as_hogql()
+            ),
         }
 
     def interval_bounds_from_str(self, time_frame: str) -> tuple[datetime, datetime]:
