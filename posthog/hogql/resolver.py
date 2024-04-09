@@ -255,7 +255,8 @@ class Resolver(CloningVisitor):
             if cte:
                 node = cast(ast.JoinExpr, clone_expr(node))
                 node.table = clone_expr(cte.expr)
-                node.alias = table_name
+                if node.alias is None:
+                    node.alias = table_name
 
                 self.cte_counter += 1
                 response = self.visit(node)
@@ -268,67 +269,64 @@ class Resolver(CloningVisitor):
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            if self.database.has_table(table_name):
-                database_table = self.database.get_table(table_name)
+            database_table = self.database.get_table(table_name)
 
-                if isinstance(database_table, SavedQuery):
-                    self.current_view_depth += 1
+            if isinstance(database_table, SavedQuery):
+                self.current_view_depth += 1
 
-                    if self.current_view_depth > self.context.max_view_depth:
-                        raise QueryError("Nested views are not supported")
+                if self.current_view_depth > self.context.max_view_depth:
+                    raise QueryError("Nested views are not supported")
 
-                    node.table = parse_select(str(database_table.query))
+                node.table = parse_select(str(database_table.query))
 
-                    if isinstance(node.table, ast.SelectQuery):
-                        node.table.view_name = database_table.name
+                if isinstance(node.table, ast.SelectQuery):
+                    node.table.view_name = database_table.name
 
-                    node.alias = table_alias or database_table.name
-                    node = self.visit(node)
+                node.alias = table_alias or database_table.name
+                node = self.visit(node)
 
-                    self.current_view_depth -= 1
-                    return node
-
-                if isinstance(database_table, LazyTable):
-                    node_table_type = ast.LazyTableType(table=database_table)
-                else:
-                    node_table_type = ast.TableType(table=database_table)
-
-                # Always add an alias for function call tables. This way `select table.* from table` is replaced with
-                # `select table.* from something() as table`, and not with `select something().* from something()`.
-                if table_alias != table_name or isinstance(database_table, FunctionCallTable):
-                    node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
-                else:
-                    node_type = node_table_type
-                scope.tables[table_alias] = node_type
-
-                # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
-                node = cast(ast.JoinExpr, clone_expr(node))
-                node.type = node_type
-                node.table = cast(ast.Field, clone_expr(node.table))
-                node.table.type = node_table_type
-                if node.table_args is not None:
-                    node.table_args = [self.visit(arg) for arg in node.table_args]
-                node.next_join = self.visit(node.next_join)
-
-                # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
-                if isinstance(node.type, ast.TableAliasType):
-                    is_global = isinstance(node.type.table_type.table, EventsTable) and self._is_next_s3(node.next_join)
-                else:
-                    is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
-
-                if is_global:
-                    node.next_join.join_type = "GLOBAL JOIN"
-
-                node.constraint = self.visit(node.constraint)
-                node.sample = self.visit(node.sample)
-
-                # In case we had a function call table, and had to add an alias where none was present, mark it here
-                if isinstance(node_type, ast.TableAliasType) and node.alias is None:
-                    node.alias = node_type.alias
-
+                self.current_view_depth -= 1
                 return node
+
+            if isinstance(database_table, LazyTable):
+                node_table_type = ast.LazyTableType(table=database_table)
             else:
-                raise QueryError(f'Unknown table "{table_name}".')
+                node_table_type = ast.TableType(table=database_table)
+
+            # Always add an alias for function call tables. This way `select table.* from table` is replaced with
+            # `select table.* from something() as table`, and not with `select something().* from something()`.
+            if table_alias != table_name or isinstance(database_table, FunctionCallTable):
+                node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
+            else:
+                node_type = node_table_type
+            scope.tables[table_alias] = node_type
+
+            # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
+            node = cast(ast.JoinExpr, clone_expr(node))
+            node.type = node_type
+            node.table = cast(ast.Field, clone_expr(node.table))
+            node.table.type = node_table_type
+            if node.table_args is not None:
+                node.table_args = [self.visit(arg) for arg in node.table_args]
+            node.next_join = self.visit(node.next_join)
+
+            # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
+            if isinstance(node.type, ast.TableAliasType):
+                is_global = isinstance(node.type.table_type.table, EventsTable) and self._is_next_s3(node.next_join)
+            else:
+                is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
+
+            if is_global:
+                node.next_join.join_type = "GLOBAL JOIN"
+
+            node.constraint = self.visit(node.constraint)
+            node.sample = self.visit(node.sample)
+
+            # In case we had a function call table, and had to add an alias where none was present, mark it here
+            if isinstance(node_type, ast.TableAliasType) and node.alias is None:
+                node.alias = node_type.alias
+
+            return node
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectUnionQuery):
             node = cast(ast.JoinExpr, clone_expr(node))

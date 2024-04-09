@@ -1,4 +1,3 @@
-import json
 import re
 import uuid
 
@@ -146,29 +145,3 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
-
-    def _query_json_from_request(self, request):
-        if request.method == "POST":
-            if request.content_type in ["", "text/plain", "application/json"]:
-                query_source = request.body
-            else:
-                query_source = request.POST.get("query")
-        else:
-            query_source = request.GET.get("query")
-
-        if query_source is None:
-            raise ValidationError("Please provide a query in the request body or as a query parameter.")
-
-        # TODO with improved pydantic validation we don't need the validation here
-        try:
-
-            def parsing_error(ex):
-                raise ValidationError(ex)
-
-            query = json.loads(
-                query_source,
-                parse_constant=lambda x: parsing_error(f"Unsupported constant found in JSON: {x}"),
-            )
-        except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
-            raise ValidationError("Invalid JSON: %s" % (str(error_main)))
-        return query
