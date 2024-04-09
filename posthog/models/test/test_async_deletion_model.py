@@ -116,11 +116,18 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
     @snapshot_clickhouse_alter_queries
     def test_delete_teams(self):
         _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1")
+        _create_event(event_uuid=uuid4(), event="event2", team=self.teams[1], distinct_id="2")
 
         AsyncDeletion.objects.create(
             deletion_type=DeletionType.Team,
             team_id=self.teams[0].pk,
             key=str(self.teams[0].pk),
+            created_by=self.user,
+        )
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Team,
+            team_id=self.teams[1].pk,
+            key=str(self.teams[1].pk),
             created_by=self.user,
         )
 

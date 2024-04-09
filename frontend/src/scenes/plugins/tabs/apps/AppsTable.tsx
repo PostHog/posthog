@@ -8,7 +8,7 @@ import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/type
 import { PluginType } from '~/types'
 
 export function AppsTable({
-    title = 'Connectors',
+    title = 'Apps',
     plugins,
     loading,
     renderfn,
@@ -47,13 +47,13 @@ export function AppsTable({
                 !expanded ? (
                     <span className="flex gap-2 items-center">
                         <LemonButton size="small" onClick={() => setExpanded(true)}>
-                            Show connectors
+                            Show apps
                         </LemonButton>
                     </span>
                 ) : searchTerm ? (
-                    'No connectors matching your search criteria'
+                    'No apps matching your search criteria'
                 ) : (
-                    'No connectors found'
+                    'No apps found'
                 )
             }
         />

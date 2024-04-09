@@ -164,8 +164,8 @@
         },
         {
             "key": "apps",
-            "name": "Data connectors",
-            "description": "Use connectors to transform, filter, and modify your incoming data. (Export destinations not included, see the Data pipelines addon for product analytics.)",
+            "name": "Apps",
+            "description": "Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)",
             "unit": null,
             "limit": null,
             "note": null
@@ -2708,8 +2708,8 @@
                         },
                         {
                             "key": "apps",
-                            "name": "Data connectors",
-                            "description": "Use connectors to transform, filter, and modify your incoming data. (Export destinations not included, see the Data pipelines addon for product analytics.)",
+                            "name": "Apps",
+                            "description": "Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -2766,8 +2766,8 @@
                         },
                         {
                             "key": "apps",
-                            "name": "Data connectors",
-                            "description": "Use connectors to transform, filter, and modify your incoming data. (Export destinations not included, see the Data pipelines addon for product analytics.)",
+                            "name": "Apps",
+                            "description": "Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -2808,8 +2808,8 @@
             "features": [
                 {
                     "key": "apps",
-                    "name": "Data connectors",
-                    "description": "Use connectors to transform, filter, and modify your incoming data. (Export destinations not included, see the Data pipelines addon for product analytics.)",
+                    "name": "Apps",
+                    "description": "Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)",
                     "images": null,
                     "icon_key": null,
                     "type": null

@@ -1014,7 +1014,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"LIMIT 100 "
                 f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
-            self.assertEqual(response.results[0], tuple(map(lambda x: random_uuid, alternatives)))
+            self.assertEqual(response.results[0], tuple((random_uuid for x in alternatives)))
 
     def test_property_access_with_arrays_zero_index_error(self):
         query = f"SELECT properties.something[0] FROM events"

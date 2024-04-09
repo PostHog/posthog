@@ -95,9 +95,9 @@ def _setup_test_data(klass):
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
     klass.project, klass.team = Project.objects.create_with_team(
         organization=klass.organization,
-        team_fields=dict(
-            api_token=klass.CONFIG_API_TOKEN,
-            test_account_filters=[
+        team_fields={
+            "api_token": klass.CONFIG_API_TOKEN,
+            "test_account_filters": [
                 {
                     "key": "email",
                     "value": "@posthog.com",
@@ -105,8 +105,8 @@ def _setup_test_data(klass):
                     "type": "person",
                 }
             ],
-            has_completed_onboarding_for={"product_analytics": True},
-        ),
+            "has_completed_onboarding_for": {"product_analytics": True},
+        },
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
@@ -481,7 +481,8 @@ class QueryMatchingTest:
         # :TRICKY: team_id changes every test, avoid it messing with snapshots.
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
-            query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            query = re.sub(r"(\"?) IN \(\d+(, ?\d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
             # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
             query = re.sub(
                 r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
@@ -974,7 +975,7 @@ def snapshot_clickhouse_alter_queries(fn):
 
         for query in queries:
             if "FROM system.columns" not in query:
-                self.assertQueryMatchesSnapshot(query)
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped
 
