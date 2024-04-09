@@ -253,7 +253,7 @@ export function ActionBanner(): JSX.Element {
     if (!isExperimentRunning) {
         return (
             <LemonBanner type="info" className="mt-4">
-                Your experiment is in draft mode. You can edit your variants, adjust release conditions, and test your{' '}
+                Your experiment is in draft mode. You can edit your variants, adjust release conditions, and{' '}
                 <Link className="font-semibold" to="https://posthog.com/docs/experiments/testing-and-launching">
                     test your feature flag
                 </Link>
