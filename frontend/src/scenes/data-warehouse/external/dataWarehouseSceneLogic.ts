@@ -24,7 +24,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             userLogic,
             ['user'],
             databaseTableListLogic,
-            ['filteredTables', 'dataWarehouse', 'dataWarehouseLoading'],
+            ['filteredTables', 'dataWarehouse', 'dataWarehouseLoading', 'databaseLoading'],
             dataWarehouseSavedQueriesLogic,
             ['savedQueries', 'dataWarehouseSavedQueriesLoading'],
             featureFlagLogic,
