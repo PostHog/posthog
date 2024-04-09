@@ -3595,6 +3595,7 @@ export interface SimpleDataWarehouseTable {
     id: string
     name: string
     columns: DatabaseSchemaQueryResponseField[]
+    row_count: number
 }
 
 export type BatchExportDestinationS3 = {
