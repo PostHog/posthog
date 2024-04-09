@@ -7,10 +7,12 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 day
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
             countIf(timestamp > now() - INTERVAL 2 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_level_1_0,
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_level_1_0,
             minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
                                AND event = '$autocapture'))) >= now() - INTERVAL 2 week
      AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
@@ -126,7 +128,8 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -167,7 +170,8 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -250,7 +254,8 @@
                    AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) = 2 AS steps_0,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$new_view') >= 1 AS performed_event_multiple_condition_None_level_level_0_level_1_0
+                    AND event = '$new_view'
+                    AND 1=1) >= 1 AS performed_event_multiple_condition_None_level_level_0_level_1_0
      FROM
        (SELECT person_id,
                event,
@@ -297,7 +302,8 @@
                    AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) = 2 AS steps_0,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') >= 1 AS performed_event_multiple_condition_None_level_level_0_level_1_0
+                    AND event = '$pageview'
+                    AND 1=1) >= 1 AS performed_event_multiple_condition_None_level_level_0_level_1_0
      FROM
        (SELECT person_id,
                event,
@@ -408,7 +414,8 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -445,7 +452,8 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -482,10 +490,12 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 day
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
             countIf(timestamp > now() - INTERVAL 2 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_level_1_0,
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_level_1_0,
             minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
                                AND event = '$autocapture'))) >= now() - INTERVAL 2 week
      AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
@@ -631,7 +641,8 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_1_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -671,7 +682,8 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -720,10 +732,12 @@
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 7 day
                     AND timestamp < now()
-                    AND event = '$new_view') > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
+                    AND event = '$new_view'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_1_0
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
