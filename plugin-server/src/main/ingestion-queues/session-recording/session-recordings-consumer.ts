@@ -30,15 +30,14 @@ import { OverflowManager } from './services/overflow-manager'
 import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
-import { IncomingRecordingMessage } from './types'
+import { IncomingRecordingMessage, PartitionMetrics } from './types'
 import {
     allSettledWithConcurrency,
     bufferFileDir,
     getPartitionsForTopic,
     now,
-    parseKafkaMessage,
+    parseKafkaBatch,
     queryWatermarkOffsets,
-    reduceRecordingMessages,
 } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -103,12 +102,6 @@ const histogramKafkaBatchSizeKb = new Histogram({
     buckets: BUCKETS_KB_WRITTEN,
 })
 
-const counterKafkaMessageReceived = new Counter({
-    name: 'recording_blob_ingestion_kafka_message_received',
-    help: 'The number of messages we have received from Kafka',
-    labelNames: ['partition'],
-})
-
 const counterCommitSkippedDueToPotentiallyBlockingSession = new Counter({
     name: 'recording_blob_ingestion_commit_skipped_due_to_potentially_blocking_session',
     help: 'The number of times we skipped committing due to a potentially blocking session',
@@ -119,12 +112,6 @@ const histogramActiveSessionsWhenCommitIsBlocked = new Histogram({
     help: 'The number of active sessions on a partition when we skip committing due to a potentially blocking session',
     buckets: [0, 1, 2, 3, 4, 5, 10, 20, 50, 100, 1000, 10000, Infinity],
 })
-
-type PartitionMetrics = {
-    lastMessageTimestamp?: number
-    lastMessageOffset?: number
-    offsetLag?: number
-}
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
@@ -344,42 +331,16 @@ export class SessionRecordingIngester {
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
-                        const parsedMessages: IncomingRecordingMessage[] = []
-                        for (const message of messages) {
-                            const { partition, offset, timestamp } = message
-
-                            this.partitionMetrics[partition] = this.partitionMetrics[partition] || {}
-                            const metrics = this.partitionMetrics[partition]
-
-                            // If we don't have a last known commit then set it to the offset before as that must be the last commit
-                            metrics.lastMessageOffset = offset
-                            // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-                            metrics.lastMessageTimestamp = timestamp || metrics.lastMessageTimestamp
-
-                            counterKafkaMessageReceived.inc({ partition })
-
-                            const recordingMessage = await parseKafkaMessage(
-                                message,
-                                (token) =>
-                                    this.teamsRefresher.get().then((teams) => ({
-                                        teamId: teams[token]?.teamId || null,
-                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                    })),
-                                this.sharedClusterProducerWrapper
-                            )
-
-                            if (recordingMessage) {
-                                parsedMessages.push(recordingMessage)
-                            }
-                        }
-
-                        recordingMessages = reduceRecordingMessages(parsedMessages)
-
-                        // TODO: Track metric for how many messages we reduced
-                        status.info('🔁', `blob_ingester_consumer - reduced batch`, {
-                            originalSize: messages.length,
-                            reducedSize: recordingMessages.length,
-                        })
+                        recordingMessages = await parseKafkaBatch(
+                            messages,
+                            (token) =>
+                                this.teamsRefresher.get().then((teams) => ({
+                                    teamId: teams[token]?.teamId || null,
+                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                })),
+                            this.sharedClusterProducerWrapper,
+                            this.partitionMetrics
+                        )
                     },
                 })
                 heartbeat()

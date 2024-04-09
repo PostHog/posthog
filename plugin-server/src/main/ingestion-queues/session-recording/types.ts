@@ -28,3 +28,9 @@ export type PersistedRecordingMessage = {
     window_id?: string
     data: any
 }
+
+export type PartitionMetrics = {
+    lastMessageTimestamp?: number
+    lastMessageOffset?: number
+    offsetLag?: number
+}

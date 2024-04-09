@@ -11,7 +11,13 @@ import { cloneObject } from '../../../utils/utils'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
-import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
+import { IncomingRecordingMessage, PartitionMetrics, PersistedRecordingMessage } from './types'
+
+const counterKafkaMessageReceived = new Counter({
+    name: 'recording_blob_ingestion_kafka_message_received',
+    help: 'The number of messages we have received from Kafka',
+    labelNames: ['partition'],
+})
 
 const counterLibVersionWarning = new Counter({
     name: 'lib_version_warning_counter',
@@ -291,6 +297,36 @@ export const parseKafkaMessage = async (
         },
         snapshot_source: $snapshot_source,
     }
+}
+
+export const parseKafkaBatch = async (
+    messages: Message[],
+    getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>,
+    ingestionWarningProducer: KafkaProducerWrapper | undefined,
+    partitionMetrics: Record<number, PartitionMetrics> // TODO: return a partial update instead
+): Promise<IncomingRecordingMessage[]> => {
+    const parsedMessages: IncomingRecordingMessage[] = []
+    for (const message of messages) {
+        const { partition, offset, timestamp } = message
+
+        partitionMetrics[partition] = partitionMetrics[partition] || {}
+        const metrics = partitionMetrics[partition]
+
+        // If we don't have a last known commit then set it to the offset before as that must be the last commit
+        metrics.lastMessageOffset = offset
+        // For some reason timestamp can be null. If it isn't, update our ingestion metrics
+        metrics.lastMessageTimestamp = timestamp || metrics.lastMessageTimestamp
+
+        counterKafkaMessageReceived.inc({ partition })
+
+        const recordingMessage = await parseKafkaMessage(message, getTeamFn, ingestionWarningProducer)
+
+        if (recordingMessage) {
+            parsedMessages.push(recordingMessage)
+        }
+    }
+
+    return reduceRecordingMessages(parsedMessages)
 }
 
 export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): IncomingRecordingMessage[] => {
