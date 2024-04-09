@@ -136,8 +136,6 @@ def traces_sampler(sampling_context: dict) -> float:
 
 def sentry_init() -> None:
     if not TEST and os.getenv("SENTRY_DSN"):
-        sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
-
         # Setting this on enables more visibility, at the risk of capturing personal information we should not:
         #   - standard sentry "client IP" field, through send_default_pii
         #   - django access logs (info level)
@@ -161,8 +159,8 @@ def sentry_init() -> None:
                 ClickhouseDriverIntegration(),
                 LoggingIntegration(level=sentry_logging_level, event_level=None),
             ],
-            request_bodies="always" if send_pii else "never",
-            max_value_length=4096,  # Increased from the default of 1024 to capture SQL statements in full
+            max_request_body_size="always" if send_pii else "never",
+            max_value_length=8192,  # Increased from the default of 1024 to capture SQL statements in full
             sample_rate=1.0,
             # Samplers return True if event should be sent, False if it should be dropped,
             # or a float between 0 and 1 to send at that specific rate randomly
