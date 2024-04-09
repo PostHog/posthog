@@ -27,11 +27,13 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             logger.debug("No AsyncDeletion to perform")
             return
 
+        team_ids = list({row.team_id for row in deletions})
+
         logger.info(
             "Starting AsyncDeletion on `events` table in ClickHouse",
             {
                 "count": len(deletions),
-                "team_ids": list({row.team_id for row in deletions}),
+                "team_ids": team_ids,
             },
         )
         temp_table_name = f"{CLICKHOUSE_DATABASE}.async_deletion_run"
@@ -49,10 +51,13 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             ON CLUSTER '{CLICKHOUSE_CLUSTER}'
             DELETE
             WHERE
-                joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0 OR
-                joinGet({temp_table_name}, 'id', team_id, 1, toString(person_id)) > 0
+                team_id IN %(team_ids)s AND
+                (
+                    joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0 OR
+                    joinGet({temp_table_name}, 'id', team_id, 1, toString(person_id)) > 0
+                )
             """,
-            {},
+            {"team_ids": team_ids},
             workload=Workload.OFFLINE,
         )
 
@@ -74,9 +79,11 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 f"""
                 ALTER TABLE {table}
                 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-                DELETE WHERE joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0
+                DELETE WHERE
+                team_id IN %(team_ids)s AND
+                joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0
                 """,
-                {},
+                {"team_ids": [deletion.team_id for deletion in team_deletions]},
                 workload=Workload.OFFLINE,
             )
 
