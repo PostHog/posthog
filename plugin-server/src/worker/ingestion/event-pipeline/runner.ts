@@ -148,7 +148,31 @@ export class EventPipelineRunner {
             event = normalizeProcessPerson(event, processPerson)
         }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
+        if (event.event === '$$client_ingestion_warning') {
+            const warningAck = captureIngestionWarning(
+                this.hub.db.kafkaProducer,
+                event.team_id,
+                'client_ingestion_warning',
+                {
+                    eventUuid: event.uuid,
+                    event: event.event,
+                    distinctId: event.distinct_id,
+                    message: event.properties?.$$client_ingestion_warning_message,
+                },
+                { alwaysSend: true }
+            )
+
+            return this.registerLastStep('clientIngestionWarning', [event], [warningAck])
+        }
+
+        // Some expensive, deprecated plugins are skipped when `$process_person=false`
+        const runDeprecatedPlugins = processPerson
+        const processedEvent = await this.runStep(
+            pluginsProcessEventStep,
+            [this, event, runDeprecatedPlugins],
+            event.team_id
+        )
+
         if (processedEvent == null) {
             // A plugin dropped the event.
             return this.registerLastStep('pluginsProcessEventStep', [event])

@@ -79,7 +79,7 @@
         "@posthog/icons": "0.6.7",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
-        "@rrweb/types": "2.0.0-alpha.11",
+        "@rrweb/types": "2.0.0-alpha.12",
         "@sentry/react": "7.22.0",
         "@tailwindcss/container-queries": "^0.1.1",
         "@testing-library/dom": ">=7.21.4",
@@ -145,7 +145,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.118.1",
+        "posthog-js": "1.120.1",
         "posthog-js-lite": "2.5.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -169,8 +169,9 @@
         "react-transition-group": "^4.4.5",
         "react-virtualized": "^9.22.5",
         "resize-observer-polyfill": "^1.5.1",
-        "rrweb": "2.0.0-alpha.11",
+        "rrweb": "2.0.0-alpha.12",
         "sass": "^1.26.2",
+        "tailwind-merge": "^2.2.2",
         "tailwindcss": "^3.4.0",
         "use-debounce": "^9.0.3",
         "use-resize-observer": "^8.0.0",
@@ -306,7 +307,7 @@
             "playwright": "1.41.2"
         },
         "patchedDependencies": {
-            "rrweb@2.0.0-alpha.11": "patches/rrweb@2.0.0-alpha.11.patch"
+            "rrweb@2.0.0-alpha.12": "patches/rrweb@2.0.0-alpha.12.patch"
         }
     },
     "lint-staged": {

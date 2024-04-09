@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -8,9 +8,9 @@ overrides:
   playwright: 1.41.2
 
 patchedDependencies:
-  rrweb@2.0.0-alpha.11:
-    hash: memehzzjegb4cagrp63kymh25a
-    path: patches/rrweb@2.0.0-alpha.11.patch
+  rrweb@2.0.0-alpha.12:
+    hash: 2rbzexnjhaf34oglgkdlfbhwde
+    path: patches/rrweb@2.0.0-alpha.12.patch
 
 dependencies:
   '@ant-design/icons':
@@ -56,8 +56,8 @@ dependencies:
     specifier: ^2.1.2
     version: 2.1.2(react@18.2.0)
   '@rrweb/types':
-    specifier: 2.0.0-alpha.11
-    version: 2.0.0-alpha.11
+    specifier: 2.0.0-alpha.12
+    version: 2.0.0-alpha.12
   '@sentry/react':
     specifier: 7.22.0
     version: 7.22.0(react@18.2.0)
@@ -254,8 +254,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.118.1
-    version: 1.118.1
+    specifier: 1.120.1
+    version: 1.120.1
   posthog-js-lite:
     specifier: 2.5.0
     version: 2.5.0
@@ -326,11 +326,14 @@ dependencies:
     specifier: ^1.5.1
     version: 1.5.1
   rrweb:
-    specifier: 2.0.0-alpha.11
-    version: 2.0.0-alpha.11(patch_hash=memehzzjegb4cagrp63kymh25a)
+    specifier: 2.0.0-alpha.12
+    version: 2.0.0-alpha.12(patch_hash=2rbzexnjhaf34oglgkdlfbhwde)
   sass:
     specifier: ^1.26.2
     version: 1.56.0
+  tailwind-merge:
+    specifier: ^2.2.2
+    version: 2.2.2
   tailwindcss:
     specifier: ^3.4.0
     version: 3.4.0(ts-node@10.9.1)
@@ -347,7 +350,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -5877,10 +5880,10 @@ packages:
       type-fest: 2.19.0
     dev: false
 
-  /@rrweb/types@2.0.0-alpha.11:
-    resolution: {integrity: sha512-8ccocIkT5J/bfNRQY85qR/g6p5YQFpgFO2cMt4+Ex7w31Lq0yqZBRaoYEsawQKpLrn5KOHkdn2UTUrna7WMQuA==}
+  /@rrweb/types@2.0.0-alpha.12:
+    resolution: {integrity: sha512-dHFMvVBA9JD8MBV+waHtJs8lIeTPCVeT3h+WZ5s8a+EX42TQ08t+ObFMK0OYEszvWgJMJ5WZi5lXTvF46P27Hg==}
     dependencies:
-      rrweb-snapshot: 2.0.0-alpha.11
+      rrweb-snapshot: 2.0.0-alpha.12
     dev: false
 
   /@sentry/browser@7.22.0:
@@ -12822,7 +12825,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -17454,8 +17456,8 @@ packages:
     resolution: {integrity: sha512-Urvlp0Vu9h3td0BVFWt0QXFJDoOZcaAD83XM9d91NKMKTVPZtfU0ysoxstIf5mw/ce9ZfuMgpWPaagrZI4rmSg==}
     dev: false
 
-  /posthog-js@1.118.1:
-    resolution: {integrity: sha512-3Ryk2XfdaUesAjrbruuRtY8QV8FEyUrwe95l1kiE+1XyMX0BHerCUFoc3kXcRZjbhhuaJP5i/jiIw8hLt+jHig==}
+  /posthog-js@1.120.1:
+    resolution: {integrity: sha512-TLvTjg0fbSOTyDcm4i1FJsrhrvflJ8cfZTZ+XO2W3LbL+jhTEUHcclxR/FlCu3/y+34VTolbmdg+x9+FTr+Ejw==}
     dependencies:
       fflate: 0.4.8
       preact: 10.20.1
@@ -19147,27 +19149,27 @@ packages:
     resolution: {integrity: sha512-85aZYCxweiD5J8yTEbw+E6A27zSnLPNDL0WfPdw3YYodq7WjnTKo0q4dtyQ2gz23iPT8Q9CUyJtAaUNcTxRf5Q==}
     dev: false
 
-  /rrdom@2.0.0-alpha.11:
-    resolution: {integrity: sha512-U37m0t4jTz63wnVRcOQ5qFzSTrI5RdNgeXnHAha2Fmh9+1K+XuCx421a8D1wZk3WcDc2sFz/04FVdM0OD2caHg==}
+  /rrdom@2.0.0-alpha.12:
+    resolution: {integrity: sha512-xdl51tE/ruN+zO0iEalEyyaQtbb4lb2HLULA6ug/zyApQjIVevaDc3BJnyXbDhd0eYgY9flBXTZ2gM64htUwHQ==}
     dependencies:
-      rrweb-snapshot: 2.0.0-alpha.11
+      rrweb-snapshot: 2.0.0-alpha.12
     dev: false
 
-  /rrweb-snapshot@2.0.0-alpha.11:
-    resolution: {integrity: sha512-N0dzeJA2VhrlSOadkKwCVmV/DuNOwBH+Lhx89hAf9PQK4lCS8AP4AaylhqUdZOYHqwVjqsYel/uZ4hN79vuLhw==}
+  /rrweb-snapshot@2.0.0-alpha.12:
+    resolution: {integrity: sha512-i4sz9469dbsEGFiBzCkq+7I7M+imPeC3NrKgrrdJ2tXu9H+/eegNe4SrQgCsLBeSZHZDHU0o9L5rxTAiapWbGg==}
     dev: false
 
-  /rrweb@2.0.0-alpha.11(patch_hash=memehzzjegb4cagrp63kymh25a):
-    resolution: {integrity: sha512-vJ2gNvF+pUG9C2aaau7iSNqhWBSc4BwtUO4FpegOtDObuH4PIaxNJOlgHz82+WxKr9XPm93ER0LqmNpy0KYdKg==}
+  /rrweb@2.0.0-alpha.12(patch_hash=2rbzexnjhaf34oglgkdlfbhwde):
+    resolution: {integrity: sha512-lUGwBV7gmbwz1dIgzo9EEayIVyxoTIF6NBF6+Jctqs4Uy45QkyARtikpQlCUfxVCGTCQ0FOee9jeVYsG39oq1g==}
     dependencies:
-      '@rrweb/types': 2.0.0-alpha.11
+      '@rrweb/types': 2.0.0-alpha.12
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
       base64-arraybuffer: 1.0.2
       fflate: 0.4.8
       mitt: 3.0.0
-      rrdom: 2.0.0-alpha.11
-      rrweb-snapshot: 2.0.0-alpha.11
+      rrdom: 2.0.0-alpha.12
+      rrweb-snapshot: 2.0.0-alpha.12
     dev: false
     patched: true
 
@@ -20385,6 +20387,12 @@ packages:
       string-width: 4.2.3
       strip-ansi: 6.0.1
     dev: true
+
+  /tailwind-merge@2.2.2:
+    resolution: {integrity: sha512-tWANXsnmJzgw6mQ07nE3aCDkCK4QdT3ThPMCzawoYA2Pws7vSTCvz3Vrjg61jVUGfFZPJzxEP+NimbcW+EdaDw==}
+    dependencies:
+      '@babel/runtime': 7.24.0
+    dev: false
 
   /tailwindcss@3.4.0(ts-node@10.9.1):
     resolution: {integrity: sha512-VigzymniH77knD1dryXbyxR+ePHihHociZbXnLZHUyzf2MMs2ZVqlUrZ3FvpXP8pno9JzmILt1sZPD19M3IxtA==}

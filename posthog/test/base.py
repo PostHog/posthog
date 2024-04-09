@@ -95,9 +95,9 @@ def _setup_test_data(klass):
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
     klass.project, klass.team = Project.objects.create_with_team(
         organization=klass.organization,
-        team_fields=dict(
-            api_token=klass.CONFIG_API_TOKEN,
-            test_account_filters=[
+        team_fields={
+            "api_token": klass.CONFIG_API_TOKEN,
+            "test_account_filters": [
                 {
                     "key": "email",
                     "value": "@posthog.com",
@@ -105,8 +105,8 @@ def _setup_test_data(klass):
                     "type": "person",
                 }
             ],
-            has_completed_onboarding_for={"product_analytics": True},
-        ),
+            "has_completed_onboarding_for": {"product_analytics": True},
+        },
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)

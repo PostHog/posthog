@@ -1,7 +1,7 @@
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import posthoganalytics
 import pydantic
@@ -14,6 +14,7 @@ from django.core.validators import (
     MinValueValidator,
 )
 from django.db import models, connection
+from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.db import transaction
 from zoneinfo import ZoneInfo
@@ -36,6 +37,9 @@ from posthog.utils import GenericEmails, PersonOnEventsMode
 
 from .team_caching import get_team_in_cache, set_team_in_cache
 from ...schema import PathCleaningFilter
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
@@ -424,6 +428,29 @@ class Team(UUIDClassicModel):
             except pydantic.ValidationError:
                 continue
         return filters
+
+    def all_users_with_access(self) -> QuerySet["User"]:
+        from ee.models.explicit_team_membership import ExplicitTeamMembership
+        from posthog.models.organization import OrganizationMembership
+        from posthog.models.user import User
+
+        if not self.access_control:
+            user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
+                "user_id", flat=True
+            )
+        else:
+            user_ids_queryset = (
+                OrganizationMembership.objects.filter(
+                    organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
+                )
+                .values_list("user_id", flat=True)
+                .union(
+                    ExplicitTeamMembership.objects.filter(team_id=self.id).values_list(
+                        "parent_membership__user_id", flat=True
+                    )
+                )
+            )
+        return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 
     def __str__(self):
         if self.name:
