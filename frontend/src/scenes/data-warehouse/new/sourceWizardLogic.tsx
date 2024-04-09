@@ -8,7 +8,6 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, ExternalDataSourceCreatePayload, ExternalDataSourceSyncSchema, SourceConfig } from '~/types'
 
-import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import { sourceFormLogic } from '../external/forms/sourceFormLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
@@ -159,6 +158,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
         createSource: true,
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
+        setSourceId: (id: string) => ({ sourceId: id }),
+        closeWizard: true,
     }),
     connect({
         values: [
@@ -169,14 +170,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             preflightLogic,
             ['preflight'],
         ],
-        actions: [
-            dataWarehouseSceneLogic,
-            ['toggleSourceModal'],
-            dataWarehouseTableLogic,
-            ['resetTable'],
-            dataWarehouseSettingsLogic,
-            ['loadSources'],
-        ],
+        actions: [dataWarehouseTableLogic, ['resetTable'], dataWarehouseSettingsLogic, ['loadSources']],
     }),
     reducers({
         selectedConnector: [
@@ -237,8 +231,52 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 setIsLoading: (_, { isLoading }) => isLoading,
             },
         ],
+        sourceId: [
+            null as string | null,
+            {
+                setSourceId: (_, { sourceId }) => sourceId,
+            },
+        ],
     }),
     selectors({
+        canGoBack: [
+            (s) => [s.currentStep],
+            (currentStep): boolean => {
+                return currentStep !== 4
+            },
+        ],
+        canGoNext: [
+            (s) => [s.currentStep, s.dataWarehouseSources, s.sourceId],
+            (currentStep, allSources, sourceId): boolean => {
+                const source = allSources?.results.find((n) => n.id === sourceId)
+
+                if (currentStep === 4) {
+                    return source !== undefined && source.status === 'Completed'
+                }
+
+                return true
+            },
+        ],
+        showSkipButton: [
+            (s) => [s.currentStep],
+            (currentStep): boolean => {
+                return currentStep === 4
+            },
+        ],
+        nextButtonText: [
+            (s) => [s.currentStep],
+            (currentStep): string => {
+                if (currentStep === 3) {
+                    return 'Import'
+                }
+
+                if (currentStep === 4) {
+                    return 'Finish'
+                }
+
+                return 'Next'
+            },
+        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -308,14 +346,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return 'Select tables to import'
                 }
 
+                if (currentStep === 4) {
+                    return 'Importing your data...'
+                }
+
                 return ''
             },
         ],
         modalCaption: [
             (s) => [s.selectedConnector, s.currentStep],
             (selectedConnector, currentStep) => {
-                if (currentStep == 2 && selectedConnector) {
+                if (currentStep === 2 && selectedConnector) {
                     return SOURCE_DETAILS[selectedConnector.name]?.caption
+                }
+
+                if (currentStep === 4) {
+                    return "Sit tight as we import your data! After it's done, we'll show you a few examples to help you make the most of using the data within PostHog."
                 }
 
                 return ''
@@ -357,6 +403,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setIsLoading(true)
                 actions.createSource()
             }
+
+            if (values.currentStep === 4) {
+                actions.closeWizard()
+            }
+        },
+        closeWizard: () => {
+            actions.clearSource()
+            actions.loadSources(null)
+            router.actions.push(urls.dataWarehouseSettings())
         },
         createSource: async () => {
             if (values.selectedConnector === null) {
@@ -364,12 +419,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
             try {
-                await api.externalDataSources.create({ ...values.source, source_type: values.selectedConnector.name })
+                const { id } = await api.externalDataSources.create({
+                    ...values.source,
+                    source_type: values.selectedConnector.name,
+                })
                 lemonToast.success('New Data Resource Created')
-                actions.toggleSourceModal(false)
-                actions.clearSource()
-                actions.loadSources(null)
-                router.actions.push(urls.dataWarehouseSettings())
+                actions.setSourceId(id)
+                actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
             } finally {

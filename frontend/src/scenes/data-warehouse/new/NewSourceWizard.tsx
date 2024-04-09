@@ -15,6 +15,7 @@ import { SourceConfig } from '~/types'
 
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
+import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
@@ -24,8 +25,9 @@ export const scene: SceneExport = {
 }
 export function NewSourceWizard(): JSX.Element {
     const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit } = useActions(sourceWizardLogic)
-    const { currentStep, isLoading } = useValues(sourceWizardLogic)
+    const { onBack, onSubmit, closeWizard } = useActions(sourceWizardLogic)
+    const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } =
+        useValues(sourceWizardLogic)
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
@@ -34,17 +36,29 @@ export function NewSourceWizard(): JSX.Element {
 
         return (
             <div className="mt-2 flex flex-row justify-end gap-2">
-                <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onBack}>
+                <LemonButton
+                    type="secondary"
+                    center
+                    data-attr="source-modal-back-button"
+                    onClick={onBack}
+                    disabledReason={!canGoBack && 'You cant go back from here'}
+                >
                     Back
                 </LemonButton>
+                {showSkipButton && (
+                    <LemonButton type="primary" center onClick={() => closeWizard()} data-attr="source-link">
+                        Skip
+                    </LemonButton>
+                )}
                 <LemonButton
                     loading={isLoading}
+                    disabledReason={!canGoNext && 'You cant click next yet'}
                     type="primary"
                     center
                     onClick={() => onSubmit()}
                     data-attr="source-link"
                 >
-                    Link
+                    {nextButtonText}
                 </LemonButton>
             </div>
         )
@@ -72,6 +86,7 @@ export function NewSourceWizard(): JSX.Element {
                 <FirstStep />
                 <SecondStep />
                 <ThirdStep />
+                <FourthStep />
                 {footer()}
             </>
         </>
@@ -173,6 +188,14 @@ function ThirdStep(): JSX.Element {
     return (
         <ModalPage page={3}>
             <PostgresSchemaForm />
+        </ModalPage>
+    )
+}
+
+function FourthStep(): JSX.Element {
+    return (
+        <ModalPage page={4}>
+            <SyncProgressStep />
         </ModalPage>
     )
 }

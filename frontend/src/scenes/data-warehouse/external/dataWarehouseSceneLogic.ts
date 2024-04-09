@@ -43,18 +43,11 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         ],
     })),
     actions({
-        toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
         selectRow: (row: DataWarehouseTableType | null) => ({ row }),
         setSceneTab: (tab: DataWarehouseSceneTab) => ({ tab }),
         setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
     }),
     reducers({
-        isSourceModalOpen: [
-            false,
-            {
-                toggleSourceModal: (state, { isOpen }) => (isOpen != undefined ? isOpen : !state),
-            },
-        ],
         selectedRow: [
             null as DataWarehouseTableType | null,
             {
