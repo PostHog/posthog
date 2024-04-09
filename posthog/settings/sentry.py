@@ -161,6 +161,7 @@ def sentry_init() -> None:
                 sentry_logging,
             ],
             request_bodies="always" if send_pii else "never",
+            max_value_length=4096,  # Increased from the default of 1024 to capture SQL statements in full
             sample_rate=1.0,
             # Configures the sample rate for error events, in the range of 0.0 to 1.0 (default).
             # If set to 0.1 only 10% of error events will be sent. Events are picked randomly.
