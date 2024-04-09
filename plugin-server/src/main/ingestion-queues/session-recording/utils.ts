@@ -11,7 +11,7 @@ import { cloneObject } from '../../../utils/utils'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
-import { IncomingRecordingMessage, PartitionMetrics, PersistedRecordingMessage } from './types'
+import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
 
 const counterKafkaMessageReceived = new Counter({
     name: 'recording_blob_ingestion_kafka_message_received',
@@ -300,23 +300,20 @@ export const parseKafkaMessage = async (
 }
 
 export const parseKafkaBatch = async (
+    /**
+     * Parses and validates a batch of Kafka messages, merges messages for the same session into a single
+     * IncomingRecordingMessage to amortize processing and computes per-partition statistics.
+     */
     messages: Message[],
     getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>,
-    ingestionWarningProducer: KafkaProducerWrapper | undefined,
-    partitionMetrics: Record<number, PartitionMetrics> // TODO: return a partial update instead
-): Promise<IncomingRecordingMessage[]> => {
+    ingestionWarningProducer: KafkaProducerWrapper | undefined
+): Promise<ParsedBatch> => {
+    const lastMessageForPartition: Map<number, Message> = new Map()
+
     const parsedMessages: IncomingRecordingMessage[] = []
     for (const message of messages) {
-        const { partition, offset, timestamp } = message
-
-        partitionMetrics[partition] = partitionMetrics[partition] || {}
-        const metrics = partitionMetrics[partition]
-
-        // If we don't have a last known commit then set it to the offset before as that must be the last commit
-        metrics.lastMessageOffset = offset
-        // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-        metrics.lastMessageTimestamp = timestamp || metrics.lastMessageTimestamp
-
+        const partition = message.partition
+        lastMessageForPartition.set(partition, message) // We can assume messages for a single partition are ordered
         counterKafkaMessageReceived.inc({ partition })
 
         const recordingMessage = await parseKafkaMessage(message, getTeamFn, ingestionWarningProducer)
@@ -325,8 +322,10 @@ export const parseKafkaBatch = async (
             parsedMessages.push(recordingMessage)
         }
     }
-
-    return reduceRecordingMessages(parsedMessages)
+    return {
+        sessions: reduceRecordingMessages(parsedMessages),
+        partitionStats: Array.from(lastMessageForPartition.values()), // Just cast the last message into the small BatchStats interface
+    }
 }
 
 export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): IncomingRecordingMessage[] => {

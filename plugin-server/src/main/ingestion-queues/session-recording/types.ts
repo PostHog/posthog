@@ -29,8 +29,16 @@ export type PersistedRecordingMessage = {
     data: any
 }
 
-export type PartitionMetrics = {
-    lastMessageTimestamp?: number
-    lastMessageOffset?: number
-    offsetLag?: number
+export type BatchStats = {
+    /**
+     * Subset of the kafka Message class, used to report metrics only
+     */
+    readonly partition: number
+    readonly offset: number
+    readonly timestamp?: number
+}
+
+export type ParsedBatch = {
+    sessions: IncomingRecordingMessage[]
+    partitionStats: BatchStats[]
 }

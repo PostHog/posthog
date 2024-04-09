@@ -30,7 +30,7 @@ import { OverflowManager } from './services/overflow-manager'
 import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
-import { IncomingRecordingMessage, PartitionMetrics } from './types'
+import { IncomingRecordingMessage } from './types'
 import {
     allSettledWithConcurrency,
     bufferFileDir,
@@ -112,6 +112,12 @@ const histogramActiveSessionsWhenCommitIsBlocked = new Histogram({
     help: 'The number of active sessions on a partition when we skip committing due to a potentially blocking session',
     buckets: [0, 1, 2, 3, 4, 5, 10, 20, 50, 100, 1000, 10000, Infinity],
 })
+
+type PartitionMetrics = {
+    lastMessageTimestamp?: number
+    lastMessageOffset?: number
+    offsetLag?: number
+}
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
@@ -326,21 +332,30 @@ export class SessionRecordingIngester {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                let recordingMessages: IncomingRecordingMessage[] = []
+                let recordingMessages: IncomingRecordingMessage[]
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
-                        recordingMessages = await parseKafkaBatch(
+                        const { sessions, partitionStats } = await parseKafkaBatch(
                             messages,
                             (token) =>
                                 this.teamsRefresher.get().then((teams) => ({
                                     teamId: teams[token]?.teamId || null,
                                     consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
                                 })),
-                            this.sharedClusterProducerWrapper,
-                            this.partitionMetrics
+                            this.sharedClusterProducerWrapper
                         )
+                        recordingMessages = sessions
+                        for (const partitionStat of partitionStats) {
+                            const metrics = this.partitionMetrics[partitionStat.partition] ?? {}
+                            metrics.lastMessageOffset = partitionStat.offset
+                            if (partitionStat.timestamp) {
+                                // Could be empty on Kafka versions before KIP-32
+                                metrics.lastMessageTimestamp = partitionStat.timestamp
+                            }
+                            this.partitionMetrics[partitionStat.partition] = metrics
+                        }
                     },
                 })
                 heartbeat()
