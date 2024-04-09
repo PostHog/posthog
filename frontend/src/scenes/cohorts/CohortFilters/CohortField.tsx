@@ -2,13 +2,16 @@ import './CohortField.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { formatDate } from 'lib/utils'
 import { useEffect, useMemo, useRef } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
@@ -206,7 +209,7 @@ export function CohortEventFiltersField({
                 parent.classList.remove('basis-full')
             }
         }
-    }, [valueExists])
+    }, [componentRef, value])
 
     return (
         <div ref={componentRef}>
@@ -229,6 +232,55 @@ export function CohortEventFiltersField({
                 sendAllKeyUpdates
             />
         </div>
+    )
+}
+
+export function CohortRelativeAndExactTimeField({
+    fieldKey,
+    criteria,
+    cohortFilterLogicKey,
+    onChange: _onChange,
+}: CohortEventFiltersFieldProps): JSX.Element {
+    const { logic } = useCohortFieldLogic({
+        fieldKey,
+        criteria,
+        cohortFilterLogicKey,
+        onChange: _onChange,
+    })
+    // This replaces the old TimeUnit and TimeInterval filters
+    // and combines them with a relative+exact time option.
+    // This is more inline with rest of analytics filters and make things much nicer here.
+    const { value } = useValues(logic)
+    const { onChange } = useActions(logic)
+
+    return (
+        <DateFilter
+            dateFrom={String(value)}
+            onChange={(fromDate) => {
+                onChange({ [fieldKey]: fromDate })
+            }}
+            max={1000}
+            isFixedDateMode
+            showCustom
+            dateOptions={[
+                {
+                    key: 'Last 7 days',
+                    values: ['-7d'],
+                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
+                    defaultInterval: 'day',
+                },
+                {
+                    key: 'Last 30 days',
+                    values: ['-30d'],
+                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(14, 'd')),
+                    defaultInterval: 'day',
+                },
+            ]}
+            size="medium"
+            makeLabel={(_, startOfRange) => (
+                <span className="hide-when-small">Matches all values after {startOfRange} if evaluated today.</span>
+            )}
+        />
     )
 }
 

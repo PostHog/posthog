@@ -5,6 +5,7 @@ import {
     CohortEventFiltersField,
     CohortNumberField,
     CohortPersonPropertiesValuesField,
+    CohortRelativeAndExactTimeField,
     CohortSelectorField,
     CohortTaxonomicField,
     CohortTextField,
@@ -349,17 +350,12 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 type: FilterType.Text,
-                defaultValue: 'in the last',
+                defaultValue: 'after',
             },
             {
-                fieldKey: 'time_value',
-                type: FilterType.Number,
-                defaultValue: '30',
-            },
-            {
-                fieldKey: 'time_interval',
-                type: FilterType.TimeUnit,
-                defaultValue: TimeUnitType.Day,
+                fieldKey: 'explicit_datetime',
+                type: FilterType.RelativeAndExactTime,
+                defaultValue: '-30d',
             },
         ],
     },
@@ -385,17 +381,12 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 type: FilterType.Text,
-                defaultValue: 'in the last',
+                defaultValue: 'after',
             },
             {
-                fieldKey: 'time_value',
-                type: FilterType.Number,
-                defaultValue: '30',
-            },
-            {
-                fieldKey: 'time_interval',
-                type: FilterType.TimeUnit,
-                defaultValue: TimeUnitType.Day,
+                fieldKey: 'explicit_datetime',
+                type: FilterType.RelativeAndExactTime,
+                defaultValue: '-30d',
             },
         ],
     },
@@ -431,17 +422,12 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
             },
             {
                 type: FilterType.Text,
-                defaultValue: 'times in the last',
+                defaultValue: 'times after',
             },
             {
-                fieldKey: 'time_value',
-                type: FilterType.Number,
-                defaultValue: '30',
-            },
-            {
-                fieldKey: 'time_interval',
-                type: FilterType.TimeUnit,
-                defaultValue: TimeUnitType.Day,
+                fieldKey: 'explicit_datetime',
+                type: FilterType.RelativeAndExactTime,
+                defaultValue: '-30d',
             },
         ],
     },
@@ -930,6 +916,9 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
             />
         )
     },
+    [FilterType.RelativeAndExactTime]: function _renderField(p) {
+        return <CohortRelativeAndExactTimeField {...(p as CohortEventFiltersFieldProps)} />
+    },
     [FilterType.EventType]: function _renderField() {
         return <></>
     },
@@ -952,6 +941,7 @@ export const CRITERIA_VALIDATIONS: Record<
     [FilterType.TimeUnit]: () => CohortClientErrors.EmptyTimeUnit,
     [FilterType.MathOperator]: () => CohortClientErrors.EmptyMathOperator,
     [FilterType.EventsAndActionsMathOperator]: () => CohortClientErrors.EmptyMathOperator,
+    [FilterType.RelativeAndExactTime]: () => CohortClientErrors.EmptyRelativeAndExactTime,
     [FilterType.CohortId]: () => CohortClientErrors.EmptyCohortId,
     [FilterType.CohortValues]: () => CohortClientErrors.EmptyCohortValues,
     [FilterType.Value]: () => CohortClientErrors.EmptyValue,
