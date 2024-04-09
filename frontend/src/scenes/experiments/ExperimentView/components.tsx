@@ -1,6 +1,6 @@
 import '../Experiment.scss'
 
-import { LemonBanner, LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -10,6 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
@@ -234,26 +235,81 @@ export function PageHeaderCustom(): JSX.Element {
 }
 
 export function ActionBanner(): JSX.Element {
-    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+    const {
+        experiment,
+        experimentResults,
+        experimentLoading,
+        experimentResultsLoading,
+        isExperimentRunning,
+        areResultsSignificant,
+        isExperimentStopped,
+    } = useValues(experimentLogic)
 
-    if (!experiment) {
+    if (!experiment || experimentLoading || experimentResultsLoading) {
         return <></>
     }
 
+    // Draft
     if (!isExperimentRunning) {
         return (
-            <LemonBanner type="info">
-                <div className="flex">
-                    <div className="flex-1 p-1">
-                        Your experiment is in draft mode. You can edit your variants, adjust release conditions, and
-                        test your feature flag. Once everything works as expected, you can launch your experiment.
-                    </div>
-                    <div className="w-20 flex items-center">
-                        <LemonButton size="small" type="primary">
-                            Launch
-                        </LemonButton>
-                    </div>
-                </div>
+            <LemonBanner type="info" className="mt-4">
+                Your experiment is in draft mode. You can edit your variants, adjust release conditions, and test your{' '}
+                <Link className="font-semibold" to="https://posthog.com/docs/experiments/testing-and-launching">
+                    test your feature flag
+                </Link>
+                . Once everything works as expected, you can launch your experiment. From that point, any new experiment
+                events will be counted towards the results.
+            </LemonBanner>
+        )
+    }
+
+    // Running, results present, not significant
+    if (isExperimentRunning && experimentResults && !isExperimentStopped && !areResultsSignificant) {
+        return (
+            <LemonBanner type="info" className="mt-4">
+                Your experiment is live and is collecting data, but hasn't yet reached the statistical significance
+                needed to make reliable decisions. It's important to wait for more data to avoid premature conclusions.
+            </LemonBanner>
+        )
+    }
+
+    // Running, results significant
+    if (isExperimentRunning && !isExperimentStopped && areResultsSignificant) {
+        return (
+            <LemonBanner type="success" className="mt-4">
+                Good news! Your experiment has gathered enough data to reach statistical significance, providing
+                reliable results for decision making. Before taking any action, review relevant secondary metrics for
+                any unintended side effects. Once you're done, you can stop the experiment.
+            </LemonBanner>
+        )
+    }
+
+    // Stopped, results significant
+    if (isExperimentStopped && areResultsSignificant) {
+        return (
+            <LemonBanner type="success" className="mt-4">
+                You have stopped this experiment, and it is no longer collecting data. With significant results in hand,
+                you can now roll out the winning variant to all your users by adjusting the{' '}
+                <Link
+                    target="_blank"
+                    className="font-semibold"
+                    to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
+                >
+                    {experiment.feature_flag?.key}
+                </Link>{' '}
+                feature flag.
+            </LemonBanner>
+        )
+    }
+
+    // Stopped, results not significant
+    if (isExperimentStopped && experimentResults && !areResultsSignificant) {
+        return (
+            <LemonBanner type="info" className="mt-4">
+                You have stopped this experiment, and it is no longer collecting data. Because your results are not
+                significant, so we don't recommend drawing any conclusions from them. You can reset the experiment,
+                which will delete any data so far, and restart the experiment at any point again. If this experiment is
+                no longer relevant, you can archive it.
             </LemonBanner>
         )
     }
