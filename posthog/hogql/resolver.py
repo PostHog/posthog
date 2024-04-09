@@ -408,7 +408,7 @@ class Resolver(CloningVisitor):
                     param_types.append(ast.UnknownType())
 
         try:
-            return_type = CLICKHOUSE_FUNCTION_RETURN_TYPES[node.name]
+            return_type: ConstantType = CLICKHOUSE_FUNCTION_RETURN_TYPES[node.name]
         except KeyError:
             return_type = ast.UnknownType()
 
