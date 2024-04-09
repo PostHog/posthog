@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -9,7 +9,7 @@ overrides:
 
 patchedDependencies:
   rrweb@2.0.0-alpha.12:
-    hash: 2rbzexnjhaf34oglgkdlfbhwde
+    hash: t3xxecww6aodjl4qopwv6jdxmq
     path: patches/rrweb@2.0.0-alpha.12.patch
 
 dependencies:
@@ -327,7 +327,7 @@ dependencies:
     version: 1.5.1
   rrweb:
     specifier: 2.0.0-alpha.12
-    version: 2.0.0-alpha.12(patch_hash=2rbzexnjhaf34oglgkdlfbhwde)
+    version: 2.0.0-alpha.12(patch_hash=t3xxecww6aodjl4qopwv6jdxmq)
   sass:
     specifier: ^1.26.2
     version: 1.56.0
@@ -347,7 +347,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.2
+    version: 2.3.3
 
 devDependencies:
   '@babel/core':
@@ -12822,6 +12822,7 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
+    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -19156,7 +19157,7 @@ packages:
     resolution: {integrity: sha512-i4sz9469dbsEGFiBzCkq+7I7M+imPeC3NrKgrrdJ2tXu9H+/eegNe4SrQgCsLBeSZHZDHU0o9L5rxTAiapWbGg==}
     dev: false
 
-  /rrweb@2.0.0-alpha.12(patch_hash=2rbzexnjhaf34oglgkdlfbhwde):
+  /rrweb@2.0.0-alpha.12(patch_hash=t3xxecww6aodjl4qopwv6jdxmq):
     resolution: {integrity: sha512-lUGwBV7gmbwz1dIgzo9EEayIVyxoTIF6NBF6+Jctqs4Uy45QkyARtikpQlCUfxVCGTCQ0FOee9jeVYsG39oq1g==}
     dependencies:
       '@rrweb/types': 2.0.0-alpha.12
