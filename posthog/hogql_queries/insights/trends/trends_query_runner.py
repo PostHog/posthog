@@ -646,6 +646,7 @@ class TrendsQueryRunner(QueryRunner):
 
             base_result = result_group[0]
             base_result["label"] = f"Formula ({formula})"
+            base_result["action"] = None
 
             if aggregate_values:
                 base_result["aggregated_value"] = float(sum(new_series_data))
@@ -665,53 +666,32 @@ class TrendsQueryRunner(QueryRunner):
             sorted_results = sorted(results, key=itemgetter("compare_label"))
             computed_results = []
             for _, group in groupby(sorted_results, key=itemgetter("compare_label")):
-                group_list = list(group)
+                results_group = list(group)
 
                 if self._trends_display.should_aggregate_values():
-                    computed_result = apply_formula_to_result_group(group_list, aggregate_values=True)
+                    computed_result = apply_formula_to_result_group(results_group, aggregate_values=True)
                 else:
-                    computed_result = apply_formula_to_result_group(group_list)
+                    computed_result = apply_formula_to_result_group(results_group)
 
                 computed_results.append(computed_result)
             return computed_results
         # with breakdown
         elif self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
-            computed_results = []
             num_series = len(self.query.series)
             num_breakdown_values = int(len(results) / num_series)
+            computed_results = []
             for i in range(0, num_breakdown_values):
-                breakdown_results = [results[i], results[i + num_breakdown_values]]
-                series_data = [s["data"] for s in breakdown_results]
-                new_series_data = FormulaAST(series_data).call(formula)
-
-                new_result = breakdown_results[0]
-                new_result["data"] = new_series_data
-                new_result["count"] = float(sum(new_series_data))
-                new_result["action"] = None
-                new_result["label"] = f"Formula ({formula})"
-
-                computed_results.append(new_result)
+                results_group = [results[i], results[i + num_breakdown_values]]
+                computed_result = apply_formula_to_result_group(results_group)
+                computed_results.append(computed_result)
             return computed_results  # with total value aggregation
         elif self._trends_display.should_aggregate_values():
-            series_data = [[s["aggregated_value"]] for s in results]
-            new_series_data = FormulaAST(series_data).call(formula)
-
-            new_result = results[0]
-            new_result["aggregated_value"] = float(sum(new_series_data))
-            new_result["data"] = None
-            new_result["count"] = 0
-            new_result["label"] = f"Formula ({formula})"
-            return [new_result]
+            computed_result = apply_formula_to_result_group(results, aggregate_values=True)
+            return [computed_result]
         # default case
         else:
-            series_data = [s["data"] for s in results]
-            new_series_data = FormulaAST(series_data).call(formula)
-
-            new_result = results[0]
-            new_result["data"] = new_series_data
-            new_result["count"] = float(sum(new_series_data))
-            new_result["label"] = f"Formula ({formula})"
-            return [new_result]
+            computed_result = apply_formula_to_result_group(results)
+            return [computed_result]
 
     def _is_breakdown_field_boolean(self):
         if not self.query.breakdownFilter or not self.query.breakdownFilter.breakdown_type:
