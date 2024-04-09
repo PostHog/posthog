@@ -136,7 +136,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     44: ErrorCodeMeta("ILLEGAL_COLUMN"),
     45: ErrorCodeMeta("ILLEGAL_NUMBER_OF_RESULT_COLUMNS"),
     46: ErrorCodeMeta("UNKNOWN_FUNCTION", user_safe=True),
-    47: ErrorCodeMeta("UNKNOWN_IDENTIFIER"),
+    47: ErrorCodeMeta("UNKNOWN_IDENTIFIER", user_safe=True),
     48: ErrorCodeMeta("NOT_IMPLEMENTED"),
     49: ErrorCodeMeta("LOGICAL_ERROR"),
     50: ErrorCodeMeta("UNKNOWN_TYPE"),
