@@ -111,7 +111,7 @@ export class PersonState {
             // In the future, we won't even get or create a real Person for these events, and so
             // the `processPerson` boolean can be removed from this class altogether, as this class
             // shouldn't even need to be invoked.
-            const [person, _] = await this.createOrGetPerson()
+            const [person, _] = await promiseRetry(() => this.createOrGetPerson(), 'get_person_personless')
 
             // Ensure person properties don't propagate elsewhere, such as onto the event itself.
             person.properties = {}

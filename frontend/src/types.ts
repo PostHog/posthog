@@ -3011,6 +3011,8 @@ export interface AppContext {
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
     year_in_hog_url?: string
+    /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
+    suggested_users_with_access?: UserBasicType[]
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3593,6 +3595,7 @@ export interface SimpleDataWarehouseTable {
     id: string
     name: string
     columns: DatabaseSchemaQueryResponseField[]
+    row_count: number
 }
 
 export type BatchExportDestinationS3 = {
@@ -3832,4 +3835,19 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
+}
+
+export interface SourceFieldConfig {
+    name: string
+    label: string
+    type: string
+    required: boolean
+    placeholder: string
+}
+
+export interface SourceConfig {
+    name: ExternalDataSourceType
+    caption: string | React.ReactNode
+    fields: SourceFieldConfig[]
+    disabledReason?: string | null
 }
