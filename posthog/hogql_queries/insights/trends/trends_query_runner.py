@@ -384,14 +384,18 @@ class TrendsQueryRunner(QueryRunner):
             if series.aggregate_values:
                 series_object = {
                     "data": [],
-                    "days": [
-                        item.strftime(
-                            "%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else "")
-                        )
-                        for item in get_value("date", val)
-                    ]
-                    if response.columns and "date" in response.columns
-                    else [],
+                    "days": (
+                        [
+                            item.strftime(
+                                "%Y-%m-%d{}".format(
+                                    " %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""
+                                )
+                            )
+                            for item in get_value("date", val)
+                        ]
+                        if response.columns and "date" in response.columns
+                        else []
+                    ),
                     "count": 0,
                     "aggregated_value": get_value("total", val),
                     "label": "All events" if series_label is None else series_label,
@@ -668,15 +672,32 @@ class TrendsQueryRunner(QueryRunner):
                 new_result["count"] = 0
                 new_result["label"] = f"Formula ({formula})"
             else:
-                series_data = [s["data"] for s in results]
-                new_series_data = FormulaAST(series_data).call(formula)
+                if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
+                    new_results = []
+                    num_series = len(self.query.series)
+                    for i in range(0, len(results), num_series):
+                        breakdown_results = results[i : i + num_series]
+                        series_data = [s["data"] for s in breakdown_results]
+                        breakdown = breakdown_results[0]["breakdown_value"]
+                        new_series_data = FormulaAST(series_data).call(formula)
 
-                new_result = results[0]
-                new_result["data"] = new_series_data
-                new_result["count"] = float(sum(new_series_data))
-                new_result["label"] = f"Formula ({formula})"
+                        new_result = results[0]
+                        new_result["data"] = new_series_data
+                        new_result["count"] = float(sum(new_series_data))
+                        # TODO: build breakdown name for cohorts
+                        new_result["label"] = f"Formula ({formula}) - {breakdown}"
 
-            return [new_result]
+                        new_results.append(new_result)
+                    return new_results
+                else:
+                    series_data = [s["data"] for s in results]
+                    new_series_data = FormulaAST(series_data).call(formula)
+
+                    new_result = results[0]
+                    new_result["data"] = new_series_data
+                    new_result["count"] = float(sum(new_series_data))
+                    new_result["label"] = f"Formula ({formula})"
+                return [new_result]
         return []
 
     def _is_breakdown_field_boolean(self):

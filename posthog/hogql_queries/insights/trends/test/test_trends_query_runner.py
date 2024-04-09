@@ -1739,3 +1739,91 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
             2020, 1, 20, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
+
+    def test_trends_breakdown_with_formula(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="A+B"),
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
+        )
+
+        assert len(response.results) == 4
+
+        assert response.results[0]["label"] == f"Chrome"
+        assert response.results[0]["count"] == 9
+        assert response.results[1]["label"] == f"Firefox"
+        assert response.results[1]["count"] == 3
+
+    def test_trends_multiple_cohorts_with_formula(self):
+        self._create_test_events()
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p2",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p2",
+        )
+        cohort2.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="A+B"),
+            BreakdownFilter(breakdown_type=BreakdownType.cohort, breakdown=[cohort1.pk, cohort2.pk]),
+        )
+
+        assert len(response.results) == 2
+
+        assert response.results[0]["label"] == f"Formula (A+B) - {cohort1.pk}"
+        assert response.results[0]["count"] == 9
+        # assert response.results[1]["label"] == f"cohort p2"
+        assert response.results[1]["count"] == 3
+        # assert response.results[0]["data"] == [
+        #     0,
+        #     0,
+        #     1,
+        #     1,
+        #     1,
+        #     0,
+        #     1,
+        #     0,
+        #     1,
+        #     0,
+        #     1,
+        #     0,
+        # ]
+
+
+# TODO: add test with histogram
+# TODO: add test with total value
