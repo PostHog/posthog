@@ -21,7 +21,7 @@ from posthog.models.property import (
 from posthog.models.property.util import prop_filter_json_extract, parse_prop_grouped_clauses
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
-from posthog.utils import PersonOnEventsMode
+from posthog.utils import PersonOnEventsMode, relative_date_parse
 
 Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
@@ -478,10 +478,12 @@ class FOSSCohortQuery(EventQuery):
 
     def _get_entity_datetime_filters(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         if prop.explicit_datetime:
-            # Explicit datetime filter
+            # Explicit datetime filter, can be a relative or absolute date, follows same convention
+            # as all analytics datetime filters
             # TODO: Confirm if we need to validate the datetime
             date_param = f"{prepend}_explicit_date_{idx}"
-            return f"timestamp > %({date_param})s", {f"{date_param}": prop.explicit_datetime}
+            target_datetime = relative_date_parse(prop.explicit_datetime, self._team.timezone_info)
+            return f"timestamp > %({date_param})s", {f"{date_param}": target_datetime}
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)

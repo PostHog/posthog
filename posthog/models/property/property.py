@@ -120,15 +120,11 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
         "key",
         "value",
         "event_type",
-        "time_value",
-        "time_interval",
     ],
     BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
         "key",
         "value",
         "event_type",
-        "time_value",
-        "time_interval",
         "operator_value",
     ],
     BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: [
