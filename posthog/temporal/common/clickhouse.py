@@ -354,7 +354,7 @@ class ClickHouseClient:
         As pyarrow doesn't support async/await buffers, this method is sync and utilizes requests instead of aiohttp.
         """
         with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-            with pa.ipc.open_stream(pa.PythonFile(response.raw)) as reader:
+            with pa.ipc.open_stream(response.raw) as reader:
                 for batch in reader:
                     yield batch
 
