@@ -4,6 +4,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
@@ -15,6 +16,9 @@ function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Eleme
     const { closeSupportForm } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { sidePanelAvailable } = useValues(sidePanelStateLogic)
+    const { user } = useValues(userLogic)
+    // only allow authentication issues for logged out users
+    const blockNonAuthIssues = ![null, 'login'].includes(supportLogic.values.sendSupportRequest.target_area) && !user
 
     useEffect(() => {
         if (!isCloudOrDev) {
@@ -36,7 +40,17 @@ function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Eleme
                     <LemonButton form="support-modal-form" type="secondary" onClick={closeSupportForm}>
                         Cancel
                     </LemonButton>
-                    <LemonButton form="support-modal-form" htmlType="submit" type="primary" data-attr="submit">
+                    <LemonButton
+                        disabledReason={
+                            blockNonAuthIssues
+                                ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
+                                : null
+                        }
+                        form="support-modal-form"
+                        htmlType="submit"
+                        type="primary"
+                        data-attr="submit"
+                    >
                         Submit
                     </LemonButton>
                 </div>
