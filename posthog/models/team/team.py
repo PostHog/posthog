@@ -324,7 +324,6 @@ class Team(UUIDClassicModel):
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
-            # users can override our feature flag via extra_settings
             return posthoganalytics.feature_enabled(
                 "persons-on-events-person-id-no-override-properties-on-events",
                 str(self.uuid),
