@@ -158,7 +158,7 @@ def _screenshot_asset(
             if driver:
                 # If we encounter issues getting extra info we should silently fail rather than creating a new exception
                 try:
-                    all_logs = [x for x in driver.get_log("browser")]
+                    all_logs = list(driver.get_log("browser"))
                     scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
                 except Exception:
                     pass

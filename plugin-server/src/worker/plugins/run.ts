@@ -208,9 +208,13 @@ export async function runComposeWebhook(hub: Hub, event: PostHogEvent): Promise<
     )
 }
 
-export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
+export async function runProcessEvent(
+    hub: Hub,
+    event: PluginEvent,
+    runDeprecatedPlugins = true
+): Promise<PluginEvent | null> {
     const teamId = event.team_id
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent', runDeprecatedPlugins)
     let returnedEvent: PluginEvent | null = event
 
     const pluginsSucceeded: string[] = event.properties?.$plugins_succeeded || []
@@ -354,9 +358,12 @@ export async function runPluginTask(
 async function getPluginMethodsForTeam<M extends keyof VMMethods>(
     hub: Hub,
     teamId: number,
-    method: M
+    method: M,
+    runDeprecatedPlugins = true
 ): Promise<[PluginConfig, VMMethods[M]][]> {
-    const pluginConfigs = hub.pluginConfigsPerTeam.get(teamId) || []
+    const pluginConfigs = (hub.pluginConfigsPerTeam.get(teamId) || []).filter((pluginConfig: PluginConfig) =>
+        runDeprecatedPlugins ? true : !pluginConfig.plugin?.skipped_for_personless
+    )
     if (pluginConfigs.length === 0) {
         return []
     }

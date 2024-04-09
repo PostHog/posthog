@@ -164,7 +164,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
 
         assert len(dashboard_json["tiles"]) == 2
-        assert set((t["id"], t["color"]) for t in dashboard_json["tiles"]) == {
+        assert {(t["id"], t["color"]) for t in dashboard_json["tiles"]} == {
             (tile_ids[0], "purple"),
             (tile_ids[1], None),
         }

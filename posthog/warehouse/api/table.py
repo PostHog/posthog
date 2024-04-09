@@ -88,8 +88,8 @@ class SimpleTableSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseTable
-        fields = ["id", "name", "columns"]
-        read_only_fields = ["id", "name", "columns"]
+        fields = ["id", "name", "columns", "row_count"]
+        read_only_fields = ["id", "name", "columns", "row_count"]
 
     def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
         hogql_context = self.context.get("database", None)
