@@ -178,20 +178,20 @@ class UserAccessControl:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
-        return dict(team_id=self._team.id, resource=resource, resource_id=resource_id)  # type: ignore
+        return {"team_id": self._team.id, "resource": resource, "resource_id": resource_id}  # type: ignore
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
         """
         Used when checking overall access to a resource
         """
 
-        return dict(team_id=self._team.id, resource=resource, resource_id=None)  # type: ignore
+        return {"team_id": self._team.id, "resource": resource, "resource_id": None}  # type: ignore
 
     def _access_controls_filters_for_queryset(self, resource: APIScopeObject) -> dict:
         """
         Used to filter out IDs from a queryset based on access controls where the specific resource is denied access
         """
-        common_filters: dict[str, Any] = dict(resource=resource, resource_id__isnull=False)
+        common_filters: dict[str, Any] = {"resource": resource, "resource_id__isnull": False}
 
         if self._team and resource != "project":
             common_filters["team_id"] = self._team.id
