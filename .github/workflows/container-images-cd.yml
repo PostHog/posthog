@@ -93,7 +93,7 @@ jobs:
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}",
                         "context": ${{ toJson(github) }},
-                        "github_labels": ${{ toJson(steps.labels.outputs.labels }}
+                        "github_labels": ${{ toJson(steps.labels.outputs.labels) }}
                       }
 
             - name: Check for changes in plugins directory
