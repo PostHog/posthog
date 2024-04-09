@@ -6,7 +6,6 @@ from functools import lru_cache
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Union
 
-from sentry_sdk import set_context
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
@@ -202,7 +201,6 @@ def _prepare_query(
         rendered_sql = substitute_params(query, args)
         prepared_args = None
 
-    set_context("clickhouse", {"sql": rendered_sql})
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
     annotated_sql, tags = _annotate_tagged_query(formatted_sql, workload)
 

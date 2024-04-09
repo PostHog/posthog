@@ -9,6 +9,7 @@ from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
+from sentry_sdk.integrations.clickhouse_driver import ClickhouseDriverIntegration
 from posthog.git import get_git_commit_full
 
 from posthog.settings import get_from_env
@@ -145,7 +146,6 @@ def sentry_init() -> None:
         send_pii = get_from_env("SENTRY_SEND_PII", type_cast=bool, default=False)
 
         sentry_logging_level = logging.INFO if send_pii else logging.ERROR
-        sentry_logging = LoggingIntegration(level=sentry_logging_level, event_level=None)
         profiles_sample_rate = get_from_env("SENTRY_PROFILES_SAMPLE_RATE", type_cast=float, default=0.0)
 
         release = get_git_commit_full()
@@ -158,7 +158,8 @@ def sentry_init() -> None:
                 DjangoIntegration(),
                 CeleryIntegration(),
                 RedisIntegration(),
-                sentry_logging,
+                ClickhouseDriverIntegration(),
+                LoggingIntegration(level=sentry_logging_level, event_level=None),
             ],
             request_bodies="always" if send_pii else "never",
             max_value_length=4096,  # Increased from the default of 1024 to capture SQL statements in full
