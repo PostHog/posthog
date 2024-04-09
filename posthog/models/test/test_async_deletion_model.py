@@ -113,74 +113,21 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         deletion.refresh_from_db()
         self.assertIsNone(deletion.delete_verified_at)
 
-    @snapshot_clickhouse_queries
-    def test_mark_deletions_done_groups(self):
-        _create_event(
-            event_uuid=uuid4(),
-            event="event1",
-            team=self.teams[0],
-            distinct_id="1",
-            properties={"$group_1": "foo"},
-        )
-        _create_event(
-            event_uuid=uuid4(),
-            event="event1",
-            team=self.teams[0],
-            distinct_id="1",
-            properties={"$group_0": "bar"},
-        )
-        _create_event(
-            event_uuid=uuid4(),
-            event="event1",
-            team=self.teams[1],
-            distinct_id="1",
-            properties={"$group_0": "foo"},
-        )
-
-        deletion = AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Group,
-            team_id=self.teams[0].pk,
-            group_type_index=0,
-            key="foo",
-            created_by=self.user,
-        )
-
-        AsyncEventDeletion().mark_deletions_done()
-
-        deletion.refresh_from_db()
-        self.assertIsNotNone(deletion.delete_verified_at)
-
-    @snapshot_clickhouse_queries
-    def test_mark_deletions_done_groups_when_not_done(self):
-        _create_event(
-            event_uuid=uuid4(),
-            event="event1",
-            team=self.teams[0],
-            distinct_id="1",
-            properties={"$group_0": "foo"},
-        )
-
-        deletion = AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Group,
-            team_id=self.teams[0].pk,
-            group_type_index=0,
-            key="foo",
-            created_by=self.user,
-        )
-
-        AsyncEventDeletion().mark_deletions_done()
-
-        deletion.refresh_from_db()
-        self.assertIsNone(deletion.delete_verified_at)
-
     @snapshot_clickhouse_alter_queries
     def test_delete_teams(self):
         _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1")
+        _create_event(event_uuid=uuid4(), event="event2", team=self.teams[1], distinct_id="2")
 
         AsyncDeletion.objects.create(
             deletion_type=DeletionType.Team,
             team_id=self.teams[0].pk,
             key=str(self.teams[0].pk),
+            created_by=self.user,
+        )
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Team,
+            team_id=self.teams[1].pk,
+            key=str(self.teams[1].pk),
             created_by=self.user,
         )
 
@@ -251,64 +198,6 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         AsyncEventDeletion().run()
 
         self.assertRowCount(2)
-
-    @snapshot_clickhouse_alter_queries
-    def test_delete_group(self):
-        _create_event(
-            event_uuid=uuid4(),
-            event="event1",
-            team=self.teams[0],
-            distinct_id="1",
-            properties={"$group_0": "foo"},
-        )
-
-        AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Group,
-            team_id=self.teams[0].pk,
-            group_type_index=0,
-            key="foo",
-            created_by=self.user,
-        )
-
-        AsyncEventDeletion().run()
-
-        self.assertRowCount(0)
-
-    @snapshot_clickhouse_alter_queries
-    def test_delete_group_unrelated(self):
-        _create_event(
-            event_uuid=uuid4(),
-            event="event1",
-            team=self.teams[0],
-            distinct_id="1",
-            properties={"$group_1": "foo"},
-        )
-        _create_event(
-            event_uuid=uuid4(),
-            event="event1",
-            team=self.teams[0],
-            distinct_id="1",
-            properties={"$group_0": "bar"},
-        )
-        _create_event(
-            event_uuid=uuid4(),
-            event="event1",
-            team=self.teams[1],
-            distinct_id="1",
-            properties={"$group_0": "foo"},
-        )
-
-        AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Group,
-            team_id=self.teams[0].pk,
-            group_type_index=0,
-            key="foo",
-            created_by=self.user,
-        )
-
-        AsyncEventDeletion().run()
-
-        self.assertRowCount(3)
 
     @snapshot_clickhouse_alter_queries
     def test_delete_auxilary_models_via_team(self):

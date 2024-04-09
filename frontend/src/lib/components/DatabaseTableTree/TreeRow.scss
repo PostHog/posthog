@@ -1,4 +1,7 @@
 .TreeRow {
+    display: flex;
+    flex-direction: row;
+
     &:hover {
         cursor: pointer;
         background-color: var(--primary-bg-hover);

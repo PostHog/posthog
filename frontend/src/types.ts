@@ -104,7 +104,6 @@ export enum AvailableFeature {
     SECURITY_ASSESSMENT = 'security_assessment',
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
-    SUPPORT_SLAS = 'support_slas',
     BOOLEAN_FLAGS = 'boolean_flags',
     FEATURE_FLAGS_DATA_RETENTION = 'feature_flags_data_retention',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
@@ -148,6 +147,7 @@ export enum AvailableFeature {
     CUSTOMM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
+    SUPPORT_RESPONSE_TIME = 'support_response_time',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -652,6 +652,7 @@ export enum PropertyFilterType {
     Group = 'group',
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
+    DataWarehousePersonProperty = 'data_warehouse_person_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -676,6 +677,11 @@ export interface PersonPropertyFilter extends BasePropertyFilter {
 
 export interface DataWarehousePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.DataWarehouse
+    operator: PropertyOperator
+}
+
+export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.DataWarehousePersonProperty
     operator: PropertyOperator
 }
 
@@ -735,6 +741,7 @@ export type AnyPropertyFilter =
     | HogQLPropertyFilter
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -1439,6 +1446,7 @@ export interface BillingProductV2AddonType {
     usage_key?: string
     free_allocation?: number | null
     percentage_usage?: number
+    features: BillingV2FeatureType[]
 }
 export interface BillingV2Type {
     customer_id: string
@@ -1939,6 +1947,8 @@ export interface FilterType {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_hide_other_aggregation?: boolean | null
+    /** @asType integer */
+    breakdown_limit?: number | null
     aggregation_group_type_index?: number // Groups aggregation
 }
 
@@ -2698,6 +2708,7 @@ export interface PreflightStatus {
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
     object_storage: boolean
+    public_egress_ip_addresses?: string[]
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -3000,6 +3011,8 @@ export interface AppContext {
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
     year_in_hog_url?: string
+    /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
+    suggested_users_with_access?: UserBasicType[]
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3569,7 +3582,7 @@ export interface SimpleExternalDataSourceSchema {
     last_synced_at?: Dayjs
 }
 
-export interface ExternalDataPostgresSchema {
+export interface ExternalDataSourceSyncSchema {
     table: string
     should_sync: boolean
 }

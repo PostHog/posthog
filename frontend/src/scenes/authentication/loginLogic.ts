@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -93,7 +92,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         login: {
             defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
@@ -115,7 +114,7 @@ export const loginLogic = kea<loginLogicType>([
                         router.actions.push(urls.login2FA())
                         throw e
                     }
-                    if (values.featureFlags[FEATURE_FLAGS.REGION_SELECT] && code === 'invalid_credentials') {
+                    if (code === 'invalid_credentials') {
                         detail += ' Make sure you have selected the right data region.'
                     }
                     actions.setGeneralError(code, detail)

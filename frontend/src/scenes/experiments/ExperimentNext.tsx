@@ -56,8 +56,6 @@ export function ExperimentView(): JSX.Element {
                                     </div>
                                 </div>
                                 <Results />
-                                <ExperimentGoalModal experimentId={experimentId} />
-                                <ExperimentExposureModal experimentId={experimentId} />
                             </>
                         ) : (
                             <>
@@ -66,6 +64,8 @@ export function ExperimentView(): JSX.Element {
                                 {experiment.start_date && <NoResultsEmptyState />}
                             </>
                         )}
+                        <ExperimentGoalModal experimentId={experimentId} />
+                        <ExperimentExposureModal experimentId={experimentId} />
                         <SecondaryMetricsTable
                             experimentId={experiment.id}
                             onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}

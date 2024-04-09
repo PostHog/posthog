@@ -1678,7 +1678,9 @@
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS sessions_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_sessions
-  AS SELECT
+  AS
+  
+  SELECT
   
   `$session_id` as session_id,
   team_id,
@@ -1720,6 +1722,7 @@
   FROM posthog_test.sharded_events
   WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
   GROUP BY `$session_id`, team_id
+  
   
   '''
 # ---

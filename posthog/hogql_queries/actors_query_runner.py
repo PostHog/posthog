@@ -42,7 +42,7 @@ class ActorsQueryRunner(QueryRunner):
     def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
         return (
             {"session_id": session_id, "events": recordings_lookup[session_id]}
-            for session_id in set(event[2] for event in event_results)
+            for session_id in {event[2] for event in event_results}
             if session_id in recordings_lookup
         )
 
@@ -142,11 +142,11 @@ class ActorsQueryRunner(QueryRunner):
         source_alias = "source"
 
         return ast.JoinExpr(
-            table=ast.Field(chain=[self.strategy.origin]),
+            table=source_query,
+            alias=source_alias,
             next_join=ast.JoinExpr(
-                table=source_query,
+                table=ast.Field(chain=[self.strategy.origin]),
                 join_type="INNER JOIN",
-                alias=source_alias,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,

@@ -5,9 +5,8 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ReactNode } from 'react'
@@ -31,7 +30,6 @@ import { ChartDisplayType } from '~/types'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         isTrends,
@@ -63,8 +61,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isTrends &&
         !breakdownFilter?.breakdown_type &&
         !trendsFilter?.compare &&
-        (!display || display === ChartDisplayType.ActionsLineGraph) &&
-        featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL]
+        (!display || display === ChartDisplayType.ActionsLineGraph)
 
     const { showValueOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
