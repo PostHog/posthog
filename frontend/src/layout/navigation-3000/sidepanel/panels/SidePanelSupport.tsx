@@ -182,7 +182,7 @@ export const SidePanelSupport = (): JSX.Element => {
                         </ul>
                     </Section>
 
-                    {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
+                    {hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT) ? (
                         <>
                             <Section title="Ask an engineer">
                                 <p>Can't find what you need in the docs?</p>
@@ -274,7 +274,18 @@ export const SidePanelSupport = (): JSX.Element => {
                         </ul>
                     </Section>
 
-                    {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? null : (
+                    {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
+                        <Section title="More options">
+                            {isEmailFormOpen ? (
+                                <SupportFormBlock onCancel={() => closeEmailForm()} />
+                            ) : (
+                                <p>
+                                    Can't find what you need in the docs?{' '}
+                                    <Link onClick={() => openEmailForm()}>Email an engineer</Link>
+                                </p>
+                            )}
+                        </Section>
+                    ) : (
                         <Section title="Contact support">
                             <p>
                                 Due to our large userbase, we're unable to offer email support to organizations on the
