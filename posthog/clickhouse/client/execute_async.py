@@ -87,6 +87,10 @@ def execute_process_query(
     team = Team.objects.get(pk=team_id)
 
     query_status = manager.get_query_status()
+
+    if query_status.complete or query_status.error:
+        return
+
     query_status.error = True  # Assume error in case nothing below ends up working
 
     pickup_time = datetime.datetime.now(datetime.timezone.utc)
