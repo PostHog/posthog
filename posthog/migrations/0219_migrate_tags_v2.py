@@ -40,7 +40,7 @@ def forwards(apps, schema_editor):
         )
         insights = iter(insight_paginator.get_page(insight_page))
         for tags, team_id, insight_id in insights:
-            unique_tags = set(tagify(t) for t in tags if isinstance(t, str) and t.strip() != "")
+            unique_tags = {tagify(t) for t in tags if isinstance(t, str) and t.strip() != ""}
             for tag in unique_tags:
                 temp_tag = Tag(name=tag, team_id=team_id)
                 createables.append((temp_tag, TaggedItem(insight_id=insight_id, tag_id=temp_tag.id)))
@@ -66,7 +66,7 @@ def forwards(apps, schema_editor):
         )
         dashboards = iter(dashboard_paginator.get_page(dashboard_page))
         for tags, team_id, dashboard_id in dashboards:
-            unique_tags = set(tagify(t) for t in tags if isinstance(t, str) and t.strip() != "")
+            unique_tags = {tagify(t) for t in tags if isinstance(t, str) and t.strip() != ""}
             for tag in unique_tags:
                 temp_tag = Tag(name=tag, team_id=team_id)
                 createables.append(
