@@ -27,7 +27,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             logger.debug("No AsyncDeletion to perform")
             return
 
-        team_ids = list(set(row.team_id for row in deletions))
+        team_ids = list({row.team_id for row in deletions})
 
         logger.info(
             "Starting AsyncDeletion on `events` table in ClickHouse",
