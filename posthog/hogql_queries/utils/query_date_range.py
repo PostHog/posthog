@@ -51,15 +51,16 @@ class QueryDateRange:
             date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
                 self._date_range.date_to,
                 self._team.timezone_info,
-                always_truncate=True,
+                always_truncate=False,
                 now=self.now_with_timezone,
             )
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
 
-            date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
-            if is_relative:
+            if not self.is_hourly:
+                date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+            elif is_relative:
                 date_to = date_to.replace(minute=59, second=59, microsecond=999999)
 
         return date_to
