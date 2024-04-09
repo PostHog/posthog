@@ -307,9 +307,9 @@ export function ActionBanner(): JSX.Element {
         return (
             <LemonBanner type="info" className="mt-4">
                 You have stopped this experiment, and it is no longer collecting data. Because your results are not
-                significant, we don't recommend drawing any conclusions from them. You can reset the experiment, which
-                will delete any data so far, and restart the experiment at any point again. If this experiment is no
-                longer relevant, you can archive it.
+                significant, we don't recommend drawing any conclusions from them. You can reset the experiment
+                (deleting the data collected so far) and restart the experiment at any point again. If this experiment
+                is no longer relevant, you can archive it.
             </LemonBanner>
         )
     }
