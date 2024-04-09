@@ -11,6 +11,7 @@ from temporalio.common import RetryPolicy
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.data_imports.pipelines.helpers import aupdate_job_count
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
 from posthog.temporal.data_imports.pipelines.zendesk.credentials import ZendeskCredentialsToken
 from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
@@ -62,11 +63,14 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         database = source.job_inputs.get("database")
         schema = source.job_inputs.get("schema")
         schemas_to_sync = await sync_to_async(get_postgres_schemas)(host, port, database, user, password, schema)
-        await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
-            schemas_to_sync,
-            source_id=inputs.external_data_source_id,
-            team_id=inputs.team_id,
-        )
+    else:
+        schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source.source_type, ()))
+
+    await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
+        schemas_to_sync,
+        source_id=inputs.external_data_source_id,
+        team_id=inputs.team_id,
+    )
 
     schemas = await sync_to_async(get_active_schemas_for_source_id)(
         team_id=inputs.team_id, source_id=inputs.external_data_source_id
