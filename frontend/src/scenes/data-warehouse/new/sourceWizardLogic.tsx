@@ -388,6 +388,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     const logic = sourceFormLogic({ sourceConfig: values.selectedConnector })
                     logic.actions.submitSourceConnectionDetails()
                 } else {
+                    // Used for manual S3 file links
                     dataWarehouseTableLogic.actions.submitTable()
                 }
             }

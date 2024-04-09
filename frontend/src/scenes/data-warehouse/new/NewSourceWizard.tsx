@@ -62,7 +62,7 @@ export function NewSourceWizard(): JSX.Element {
                 </LemonButton>
             </div>
         )
-    }, [currentStep, isLoading])
+    }, [currentStep, isLoading, canGoNext, canGoBack, nextButtonText, showSkipButton])
 
     return (
         <>
