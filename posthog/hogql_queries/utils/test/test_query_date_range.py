@@ -114,6 +114,20 @@ class TestQueryDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-02-25T12:25:23.000Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-04-25T10:59:23.000Z"))
 
+    def test_yesterday(self):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        date_range = DateRange(date_from="-1dStart", date_to="-1dEnd", explicitDate=False)
+
+        query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.hour, now=now)
+
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-24T00:00:00.000000Z"))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-24T23:59:59.999999Z"))
+
+        query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.day, now=now)
+
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-24T00:00:00.000000Z"))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-24T23:59:59.999999Z"))
+
 
 class TestQueryDateRangeWithIntervals(APIBaseTest):
     def setUp(self):
