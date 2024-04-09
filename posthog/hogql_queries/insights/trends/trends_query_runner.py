@@ -634,6 +634,29 @@ class TrendsQueryRunner(QueryRunner):
         return series_with_extras
 
     def apply_formula(self, formula: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        def apply_formula_to_result_group(
+            result_group: List[Dict[str, Any]], aggregate_values: Optional[bool] = False
+        ) -> Dict[str, Any]:
+            """
+            Applies the formula to a list of results, resulting in a single, computed result.
+            """
+            data_key = "aggregated_value" if aggregate_values else "data"
+            series_data = [[s[data_key]] for s in result_group]
+            new_series_data = FormulaAST(series_data).call(formula)
+
+            base_result = result_group[0]
+            base_result["label"] = f"Formula ({formula})"
+
+            if aggregate_values:
+                base_result["aggregated_value"] = float(sum(new_series_data))
+                base_result["data"] = None
+                base_result["count"] = 0
+            else:
+                base_result["data"] = new_series_data
+                base_result["count"] = float(sum(new_series_data))
+
+            return base_result
+
         # empty results
         if len(results) == 0:
             return []
@@ -645,24 +668,11 @@ class TrendsQueryRunner(QueryRunner):
                 group_list = list(group)
 
                 if self._trends_display.should_aggregate_values():
-                    series_data = [[s["aggregated_value"]] for s in group_list]
-                    new_series_data = FormulaAST(series_data).call(formula)
-
-                    new_result = group_list[0]
-                    new_result["aggregated_value"] = float(sum(new_series_data))
-                    new_result["data"] = None
-                    new_result["count"] = 0
-                    new_result["label"] = f"Formula ({formula})"
-                    computed_results.append(new_result)
+                    computed_result = apply_formula_to_result_group(group_list, aggregate_values=True)
                 else:
-                    series_data = [s["data"] for s in group_list]
-                    new_series_data = FormulaAST(series_data).call(formula)
+                    computed_result = apply_formula_to_result_group(group_list)
 
-                    new_result = group_list[0]
-                    new_result["data"] = new_series_data
-                    new_result["count"] = float(sum(new_series_data))
-                    new_result["label"] = f"Formula ({formula})"
-                    computed_results.append(new_result)
+                computed_results.append(computed_result)
             return computed_results
         # with breakdown
         elif self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
