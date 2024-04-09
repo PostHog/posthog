@@ -247,6 +247,7 @@ export function CohortRelativeAndExactTimeField({
         cohortFilterLogicKey,
         onChange: _onChange,
     })
+    // TODO(nk): For backwards compatibility convert existing time units and intervals into new format
     // This replaces the old TimeUnit and TimeInterval filters
     // and combines them with a relative+exact time option.
     // This is more inline with rest of analytics filters and make things much nicer here.
