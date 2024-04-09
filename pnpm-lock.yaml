@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -254,8 +254,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.120.1
-    version: 1.120.1
+    specifier: 1.120.3
+    version: 1.120.3
   posthog-js-lite:
     specifier: 2.5.0
     version: 2.5.0
@@ -350,7 +350,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.2
+    version: 2.3.3
 
 devDependencies:
   '@babel/core':
@@ -12825,6 +12825,7 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
+    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -17456,8 +17457,8 @@ packages:
     resolution: {integrity: sha512-Urvlp0Vu9h3td0BVFWt0QXFJDoOZcaAD83XM9d91NKMKTVPZtfU0ysoxstIf5mw/ce9ZfuMgpWPaagrZI4rmSg==}
     dev: false
 
-  /posthog-js@1.120.1:
-    resolution: {integrity: sha512-TLvTjg0fbSOTyDcm4i1FJsrhrvflJ8cfZTZ+XO2W3LbL+jhTEUHcclxR/FlCu3/y+34VTolbmdg+x9+FTr+Ejw==}
+  /posthog-js@1.120.3:
+    resolution: {integrity: sha512-J5o2aRNIrSCt6/kei+UN9RhTpZDa9bcRkwkauhjrtCz9Ne3yjCP9phfIlP5HJrJBpNGIzK/YlFuy8/57Tw+piQ==}
     dependencies:
       fflate: 0.4.8
       preact: 10.20.1
