@@ -176,7 +176,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params
             { filters: _filters, q }, // hash params
-            { method, initial } // "location changed" event payload
+            { initial } // "location changed" event payload
         ) => {
             const insightMode =
                 mode === 'subscriptions'
@@ -223,7 +223,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             // reset the insight's state if we have to
-            if (initial || method === 'PUSH' || filters || q) {
+            if (initial || filters || q) {
                 if (insightId === 'new') {
                     const teamFilterTestAccounts = values.currentTeam?.test_account_filters_default_checked || false
                     values.insightLogicRef?.logic.actions.setInsight(
