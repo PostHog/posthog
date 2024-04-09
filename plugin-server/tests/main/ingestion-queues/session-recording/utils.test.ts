@@ -8,7 +8,6 @@ import {
     maxDefined,
     minDefined,
     parseKafkaMessage,
-    reduceRecordingMessages,
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
 import { KafkaProducerWrapper } from '../../../../src/utils/db/kafka-producer-wrapper'
 
