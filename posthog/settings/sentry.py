@@ -1,6 +1,7 @@
 import logging
 import os
 from datetime import timedelta
+from random import random
 
 import sentry_sdk
 from dateutil import parser
@@ -27,13 +28,12 @@ def before_send(event, hint):
     return event
 
 
-DECIDE_SAMPLE_RATE = 0.00001  # 0.001%
-
-
-def error_sampler(event, hint):
+def before_send_transaction(event, hint):
     url_string = event.get("request", {}).get("url")
-
     if url_string and "decide" in url_string:
+        DECIDE_SAMPLE_RATE = 0.00001  # 0.001%
+        should_sample = random() < DECIDE_SAMPLE_RATE
+
         transaction_start_time = event.get("start_timestamp")
         transaction_end_time = event.get("timestamp")
         if transaction_start_time and transaction_end_time:
@@ -45,17 +45,17 @@ def error_sampler(event, hint):
 
                 if duration >= timedelta(seconds=8):
                     # return all events for transactions that took more than 8 seconds
-                    return True
+                    return event
                 elif duration > timedelta(seconds=2):
                     # very high sample rate for transactions that took more than 2 seconds
-                    return 0.5
+                    return event if random() < 0.5 else None
 
             except Exception:
-                pass
+                return event if should_sample else None
 
-        return DECIDE_SAMPLE_RATE
-
-    return True
+        return event if should_sample else None
+    else:
+        return event
 
 
 def traces_sampler(sampling_context: dict) -> float:
@@ -162,11 +162,11 @@ def sentry_init() -> None:
             max_request_body_size="always" if send_pii else "never",
             max_value_length=8192,  # Increased from the default of 1024 to capture SQL statements in full
             sample_rate=1.0,
-            # Samplers return True if event should be sent, False if it should be dropped,
-            # or a float between 0 and 1 to send at that specific rate randomly
+            # Configures the sample rate for error events, in the range of 0.0 to 1.0 (default).
+            # If set to 0.1 only 10% of error events will be sent. Events are picked randomly.
             traces_sampler=traces_sampler,
-            error_sampler=error_sampler,
             before_send=before_send,
+            before_send_transaction=before_send_transaction,
             _experiments={
                 # https://docs.sentry.io/platforms/python/profiling/
                 # The profiles_sample_rate setting is relative to the traces_sample_rate setting.
