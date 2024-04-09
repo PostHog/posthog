@@ -83,7 +83,7 @@ class DataImportPipeline:
         # Remove any DLT tables from the counts
         filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
 
-        return {table_name: count for table_name, count in filtered_rows}
+        return dict(filtered_rows)
 
     async def run(self) -> Dict[str, int]:
         schemas = self._get_schemas()
