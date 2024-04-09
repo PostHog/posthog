@@ -75,6 +75,7 @@ const GLOBAL_EXPORT_PLUGINS = [
     'https://github.com/PostHog/rudderstack-posthog-plugin',
     'https://github.com/PostHog/salesforce-plugin',
     'https://github.com/PostHog/sendgrid-plugin',
+    'https://github.com/PostHog/posthog-loops-plugin',
 ]
 export const GLOBAL_PLUGINS = new Set([...PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR, ...GLOBAL_EXPORT_PLUGINS])
 

@@ -51,6 +51,11 @@ runs:
               cache-dependency-path: '**/requirements*.txt'
               token: ${{ inputs.token }}
 
+        # uv is a fast pip alternative: https://github.com/astral-sh/uv/
+        - name: Install uv
+          shell: bash
+          run: pip install uv
+
         - name: Determine if hogql-parser has changed compared to master
           shell: bash
           id: hogql-parser-diff
@@ -82,16 +87,10 @@ runs:
               pnpm install
               pnpm run build
 
-        - uses: syphar/restore-virtualenv@v1
-          id: cache-backend-tests
-          with:
-              custom_cache_key_element: v2
-
         - name: Install Python dependencies
-          if: steps.cache-backend-tests.outputs.cache-hit != 'true'
           shell: bash
           run: |
-              pip install -r requirements.txt -r requirements-dev.txt
+              uv pip install --system -r requirements.txt -r requirements-dev.txt
 
         - name: Install the working version of hogql-parser
           if: steps.hogql-parser-diff.outputs.changed == 'true'
@@ -117,7 +116,7 @@ runs:
               sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
               sudo ldconfig
               cd ..
-              pip install ./hogql_parser
+              uv pip install --system ./hogql_parser
 
         - name: Set up needed files
           shell: bash

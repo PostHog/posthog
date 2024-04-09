@@ -4,7 +4,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ExternalDataSourceType } from '~/types'
 
-import { SOURCE_DETAILS } from '../sourceModalLogic'
+import { SOURCE_DETAILS } from '../../new/sourceWizardLogic'
 import { sourceFormLogic } from './sourceFormLogic'
 
 interface SourceFormProps {

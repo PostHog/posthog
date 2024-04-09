@@ -94,6 +94,8 @@ export interface PluginsServerConfig {
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
+    INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled (only used by analytics-ingestion)
+    INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
@@ -389,6 +391,7 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
+    skipped_for_personless?: boolean
     public_jobs?: Record<string, JobSpec>
     log_level?: PluginLogLevel
 }
@@ -635,6 +638,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group2_created_at?: ClickHouseTimestamp
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
+    person_mode: 'full' | 'propertyless'
 }
 
 /** Parsed event row from ClickHouse. */
@@ -655,6 +659,7 @@ export interface ClickHouseEvent extends BaseEvent {
     group2_created_at?: DateTime | null
     group3_created_at?: DateTime | null
     group4_created_at?: DateTime | null
+    person_mode: 'full' | 'propertyless'
 }
 
 /** Event in a database-agnostic shape, AKA an ingestion event.
