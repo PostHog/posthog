@@ -2738,6 +2738,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response_json["result"][1]["count"], 1)
             self.assertEqual(response_json["timezone"], "UTC")
 
+    @skip("Compatibility issue CH 23.12 (see #21318)")
     def test_insight_funnels_hogql_aggregating_time_to_convert(self) -> None:
         with freeze_time("2012-01-15T04:01:34.000Z"):
             _create_person(team=self.team, distinct_ids=["1"], properties={"int_value": 1})
