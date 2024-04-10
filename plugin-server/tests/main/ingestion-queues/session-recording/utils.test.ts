@@ -590,6 +590,128 @@ describe('session-recording utils', () => {
             expect(parsedBatch.sessions[0].eventsByWindowId[otherWindowId]).toHaveLength(1)
             expect(parsedBatch.sessions).toMatchSnapshot()
         })
+
+        it('does not merge sessions for different teams', async () => {
+            const session = {
+                distinct_id: 'c3936f0b-875f-4992-8e8a-26499d1f3a0a',
+                $session_id: 'e38da031-6341-4db8-ab00-af04f91f9962',
+                $window_id: 'b8d205d5-dd89-4465-b2d5-eb4d1eceb3ea',
+            }
+            const eventUuids = Array.from(Array(3), () => new UUIDT().toString())
+
+            const messages: Message[] = [
+                // Three messages with the same distinct_id and $session_id but two different tokens
+                {
+                    headers: [{ token: Buffer.from('one_token') }],
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[0],
+                            distinct_id: session.distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[0],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            type: 6,
+                                            data: {},
+                                            timestamp: 123,
+                                        },
+                                    ],
+                                    ...session,
+                                },
+                            }),
+                            token: 'one_token',
+                        })
+                    ),
+                    timestamp: 100,
+                    size: 5,
+                    topic: 'the_topic',
+                    offset: 232,
+                    partition: 1,
+                },
+                {
+                    headers: [{ token: Buffer.from('one_token') }],
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[0],
+                            distinct_id: session.distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[0],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            type: 6,
+                                            data: {},
+                                            timestamp: 124,
+                                        },
+                                    ],
+                                    ...session,
+                                },
+                            }),
+                            token: 'one_token',
+                        })
+                    ),
+                    timestamp: 101,
+                    size: 4,
+                    topic: 'the_topic',
+                    offset: 233,
+                    partition: 1,
+                },
+                {
+                    headers: [{ token: Buffer.from('another_token') }],
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: eventUuids[0],
+                            distinct_id: session.distinct_id,
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: eventUuids[0],
+                                event: '$snapshot_items',
+                                properties: {
+                                    $snapshot_items: [
+                                        {
+                                            type: 6,
+                                            data: {},
+                                            timestamp: 127,
+                                        },
+                                    ],
+                                    ...session,
+                                },
+                            }),
+                            token: 'another_token',
+                        })
+                    ),
+                    timestamp: 103,
+                    size: 20,
+                    topic: 'the_topic',
+                    offset: 234,
+                    partition: 1,
+                },
+            ]
+
+            const parsedBatch = await parseKafkaBatch(
+                messages,
+                (token: string) =>
+                    Promise.resolve({
+                        teamId: token.length,
+                        consoleLogIngestionEnabled: true,
+                    }),
+                fakeProducer
+            )
+
+            // Check aggregated session data
+            expect(parsedBatch.sessions).toHaveLength(2)
+            expect(parsedBatch.sessions[0].team_id).toEqual(9)
+            expect(parsedBatch.sessions[1].team_id).toEqual(13)
+            expect(parsedBatch.sessions).toMatchSnapshot()
+        })
     })
 
     describe('allSettledWithConcurrency', () => {

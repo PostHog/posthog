@@ -199,6 +199,72 @@ Array [
 ]
 `;
 
+exports[`session-recording utils parseKafkaBatch does not merge sessions for different teams 1`] = `
+Array [
+  Object {
+    "distinct_id": "c3936f0b-875f-4992-8e8a-26499d1f3a0a",
+    "eventsByWindowId": Object {
+      "b8d205d5-dd89-4465-b2d5-eb4d1eceb3ea": Array [
+        Object {
+          "data": Object {},
+          "timestamp": 123,
+          "type": 6,
+        },
+        Object {
+          "data": Object {},
+          "timestamp": 124,
+          "type": 6,
+        },
+      ],
+    },
+    "eventsRange": Object {
+      "end": 124,
+      "start": 123,
+    },
+    "metadata": Object {
+      "consoleLogIngestionEnabled": true,
+      "highOffset": 233,
+      "lowOffset": 232,
+      "partition": 1,
+      "rawSize": 9,
+      "timestamp": 100,
+      "topic": "the_topic",
+    },
+    "session_id": "e38da031-6341-4db8-ab00-af04f91f9962",
+    "snapshot_source": undefined,
+    "team_id": 9,
+  },
+  Object {
+    "distinct_id": "c3936f0b-875f-4992-8e8a-26499d1f3a0a",
+    "eventsByWindowId": Object {
+      "b8d205d5-dd89-4465-b2d5-eb4d1eceb3ea": Array [
+        Object {
+          "data": Object {},
+          "timestamp": 127,
+          "type": 6,
+        },
+      ],
+    },
+    "eventsRange": Object {
+      "end": 127,
+      "start": 127,
+    },
+    "metadata": Object {
+      "consoleLogIngestionEnabled": true,
+      "highOffset": 234,
+      "lowOffset": 234,
+      "partition": 1,
+      "rawSize": 20,
+      "timestamp": 103,
+      "topic": "the_topic",
+    },
+    "session_id": "e38da031-6341-4db8-ab00-af04f91f9962",
+    "snapshot_source": undefined,
+    "team_id": 13,
+  },
+]
+`;
+
 exports[`session-recording utils parseKafkaMessage can parse a message correctly 1`] = `
 Object {
   "distinct_id": "my-distinct-id",
