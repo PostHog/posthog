@@ -1,16 +1,120 @@
+import { captureException } from '@sentry/node'
+import { DateTime } from 'luxon'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
-import { PluginsServerConfig } from '../../../types'
+import { PipelineEvent, PluginsServerConfig, RawEventMessage, TimestampFormat } from '../../../types'
+import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
-import { KAFKA_CONSUMER_GROUP_ID, KAFKA_CONSUMER_SESSION_TIMEOUT_MS } from './session-recordings-consumer'
+import { castTimestampOrNow } from '../../../utils/utils'
+import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
+import { eventDroppedCounter } from '../metrics'
+import {
+    KAFKA_CONSUMER_GROUP_ID,
+    KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
+    TeamIDWithConfig,
+} from './session-recordings-consumer'
 import { HeatmapEvent, IncomingHeatmapEventMessage } from './types'
+import { readTokenFromHeaders } from './utils'
 
-function parsedHeatmapMessages(_incomingMessages: IncomingHeatmapEventMessage[]): HeatmapEvent[] {
-    return []
+function isPositiveNumber(x: unknown): x is number {
+    return typeof x === 'number' && x > 0
+}
+
+export const parseKafkaMessage = async (
+    message: Message,
+    getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
+): Promise<IncomingHeatmapEventMessage | void> => {
+    const dropMessage = (reason: string, extra?: Record<string, any>) => {
+        eventDroppedCounter
+            .labels({
+                event_type: 'session_recordings_heatmap_ingestion',
+                drop_cause: reason,
+            })
+            .inc()
+
+        status.warn('⚠️', 'invalid_message', {
+            reason,
+            partition: message.partition,
+            offset: message.offset,
+            ...(extra || {}),
+        })
+    }
+
+    if (!message.value || !message.timestamp) {
+        // Typing says this can happen but in practice it shouldn't
+        return dropMessage('message_value_or_timestamp_is_empty')
+    }
+
+    const headerResult = await readTokenFromHeaders(message.headers, getTeamFn)
+    const token: string | undefined = headerResult.token
+    const teamIdWithConfig: null | TeamIDWithConfig = headerResult.teamIdWithConfig
+
+    if (!token) {
+        return dropMessage('no_token_in_header')
+    }
+
+    // NB `==` so we're comparing undefined and null
+    // if token was in the headers but, we could not load team config
+    // then, we can return early
+    if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
+        return dropMessage('header_token_present_team_missing_or_disabled', {
+            token: token,
+        })
+    }
+
+    let messagePayload: RawEventMessage
+    let event: PipelineEvent
+
+    try {
+        messagePayload = JSON.parse(message.value.toString())
+        event = JSON.parse(messagePayload.data)
+    } catch (error) {
+        return dropMessage('invalid_json', { error })
+    }
+
+    // TODO are we receiving some scroll values too ?
+    const { screen_height, screen_width, $session_id, x, y } = event.properties || {}
+
+    // NOTE: This is simple validation - ideally we should do proper schema based validation
+    if (
+        event.event !== '$heatmap' &&
+        isPositiveNumber(screen_height) &&
+        isPositiveNumber(screen_width) &&
+        isPositiveNumber(x) &&
+        isPositiveNumber(y) &&
+        !!$session_id
+    ) {
+        return dropMessage('received_non_heatmap_message')
+    }
+
+    return {
+        metadata: {
+            partition: message.partition,
+            topic: message.topic,
+            timestamp: message.timestamp,
+        },
+        team_id: teamIdWithConfig?.teamId,
+        screen_height,
+        screen_width,
+        session_id: $session_id,
+        x,
+        y,
+    }
+}
+
+function parsedHeatmapMessages(incomingMessages: IncomingHeatmapEventMessage[]): HeatmapEvent[] {
+    return incomingMessages.map((rhe) => ({
+        ...rhe,
+        quadrant_x: Math.ceil(rhe.x / 16),
+        quadrant_y: Math.ceil(rhe.y / 16),
+        resolution: 16,
+        timestamp: castTimestampOrNow(DateTime.fromMillis(rhe.metadata.timestamp), TimestampFormat.ClickHouse),
+    }))
 }
 
 /*
@@ -29,13 +133,25 @@ function parsedHeatmapMessages(_incomingMessages: IncomingHeatmapEventMessage[])
 export class HeatmapEventIngester {
     batchConsumer?: BatchConsumer
     config: PluginsServerConfig
+    teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
 
     // TODO these are the hooks we'd use if we needed to add overflow in future
     consumerGroupId: string = KAFKA_CONSUMER_GROUP_ID
     topic: string = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
 
-    constructor(private globalServerConfig: PluginsServerConfig) {
+    constructor(private globalServerConfig: PluginsServerConfig, private postgres: PostgresRouter) {
         this.config = sessionRecordingConsumerConfig(globalServerConfig)
+
+        this.teamsRefresher = new BackgroundRefresher(async () => {
+            try {
+                status.info('🔁', 'heatmap_ingester_consumer - refreshing teams in the background')
+                return await fetchTeamTokensWithRecordings(this.postgres)
+            } catch (e) {
+                status.error('🔥', 'heatmap_ingester_consumer - failed to refresh teams in the background', e)
+                captureException(e)
+                throw e
+            }
+        })
     }
 
     private async consume(_message: HeatmapEvent) {}
@@ -55,6 +171,24 @@ export class HeatmapEventIngester {
         // we write the event onwards to land in ClickHouse
 
         const incomingMessages: IncomingHeatmapEventMessage[] = []
+
+        for (const m of messages) {
+            const parsedToIncoming = await parseKafkaMessage(m, (token) =>
+                this.teamsRefresher.get().then((teams) => ({
+                    teamId: teams[token]?.teamId || null,
+                    // lazily reusing value here even though it doesn't make sense
+                    consoleLogIngestionEnabled: false,
+                }))
+            )
+            if (parsedToIncoming) {
+                incomingMessages.push(parsedToIncoming)
+            }
+        }
+
+        status.info('🔁', `heatmap_ingester_consumer - filtered batch`, {
+            size: messages.length,
+            filteredSize: incomingMessages.length,
+        })
 
         const parsedMessages: HeatmapEvent[] = parsedHeatmapMessages(incomingMessages)
 

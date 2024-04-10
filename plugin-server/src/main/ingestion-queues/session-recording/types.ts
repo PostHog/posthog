@@ -2,7 +2,7 @@
 
 import { RRWebEvent } from '../../../types'
 
-export type HeatmapEvent = {
+export type RawHeatmapEvent = {
     /**
      * session id lets us offer example recordings on high traffic parts of the page,
      * and could let us offer more advanced filtering of heatmap data
@@ -16,6 +16,9 @@ export type HeatmapEvent = {
     x: number
     // the original Y value, we are likely to throw this away in any aggregation
     y: number
+}
+
+export type HeatmapEvent = RawHeatmapEvent & {
     // quadrant x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
     quadrant_x: number
     // quadrant y is the y with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
@@ -24,15 +27,13 @@ export type HeatmapEvent = {
     timestamp: string // is it?
 }
 
-export type IncomingHeatmapEventMessage = {
+export type IncomingHeatmapEventMessage = RawHeatmapEvent & {
     metadata: {
         topic: string
         partition: number
         timestamp: number
     }
-
     team_id: number
-    // ??
 }
 
 export type IncomingRecordingMessage = {
