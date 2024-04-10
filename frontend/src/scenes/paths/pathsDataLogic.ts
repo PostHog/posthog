@@ -50,12 +50,13 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'insightDataLoading',
                 'insightDataError',
                 'pathsFilter',
+                'funnelPathsFilter',
                 'dateRange',
             ],
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
 
     actions({
@@ -111,7 +112,8 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         ],
         hogQLInsightsPathsFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS],
+            (featureFlags) =>
+                !!(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS]),
         ],
     }),
 

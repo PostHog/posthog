@@ -8,7 +8,13 @@ import { userLogic } from 'scenes/userLogic'
 import { DataWarehouseTable } from '~/types'
 
 import { dataWarehouseSavedQueriesLogic } from '../saved_queries/dataWarehouseSavedQueriesLogic'
-import { DatabaseTableListRow, DataWarehouseRowType, DataWarehouseSceneTab, DataWarehouseTableType } from '../types'
+import {
+    DatabaseTableListRow,
+    DataWarehouseExternalTableType,
+    DataWarehouseRowType,
+    DataWarehouseSceneTab,
+    DataWarehouseTableType,
+} from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
@@ -18,31 +24,30 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             userLogic,
             ['user'],
             databaseTableListLogic,
-            ['filteredTables', 'dataWarehouse'],
+            ['filteredTables', 'dataWarehouse', 'dataWarehouseLoading', 'databaseLoading'],
             dataWarehouseSavedQueriesLogic,
-            ['savedQueries'],
+            ['savedQueries', 'dataWarehouseSavedQueriesLoading'],
             featureFlagLogic,
             ['featureFlags'],
         ],
         actions: [
             dataWarehouseSavedQueriesLogic,
-            ['deleteDataWarehouseSavedQuery'],
+            [
+                'loadDataWarehouseSavedQueries',
+                'deleteDataWarehouseSavedQuery',
+                'updateDataWarehouseSavedQuery',
+                'updateDataWarehouseSavedQuerySuccess',
+            ],
             databaseTableListLogic,
             ['loadDataWarehouse', 'deleteDataWarehouseTable'],
         ],
     })),
     actions({
-        toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
         selectRow: (row: DataWarehouseTableType | null) => ({ row }),
         setSceneTab: (tab: DataWarehouseSceneTab) => ({ tab }),
+        setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
     }),
     reducers({
-        isSourceModalOpen: [
-            false,
-            {
-                toggleSourceModal: (state, { isOpen }) => (isOpen != undefined ? isOpen : !state),
-            },
-        ],
         selectedRow: [
             null as DataWarehouseTableType | null,
             {
@@ -53,6 +58,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             DataWarehouseSceneTab.Tables as DataWarehouseSceneTab,
             {
                 setSceneTab: (_state, { tab }) => tab,
+            },
+        ],
+        isEditingSavedQuery: [
+            false,
+            {
+                setIsEditingSavedQuery: (_, { isEditingSavedQuery }) => isEditingSavedQuery,
             },
         ],
     }),
@@ -132,6 +143,26 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 return [...externalTables, ...posthogTables, ...savedQueriesFormatted]
             },
         ],
+        externalTablesBySourceType: [
+            (s) => [s.externalTables],
+            (externalTables): Record<string, DataWarehouseTableType[]> => {
+                return externalTables.reduce((acc: Record<string, DataWarehouseTableType[]>, table) => {
+                    table = table as DataWarehouseExternalTableType
+                    if (table.payload.external_data_source) {
+                        if (!acc[table.payload.external_data_source.source_type]) {
+                            acc[table.payload.external_data_source.source_type] = []
+                        }
+                        acc[table.payload.external_data_source.source_type].push(table)
+                    } else {
+                        if (!acc['S3']) {
+                            acc['S3'] = []
+                        }
+                        acc['S3'].push(table)
+                    }
+                    return acc
+                }, {})
+            },
+        ],
     }),
     listeners(({ actions }) => ({
         deleteDataWarehouseSavedQuery: async (view) => {
@@ -141,6 +172,13 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         deleteDataWarehouseTable: async (table) => {
             actions.selectRow(null)
             lemonToast.success(`${table.name} successfully deleted`)
+        },
+        selectRow: () => {
+            actions.setIsEditingSavedQuery(false)
+        },
+        updateDataWarehouseSavedQuerySuccess: async (_, view) => {
+            actions.setIsEditingSavedQuery(false)
+            lemonToast.success(`${view.name} successfully updated`)
         },
     })),
     afterMount(({ actions, values }) => {

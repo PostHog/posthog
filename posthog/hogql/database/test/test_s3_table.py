@@ -5,7 +5,7 @@ from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.test.base import BaseTest
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 
 
 class TestS3Table(BaseTest):
@@ -176,7 +176,7 @@ class TestS3Table(BaseTest):
         escaped_table = create_aapl_stock_s3_table(name="some%(asd)sname")
         self.database.add_warehouse_tables(**{"some%(asd)sname": escaped_table})
 
-        with self.assertRaises(HogQLException) as context:
+        with self.assertRaises(ExposedHogQLError) as context:
             self._select(query='SELECT * FROM "some%(asd)sname" LIMIT 10', dialect="clickhouse")
             self.assertTrue("Alias \"some%(asd)sname\" contains unsupported character '%'" in str(context.exception))
 

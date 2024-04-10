@@ -236,6 +236,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
         assert response.results
 
@@ -831,7 +832,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             else:
                 raise ValidationError("Data warehouse nodes are not supported here")
 
-        return sorted(list(events))
+        return sorted(events)
 
     @property
     def properties_to_include(self) -> List[str]:

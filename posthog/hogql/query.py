@@ -4,7 +4,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -28,6 +28,7 @@ INCREASED_MAX_EXECUTION_TIME = 600
 def execute_hogql_query(
     query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
     team: Team,
+    *,
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
     placeholders: Optional[Dict[str, ast.Expr]] = None,
@@ -56,7 +57,7 @@ def execute_hogql_query(
         placeholders = placeholders or {}
 
         if "filters" in placeholders and filters is not None:
-            raise HogQLException(
+            raise ValueError(
                 f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
             )
         if "filters" in placeholders_in_query:
@@ -65,7 +66,7 @@ def execute_hogql_query(
 
         if len(placeholders_in_query) > 0:
             if len(placeholders) == 0:
-                raise HogQLException(
+                raise ValueError(
                     f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(placeholders_in_query)}"
                 )
             select_query = replace_placeholders(select_query, placeholders)
@@ -147,6 +148,7 @@ def execute_hogql_query(
             has_joins="JOIN" in clickhouse_sql,
             has_json_operations="JSONExtract" in clickhouse_sql or "JSONHas" in clickhouse_sql,
             timings=timings_dict,
+            modifiers={k: v for k, v in modifiers.model_dump().items() if v is not None} if modifiers else {},
         )
 
         error = None
@@ -162,7 +164,7 @@ def execute_hogql_query(
         except Exception as e:
             if explain:
                 results, types = None, None
-                if isinstance(e, (ExposedCHQueryError, HogQLException)):
+                if isinstance(e, (ExposedCHQueryError, ExposedHogQLError)):
                     error = str(e)
                 else:
                     error = "Unknown error"

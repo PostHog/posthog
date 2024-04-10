@@ -357,10 +357,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => null,
                 loadDataFailure: (_, { error, errorObject }) => {
                     if (errorObject && 'error' in errorObject) {
-                        return errorObject.error
+                        return errorObject.error ?? 'Error loading data'
                     }
                     if (errorObject && 'detail' in errorObject) {
-                        return errorObject.detail
+                        return errorObject.detail ?? 'Error loading data'
                     }
                     return error ?? 'Error loading data'
                 },
@@ -384,7 +384,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         hogQLInsightsRetentionFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION],
+            (featureFlags) =>
+                !!(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]),
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [

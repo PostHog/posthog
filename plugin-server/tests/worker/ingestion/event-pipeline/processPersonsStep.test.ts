@@ -1,8 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 
 import { Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
+import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { createOrganization, createTeam, fetchPostgresPersons, resetTestDatabase } from '../../../helpers/sql'
 
@@ -14,6 +16,7 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
     let uuid: string
     let teamId: number
     let pluginEvent: PluginEvent
+    let timestamp: DateTime
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -42,13 +45,15 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
             },
             uuid: uuid,
         }
+        timestamp = DateTime.fromISO(pluginEvent.timestamp!)
     })
     afterEach(async () => {
         await closeHub?.()
     })
 
     it('creates person', async () => {
-        const [resEvent, resPerson] = await processPersonsStep(runner, pluginEvent)
+        const processPerson = true
+        const [resEvent, resPerson] = await processPersonsStep(runner, pluginEvent, timestamp, processPerson)
 
         expect(resEvent).toEqual(pluginEvent)
         expect(resPerson).toEqual(
@@ -67,7 +72,7 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
         expect(persons).toEqual([resPerson])
     })
 
-    it('re-normalizes the event with properties set by plugins', async () => {
+    it('creates event with normalized properties set by plugins', async () => {
         const event = {
             ...pluginEvent,
             properties: {
@@ -77,7 +82,10 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
                 someProp: 'value',
             },
         }
-        const [resEvent, resPerson] = await processPersonsStep(runner, event)
+
+        const processPerson = true
+        const [normalizedEvent, timestamp] = await normalizeEventStep(event, processPerson)
+        const [resEvent, resPerson] = await processPersonsStep(runner, normalizedEvent, timestamp, processPerson)
 
         expect(resEvent).toEqual({
             ...event,

@@ -1,5 +1,5 @@
 import uuid
-from typing import Any
+from typing import Any, List, Tuple, Dict
 
 import structlog
 from rest_framework import filters, serializers, status, viewsets
@@ -20,6 +20,7 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
+from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
@@ -69,7 +70,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
-        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True).data
+        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -96,6 +97,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["source_id"]
     ordering = "-created_at"
+
+    def get_serializer_context(self) -> Dict[str, Any]:
+        context = super().get_serializer_context()
+        context["database"] = create_hogql_database(team_id=self.team_id)
+        return context
 
     def get_queryset(self):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
@@ -136,9 +142,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_stripe_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.HUBSPOT:
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.ZENDESK:
+            new_source_model = self._handle_zendesk_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.POSTGRES:
             try:
-                new_source_model, table_names = self._handle_postgres_source(request, *args, **kwargs)
+                new_source_model, postgres_schemas = self._handle_postgres_source(request, *args, **kwargs)
             except InternalPostgresError:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST, data={"message": "Cannot use internal Postgres database"}
@@ -148,17 +156,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
+        payload = request.data["payload"]
+        enabled_schemas = payload.get("schemas", None)
         if source_type == ExternalDataSource.Type.POSTGRES:
-            schemas = tuple(table_names)
+            default_schemas = postgres_schemas
         else:
-            schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+            default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
-        for schema in schemas:
-            ExternalDataSchema.objects.create(
-                name=schema,
-                team=self.team,
-                source=new_source_model,
-            )
+        # Fallback to defaults if schemas is missing
+        if enabled_schemas is None:
+            enabled_schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+
+        disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
+
+        for schema in enabled_schemas:
+            ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=True)
+        for schema in disabled_schemas:
+            ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=False)
 
         try:
             sync_external_data_job_workflow(new_source_model, create=True)
@@ -171,6 +185,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         client_secret = payload.get("client_secret")
+        account_id = payload.get("account_id")
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        # TODO: remove dummy vars
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_zendesk_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        api_key = payload.get("api_key")
+        subdomain = payload.get("subdomain")
+        email_address = payload.get("email_address")
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
@@ -183,7 +220,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={
-                "stripe_secret_key": client_secret,
+                "zendesk_login_method": "api_key",  # We should support the Zendesk OAuth flow in the future, and so with this we can do backwards compatibility
+                "zendesk_api_key": api_key,
+                "zendesk_subdomain": subdomain,
+                "zendesk_email_address": email_address,
             },
             prefix=prefix,
         )
@@ -216,7 +256,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
-    def _handle_postgres_source(self, request: Request, *args: Any, **kwargs: Any) -> tuple[ExternalDataSource, list]:
+    def _handle_postgres_source(
+        self, request: Request, *args: Any, **kwargs: Any
+    ) -> Tuple[ExternalDataSource, List[Any]]:
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
@@ -228,7 +270,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = payload.get("user")
         password = payload.get("password")
         schema = payload.get("schema")
-        table_names = payload.get("schemas")
 
         if not self._validate_postgres_host(host, self.team_id):
             raise InternalPostgresError()
@@ -251,7 +292,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             prefix=prefix,
         )
 
-        return new_source_model, table_names
+        schemas = get_postgres_schemas(host, port, database, user, password, schema)
+
+        return new_source_model, schemas
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()
@@ -318,38 +361,76 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
-        host = request.data.get("host", None)
-        port = request.data.get("port", None)
-        database = request.data.get("dbname", None)
+        source_type = request.data.get("source_type", None)
 
-        user = request.data.get("user", None)
-        password = request.data.get("password", None)
-        schema = request.data.get("schema", None)
-
-        if not host or not port or not database or not user or not password or not schema:
+        if source_type is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Missing required parameters: host, port, database, user, password, schema"},
+                data={"message": "Missing required parameter: source_type"},
             )
 
-        # Validate internal postgres
-        if not self._validate_postgres_host(host, self.team_id):
+        if source_type == ExternalDataSource.Type.POSTGRES:
+            host = request.data.get("host", None)
+            port = request.data.get("port", None)
+            database = request.data.get("dbname", None)
+
+            user = request.data.get("user", None)
+            password = request.data.get("password", None)
+            schema = request.data.get("schema", None)
+
+            if not host or not port or not database or not user or not password or not schema:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameters: host, port, database, user, password, schema"},
+                )
+
+            # Validate internal postgres
+            if not self._validate_postgres_host(host, self.team_id):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Cannot use internal Postgres database"},
+                )
+
+            try:
+                result = get_postgres_schemas(host, port, database, user, password, schema)
+            except Exception as e:
+                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": "Could not fetch Postgres schemas. Please check all connection details are valid."
+                    },
+                )
+
+            result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+
+        # Return the possible endpoints for all other source types
+        schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source_type, None)
+        if schemas is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Cannot use internal Postgres database"},
+                data={"message": "Invalid parameter: source_type"},
             )
 
-        try:
-            result = get_postgres_schemas(host, port, database, user, password, schema)
-        except Exception as e:
-            logger.exception("Could not fetch Postgres schemas", exc_info=e)
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Could not fetch Postgres schemas. Please check all connection details are valid."},
-            )
+        options = [{"table": row, "should_sync": False} for row in schemas]
+        return Response(status=status.HTTP_200_OK, data=options)
 
-        result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
-        return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+    @action(methods=["POST"], detail=False)
+    def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        if self.prefix_required(source_type):
+            if not prefix:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Source type already exists. Prefix is required"},
+                )
+            elif self.prefix_exists(source_type, prefix):
+                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+
+        return Response(status=status.HTTP_200_OK)
 
     def _validate_postgres_host(self, host: str, team_id: int) -> bool:
         if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):

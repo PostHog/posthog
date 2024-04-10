@@ -31,7 +31,7 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
             events.add(entity.id)
 
     entity_query = f"AND event IN %(events_list)s"
-    entity_params = {"events_list": sorted(list(events))}
+    entity_params = {"events_list": sorted(events)}
 
     events_result = sync_execute(
         f"""

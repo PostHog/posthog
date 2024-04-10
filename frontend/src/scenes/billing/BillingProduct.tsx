@@ -586,9 +586,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="pb-8">
                             <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
-                                {product.addons.map((addon, i) => {
-                                    return <BillingProductAddon key={i} addon={addon} />
-                                })}
+                                {product.addons
+                                    .filter((addon) => !addon.inclusion_only)
+                                    .map((addon, i) => {
+                                        return <BillingProductAddon key={i} addon={addon} />
+                                    })}
                             </div>
                         </div>
                     )}
@@ -611,7 +613,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
                                 <>
                                     <p className="ml-0 max-w-200">
-                                        {product.subscribed
+                                        {!upgradePlan && product.subscribed
                                             ? 'You now'
                                             : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
                                             ? 'Subscribe to'

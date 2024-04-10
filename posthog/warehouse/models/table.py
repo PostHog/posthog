@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 from django.db import models
 
 from posthog.client import sync_execute
@@ -98,6 +98,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
+    row_count: models.IntegerField = models.IntegerField(
+        null=True, help_text="How many rows are currently synced in this table"
+    )
+
     __repr__ = sane_repr("name")
 
     def table_name_without_prefix(self) -> str:
@@ -163,7 +167,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             fields[column] = hogql_type(name=column)
 
         # Replace fields with any redefined fields if they exist
-        fields = external_tables.get(self.table_name_without_prefix(), fields)
+        external_table_fields = external_tables.get(self.table_name_without_prefix())
+        if external_table_fields is not None:
+            default_fields = external_tables.get("*", {})
+            fields = {**external_table_fields, **default_fields}
 
         return S3Table(
             name=self.name,
@@ -174,6 +181,17 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             fields=fields,
             structure=", ".join(structure),
         )
+
+    def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
+        clickhouse_type = self.columns.get(column_name, None)
+
+        if isinstance(clickhouse_type, dict) and self.columns[column_name].get("clickhouse"):
+            clickhouse_type = self.columns[column_name].get("clickhouse")
+
+            if clickhouse_type.startswith("Nullable("):
+                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+
+        return clickhouse_type
 
     def _safe_expose_ch_error(self, err):
         err = wrap_query_error(err)

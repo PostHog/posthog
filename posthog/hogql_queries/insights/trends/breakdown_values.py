@@ -21,8 +21,10 @@ from functools import cached_property
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
 BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compatibility
+BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 
 
 class BreakdownValues:
@@ -35,6 +37,7 @@ class BreakdownValues:
     histogram_bin_count: Optional[int]
     group_type_index: Optional[int]
     hide_other_aggregation: Optional[bool]
+    normalize_url: Optional[bool]
     breakdown_limit: Optional[int]
     query_date_range: QueryDateRange
     modifiers: HogQLQueryModifiers
@@ -66,6 +69,7 @@ class BreakdownValues:
             else None
         )
         self.hide_other_aggregation = breakdown_filter.breakdown_hide_other_aggregation
+        self.normalize_url = breakdown_filter.breakdown_normalize_url
         self.breakdown_limit = breakdown_filter.breakdown_limit
         self.query_date_range = query_date_range
         self.modifiers = modifiers
@@ -96,6 +100,15 @@ class BreakdownValues:
                     )
                 ),
             )
+
+        if not self.histogram_bin_count:
+            if self.normalize_url:
+                select_field.expr = parse_expr(
+                    "empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')",
+                    placeholders={"node": select_field.expr},
+                )
+
+            select_field.expr = ast.Call(name="toString", args=[select_field.expr])
 
         if self.chart_display_type == ChartDisplayType.WorldMap:
             breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
@@ -211,23 +224,9 @@ class BreakdownValues:
 
             # Add "other" value if "other" is not hidden and we're not bucketing numeric values
             if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
-                all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
-                all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
-                all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values)
-
-                if all_values_are_string_or_none:
-                    values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
-                    if needs_other:
-                        values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
-                elif all_values_are_ints_or_none or all_values_are_floats_or_none:
-                    if all_values_are_ints_or_none:
-                        values = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values]
-                        if needs_other:
-                            values.insert(0, BREAKDOWN_OTHER_NUMERIC_LABEL)
-                    else:
-                        values = [float(BREAKDOWN_NULL_NUMERIC_LABEL) if value is None else value for value in values]
-                        if needs_other:
-                            values.insert(0, float(BREAKDOWN_OTHER_NUMERIC_LABEL))
+                values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
+                if needs_other:
+                    values = [BREAKDOWN_OTHER_STRING_LABEL] + values
 
         if len(values) == 0:
             values.insert(0, None)

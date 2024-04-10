@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional
 
 from posthog.hogql.constants import ConstantDataType
-from posthog.hogql.errors import NotImplementedException
+from posthog.hogql.errors import NotImplementedError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -32,13 +32,13 @@ class AST:
             return visit(self)
         if hasattr(visitor, "visit_unknown"):
             return visitor.visit_unknown(self)
-        raise NotImplementedException(f"Visitor has no method {method_name}")
+        raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
 
 @dataclass(kw_only=True)
 class Type(AST):
     def get_child(self, name: str, context: "HogQLContext") -> "Type":
-        raise NotImplementedException("Type.get_child not overridden")
+        raise NotImplementedError("Type.get_child not overridden")
 
     def has_child(self, name: str, context: "HogQLContext") -> bool:
         return self.get_child(name, context) is not None
@@ -70,7 +70,7 @@ class ConstantType(Type):
         return self
 
     def print_type(self) -> str:
-        raise NotImplementedException("ConstantType.print_type not implemented")
+        raise NotImplementedError("ConstantType.print_type not implemented")
 
 
 @dataclass(kw_only=True)

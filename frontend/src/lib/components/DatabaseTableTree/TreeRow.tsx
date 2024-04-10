@@ -1,6 +1,7 @@
 import './TreeRow.scss'
 
 import { IconChevronDown } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { useCallback, useState } from 'react'
@@ -22,9 +23,9 @@ export function TreeRow({ item, onClick, selected }: TreeRowProps): JSX.Element 
 
     return (
         <li>
-            <div className={clsx('TreeRow', selected ? 'TreeRow__selected' : '')} onClick={_onClick}>
+            <div className={clsx('TreeRow text-ellipsis', selected ? 'TreeRow__selected' : '')} onClick={_onClick}>
                 <span className="mr-2">{item.icon}</span>
-                {item.table.name}
+                <div className="overflow-hidden text-ellipsis whitespace-nowrap">{item.table.name}</div>
             </div>
         </li>
     )
@@ -58,7 +59,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                         depth={depth + 1}
                         onSelectRow={onClick}
                         selectedRow={selectedRow}
-                        style={{ marginLeft: `${2 * depth}rem`, padding: 0 }}
+                        style={{ marginLeft: `2rem`, padding: 0 }}
                     />
                 ) : (
                     <div
@@ -67,7 +68,13 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                             marginLeft: `${2 * depth}rem`,
                         }}
                     >
-                        {emptyLabel ? emptyLabel : <span className="text-muted">No tables found</span>}
+                        {item.isLoading ? (
+                            <Spinner className="mt-2" />
+                        ) : emptyLabel ? (
+                            emptyLabel
+                        ) : (
+                            <span className="text-muted">No tables found</span>
+                        )}
                     </div>
                 ))}
         </li>

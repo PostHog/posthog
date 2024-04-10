@@ -3,7 +3,7 @@ from typing import Literal, cast, Optional, Dict
 import math
 
 from posthog.hogql import ast
-from posthog.hogql.errors import HogQLException, SyntaxException
+from posthog.hogql.errors import ExposedHogQLError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
@@ -1004,13 +1004,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
         def test_select_array_join_errors(self):
-            with self.assertRaises(HogQLException) as e:
+            with self.assertRaises(ExposedHogQLError) as e:
                 self._select("select a from events ARRAY JOIN [1,2,3]")
             self.assertEqual(str(e.exception), "ARRAY JOIN arrays must have an alias")
             self.assertEqual(e.exception.start, 32)
             self.assertEqual(e.exception.end, 39)
 
-            with self.assertRaises(HogQLException) as e:
+            with self.assertRaises(ExposedHogQLError) as e:
                 self._select("select a ARRAY JOIN [1,2,3]")
             self.assertEqual(
                 str(e.exception),
@@ -1436,7 +1436,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_property_access_with_arrays_zero_index_error(self):
             query = f"SELECT properties.something[0] FROM events"
             with self.assertRaisesMessage(
-                SyntaxException,
+                SyntaxError,
                 "SQL indexes start from one, not from zero. E.g: array[1]",
             ) as e:
                 self._select(query)
@@ -1446,7 +1446,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_property_access_with_tuples_zero_index_error(self):
             query = f"SELECT properties.something.0 FROM events"
             with self.assertRaisesMessage(
-                SyntaxException,
+                SyntaxError,
                 "SQL indexes start from one, not from zero. E.g: array[1]",
             ) as e:
                 self._select(query)
@@ -1456,7 +1456,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_reserved_keyword_alias_error(self):
             query = f"SELECT 0 AS trUE FROM events"
             with self.assertRaisesMessage(
-                SyntaxException,
+                SyntaxError,
                 '"trUE" cannot be an alias or identifier, as it\'s a reserved keyword',
             ) as e:
                 self._select(query)
@@ -1466,7 +1466,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_malformed_sql(self):
             query = "SELEC 2"
             with self.assertRaisesMessage(
-                SyntaxException,
+                SyntaxError,
                 "mismatched input 'SELEC' expecting {SELECT, WITH, '{', '(', '<'}",
             ) as e:
                 self._select(query)
@@ -1532,14 +1532,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
             # With mismatched closing tag
-            with self.assertRaises(HogQLException) as e:
+            with self.assertRaises(ExposedHogQLError) as e:
                 self._select(
                     "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></HogQLQuery>"
                 )
             assert str(e.exception) == "Opening and closing HogQLX tags must match. Got OuterQuery and HogQLQuery"
 
             # With mismatched closing tag
-            with self.assertRaises(HogQLException) as e:
+            with self.assertRaises(ExposedHogQLError) as e:
                 self._select(
                     "select event from <OuterQuery source='b'><HogQLQuery query='select event from events' /></OuterQuery>"
                 )
@@ -1593,5 +1593,27 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     ),
                 ],
             )
+
+        def test_select_extract_as_function(self):
+            node = self._select("select extract('string', 'other string') from events")
+
+            assert node == ast.SelectQuery(
+                select=[
+                    ast.Call(
+                        name="extract",
+                        args=[ast.Constant(value="string"), ast.Constant(value="other string")],
+                    )
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            )
+
+        def test_trim_leading_trailing_both(self):
+            node1 = self._select(
+                "select trim(LEADING 'fish' FROM event), trim(TRAILING 'fish' FROM event), trim(BOTH 'fish' FROM event) from events"
+            )
+            node2 = self._select(
+                "select trimLeft(event, 'fish'), trimRight(event, 'fish'), trim(event, 'fish') from events"
+            )
+            assert node1 == node2
 
     return TestParser

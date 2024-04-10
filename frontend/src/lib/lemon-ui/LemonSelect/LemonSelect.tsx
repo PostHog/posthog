@@ -130,7 +130,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
         <LemonMenu
             items={items}
             tooltipPlacement={optionTooltipPlacement}
-            sameWidth={dropdownMatchSelectWidth}
+            matchWidth={dropdownMatchSelectWidth}
             placement={dropdownPlacement}
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
@@ -154,6 +154,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                           }
                         : null
                 }
+                tooltip={activeLeaf?.tooltip}
                 {...buttonProps}
             >
                 <span className="flex flex-1">

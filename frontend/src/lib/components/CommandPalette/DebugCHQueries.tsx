@@ -25,7 +25,11 @@ export interface Query {
     timestamp: string
     query: string
     exception: string
-    type: number
+    /**
+     * 1 means running, 2 means finished, 3 means errored before execution, 4 means errored during execution.
+     *
+     * @see `type` column in https://clickhouse.com/docs/en/operations/system-tables/query_log */
+    status: 1 | 2 | 3 | 4
     execution_time: number
     path: string
 }
@@ -87,31 +91,29 @@ function DebugCHQueries(): JSX.Element {
 
     return (
         <>
-            {!!paths?.length && (
-                <div className="flex gap-4 items-end justify-between mb-4">
-                    <div className="flex flex-wrap gap-2">
-                        {paths.map(([path, count]) => (
-                            <LemonButton
-                                key={path}
-                                type={pathFilter === path ? 'primary' : 'tertiary'}
-                                size="small"
-                                onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
-                            >
-                                {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
-                            </LemonButton>
-                        ))}
-                    </div>
-                    <LemonButton
-                        icon={<IconRefresh />}
-                        disabledReason={queriesLoading ? 'Loading…' : null}
-                        onClick={() => loadQueries()}
-                        size="small"
-                        type="secondary"
-                    >
-                        Refresh
-                    </LemonButton>
+            <div className="flex gap-4 items-end justify-between mb-4">
+                <div className="flex flex-wrap gap-2">
+                    {paths?.map(([path, count]) => (
+                        <LemonButton
+                            key={path}
+                            type={pathFilter === path ? 'primary' : 'tertiary'}
+                            size="small"
+                            onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
+                        >
+                            {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
+                        </LemonButton>
+                    ))}
                 </div>
-            )}
+                <LemonButton
+                    icon={<IconRefresh />}
+                    disabledReason={queriesLoading ? 'Loading…' : null}
+                    onClick={() => loadQueries()}
+                    size="small"
+                    type="secondary"
+                >
+                    Refresh
+                </LemonButton>
+            </div>
 
             <LemonTable
                 columns={[
@@ -146,9 +148,13 @@ function DebugCHQueries(): JSX.Element {
                             )
                         },
                     },
+
                     {
                         title: 'Duration',
                         render: function exec(_, item) {
+                            if (item.status === 1) {
+                                return 'In progress…'
+                            }
                             return <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms</>
                         },
                         align: 'right',

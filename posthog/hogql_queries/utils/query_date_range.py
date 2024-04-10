@@ -1,12 +1,13 @@
 import re
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Literal, Optional, Dict, List
+from typing import Literal, Optional, Dict
 from zoneinfo import ZoneInfo
 
+from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
@@ -50,15 +51,17 @@ class QueryDateRange:
             date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
                 self._date_range.date_to,
                 self._team.timezone_info,
-                always_truncate=True,
+                always_truncate=False,
                 now=self.now_with_timezone,
             )
 
-        is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
-        if not self.is_hourly:
-            date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
-        elif is_relative:
-            date_to = date_to.replace(minute=59, second=59, microsecond=999999)
+        if not self._date_range or not self._date_range.explicitDate:
+            is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
+
+            if not self.is_hourly:
+                date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+            elif is_relative:
+                date_to = date_to.replace(minute=59, second=59, microsecond=999999)
 
         return date_to
 
@@ -116,36 +119,38 @@ class QueryDateRange:
     def interval_name(self) -> Literal["hour", "day", "week", "month"]:
         return self.interval_type.name
 
-    def all_values(self) -> List[str]:
-        start: datetime = self.date_from()
-        end: datetime = self.date_to()
-        interval = self.interval_name
-
-        if interval == "hour":
-            start = start.replace(minute=0, second=0, microsecond=0)
-        elif interval == "day":
-            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-        elif interval == "week":
+    def align_with_interval(self, start: datetime) -> datetime:
+        if self.interval_name == "hour":
+            return start.replace(minute=0, second=0, microsecond=0)
+        elif self.interval_name == "day":
+            return start.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif self.interval_name == "week":
             start = start.replace(hour=0, minute=0, second=0, microsecond=0)
             week_start_alignment_days = start.isoweekday() % 7
             if self._team.week_start_day == WeekStartDay.MONDAY:
                 week_start_alignment_days = start.weekday()
             start -= timedelta(days=week_start_alignment_days)
-        elif interval == "month":
-            start = start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            return start
+        elif self.interval_name == "month":
+            return start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        values: List[str] = []
+    def interval_relativedelta(self) -> relativedelta:
+        return relativedelta(
+            days=1 if self.interval_name == "day" else 0,
+            weeks=1 if self.interval_name == "week" else 0,
+            months=1 if self.interval_name == "month" else 0,
+            hours=1 if self.interval_name == "hour" else 0,
+        )
+
+    def all_values(self) -> list[datetime]:
+        start = self.align_with_interval(self.date_from())
+        end: datetime = self.date_to()
+        delta = self.interval_relativedelta()
+
+        values: list[datetime] = []
         while start <= end:
-            if interval == "hour":
-                values.append(start.strftime("%Y-%m-%d %H:%M:%S"))
-            else:
-                values.append(start.strftime("%Y-%m-%d"))
-            start += relativedelta(
-                days=1 if interval == "day" else 0,
-                weeks=1 if interval == "week" else 0,
-                months=1 if interval == "month" else 0,
-                hours=1 if interval == "hour" else 0,
-            )
+            values.append(start)
+            start += delta
         return values
 
     def date_to_as_hogql(self) -> ast.Expr:
@@ -229,7 +234,7 @@ class QueryDateRange:
             case "month":
                 return ast.Call(name="toStartOfMonth", args=[date])
             case _:
-                raise HogQLException(message="Unknown interval name")
+                raise ImpossibleASTError(message="Unknown interval name")
 
     def date_from_to_start_of_interval_hogql(self) -> ast.Call:
         return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
@@ -252,10 +257,17 @@ class QueryDateRange:
             "date_to": self.date_to_as_hogql(),
             "date_from_start_of_interval": self.date_from_to_start_of_interval_hogql(),
             "date_to_start_of_interval": self.date_to_to_start_of_interval_hogql(),
-            "date_from_with_adjusted_start_of_interval": self.date_from_to_start_of_interval_hogql()
-            if self.use_start_of_interval()
-            else self.date_from_as_hogql(),
+            "date_from_with_adjusted_start_of_interval": (
+                self.date_from_to_start_of_interval_hogql()
+                if self.use_start_of_interval()
+                else self.date_from_as_hogql()
+            ),
         }
+
+    def interval_bounds_from_str(self, time_frame: str) -> tuple[datetime, datetime]:
+        date_from = parse(time_frame, tzinfos={None: self._team.timezone_info})
+        date_to = date_from + self.interval_relativedelta()
+        return date_from, date_to
 
 
 class QueryDateRangeWithIntervals(QueryDateRange):

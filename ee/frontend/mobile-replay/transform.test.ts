@@ -480,6 +480,43 @@ describe('replay/transform', () => {
             expect(converted).toMatchSnapshot()
         })
 
+        test('can convert invalid text wireframe', () => {
+            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+                {
+                    data: {
+                        width: 300,
+                        height: 600,
+                    },
+                    timestamp: 1,
+                    type: 4,
+                },
+                {
+                    type: 2,
+                    data: {
+                        wireframes: [
+                            {
+                                id: 12345,
+                                type: 'text',
+                                x: 11,
+                                y: 12,
+                                width: 100,
+                                height: 30,
+                                style: {
+                                    color: '#ee3ee4',
+                                    borderColor: '#ee3ee4',
+                                    borderWidth: '4',
+                                    borderRadius: '10px',
+                                },
+                                // text property is missing
+                            },
+                        ],
+                    },
+                    timestamp: 1,
+                },
+            ])
+            expect(converted).toMatchSnapshot()
+        })
+
         test('can set background image to base64 png', () => {
             const converted = posthogEEModule.mobileReplay?.transformToWeb([
                 {
