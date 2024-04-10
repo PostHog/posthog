@@ -377,7 +377,6 @@ class Team(UUIDClassicModel):
                 send_feature_flag_events=False,
             )
 
-        # on self-hosted, use the instance setting
         return False
 
     @property
