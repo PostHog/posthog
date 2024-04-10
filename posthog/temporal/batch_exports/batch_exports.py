@@ -596,8 +596,8 @@ async def execute_batch_export_insert_activity(
     interval: str,
     start_to_close_timeout_multiplier: int = 2,
     heartbeat_timeout_seconds: int | None = 120,
-    maximum_attempts: int = 10,
-    initial_retry_interval_seconds: int = 10,
+    maximum_attempts: int = 15,
+    initial_retry_interval_seconds: int = 30,
     maximum_retry_interval_seconds: int = 120,
 ) -> None:
     """Execute the main insert activity of a batch export handling any errors.
