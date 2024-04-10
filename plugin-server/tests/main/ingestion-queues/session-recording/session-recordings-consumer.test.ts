@@ -229,8 +229,8 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             await ingester.handleEachBatch(
                 [
                     createMessage('sess-1', 1, {}, '$snapshot_items'),
-                    createMessage('sess-1', 1, {}, '$heartbeat'),
-                    createMessage('sess-2', 1, {}, '$heartbeat'),
+                    createMessage('sess-1', 1, {}, '$heatmap'),
+                    createMessage('sess-2', 1, {}, '$heatmap'),
                 ],
                 () => {}
             )
