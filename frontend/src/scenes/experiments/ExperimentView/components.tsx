@@ -92,7 +92,7 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
 
     // keep in sync with https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/funnel_experiment_result.py#L71
     // :TRICKY: In the case of no results, we still want users to explore the query, so they can debug further.
-    // This generates a close enough query that the backend would use to compute results
+    // This generates a close enough query that the backend would use to compute results.
     const filtersFromExperiment: Partial<FilterType> = {
         ...experiment.filters,
         date_from: experiment.start_date,
