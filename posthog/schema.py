@@ -426,6 +426,7 @@ class PersonsOnEventsMode(str, Enum):
     v1_enabled = "v1_enabled"
     v1_mixed = "v1_mixed"
     v2_enabled = "v2_enabled"
+    v3_enabled = "v3_enabled"
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
