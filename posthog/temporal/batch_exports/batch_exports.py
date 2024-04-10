@@ -593,7 +593,8 @@ async def execute_batch_export_insert_activity(
     inputs,
     non_retryable_error_types: list[str],
     finish_inputs: FinishBatchExportRunInputs,
-    start_to_close_timeout_seconds: int = 3600,
+    interval: str,
+    start_to_close_timeout_multiplier: int = 2,
     heartbeat_timeout_seconds: int | None = 120,
     maximum_attempts: int = 10,
     initial_retry_interval_seconds: int = 10,
@@ -610,7 +611,9 @@ async def execute_batch_export_insert_activity(
         inputs: The inputs to the activity.
         non_retryable_error_types: A list of errors to not retry on when executing the activity.
         finish_inputs: Inputs to the 'finish_batch_export_run' to run at the end.
-        start_to_close_timeout: A timeout for the 'insert_into_*' activity function.
+        interval: The interval of the batch export used to set the start to close timeout.
+        start_to_close_timeout_multiplier: Multiply computed timeout by this multiplier. Used to add
+            some extra buffer to the timeout.
         maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
             Assuming the error that triggered the retry is not in non_retryable_error_types.
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
@@ -624,11 +627,22 @@ async def execute_batch_export_insert_activity(
         non_retryable_error_types=non_retryable_error_types,
     )
 
+    if interval == "hour":
+        start_to_close_timeout = dt.timedelta(hours=1) * start_to_close_timeout_multiplier
+    elif interval == "day":
+        start_to_close_timeout = dt.timedelta(days=1) * start_to_close_timeout_multiplier
+    elif interval.startswith("every"):
+        _, value, unit = interval.split(" ")
+        kwargs = {unit: int(value)}
+        start_to_close_timeout = dt.timedelta(**kwargs) * start_to_close_timeout_multiplier
+    else:
+        raise ValueError(f"Unsupported interval: '{interval}'")
+
     try:
         records_completed = await workflow.execute_activity(
             activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(seconds=start_to_close_timeout_seconds),
+            start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )
