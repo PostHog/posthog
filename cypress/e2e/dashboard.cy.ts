@@ -31,6 +31,29 @@ describe('Dashboard', () => {
         insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
 
         cy.get('.CardMeta h4').should('have.text', insightName)
+
+        dashboard.addPropertyFilter()
+        cy.get('main').contains('There are no matching events for this query').should('not.exist')
+
+        cy.clickNavMenu('dashboards')
+        const dashboardNameB = randomString('Dashboard with insight B')
+        dashboards.createAndGoToEmptyDashboard(dashboardNameB)
+
+        insight.visitInsight(insightName)
+        insight.addInsightToDashboard(dashboardNameB, { visitAfterAdding: true })
+
+        dashboard.addPropertyFilter('Browser', 'Hogbrowser')
+
+        // Go back and forth to make sure the filters are correctly applied
+        for (let i = 0; i < 3; i++) {
+            cy.clickNavMenu('dashboards')
+            dashboards.visitDashboard(dashboardName)
+            cy.get('main').contains('There are no matching events for this query').should('not.exist')
+
+            cy.clickNavMenu('dashboards')
+            dashboards.visitDashboard(dashboardNameB)
+            cy.get('main').contains('There are no matching events for this query').should('exist')
+        }
     })
 
     it('Adding new insight to dashboard does not clear filters', () => {
