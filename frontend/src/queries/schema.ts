@@ -624,8 +624,6 @@ export interface InsightsQueryBase extends Node {
     aggregation_group_type_index?: integer
     /** Sampling rate */
     samplingFactor?: number | null
-
-    explicitDate?: boolean
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
@@ -790,8 +788,6 @@ export type PathsFilter = {
     localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
-    funnelPaths?: PathsFilterLegacy['funnel_paths']
-    funnelFilter?: PathsFilterLegacy['funnel_filter']
 
     /** Relevant only within actors query */
     pathStartKey?: string
@@ -801,11 +797,19 @@ export type PathsFilter = {
     pathDropoffKey?: string
 }
 
+export type FunnelPathsFilter = {
+    funnelPathType: PathsFilterLegacy['funnel_paths']
+    funnelSource: FunnelsQuery
+    funnelStep?: integer
+}
+
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     response?: PathsQueryResponse
     /** Properties specific to the paths insight */
     pathsFilter: PathsFilter
+    /** Used for displaying paths in relation to funnel steps. */
+    funnelPathsFilter?: FunnelPathsFilter
 }
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
@@ -895,8 +899,8 @@ export type QueryStatus = {
     error: boolean
     /**  @default false */
     complete: boolean
-    /**  @default "" */
-    error_message: string
+    /**  @default null */
+    error_message: string | null
     results?: any
     /**  @format date-time */
     start_time?: string
@@ -1294,6 +1298,8 @@ export type HogQLExpression = string
 export interface DateRange {
     date_from?: string | null
     date_to?: string | null
+    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+    explicitDate?: boolean | null
 }
 
 export interface BreakdownFilter {

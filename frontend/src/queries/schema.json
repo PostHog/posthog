@@ -277,6 +277,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehousePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehousePersonPropertyFilter"
                 }
             ]
         },
@@ -862,6 +865,29 @@
             "required": ["distinct_id_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
             "type": "object"
         },
+        "DataWarehousePersonPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "data_warehouse_person_property",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "DataWarehousePropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -945,6 +971,10 @@
                 },
                 "date_to": {
                     "type": ["string", "null"]
+                },
+                "explicitDate": {
+                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "type": ["boolean", "null"]
                 }
             },
             "type": "object"
@@ -1502,6 +1532,9 @@
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
                 },
+                "breakdown_limit": {
+                    "type": "integer"
+                },
                 "breakdown_normalize_url": {
                     "type": "boolean"
                 },
@@ -1963,6 +1996,22 @@
             "enum": ["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"],
             "type": "string"
         },
+        "FunnelPathsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelPathType": {
+                    "$ref": "#/definitions/FunnelPathType"
+                },
+                "funnelSource": {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                "funnelStep": {
+                    "type": "integer"
+                }
+            },
+            "required": ["funnelSource"],
+            "type": "object"
+        },
         "FunnelStepReference": {
             "enum": ["total", "previous"],
             "type": "string"
@@ -2178,9 +2227,6 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
-                },
-                "explicitDate": {
-                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
@@ -3006,9 +3052,6 @@
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
-                "explicitDate": {
-                    "type": "boolean"
-                },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
@@ -3079,9 +3122,6 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
-                },
-                "explicitDate": {
-                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
@@ -3256,12 +3296,6 @@
                     },
                     "type": "array"
                 },
-                "funnelFilter": {
-                    "type": "object"
-                },
-                "funnelPaths": {
-                    "$ref": "#/definitions/FunnelPathType"
-                },
                 "includeEventTypes": {
                     "items": {
                         "$ref": "#/definitions/PathType"
@@ -3388,12 +3422,13 @@
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
-                "explicitDate": {
-                    "type": "boolean"
-                },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
+                },
+                "funnelPathsFilter": {
+                    "$ref": "#/definitions/FunnelPathsFilter",
+                    "description": "Used for displaying paths in relation to funnel steps."
                 },
                 "kind": {
                     "const": "PathsQuery",
@@ -3540,7 +3575,8 @@
                 "recording",
                 "group",
                 "hogql",
-                "data_warehouse"
+                "data_warehouse",
+                "data_warehouse_person_property"
             ],
             "type": "string"
         },
@@ -4481,8 +4517,8 @@
                     "type": "boolean"
                 },
                 "error_message": {
-                    "default": "",
-                    "type": "string"
+                    "default": null,
+                    "type": ["string", "null"]
                 },
                 "expiration_time": {
                     "format": "date-time",
@@ -4642,9 +4678,6 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
-                },
-                "explicitDate": {
-                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
@@ -5025,9 +5058,6 @@
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
                 },
-                "explicitDate": {
-                    "type": "boolean"
-                },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
@@ -5346,9 +5376,6 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
-                },
-                "explicitDate": {
-                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "description": "Exclude internal and test users by applying the respective filters",
