@@ -466,6 +466,7 @@ export function criteriaToHumanSentence(
     }
 
     data.fields.forEach(({ type, fieldKey, defaultValue, hide }) => {
+        // TODO: This needs to be much nicer for all cohort criteria options
         if (!hide) {
             if (type === FilterType.Text) {
                 words.push(defaultValue)
@@ -475,6 +476,8 @@ export function criteriaToHumanSentence(
                     words.push(<pre>{cohortsById?.[value]?.name ?? `Cohort ${value}`}</pre>)
                 } else if (type === FilterType.EventsAndActions && typeof value === 'number') {
                     words.push(<pre>{actionsById?.[value]?.name ?? `Action ${value}`}</pre>)
+                } else if (type === FilterType.EventFilters) {
+                    words.push(<pre>with filters</pre>)
                 } else {
                     words.push(<pre>{value}</pre>)
                 }

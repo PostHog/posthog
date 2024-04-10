@@ -10,6 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
@@ -171,7 +172,10 @@ export function PageHeaderCustom(): JSX.Element {
         setEditExperiment,
         loadExperimentResults,
         loadSecondaryMetricResults,
+        createExposureCohort,
     } = useActions(experimentLogic)
+
+    const exposureCohortId = experiment?.exposure_cohort
 
     return (
         <PageHeader
@@ -193,6 +197,15 @@ export function PageHeaderCustom(): JSX.Element {
                                 <More
                                     overlay={
                                         <>
+                                            <LemonButton
+                                                onClick={() => (exposureCohortId ? undefined : createExposureCohort())}
+                                                fullWidth
+                                                data-attr={`${exposureCohortId ? 'view' : 'create'}-exposure-cohort`}
+                                                to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
+                                                targetBlank={!!exposureCohortId}
+                                            >
+                                                {exposureCohortId ? 'View' : 'Create'} exposure cohort
+                                            </LemonButton>
                                             <LemonButton
                                                 onClick={() => loadExperimentResults(true)}
                                                 fullWidth

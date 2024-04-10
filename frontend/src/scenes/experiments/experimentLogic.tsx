@@ -28,6 +28,7 @@ import { isFunnelsQuery } from '~/queries/utils'
 import {
     ActionFilter as ActionFilterType,
     Breadcrumb,
+    CohortType,
     CountPerActorMathType,
     Experiment,
     ExperimentResults,
@@ -587,6 +588,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setCurrentFormStep(currentFormStep + 1)
             }
         },
+        createExposureCohortSuccess: ({ exposureCohort }) => {
+            if (exposureCohort) {
+                lemonToast.success('Exposure cohort created successfully', {
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(exposureCohort.id)),
+                    },
+                })
+            }
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -666,6 +677,17 @@ export const experimentLogic = kea<experimentLogicType>([
                             }
                         })
                     )
+                },
+            },
+        ],
+        exposureCohort: [
+            null as CohortType | null,
+            {
+                createExposureCohort: async () => {
+                    if (props.experimentId && props.experimentId !== 'new') {
+                        return (await api.experiments.createExposureCohort(props.experimentId)).cohort
+                    }
+                    return null
                 },
             },
         ],
