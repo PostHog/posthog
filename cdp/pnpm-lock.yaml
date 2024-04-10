@@ -1,5 +1,9 @@
 lockfileVersion: '6.0'
 
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
 dependencies:
   '@opentelemetry/api':
     specifier: ^1.4.1
@@ -469,7 +473,7 @@ packages:
       '@types/long': 4.0.2
       lodash.camelcase: 4.3.0
       long: 4.0.0
-      protobufjs: 7.2.3
+      protobufjs: 7.2.6
       yargs: 16.2.0
     dev: false
 
@@ -964,7 +968,7 @@ packages:
       '@opentelemetry/api': 1.4.1
       '@opentelemetry/core': 1.11.0(@opentelemetry/api@1.4.1)
       '@opentelemetry/otlp-exporter-base': 0.37.0(@opentelemetry/api@1.4.1)
-      protobufjs: 7.2.3
+      protobufjs: 7.2.6
     dev: false
 
   /@opentelemetry/otlp-transformer@0.37.0(@opentelemetry/api@1.4.1):
@@ -4015,8 +4019,8 @@ packages:
       sisteransi: 1.0.5
     dev: true
 
-  /protobufjs@7.2.3:
-    resolution: {integrity: sha512-TtpvOqwB5Gdz/PQmOjgsrGH1nHjAQVCN7JG4A6r1sXRWESL5rNMAiRcBQlCAdKxZcAbstExQePYG8xof/JVRgg==}
+  /protobufjs@7.2.6:
+    resolution: {integrity: sha512-dgJaEDDL6x8ASUZ1YqWciTRrdOuYNzoOf27oHNfdyvKqHr5i0FV7FSLU+aIeFjyFgVxrpTOtQUi0BLLBymZaBw==}
     engines: {node: '>=12.0.0'}
     requiresBuild: true
     dependencies:
