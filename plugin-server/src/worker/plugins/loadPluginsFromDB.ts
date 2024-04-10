@@ -32,7 +32,6 @@ const personlessPluginSkipList = [
     'https://github.com/posthog/event-sequence-timer-plugin',
     'https://github.com/posthog/first-event-today',
     'https://github.com/posthog/first-time-event-tracker',
-    'https://github.com/posthog/flatten-properties-plugin',
     'https://github.com/posthog/mailboxlayer-plugin',
 ]
 
