@@ -119,7 +119,7 @@ def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bo
         result=response["results"],
         last_refresh=response.get("last_refresh"),
         cache_key=response.get("cache_key"),
-        is_cached=response.get("is_cached"),
+        is_cached=response.get("is_cached", False),
         timezone=response.get("timezone"),
         next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
         timings=response.get("timings"),
