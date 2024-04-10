@@ -52,7 +52,7 @@ import {
 import { teamLogic } from '../teamLogic'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import type { insightLogicType } from './insightLogicType'
-import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
+import { extractObjectDiffKeys, getInsightId } from './utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
@@ -707,18 +707,6 @@ export const insightLogic = kea<insightLogicType>([
     events(({ props, actions }) => ({
         afterMount: () => {
             if (!props.dashboardItemId || props.dashboardItemId === 'new' || props.dashboardItemId.startsWith('new-')) {
-                return
-            }
-
-            const insight = findInsightFromMountedLogic(
-                props.dashboardItemId as string | InsightShortId,
-                props.dashboardId
-            )
-            if (insight) {
-                actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
-                if (insight?.result) {
-                    actions.reportInsightViewed(insight, insight.filters || {})
-                }
                 return
             }
 
