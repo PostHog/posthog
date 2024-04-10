@@ -634,30 +634,6 @@ class TrendsQueryRunner(QueryRunner):
         return series_with_extras
 
     def apply_formula(self, formula: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        def apply_formula_to_results_group(
-            results_group: List[Dict[str, Any]], aggregate_values: Optional[bool] = False
-        ) -> Dict[str, Any]:
-            """
-            Applies the formula to a list of results, resulting in a single, computed result.
-            """
-            base_result = results_group[0]
-            base_result["label"] = f"Formula ({formula})"
-            base_result["action"] = None
-
-            if aggregate_values:
-                series_data = [[s["aggregated_value"]] for s in results_group]
-                new_series_data = FormulaAST(series_data).call(formula)
-                base_result["aggregated_value"] = float(sum(new_series_data))
-                base_result["data"] = None
-                base_result["count"] = 0
-            else:
-                series_data = [s["data"] for s in results_group]
-                new_series_data = FormulaAST(series_data).call(formula)
-                base_result["data"] = new_series_data
-                base_result["count"] = float(sum(new_series_data))
-
-            return base_result
-
         if len(results) == 0:
             # empty results
             return []
@@ -668,7 +644,7 @@ class TrendsQueryRunner(QueryRunner):
             for _key, group in groupby(sorted_results, key=itemgetter("compare_label")):
                 results_group = list(group)
                 aggregate_values = self._trends_display.should_aggregate_values()
-                computed_results.append(apply_formula_to_results_group(results_group, aggregate_values))
+                computed_results.append(self.apply_formula_to_results_group(results_group, formula, aggregate_values))
             return computed_results
 
         elif self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
@@ -677,12 +653,39 @@ class TrendsQueryRunner(QueryRunner):
             computed_results = []
             for i in range(0, breakdown_values_count):
                 results_group = [results[i], results[i + breakdown_values_count]]
-                computed_results.append(apply_formula_to_results_group(results_group))
+                computed_results.append(self.apply_formula_to_results_group(results_group, formula))
             return computed_results
         else:
             return [
-                apply_formula_to_results_group(results, aggregate_values=self._trends_display.should_aggregate_values())
+                self.apply_formula_to_results_group(
+                    results, formula, aggregate_values=self._trends_display.should_aggregate_values()
+                )
             ]
+
+    @staticmethod
+    def apply_formula_to_results_group(
+        results_group: List[Dict[str, Any]], formula: str, aggregate_values: Optional[bool] = False
+    ) -> Dict[str, Any]:
+        """
+        Applies the formula to a list of results, resulting in a single, computed result.
+        """
+        base_result = results_group[0]
+        base_result["label"] = f"Formula ({formula})"
+        base_result["action"] = None
+
+        if aggregate_values:
+            series_data = [[s["aggregated_value"]] for s in results_group]
+            new_series_data = FormulaAST(series_data).call(formula)
+            base_result["aggregated_value"] = float(sum(new_series_data))
+            base_result["data"] = None
+            base_result["count"] = 0
+        else:
+            series_data = [s["data"] for s in results_group]
+            new_series_data = FormulaAST(series_data).call(formula)
+            base_result["data"] = new_series_data
+            base_result["count"] = float(sum(new_series_data))
+
+        return base_result
 
     def _is_breakdown_field_boolean(self):
         if not self.query.breakdownFilter or not self.query.breakdownFilter.breakdown_type:
