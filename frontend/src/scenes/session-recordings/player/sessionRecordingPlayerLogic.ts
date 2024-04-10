@@ -904,7 +904,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const playingElements = mediaElements.filter(isMediaElementPlaying)
 
             playingElements.forEach((el) => el.pause())
-            cache.pausedMediaElements = playingElements
+            cache.pausedMediaElements = values.endReached ? [] : playingElements
         },
         restartIframePlayback: () => {
             cache.pausedMediaElements.forEach((el: HTMLMediaElement) => el.play())
