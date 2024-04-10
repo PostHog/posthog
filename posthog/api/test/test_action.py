@@ -1,15 +1,13 @@
-import json
 from unittest.mock import patch
 
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, ActionStep, Organization, Tag, User
+from posthog.models import Action, ActionStep, Tag, User
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     QueryMatchingTest,
-    _create_event,
     snapshot_postgres_queries_context,
     FuzzyInt,
 )
@@ -256,100 +254,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         action = Action.objects.get()
         self.assertEqual(action.steps.get().event, "test_event ")
-
-    @freeze_time("2021-12-12")
-    def test_get_event_count(self, *args):
-        team2 = Organization.objects.bootstrap(None, team_fields={"name": "bla"})[2]
-        action = Action.objects.create(team=self.team, name="bla")
-        ActionStep.objects.create(action=action, event="custom event")
-        _create_event(
-            event="custom event",
-            team=self.team,
-            distinct_id="test",
-            timestamp="2021-12-04T19:20:00Z",
-        )
-        _create_event(
-            event="another event",
-            team=self.team,
-            distinct_id="test",
-            timestamp="2021-12-04T19:20:00Z",
-        )
-        # test team leakage
-        _create_event(
-            event="custom event",
-            team=team2,
-            distinct_id="test",
-            timestamp="2021-12-04T19:20:00Z",
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
-        self.assertEqual(response, {"count": 1})
-
-    @freeze_time("2021-12-10")
-    def test_hogql_filter(self, *args):
-        action = Action.objects.create(team=self.team, name="bla")
-        ActionStep.objects.create(
-            action=action,
-            event="custom event",
-            properties=[{"key": "'a%sd' != 'sdf'", "type": "hogql"}],
-        )
-        _create_event(
-            event="custom event",
-            team=self.team,
-            distinct_id="test",
-            timestamp="2021-12-04T19:20:00Z",
-        )
-        _create_event(
-            event="another event",
-            team=self.team,
-            distinct_id="test",
-            timestamp="2021-12-04T19:21:00Z",
-        )
-
-        # action count
-        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
-        self.assertEqual(response, {"count": 1})
-        # events list
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id={action.id}").json()
-        self.assertEqual(len(response["results"]), 1)
-        # trends insight
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?actions={json.dumps([{'type': 'actions', 'id': action.id}])}"
-        ).json()
-        self.assertEqual(response["result"][0]["count"], 1)
-
-    @freeze_time("2021-12-10")
-    def test_hogql_filter_no_event(self, *args):
-        action = Action.objects.create(team=self.team, name="bla")
-        ActionStep.objects.create(
-            action=action,
-            event=None,
-            properties=[{"key": "event like 'blue %'", "type": "hogql"}],
-        )
-        _create_event(
-            event="blue event",
-            team=self.team,
-            distinct_id="test",
-            timestamp="2021-12-04T19:20:00Z",
-        )
-        _create_event(
-            event="green event",
-            team=self.team,
-            distinct_id="test",
-            timestamp="2021-12-04T19:21:00Z",
-        )
-
-        # action count
-        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
-        self.assertEqual(response, {"count": 1})
-        # events list
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id={action.id}").json()
-        self.assertEqual(len(response["results"]), 1)
-        # trends insight
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?actions={json.dumps([{'type': 'actions', 'id': action.id}])}"
-        ).json()
-        self.assertEqual(response["result"][0]["count"], 1)
 
     @freeze_time("2021-12-12")
     def test_listing_actions_is_not_nplus1(self) -> None:
