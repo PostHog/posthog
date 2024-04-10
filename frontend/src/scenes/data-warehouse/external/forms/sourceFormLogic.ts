@@ -1,194 +1,128 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
-import { router, urlToAction } from 'kea-router'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceCreatePayload, ExternalDataSourceType } from '~/types'
+import { ExternalDataSourceCreatePayload, SourceConfig, SourceFieldConfig } from '~/types'
 
 import { getHubspotRedirectUri, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import type { sourceFormLogicType } from './sourceFormLogicType'
 
 export interface SourceFormProps {
-    sourceType: ExternalDataSourceType
+    sourceConfig: SourceConfig
 }
 
-const getPayloadDefaults = (sourceType: string): Record<string, any> => {
-    switch (sourceType) {
-        case 'Stripe':
-            return {
-                account_id: '',
-                client_secret: '',
-            }
-        default:
-            return {}
-    }
-}
+const getErrorsForFields = (
+    fields: SourceFieldConfig[]
+): ((args: { prefix: string; payload: Record<string, any> }) => Record<string, any>) => {
+    return ({ prefix, payload }) => {
+        const errors: Record<string, any> = {
+            payload: {},
+        }
 
-const getErrorsDefaults = (sourceType: string): ((args: Record<string, any>) => Record<string, any>) => {
-    switch (sourceType) {
-        case 'Stripe':
-            return ({ prefix, payload }) => {
-                return {
-                    prefix: /^[a-zA-Z0-9_-]*$/.test(prefix)
-                        ? null
-                        : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
-                    payload: {
-                        account_id: !payload.account_id && 'Please enter an account id.',
-                        client_secret: !payload.client_secret && 'Please enter a client secret.',
-                    },
-                }
+        // Prefix errors
+        if (!/^[a-zA-Z0-9_-]*$/.test(prefix)) {
+            errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
+        }
+
+        // Payload errors
+        for (const field of fields) {
+            const fieldValue = payload[field.name]
+            if (field.required && !fieldValue) {
+                errors['payload'][field.name] = `Please enter a ${field.label.toLowerCase()}`
             }
-        case 'Hubspot':
-            return ({ prefix }) => ({
-                prefix: /^[a-zA-Z0-9_-]*$/.test(prefix)
-                    ? null
-                    : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
-            })
-        case 'Postgres':
-            return ({ prefix, payload }) => ({
-                prefix: /^[a-zA-Z0-9_-]*$/.test(prefix)
-                    ? null
-                    : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
-                payload: {
-                    host: !payload.host && 'Please enter a host.',
-                    port: !payload.port && 'Please enter a port.',
-                    dbname: !payload.dbname && 'Please enter a dbname.',
-                    user: !payload.user && 'Please enter a user.',
-                    password: !payload.password && 'Please enter a password.',
-                    schema: !payload.schema && 'Please enter a schema.',
-                },
-            })
-        case 'Zendesk':
-            return ({ prefix, payload }) => {
-                return {
-                    prefix: /^[a-zA-Z0-9_-]*$/.test(prefix)
-                        ? null
-                        : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
-                    payload: {
-                        subdomain: !payload.subdomain && 'Please enter a subdomain.',
-                        api_key: !payload.api_key && 'Please enter an API key.',
-                        email_address: !payload.email_address && 'Please enter an email address.',
-                    },
-                }
-            }
-        default:
-            return () => ({})
+        }
+
+        return errors
     }
 }
 
 export const sourceFormLogic = kea<sourceFormLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceFormLogic']),
+    key((props) => props.sourceConfig.name),
     props({} as SourceFormProps),
     connect({
         actions: [
             sourceWizardLogic,
-            ['setDatabaseSchemas', 'onBack', 'onNext', 'selectConnector', 'toggleSourceModal', 'loadSources'],
+            [
+                'setDatabaseSchemas',
+                'onBack',
+                'onNext',
+                'selectConnector',
+                'loadSources',
+                'updateSource',
+                'clearSource',
+                'setIsLoading',
+            ],
         ],
+        values: [sourceWizardLogic, ['source']],
     }),
     actions({
         onCancel: true,
         handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
-        onPostgresNext: true,
+        getDatabaseSchemas: true,
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, props }) => ({
         onCancel: () => {
-            actions.resetExternalDataSource()
+            actions.clearSource()
             actions.onBack()
             actions.selectConnector(null)
         },
-        submitExternalDataSourceSuccess: () => {
-            lemonToast.success('New Data Resource Created')
-            actions.toggleSourceModal(false)
-            actions.resetExternalDataSource()
-            actions.loadSources(null)
-            router.actions.push(urls.dataWarehouseSettings())
-        },
-        submitDatabaseSchemaFormSuccess: () => {
-            actions.onNext()
-        },
-        submitExternalDataSourceFailure: ({ error }) => {
-            lemonToast.error(error?.message || 'Something went wrong')
-        },
-        submitDatabaseSchemaFormFailure: ({ error }) => {
-            lemonToast.error(error?.message || 'Something went wrong')
+        submitSourceConnectionDetailsSuccess: () => {
+            actions.getDatabaseSchemas()
         },
         handleRedirect: async ({ kind, searchParams }) => {
             switch (kind) {
                 case 'hubspot': {
-                    actions.setExternalDataSourceValue('payload', {
-                        code: searchParams.code,
-                        redirect_uri: getHubspotRedirectUri(),
+                    actions.updateSource({
+                        source_type: 'Hubspot',
+                        payload: {
+                            code: searchParams.code,
+                            redirect_uri: getHubspotRedirectUri(),
+                        },
                     })
-                    actions.setExternalDataSourceValue('source_type', 'Hubspot')
                     return
                 }
                 default:
                     lemonToast.error(`Something went wrong.`)
             }
         },
-        onPostgresNext: async () => {},
+        getDatabaseSchemas: async () => {
+            const schemas = await api.externalDataSources.database_schema(
+                props.sourceConfig.name,
+                values.source.payload ?? {}
+            )
+            actions.setDatabaseSchemas(schemas)
+            actions.onNext()
+        },
     })),
     urlToAction(({ actions }) => ({
         '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
             actions.handleRedirect(kind, searchParams)
         },
     })),
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         sourceConnectionDetails: {
             defaults: {
-                prefix: '',
-                source_type: props.sourceType,
-                payload: getPayloadDefaults(props.sourceType),
+                prefix: values.source?.prefix ?? '',
+                source_type: props.sourceConfig.name,
+                payload: values.source?.payload ?? {},
             } as ExternalDataSourceCreatePayload,
-            errors: getErrorsDefaults(props.sourceType),
-        },
-        externalDataSource: {
-            defaults: {
-                prefix: '',
-                source_type: props.sourceType,
-                payload: getPayloadDefaults(props.sourceType),
-            } as ExternalDataSourceCreatePayload,
-            submit: async (payload: ExternalDataSourceCreatePayload) => {
-                const newResource = await api.externalDataSources.create(payload)
-                return newResource
-            },
-        },
-        databaseSchemaForm: {
-            defaults: {
-                prefix: '',
-                payload: {
-                    host: '',
-                    port: '',
-                    dbname: '',
-                    user: '',
-                    password: '',
-                    schema: '',
-                },
-            },
-            submit: async ({ payload: { host, port, dbname, user, password, schema }, prefix }) => {
-                const schemas = await api.externalDataSources.database_schema(
-                    props.sourceType,
-                    host,
-                    port,
-                    dbname,
-                    user,
-                    password,
-                    schema
-                )
-                actions.setDatabaseSchemas(schemas)
+            errors: getErrorsForFields(props.sourceConfig.fields),
+            submit: async (sourceValues) => {
+                actions.setIsLoading(true)
 
-                return {
-                    payload: {
-                        host,
-                        port,
-                        dbname,
-                        user,
-                        password,
-                        schema,
-                    },
-                    prefix,
+                try {
+                    await api.externalDataSources.source_prefix(sourceValues.source_type, sourceValues.prefix)
+                    actions.updateSource(sourceValues)
+                } catch (e: any) {
+                    if (e?.data?.message) {
+                        actions.setSourceConnectionDetailsManualErrors({ prefix: e.data.message })
+                    }
+                    actions.setIsLoading(false)
+
+                    throw e
                 }
             },
         },

@@ -218,7 +218,7 @@ export class EventsProcessor {
         }
 
         let groupsColumns: Record<string, string | ClickHouseTimestamp> = {}
-        let eventPersonProperties: string = '{}'
+        let eventPersonProperties = '{}'
         if (processPerson) {
             const groupIdentifiers = this.getGroupIdentifiers(properties)
             groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)

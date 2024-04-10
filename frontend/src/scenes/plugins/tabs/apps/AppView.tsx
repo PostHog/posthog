@@ -71,16 +71,13 @@ export function AppView({
                                 <>
                                     {orderedIndex ? (
                                         <>
-                                            Connectors that react to incoming events run in order. This app runs in
-                                            position {orderedIndex}.
+                                            Apps that react to incoming events run in order. This app runs in position{' '}
+                                            {orderedIndex}.
                                             <br />
-                                            Click to change the order of the connectors.
+                                            Click to change the order of the plugins.
                                         </>
                                     ) : (
-                                        <>
-                                            As this connector is not part of the processing flow, the order is
-                                            unimportant{' '}
-                                        </>
+                                        <>As this app is not part of the processing flow, the order is unimportant </>
                                     )}
                                 </>
                             }
