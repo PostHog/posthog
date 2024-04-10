@@ -38,6 +38,7 @@ import {
     startAsyncWebhooksHandlerConsumer,
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
+import { HeatmapEventIngester } from './ingestion-queues/session-recording/heatmap-event-ingestion'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { SessionRecordingIngesterV3 } from './ingestion-queues/session-recording/session-recordings-consumer-v3'
 import { setupCommonRoutes } from './services/http-server'
@@ -109,6 +110,7 @@ export async function startPluginsServer(
     // meantime.
     let bufferConsumer: Consumer | undefined
     let stopSessionRecordingBlobConsumer: (() => void) | undefined
+    let stopHeatMapIngestionConsumer: (() => void) | undefined
     let stopSessionRecordingBlobOverflowConsumer: (() => void) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
@@ -152,6 +154,7 @@ export async function startPluginsServer(
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             stopSessionRecordingBlobConsumer?.(),
+            stopHeatMapIngestionConsumer?.(),
             stopSessionRecordingBlobOverflowConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
             personOverridesPeriodicTask?.stop(),
@@ -457,6 +460,15 @@ export async function startPluginsServer(
                 stopSessionRecordingBlobConsumer = () => ingester.stop()
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
+            }
+
+            const heatmapIngester = new HeatmapEventIngester()
+            await heatmapIngester.start()
+            const heatMapBatchConsumer = heatmapIngester.batchConsumer
+            if (heatMapBatchConsumer) {
+                stopHeatMapIngestionConsumer = () => heatmapIngester.stop()
+                shutdownOnConsumerExit(heatMapBatchConsumer)
+                healthChecks['heatmap-ingester'] = () => heatmapIngester.isHealthy() ?? false
             }
         }
 
