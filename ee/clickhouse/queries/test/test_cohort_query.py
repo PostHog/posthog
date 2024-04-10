@@ -278,8 +278,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         {
                             "key": "$pageview",
                             "event_type": "events",
-                            "explicit_datetime": datetime.now()
-                            - timedelta(days=3),  # overrides time_value and time_interval
+                            "explicit_datetime": str(
+                                datetime.now() - timedelta(days=3)
+                            ),  # overrides time_value and time_interval
                             "time_value": 1,
                             "time_interval": "week",
                             "value": "performed_event",
