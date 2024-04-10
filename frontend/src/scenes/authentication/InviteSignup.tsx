@@ -255,19 +255,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
                 <SignupRoleSelect />
 
-                <LemonField name="email_opt_in">
-                    {({ value, onChange }) => {
-                        return (
-                            <LemonCheckbox
-                                checked={value}
-                                onChange={onChange}
-                                disabled={isSignupSubmitting}
-                                label="Send me product and security updates"
-                            />
-                        )
-                    }}
-                </LemonField>
-
                 <LemonButton
                     type="primary"
                     status="alt"
