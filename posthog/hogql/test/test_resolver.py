@@ -370,6 +370,24 @@ class TestResolver(BaseTest):
 
         assert hogql == expected
 
+    def test_types_pass_outside_subqueries_two_levels(self):
+        node: ast.SelectQuery = self._select("select event from (select event from events)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        self.assertEqual(
+            node.select_from.table.select[0].type.resolve_constant_type(self.context), ast.StringType(nullable=False)
+        )
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.StringType(nullable=False))
+
+    def test_types_pass_outside_subqueries_three_levels(self):
+        node: ast.SelectQuery = self._select("select event from (select event from (select event from events))")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        self.assertEqual(
+            node.select_from.table.select[0].type.resolve_constant_type(self.context), ast.StringType(nullable=False)
+        )
+        self.assertEqual(node.select[0].type.resolve_constant_type(self.context), ast.StringType(nullable=False))
+
     def test_arithmetic_types(self):
         node: ast.SelectQuery = self._select("select 1 + 2 as key from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))

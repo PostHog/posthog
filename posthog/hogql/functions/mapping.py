@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import List, Optional, Dict, Tuple, Type
 from posthog.hogql import ast
-from posthog.hogql.ast import StringType, TupleType, NumericType
+from posthog.hogql.ast import StringType, TupleType, NumericType, IntegerType
 from posthog.hogql.base import ConstantType
 from posthog.hogql.errors import QueryError
 
@@ -101,20 +101,147 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
             ),
         ],
     ),
-    "minus": HogQLFunctionMeta("minus", 2, 2),
-    "multiply": HogQLFunctionMeta("multiply", 2, 2),
-    "divide": HogQLFunctionMeta("divide", 2, 2),
-    "intDiv": HogQLFunctionMeta("intDiv", 2, 2),
-    "intDivOrZero": HogQLFunctionMeta("intDivOrZero", 2, 2),
-    "modulo": HogQLFunctionMeta("modulo", 2, 2),
-    "moduloOrZero": HogQLFunctionMeta("moduloOrZero", 2, 2),
-    "positiveModulo": HogQLFunctionMeta("positiveModulo", 2, 2),
-    "negate": HogQLFunctionMeta("negate", 1, 1),
-    "abs": HogQLFunctionMeta("abs", 1, 1, case_sensitive=False),
-    "gcd": HogQLFunctionMeta("gcd", 2, 2),
-    "lcm": HogQLFunctionMeta("lcm", 2, 2),
-    "max2": HogQLFunctionMeta("max2", 2, 2, case_sensitive=False),
-    "min2": HogQLFunctionMeta("min2", 2, 2, case_sensitive=False),
+    "minus": HogQLFunctionMeta(
+        "minus",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+            (
+                (
+                    TupleType(item_types=[NumericType()], repeat=True),
+                    TupleType(item_types=[NumericType()], repeat=True),
+                ),
+                TupleType(item_types=[NumericType()], repeat=True),
+            ),
+        ],
+    ),
+    "multiply": HogQLFunctionMeta(
+        "multiply",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+            (
+                (
+                    TupleType(item_types=[NumericType()], repeat=True),
+                    TupleType(item_types=[NumericType()], repeat=True),
+                ),
+                TupleType(item_types=[NumericType()], repeat=True),
+            ),
+            (
+                (NumericType(), TupleType(item_types=[NumericType()], repeat=True)),
+                TupleType(item_types=[NumericType()], repeat=True),
+            ),
+            (
+                (TupleType(item_types=[NumericType()], repeat=True), NumericType()),
+                TupleType(item_types=[NumericType()], repeat=True),
+            ),
+        ],
+    ),
+    "divide": HogQLFunctionMeta(
+        "divide",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+            (
+                (TupleType(item_types=[NumericType()], repeat=True), NumericType()),
+                TupleType(item_types=[NumericType()], repeat=True),
+            ),
+        ],
+    ),
+    "intDiv": HogQLFunctionMeta(
+        "intDiv",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+        ],
+    ),
+    "intDivOrZero": HogQLFunctionMeta(
+        "intDivOrZero",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+        ],
+    ),
+    "modulo": HogQLFunctionMeta(
+        "modulo",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+        ],
+    ),
+    "moduloOrZero": HogQLFunctionMeta(
+        "moduloOrZero",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+        ],
+    ),
+    "positiveModulo": HogQLFunctionMeta(
+        "positiveModulo",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+        ],
+    ),
+    "negate": HogQLFunctionMeta(
+        "negate",
+        1,
+        1,
+        signatures=[
+            ((NumericType()), NumericType()),
+        ],
+    ),
+    "abs": HogQLFunctionMeta(
+        "abs",
+        1,
+        1,
+        signatures=[
+            ((IntegerType()), IntegerType()),
+        ],
+        case_sensitive=False,
+    ),
+    "gcd": HogQLFunctionMeta(
+        "gcd",
+        2,
+        2,
+        signatures=[
+            ((IntegerType()), IntegerType()),
+        ],
+    ),
+    "lcm": HogQLFunctionMeta(
+        "lcm",
+        2,
+        2,
+        signatures=[
+            ((IntegerType()), IntegerType()),
+        ],
+    ),
+    "max2": HogQLFunctionMeta(
+        "max2",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+        ],
+        case_sensitive=False,
+    ),
+    "min2": HogQLFunctionMeta(
+        "min2",
+        2,
+        2,
+        signatures=[
+            ((NumericType(), NumericType()), NumericType()),
+        ],
+        case_sensitive=False,
+    ),
     "multiplyDecimal": HogQLFunctionMeta("multiplyDecimal", 2, 3),
     "divideDecimal": HogQLFunctionMeta("divideDecimal", 2, 3),
     # arrays and strings common
@@ -207,7 +334,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
         overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
         tz_aware=True,
     ),
-    "toUUID": HogQLFunctionMeta("toUUIDOrNull", 1, 1),
+    "toUUID": HogQLFunctionMeta("toUUIDOrNull", 1, 1, signatures=[((StringType(),), ast.UUIDType())]),
     "toString": HogQLFunctionMeta("toString", 1, 1),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
