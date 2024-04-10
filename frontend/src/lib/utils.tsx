@@ -1729,12 +1729,3 @@ export function hasFormErrors(object: any): boolean {
     }
     return !!object
 }
-
-export function stringToBoolean(value: unknown): boolean {
-    const stringValue = String(value).toLowerCase()
-    const isStrictlyTrue = ['y', 'yes', 't', 'true', 'on', '1'].includes(stringValue)
-    if (isStrictlyTrue) {
-        return true
-    }
-    return false
-}

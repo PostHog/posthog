@@ -2448,7 +2448,6 @@ class RetentionQuery(BaseModel):
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    explicitDate: Optional[bool] = None
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -2484,7 +2483,6 @@ class StickinessQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    explicitDate: Optional[bool] = None
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -2529,7 +2527,6 @@ class TrendsQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    explicitDate: Optional[bool] = None
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -2626,7 +2623,6 @@ class FunnelsQuery(BaseModel):
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    explicitDate: Optional[bool] = None
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -2670,7 +2666,6 @@ class InsightsQueryBase(BaseModel):
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    explicitDate: Optional[bool] = None
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -2704,7 +2699,6 @@ class LifecycleQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    explicitDate: Optional[bool] = None
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
