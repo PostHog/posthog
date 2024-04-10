@@ -50,7 +50,6 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                 'onBack',
                 'onNext',
                 'selectConnector',
-                'toggleSourceModal',
                 'loadSources',
                 'updateSource',
                 'clearSource',

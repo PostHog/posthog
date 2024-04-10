@@ -130,11 +130,14 @@ export function normalizeProcessPerson(event: PluginEvent, processPerson: boolea
         delete properties.$set
         delete properties.$set_once
         delete properties.$unset
+        // Recorded for clarity and so that the property exists if it is ever sent elsewhere,
+        // e.g. for migrations.
+        properties.$process_person = false
+    } else {
+        // Removed as it is the default, note that we have record the `person_mode` column
+        // in ClickHouse for all events.
+        delete properties.$process_person
     }
-
-    // We store the `person_mode` column if people want to see how an event was processed after
-    // the fact.
-    delete properties.$process_person
 
     event.properties = properties
     return event
