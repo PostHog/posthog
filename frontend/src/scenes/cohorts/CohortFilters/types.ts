@@ -113,6 +113,10 @@ export interface CohortEventFiltersFieldProps extends Omit<CohortFieldBaseProps,
     fieldOptionGroupTypes: never
 }
 
+export interface CohortRelativeAndExactTimeFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
+    fieldOptionGroupTypes: never
+}
+
 export interface CohortTextFieldProps extends CohortFieldBaseProps {
     value: string
 }
@@ -128,6 +132,7 @@ export type CohortFieldProps =
     | CohortTextFieldProps
     | CohortPersonPropertiesValuesFieldProps
     | CohortEventFiltersFieldProps
+    | CohortRelativeAndExactTimeFieldProps
 
 export enum CohortClientErrors {
     NegationCriteriaMissingOther = 'Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.',

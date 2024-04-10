@@ -19,6 +19,7 @@ import {
     CohortFieldBaseProps,
     CohortNumberFieldProps,
     CohortPersonPropertiesValuesFieldProps,
+    CohortRelativeAndExactTimeFieldProps,
     CohortSelectorFieldProps,
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
@@ -217,7 +218,6 @@ export function CohortEventFiltersField({
                 propertyFilters={(value as AnyPropertyFilter[]) || []}
                 taxonomicGroupTypes={[
                     TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Elements,
                     TaxonomicFilterGroupType.HogQLExpression,
@@ -240,14 +240,13 @@ export function CohortRelativeAndExactTimeField({
     criteria,
     cohortFilterLogicKey,
     onChange: _onChange,
-}: CohortEventFiltersFieldProps): JSX.Element {
+}: CohortRelativeAndExactTimeFieldProps): JSX.Element {
     const { logic } = useCohortFieldLogic({
         fieldKey,
         criteria,
         cohortFilterLogicKey,
         onChange: _onChange,
     })
-    // TODO(nk): For backwards compatibility convert existing time units and intervals into new format
     // This replaces the old TimeUnit and TimeInterval filters
     // and combines them with a relative+exact time option.
     // This is more inline with rest of analytics filters and make things much nicer here.
@@ -262,6 +261,7 @@ export function CohortRelativeAndExactTimeField({
             }}
             max={1000}
             isFixedDateMode
+            allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
             showCustom
             dateOptions={[
                 {

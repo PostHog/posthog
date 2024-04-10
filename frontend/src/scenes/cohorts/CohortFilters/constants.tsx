@@ -18,6 +18,7 @@ import {
     CohortFieldProps,
     CohortNumberFieldProps,
     CohortPersonPropertiesValuesFieldProps,
+    CohortRelativeAndExactTimeFieldProps,
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
     FieldOptionsType,
@@ -823,6 +824,10 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     },
 }
 
+export const COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME = Object.entries(ROWS)
+    .filter(([_, row]) => row.fields.some((field) => field.type === FilterType.RelativeAndExactTime))
+    .map(([eventType, _]) => eventType)
+
 // Building blocks of a row
 export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.Element> = {
     [FilterType.Behavioral]: function _renderField(p) {
@@ -917,7 +922,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         )
     },
     [FilterType.RelativeAndExactTime]: function _renderField(p) {
-        return <CohortRelativeAndExactTimeField {...(p as CohortEventFiltersFieldProps)} />
+        return <CohortRelativeAndExactTimeField {...(p as CohortRelativeAndExactTimeFieldProps)} />
     },
     [FilterType.EventType]: function _renderField() {
         return <></>
@@ -960,8 +965,7 @@ export const NEW_CRITERIA = {
     type: BehavioralFilterKey.Behavioral,
     value: BehavioralEventType.PerformEvent,
     event_type: TaxonomicFilterGroupType.Events,
-    time_value: '30',
-    time_interval: TimeUnitType.Day,
+    explicit_datetime: '-30d',
 }
 
 export const NEW_CRITERIA_GROUP: CohortCriteriaGroupFilter = {
