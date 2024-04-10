@@ -527,7 +527,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))
 
-        if hogql_insights_enabled(
+        if not self.context["request"].user.is_anonymous and hogql_insights_enabled(
             self.context["request"].user, insight.filters.get("insight", schema.InsightType.TRENDS)
         ):
             # TRICKY: As running `filters`-based insights on the HogQL-based engine is a transitional mechanism,
