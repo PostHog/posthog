@@ -81,11 +81,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     loaders(({ props, values, actions }) => ({
-        actionCount: {
-            loadActionCount: async () => {
-                return props.id ? await api.actions.getCount(props.id) : 0
-            },
-        },
         action: [
             { ...props.action } as ActionEditType,
             {
@@ -130,7 +125,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     // reload actions so they are immediately available throughout the app
                     actions.loadEventDefinitions()
                     actions.loadActions()
-                    actions.loadActionCount()
                     actions.loadTags() // reload tags in case new tags are being saved
                     return action
                 },
@@ -152,9 +146,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
-        if (props.id) {
-            actions.loadActionCount()
-        } else {
+        if (!props.id) {
             actions.setAction({ name: '', steps: [{ isNew: uuid() }] }, { merge: false })
         }
     }),
