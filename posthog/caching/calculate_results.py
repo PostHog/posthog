@@ -108,13 +108,15 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
 
 def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> "InsightResult":
     from posthog.api.services.query import process_query
+    from posthog.caching.fetch_from_cache import InsightResult
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk)
 
     response = process_query(insight.team, insight.query, refresh_requested=refresh_requested)
 
     return InsightResult(
-        result=response.get("result"),
+        # Only `results` is guaranteed even for non-insight queries, such as `EventsQueryResponse`
+        result=response["results"],
         last_refresh=response.get("last_refresh"),
         cache_key=response.get("cache_key"),
         is_cached=response.get("is_cached"),
