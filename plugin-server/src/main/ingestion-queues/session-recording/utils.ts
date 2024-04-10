@@ -250,6 +250,11 @@ export const parseKafkaMessage = async (
 
     const { $snapshot_items, $session_id, $window_id, $snapshot_source } = event.properties || {}
 
+    if (event.event === '$heatmap') {
+        // we can silently ignore this... it's fine
+        return
+    }
+
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
         return dropMessage('received_non_snapshot_message')

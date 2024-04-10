@@ -18,13 +18,11 @@ import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { eventDroppedCounter } from '../metrics'
-import {
-    KAFKA_CONSUMER_GROUP_ID,
-    KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
-    TeamIDWithConfig,
-} from './session-recordings-consumer'
+import { KAFKA_CONSUMER_SESSION_TIMEOUT_MS, TeamIDWithConfig } from './session-recordings-consumer'
 import { HeatmapEvent, IncomingHeatmapEventMessage } from './types'
 import { readTokenFromHeaders } from './utils'
+
+const KAFKA_CONSUMER_GROUP_ID = 'replay-heatmaps-ingestion'
 
 function isPositiveNumber(candidate: unknown): candidate is number {
     return typeof candidate === 'number' && candidate >= 0
@@ -86,15 +84,18 @@ export const parseKafkaMessage = async (
     const { screen_height, screen_width, $session_id, x, y } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
-    if (
-        event.event !== '$heatmap' &&
-        isPositiveNumber(screen_height) &&
-        isPositiveNumber(screen_width) &&
-        isPositiveNumber(x) &&
-        isPositiveNumber(y) &&
-        !!$session_id
-    ) {
+    if (event.event !== '$heatmap') {
         return dropMessage('received_non_heatmap_message')
+    }
+
+    if (
+        !isPositiveNumber(screen_height) ||
+        !isPositiveNumber(screen_width) ||
+        !isPositiveNumber(x) ||
+        !isPositiveNumber(y) ||
+        !$session_id
+    ) {
+        return dropMessage('received_invalid_heatmap_message')
     }
 
     return {

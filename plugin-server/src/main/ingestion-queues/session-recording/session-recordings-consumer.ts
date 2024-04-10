@@ -45,7 +45,7 @@ import {
 require('@sentry/tracing')
 
 // WARNING: Do not change this - it will essentially reset the consumer
-export const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
+const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
 const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'session-recordings-blob-overflow'
 export const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
