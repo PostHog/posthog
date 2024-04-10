@@ -140,7 +140,12 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         await ingester.commitAllOffsets(ingester.partitionMetrics, Object.values(ingester.sessions))
     }
 
-    const createMessage = (session_id: string, partition = 1, messageOverrides: Partial<Message> = {}) => {
+    const createMessage = (
+        session_id: string,
+        partition = 1,
+        messageOverrides: Partial<Message> = {},
+        event = '$snapshot_items'
+    ) => {
         mockOffsets[partition] = mockOffsets[partition] ?? 0
         mockOffsets[partition]++
 
@@ -154,7 +159,8 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             },
             {
                 $session_id: session_id,
-            }
+            },
+            event
         )
     }
 
@@ -217,6 +223,23 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
             expect(Object.keys(ingester.sessions).length).toBe(1)
             expect(ingester.sessions['2-session_id_2']).toBeDefined()
+        })
+
+        it('ignores unexpected events', async () => {
+            await ingester.handleEachBatch(
+                [
+                    createMessage('sess-1', 1, {}, '$snapshot_items'),
+                    createMessage('sess-1', 1, {}, '$heartbeat'),
+                    createMessage('sess-2', 1, {}, '$heartbeat'),
+                ],
+                () => {}
+            )
+
+            // ignored the session that only received non snapshot events
+            expect(Object.keys(ingester.sessions).length).toBe(1)
+
+            // ignored the non snapshot event in the first session
+            expect(ingester.sessions['2-sess-1'].buffer?.count).toBe(1)
         })
 
         it('handles multiple incoming sessions', async () => {

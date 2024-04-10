@@ -43,7 +43,8 @@ export function createKafkaMessage(
     topic: string,
     token: number | string,
     messageOverrides: Partial<Message> = {},
-    eventProperties: Record<string, any> = {}
+    eventProperties: Record<string, any> = {},
+    event = '$snapshot_items'
 ): Message {
     return {
         partition: 1,
@@ -59,7 +60,7 @@ export function createKafkaMessage(
                 distinct_id: 'distinct_id',
                 token: token,
                 data: JSON.stringify({
-                    event: '$snapshot_items',
+                    event,
                     properties: {
                         $session_id: 'session_id_1',
                         $window_id: 'window_id_1',
