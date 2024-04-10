@@ -363,7 +363,6 @@ class Team(UUIDClassicModel):
     def _person_on_events_person_id_override_properties_joined(self) -> bool:
         # on PostHog Cloud, use the feature flag
         if is_cloud():
-            # users can override our feature flag via extra_settings
             return posthoganalytics.feature_enabled(
                 "persons-on-events-person-id-override-properties-joined",
                 str(self.uuid),
