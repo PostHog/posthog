@@ -673,7 +673,7 @@ class TrendsQueryRunner(QueryRunner):
 
         elif self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
             # with breakdown
-            breakdown_values_count = int(len(results) / len(self.query.series))
+            breakdown_values_count = len(results) // len(self.query.series)
             computed_results = []
             for i in range(0, breakdown_values_count):
                 results_group = [results[i], results[i + breakdown_values_count]]
