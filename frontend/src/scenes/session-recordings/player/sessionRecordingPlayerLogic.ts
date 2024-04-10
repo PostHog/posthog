@@ -724,6 +724,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
+            cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
 
             // Check if we're seeking to a new segment
