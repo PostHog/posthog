@@ -184,7 +184,7 @@ export const SidePanelSupport = (): JSX.Element => {
 
                     <Section title="Ask the community">
                         <p>
-                            Questions about features, how to's, or use cases? There are thousands of discussions in our
+                            Questions about features, how tos, or use cases? There are thousands of discussions in our
                             community forums.
                         </p>
                         <LemonButton
