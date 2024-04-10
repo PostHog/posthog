@@ -106,28 +106,22 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 
-def _cached_response_to_insight_result(response: dict) -> "InsightResult":
-    """Response should be a dict-ified `CachedQueryResponse`."""
-    from posthog.caching.fetch_from_cache import InsightResult
-
-    result_keys = InsightResult.__annotations__.keys()
-
-    # replace 'result' with 'results' for schema compatibility
-    response_keys = ["results" if key == "result" else key for key in result_keys]
-
-    # use only the keys of the response that are also present in the result
-    result = InsightResult(
-        **{result_key: response.get(response_key) for result_key, response_key in zip(result_keys, response_keys)}
-    )
-    return result
-
-
 def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> "InsightResult":
     from posthog.api.services.query import process_query
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk)
+
     response = process_query(insight.team, insight.query, refresh_requested=refresh_requested)
-    return _cached_response_to_insight_result(response)
+
+    return InsightResult(
+        result=response.get("result"),
+        last_refresh=response.get("last_refresh"),
+        cache_key=response.get("cache_key"),
+        is_cached=response.get("is_cached"),
+        timezone=response.get("timezone"),
+        next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
+        timings=response.get("timings"),
+    )
 
 
 def calculate_for_filter_based_insight(
