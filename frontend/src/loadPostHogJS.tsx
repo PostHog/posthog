@@ -42,6 +42,7 @@ export function loadPostHogJS(): void {
                 autocapture: {
                     capture_copied_text: true,
                 },
+                process_person: 'identified_only',
                 // Helper to capture events for assertions in Cypress
                 _onCapture: (window as any)._cypress_posthog_captures
                     ? (_, event) => (window as any)._cypress_posthog_captures.push(event)
@@ -82,7 +83,7 @@ export function loadPostHogJS(): void {
             dsn: window.SENTRY_DSN,
             environment: window.SENTRY_ENVIRONMENT,
             ...(location.host.includes('posthog.com') && {
-                integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813)],
+                integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813, undefined, '*')],
             }),
         })
     }

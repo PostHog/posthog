@@ -180,10 +180,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         filter_test_accounts: Optional[bool] = None,
         hogql_modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        explicit_date: Optional[bool] = None,
     ) -> TrendsQueryRunner:
         query_series: List[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
             series=query_series,
             trendsFilter=trends_filters,
@@ -1706,3 +1707,35 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+
+    def test_actors_query_explicit_dates(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09 12:37:42",
+            "2020-01-20 12:37:42",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            None,
+            explicit_date=True,
+        )
+
+        # date_to starts at specific time
+        response = runner.to_actors_query(time_frame="2020-01-09", series_index=0, breakdown_value=None, compare=None)
+        assert response.select_from.table.where.exprs[0].right.value == datetime(  # type: ignore
+            2020, 1, 9, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        )
+        assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
+            2020, 1, 10, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        )
+
+        # date_from ends at specific time
+        response = runner.to_actors_query(time_frame="2020-01-20", series_index=0, breakdown_value=None, compare=None)
+        assert response.select_from.table.where.exprs[0].right.value == datetime(  # type: ignore
+            2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        )
+        assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
+            2020, 1, 20, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        )

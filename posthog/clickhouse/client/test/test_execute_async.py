@@ -5,7 +5,7 @@ from django.test import TestCase
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.client import sync_execute
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.models import Organization, Team
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import patch, MagicMock
@@ -69,14 +69,15 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         team_id = self.team_id
         query_id = client.enqueue_process_query_task(team_id, self.user_id, query, _test_only_bypass_celery=True).id
         result = client.get_query_status(team_id, query_id)
-        self.assertFalse(result.error, result.error_message)
+        self.assertFalse(result.error, result.error_message or "<no error message>")
         self.assertTrue(result.complete)
+        assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
 
     def test_async_query_client_errors(self):
         query = build_query("SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK")
         self.assertRaises(
-            HogQLException,
+            ExposedHogQLError,
             client.enqueue_process_query_task,
             **{"team_id": self.team_id, "user_id": self.user_id, "query_json": query, "_test_only_bypass_celery": True},
         )
@@ -90,6 +91,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         result = client.get_query_status(self.team_id, query_id)
         self.assertTrue(result.error)
+        assert result.error_message
         self.assertRegex(result.error_message, "Unknown table")
 
     def test_async_query_client_uuid(self):
@@ -97,8 +99,9 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         team_id = self.team_id
         query_id = client.enqueue_process_query_task(team_id, self.user_id, query, _test_only_bypass_celery=True).id
         result = client.get_query_status(team_id, query_id)
-        self.assertFalse(result.error, result.error_message)
+        self.assertFalse(result.error, result.error_message or "<no error message>")
         self.assertTrue(result.complete)
+        assert result.results is not None
         self.assertEqual(result.results["results"], [["00000000-0000-0000-0000-000000000000"]])
 
     def test_async_query_client_does_not_leak(self):

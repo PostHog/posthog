@@ -126,6 +126,10 @@ class Breakdown:
                 right=ast.Constant(value=self.query.breakdownFilter.breakdown),
             )
 
+        # No need to filter if we're showing the "other" bucket, as we need to look at all events anyway.
+        if self.query.breakdownFilter is not None and not self.query.breakdownFilter.breakdown_hide_other_aggregation:
+            return ast.Constant(value=True)
+
         if (
             self.query.breakdownFilter is not None
             and self.query.breakdownFilter.breakdown is not None
@@ -176,6 +180,10 @@ class Breakdown:
         return self._get_breakdown_values_transform(ast.Field(chain=self._properties_chain))
 
     def _get_breakdown_values_transform(self, node: ast.Expr) -> ast.Call:
+        if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_normalize_url:
+            node = parse_expr(
+                "empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')", placeholders={"node": node}
+            )
         return cast(
             ast.Call,
             parse_expr(
@@ -196,7 +204,7 @@ class Breakdown:
         # TODO: add this only if needed
         values.append('["",""]')
 
-        return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), values)))
+        return ast.Array(exprs=[ast.Constant(value=v) for v in values])
 
     @property
     def _breakdown_values_ast(self) -> ast.Array:

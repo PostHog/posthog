@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     group1_created_at DateTime64,
     group2_created_at DateTime64,
     group3_created_at DateTime64,
-    group4_created_at DateTime64
+    group4_created_at DateTime64,
+    person_mode Enum8('full' = 0, 'propertyless' = 1)
     {materialized_columns}
     {extra_fields}
     {indexes}
@@ -162,6 +163,7 @@ group1_created_at,
 group2_created_at,
 group3_created_at,
 group4_created_at,
+person_mode,
 NOW64() AS inserted_at,
 _timestamp,
 _offset
@@ -219,6 +221,7 @@ INSERT INTO {EVENTS_DATA_TABLE()}
     group2_created_at,
     group3_created_at,
     group4_created_at,
+    person_mode,
     created_at,
     _timestamp,
     _offset
@@ -245,6 +248,7 @@ VALUES
     %(group2_created_at)s,
     %(group3_created_at)s,
     %(group4_created_at)s,
+    %(person_mode)s,
     %(created_at)s,
     now(),
     0
@@ -276,6 +280,7 @@ INSERT INTO {EVENTS_DATA_TABLE()}
     group2_created_at,
     group3_created_at,
     group4_created_at,
+    person_mode,
     created_at,
     _timestamp,
     _offset
@@ -415,5 +420,5 @@ COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     table_name=WRITABLE_EVENTS_DATA_TABLE(),
     columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,
     person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties,
-     group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at""",
+     group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, person_mode""",
 )

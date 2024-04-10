@@ -10,6 +10,8 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.data_imports.pipelines.helpers import aupdate_job_count
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
 from posthog.temporal.data_imports.pipelines.zendesk.credentials import ZendeskCredentialsToken
 from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
@@ -28,7 +30,7 @@ from posthog.warehouse.models import (
 )
 from posthog.warehouse.models.external_data_schema import get_postgres_schemas
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from typing import Tuple
+from typing import Dict, Tuple
 import asyncio
 from django.conf import settings
 
@@ -61,11 +63,14 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         database = source.job_inputs.get("database")
         schema = source.job_inputs.get("schema")
         schemas_to_sync = await sync_to_async(get_postgres_schemas)(host, port, database, user, password, schema)
-        await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
-            schemas_to_sync,
-            source_id=inputs.external_data_source_id,
-            team_id=inputs.team_id,
-        )
+    else:
+        schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source.source_type, ()))
+
+    await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
+        schemas_to_sync,
+        source_id=inputs.external_data_source_id,
+        team_id=inputs.team_id,
+    )
 
     schemas = await sync_to_async(get_active_schemas_for_source_id)(
         team_id=inputs.team_id, source_id=inputs.external_data_source_id
@@ -110,6 +115,7 @@ class ValidateSchemaInputs:
     team_id: int
     schemas: list[Tuple[str, str]]
     table_schema: TSchemaTables
+    table_row_counts: Dict[str, int]
 
 
 @activity.defn
@@ -119,6 +125,7 @@ async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
         team_id=inputs.team_id,
         schemas=inputs.schemas,
         table_schema=inputs.table_schema,
+        table_row_counts=inputs.table_row_counts,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
@@ -153,7 +160,7 @@ class ExternalDataJobInputs:
 
 
 @activity.defn
-async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
+async def run_external_data_job(inputs: ExternalDataJobInputs) -> Tuple[TSchemaTables, Dict[str, int]]:  # noqa: F821
     model: ExternalDataJob = await get_external_data_job(
         job_id=inputs.run_id,
     )
@@ -176,10 +183,14 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
         from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
 
         stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
+        account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
+        # Cludge: account_id should be checked here too but can deal with nulls
+        # until we require re update of account_ids in stripe so they're all store
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
         source = stripe_source(
             api_key=stripe_secret_key,
+            account_id=account_id,
             endpoints=tuple(endpoints),
             team_id=inputs.team_id,
             job_id=inputs.run_id,
@@ -247,12 +258,15 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> TSchemaTables:
     heartbeat_task = asyncio.create_task(heartbeat())
 
     try:
-        await DataImportPipeline(job_inputs, source, logger).run()
+        table_row_counts = await DataImportPipeline(job_inputs, source, logger).run()
+        total_rows_synced = sum(table_row_counts.values())
+
+        await aupdate_job_count(inputs.run_id, inputs.team_id, total_rows_synced)
     finally:
         heartbeat_task.cancel()
         await asyncio.wait([heartbeat_task])
 
-    return source.schema.tables
+    return source.schema.tables, table_row_counts
 
 
 # TODO: update retry policies
@@ -297,17 +311,21 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schemas=schemas,
             )
 
-            table_schemas = await workflow.execute_activity(
+            table_schemas, table_row_counts = await workflow.execute_activity(
                 run_external_data_job,
                 job_inputs,
-                start_to_close_timeout=dt.timedelta(hours=4),
+                start_to_close_timeout=dt.timedelta(hours=30),
                 retry_policy=RetryPolicy(maximum_attempts=5),
                 heartbeat_timeout=dt.timedelta(minutes=1),
             )
 
             # check schema first
             validate_inputs = ValidateSchemaInputs(
-                run_id=run_id, team_id=inputs.team_id, schemas=schemas, table_schema=table_schemas
+                run_id=run_id,
+                team_id=inputs.team_id,
+                schemas=schemas,
+                table_schema=table_schemas,
+                table_row_counts=table_row_counts,
             )
 
             await workflow.execute_activity(

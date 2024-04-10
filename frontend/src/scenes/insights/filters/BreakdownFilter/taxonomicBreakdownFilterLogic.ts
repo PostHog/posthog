@@ -65,9 +65,9 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             },
         ],
         localBreakdownLimit: [
-            25 as number | undefined,
+            undefined as number | undefined,
             {
-                setBreakdownLimit: (_, { value }) => value ?? 25,
+                setBreakdownLimit: (_, { value }) => value,
             },
         ],
     }),
@@ -173,6 +173,13 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     props.updateDisplay?.(undefined)
                 }
             }
+        },
+        setBreakdownLimit: async ({ value }, breakpoint) => {
+            await breakpoint(300)
+
+            props.updateBreakdownFilter?.({
+                breakdown_limit: value,
+            })
         },
         setNormalizeBreakdownURL: ({ normalizeBreakdownURL }) => {
             props.updateBreakdownFilter?.({
