@@ -3,11 +3,16 @@ import { DateTime } from 'luxon'
 import { features, librdkafkaVersion, Message } from 'node-rdkafka'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
-import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
+import {
+    KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+} from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
+import { createKafkaProducer, produce } from '../../../kafka/producer'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, TimestampFormat } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
@@ -21,8 +26,8 @@ import {
 import { HeatmapEvent, IncomingHeatmapEventMessage } from './types'
 import { readTokenFromHeaders } from './utils'
 
-function isPositiveNumber(x: unknown): x is number {
-    return typeof x === 'number' && x > 0
+function isPositiveNumber(candidate: unknown): candidate is number {
+    return typeof candidate === 'number' && candidate >= 0
 }
 
 export const parseKafkaMessage = async (
@@ -132,8 +137,9 @@ function parsedHeatmapMessages(incomingMessages: IncomingHeatmapEventMessage[]):
  */
 export class HeatmapEventIngester {
     batchConsumer?: BatchConsumer
-    config: PluginsServerConfig
-    teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
+    private readonly config: PluginsServerConfig
+    private teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
+    private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
 
     // TODO these are the hooks we'd use if we needed to add overflow in future
     consumerGroupId: string = KAFKA_CONSUMER_GROUP_ID
@@ -154,21 +160,34 @@ export class HeatmapEventIngester {
         })
     }
 
-    private async consume(_message: HeatmapEvent) {}
+    private async consume(message: HeatmapEvent) {
+        const producer = this.sharedClusterProducerWrapper?.producer
+        if (!producer) {
+            return // 🤷surely not
+        }
+        return produce({
+            producer: producer,
+            topic: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+            value: Buffer.from(JSON.stringify(message)),
+            key: message.session_id,
+            waitForAck: true,
+        })
+    }
 
+    /**
+     * take only `$heatmap` events
+     * they will have an x and y as well as a width and height
+     * we want to limit the cardinality of the data and will use a resolution of 16px squares
+     * so each x and y is reduced to the top left of one of the 16px squares
+     * e.g. an x,y of 8,8 is reduced to 0,0 because it's in the first 16px square
+     * and an x,y of 44,206 is reduced to 2, 12
+     * once we have reduced the resolution
+     * we write the event onwards to land in ClickHouse
+     */
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
         status.info('🔁', `heatmap_ingester_consumer - handling batch`, {
             size: messages.length,
         })
-
-        // take only `$heatmap` events
-        // they will have an x and y as well as a width and height
-        // we want to limit the cardinality of the data and will use a resolution of 16px squares
-        // so each x and y is reduced to the top left of one of the 16px squares
-        // e.g. an x,y of 8,8 is reduced to 0,0 because it's in the first 16px square
-        // and an x,y of 44,206 is reduced to 2, 12
-        // once we have reduced the resolution
-        // we write the event onwards to land in ClickHouse
 
         const incomingMessages: IncomingHeatmapEventMessage[] = []
 
@@ -176,7 +195,7 @@ export class HeatmapEventIngester {
             const parsedToIncoming = await parseKafkaMessage(m, (token) =>
                 this.teamsRefresher.get().then((teams) => ({
                     teamId: teams[token]?.teamId || null,
-                    // lazily reusing value here even though it doesn't make sense
+                    // lazily reusing the same contract here even though it doesn't make sense
                     consoleLogIngestionEnabled: false,
                 }))
             )
@@ -192,9 +211,45 @@ export class HeatmapEventIngester {
 
         const parsedMessages: HeatmapEvent[] = parsedHeatmapMessages(incomingMessages)
 
+        const pendingProduceRequests = []
         for (const message of parsedMessages) {
-            await this.consume(message)
-            heartbeat()
+            pendingProduceRequests.push(this.consume(message))
+        }
+
+        heartbeat()
+
+        // just copied from replay events ingester below here - yuck
+
+        // On each loop, we flush the producer to ensure that all messages
+        // are sent to Kafka.
+        try {
+            await this.sharedClusterProducerWrapper?.flush()
+        } catch (error) {
+            // Rather than handling errors from flush, we instead handle
+            // errors per produce request, which gives us a little more
+            // flexibility in terms of deciding if it is a terminal
+            // error or not.
+        }
+
+        // We wait on all the produce requests to complete. After the
+        // flush they should all have been resolved/rejected already. If
+        // we get an intermittent error, such as a Kafka broker being
+        // unavailable, we will throw. We are relying on the Producer
+        // already having handled retries internally.
+        for (const produceRequest of pendingProduceRequests) {
+            try {
+                await produceRequest
+            } catch (error) {
+                status.error('⚠️', '[heatmap_ingester_consumer] main_loop_error', { error })
+
+                if (error?.isRetriable) {
+                    // We assume if the error is retryable, then we
+                    // are probably in a state where e.g. Kafka is down
+                    // temporarily, and we would rather simply throw and
+                    // have the process restarted.
+                    throw error
+                }
+            }
         }
     }
 
@@ -227,13 +282,23 @@ export class HeatmapEventIngester {
             eachBatch: async (messages, { heartbeat }) => {
                 return this.handleEachBatch(messages, heartbeat)
             },
-            callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
+            callEachBatchWhenEmpty: false,
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
+
+        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
+        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
+
+        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
+            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
+        )
+        this.sharedClusterProducerWrapper.producer.connect()
     }
 
     async stop(): Promise<PromiseSettledResult<any>[]> {
-        return Promise.resolve([])
+        return Promise.allSettled([
+            this.sharedClusterProducerWrapper ? this.sharedClusterProducerWrapper.disconnect() : Promise.resolve(),
+        ])
     }
 
     public isHealthy() {

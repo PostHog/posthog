@@ -462,7 +462,7 @@ export async function startPluginsServer(
                 healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
             }
 
-            const heatmapIngester = new HeatmapEventIngester()
+            const heatmapIngester = new HeatmapEventIngester(serverConfig, postgres)
             await heatmapIngester.start()
             const heatMapBatchConsumer = heatmapIngester.batchConsumer
             if (heatMapBatchConsumer) {

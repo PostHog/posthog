@@ -58,11 +58,8 @@ LOG_RATE_LIMITER = Limiter(
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
-SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
-SESSION_RECORDING_EVENT_NAMES = (
-    "$snapshot",
-    "$performance_event",
-) + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
+SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items", "$heatmap")
+SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event") + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
 
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
@@ -158,7 +155,7 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
     match event_name:
         case "$snapshot":
             return KAFKA_SESSION_RECORDING_EVENTS
-        case "$snapshot_items":
+        case "$snapshot_items" | "$heatmap":
             if overflowing:
                 return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
@@ -297,6 +294,7 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     )
 
     for event in events:
+        # TODO we're quota limiting $heatmap and $performance_event events on the replay bill
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
             if token in limited_tokens_recordings:
