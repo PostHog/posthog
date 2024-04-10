@@ -679,12 +679,10 @@ class TrendsQueryRunner(QueryRunner):
                 results_group = [results[i], results[i + breakdown_values_count]]
                 computed_results.append(apply_formula_to_results_group(results_group))
             return computed_results
-        elif self._trends_display.should_aggregate_values():
-            # with total value aggregation
-            return [apply_formula_to_results_group(results, aggregate_values=True)]
         else:
-            # default case
-            return [apply_formula_to_results_group(results)]
+            return [
+                apply_formula_to_results_group(results, aggregate_values=self._trends_display.should_aggregate_values())
+            ]
 
     def _is_breakdown_field_boolean(self):
         if not self.query.breakdownFilter or not self.query.breakdownFilter.breakdown_type:
