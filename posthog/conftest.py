@@ -14,7 +14,6 @@ def create_clickhouse_tables(num_tables: int):
     from posthog.clickhouse.schema import (
         CREATE_DISTRIBUTED_TABLE_QUERIES,
         CREATE_MERGETREE_TABLE_QUERIES,
-        # CREATE_KAFKA_TABLE_QUERIES,
         CREATE_MV_TABLE_QUERIES,
         CREATE_DATA_QUERIES,
         CREATE_DICTIONARY_QUERIES,
@@ -31,9 +30,6 @@ def create_clickhouse_tables(num_tables: int):
 
     table_queries = list(map(build_query, CREATE_TABLE_QUERIES))
     run_clickhouse_statement_in_parallel(table_queries)
-
-    # kafka_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
-    # run_clickhouse_statement_in_parallel(kafka_queries)
 
     mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
     run_clickhouse_statement_in_parallel(mv_queries)
