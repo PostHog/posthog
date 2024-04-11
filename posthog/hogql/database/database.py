@@ -39,7 +39,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
 from posthog.hogql.database.schema.person_overrides import (
     PersonOverridesTable,
     RawPersonOverridesTable,
@@ -193,7 +193,11 @@ def create_hogql_database(
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_joined:
         _use_person_id_from_person_overrides(database)
-        raise NotImplementedError
+        database.events.fields["person"] = LazyJoin(
+            from_field=["person_id"],
+            join_table=PersonsTable(),
+            join_function=join_with_persons_table,
+        )
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
