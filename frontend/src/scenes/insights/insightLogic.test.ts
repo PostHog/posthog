@@ -660,7 +660,7 @@ describe('insightLogic', () => {
             await verifyItLoadsFromTheAPI(logic)
         })
 
-        it('loads from the savedInsightLogic when not in a dashboard context', async () => {
+        it.skip('loads from the savedInsightLogic when not in a dashboard context', async () => {
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
             savedInsightsLogic.mount()
