@@ -637,7 +637,7 @@ class TrendsQueryRunner(QueryRunner):
     def apply_formula(self, formula: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
         has_breakdown = bool(self.query.breakdownFilter and self.query.breakdownFilter.breakdown)
-        aggregate_values = self._trends_display.should_aggregate_values()
+        is_total_value = self._trends_display.should_aggregate_values()
 
         if len(results) == 0:
             return []
@@ -660,22 +660,24 @@ class TrendsQueryRunner(QueryRunner):
                         # add the missing result
                         base_result = copy.deepcopy(results_group[0])
                         base_result["label"] = f"filler for {idx} - {base_result['breakdown_value']}"
-                        # TODO use aggregate_value for aggregations instead
-                        base_result["data"] = [0] * len(base_result["data"])
+                        if is_total_value:
+                            base_result["aggregated_value"] = 0
+                        else:
+                            base_result["data"] = [0] * len(base_result["data"])
                         base_result["count"] = 0
                         base_result["action"]["order"] = idx
                         results_group.append(base_result)
 
                     results_group = sorted(results_group, key=lambda x: x["action"]["order"])
 
-                computed_results.append(self.apply_formula_to_results_group(results_group, formula, aggregate_values))
+                computed_results.append(self.apply_formula_to_results_group(results_group, formula, is_total_value))
 
             if has_compare:
                 return multisort(computed_results, (("compare_label", False), ("count", True)))
 
             return sorted(computed_results, key=itemgetter("count"), reverse=True)
         else:
-            return [self.apply_formula_to_results_group(results, formula, aggregate_values=aggregate_values)]
+            return [self.apply_formula_to_results_group(results, formula, aggregate_values=is_total_value)]
 
     @staticmethod
     def apply_formula_to_results_group(

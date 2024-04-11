@@ -508,6 +508,41 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2]["breakdown_value"] == "Chrome"
         assert response.results[2]["count"] == 9
 
+    def test_formula_with_breakdown_and_compare_total_value(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(
+                formula="A+2*B",
+                display=ChartDisplayType.BoldNumber,  # total value
+                compare=True,
+            ),
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
+        )
+
+        # chrome, ff and edge for previous, and chrome and safari for current
+        assert len(response.results) == 5
+
+        assert response.results[0]["compare_label"] == "current"
+        assert response.results[0]["breakdown_value"] == "Chrome"
+        assert response.results[0]["label"] == "Formula (A+2*B)"
+        assert response.results[0]["aggregated_value"] == 3
+        assert response.results[0]["count"] == 0
+        assert response.results[0].get("data") is None
+
+        assert response.results[1]["compare_label"] == "current"
+        assert response.results[1]["breakdown_value"] == "Safari"
+        assert response.results[0]["aggregated_value"] == 3
+
+        assert response.results[2]["compare_label"] == "previous"
+        assert response.results[2]["label"] == "Formula (A+2*B)"
+        assert response.results[2]["breakdown_value"] == "Chrome"
+        assert response.results[2]["aggregated_value"] == 9
+
     def test_formula_with_multi_cohort_breakdown(self):
         self._create_test_events()
         cohort1 = Cohort.objects.create(
