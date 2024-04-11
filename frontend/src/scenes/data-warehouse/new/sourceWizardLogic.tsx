@@ -1,6 +1,6 @@
 import { lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -431,38 +431,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 lemonToast.error(e.data?.message ?? e.message)
             } finally {
                 actions.setIsLoading(false)
-            }
-        },
-        handleRedirect: async ({ kind, searchParams }) => {
-            switch (kind) {
-                case 'hubspot': {
-                    actions.updateSource({
-                        source_type: 'Hubspot',
-                        payload: {
-                            code: searchParams.code,
-                            redirect_uri: getHubspotRedirectUri(),
-                        },
-                    })
-                    return
-                }
-                default:
-                    lemonToast.error(`Something went wrong.`)
-            }
-        },
-    })),
-    urlToAction(({ actions }) => ({
-        '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
-            if (kind === 'hubspot') {
-                router.actions.push(urls.dataWarehouseTable(), { kind, code: searchParams.code })
-            }
-        },
-        '/data-warehouse/new': (_, searchParams) => {
-            if (searchParams.kind == 'hubspot' && searchParams.code) {
-                actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                actions.handleRedirect(searchParams.kind, {
-                    code: searchParams.code,
-                })
-                actions.onNext()
             }
         },
     })),

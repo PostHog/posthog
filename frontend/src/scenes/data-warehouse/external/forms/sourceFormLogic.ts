@@ -1,10 +1,12 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 
 import { ExternalDataSourceCreatePayload, SourceConfig, SourceFieldConfig } from '~/types'
 
-import { sourceWizardLogic } from '../../new/sourceWizardLogic'
+import { getHubspotRedirectUri, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import type { sourceFormLogicType } from './sourceFormLogicType'
 
 export interface SourceFormProps {
@@ -58,6 +60,7 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
     }),
     actions({
         onCancel: true,
+        handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
         getDatabaseSchemas: true,
     }),
     listeners(({ actions, values, props }) => ({
@@ -69,6 +72,22 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
         submitSourceConnectionDetailsSuccess: () => {
             actions.getDatabaseSchemas()
         },
+        handleRedirect: async ({ kind, searchParams }) => {
+            switch (kind) {
+                case 'hubspot': {
+                    actions.updateSource({
+                        source_type: 'Hubspot',
+                        payload: {
+                            code: searchParams.code,
+                            redirect_uri: getHubspotRedirectUri(),
+                        },
+                    })
+                    return
+                }
+                default:
+                    lemonToast.error(`Something went wrong.`)
+            }
+        },
         getDatabaseSchemas: async () => {
             const schemas = await api.externalDataSources.database_schema(
                 props.sourceConfig.name,
@@ -76,6 +95,11 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
             )
             actions.setDatabaseSchemas(schemas)
             actions.onNext()
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
+            actions.handleRedirect(kind, searchParams)
         },
     })),
     forms(({ props, actions, values }) => ({
