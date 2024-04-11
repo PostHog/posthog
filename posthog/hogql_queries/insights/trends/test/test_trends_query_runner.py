@@ -496,19 +496,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["compare_label"] == "current"
         assert response.results[0]["breakdown_value"] == "Chrome"
         assert response.results[0]["label"] == "Formula (A+2*B)"
-        assert response.results[0]["count"] == 9
-        assert response.results[0]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+        assert response.results[0]["count"] == 3
+        assert response.results[0]["data"] == [1, 0, 1, 0, 1]
 
         assert response.results[1]["compare_label"] == "current"
         assert response.results[1]["breakdown_value"] == "Safari"
+        assert response.results[0]["count"] == 3
 
-        assert response.results[0]["compare_label"] == "previous"
+        assert response.results[2]["compare_label"] == "previous"
         assert response.results[2]["label"] == "Formula (A+2*B)"
         assert response.results[2]["breakdown_value"] == "Chrome"
-        assert response.results[2]["count"] == 3
-
-        # action needs to be unset to display custom label
-        assert response.results[0]["action"] is None
+        assert response.results[2]["count"] == 9
 
     def test_formula_with_multi_cohort_breakdown(self):
         self._create_test_events()

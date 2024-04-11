@@ -1,3 +1,4 @@
+import copy
 from typing import Union
 from copy import deepcopy
 from datetime import timedelta
@@ -643,15 +644,30 @@ class TrendsQueryRunner(QueryRunner):
 
         # we need to apply the formula to a group of results when we have a breakdown or the compare option is enabled
         if has_compare or has_breakdown:
-            # compare queries are executed separately and some breakdown values might be missing from the other dataset
-            # we need to fill them up for
-
             keys = [*(["compare_label"] if has_compare else []), *(["breakdown_value"] if has_breakdown else [])]
             sorted_results = sorted(results, key=itemgetter(*keys))
 
             computed_results = []
             for _key, group in groupby(sorted_results, key=itemgetter(*keys)):
                 results_group = list(group)
+                # compare queries are executed separately and some breakdown values might be missing in a group
+                # we need to fill them up so that series are correctly attributed to formula letters
+                if has_compare:
+                    for idx in range(0, len(self.query.series)):
+                        if any(result["action"]["order"] == idx for result in results_group):
+                            continue
+
+                        # add the missing result
+                        base_result = copy.deepcopy(results_group[0])
+                        base_result["label"] = f"filler for {idx} - {base_result['breakdown_value']}"
+                        # TODO use aggregate_value for aggregations instead
+                        base_result["data"] = [0] * len(base_result["data"])
+                        base_result["count"] = 0
+                        base_result["action"]["order"] = idx
+                        results_group.append(base_result)
+
+                    results_group = sorted(results_group, key=lambda x: x["action"]["order"])
+
                 computed_results.append(self.apply_formula_to_results_group(results_group, formula, aggregate_values))
 
             if has_compare:
