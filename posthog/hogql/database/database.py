@@ -160,9 +160,6 @@ def create_hogql_database(
 
     if modifiers.personOverridesMode == PersonOverridesMode.v1_enabled:
         # no overrides, just use whatever was written at ingestion time on the event
-        # XXX: This doesn't work yet! The `pdi.person_id` column(s) contained
-        # within the `person_id` expression (see `EventsTable` definition) are
-        # not resolved when used as a join predicate.
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],
             join_table=PersonsTable(),
@@ -184,9 +181,6 @@ def create_hogql_database(
                 start=None,
             ),
         )
-        # XXX: This doesn't work yet! The `_override.override_person_id`
-        # column(s) contained within the `person_id` expression above are not
-        # resolved when used as a join predicate.
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],
             join_table=PersonsTable(),
@@ -209,9 +203,6 @@ def create_hogql_database(
                 start=None,
             ),
         )
-        # XXX: This doesn't work yet! The `_override.distinct_id` column(s)
-        # contained within the `person_id` expression above are not resolved
-        # when used as a join predicate.
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],
             join_table=PersonsTable(),
