@@ -9,16 +9,19 @@ import { useState } from 'react'
 import { experimentLogic } from '../experimentLogic'
 
 export function ExperimentDates(): JSX.Element {
-    const [isSelectorOpen, setIsSelectorOpen] = useState(false)
+    const [isStartDatePickerOpen, setIsStartDatePickerOpen] = useState(false)
     const { experiment } = useValues(experimentLogic)
     const { updateExperiment, loadExperiment } = useAsyncActions(experimentLogic)
     const { created_at, start_date, end_date } = experiment
 
     if (!start_date) {
+        if (!created_at) {
+            return <></>
+        }
         return (
             <div className="block">
                 <div className="text-xs font-semibold uppercase tracking-wide">Creation date</div>
-                {created_at && <TZLabel time={created_at} />}
+                <TZLabel time={created_at} />
             </div>
         )
     }
@@ -27,12 +30,12 @@ export function ExperimentDates(): JSX.Element {
             <div className="block">
                 <div className="text-xs font-semibold uppercase tracking-wide">Start date</div>
                 <div className="flex items-center">
-                    {isSelectorOpen ? (
+                    {isStartDatePickerOpen ? (
                         <DatePicker
                             showTime={true}
                             open={true}
                             value={dayjs(start_date)}
-                            onBlur={() => setIsSelectorOpen(false)}
+                            onBlur={() => setIsStartDatePickerOpen(false)}
                             onOk={(newStartDate: dayjs.Dayjs) => {
                                 updateExperiment({ start_date: newStartDate.toISOString() })
                                     .then(() => loadExperiment())
@@ -40,8 +43,7 @@ export function ExperimentDates(): JSX.Element {
                             }}
                             autoFocus={true}
                             disabledDate={(dateMarker) => {
-                                const now = new Date()
-                                return dateMarker.toDate().getTime() > now.getTime()
+                                return dateMarker.toDate() > new Date()
                             }}
                             allowClear={false}
                         />
@@ -52,9 +54,7 @@ export function ExperimentDates(): JSX.Element {
                                 title="Move start date"
                                 icon={<IconPencil />}
                                 size="small"
-                                onClick={() => {
-                                    setIsSelectorOpen(true)
-                                }}
+                                onClick={() => setIsStartDatePickerOpen(true)}
                                 noPadding
                                 className="ml-2"
                             />
@@ -65,6 +65,7 @@ export function ExperimentDates(): JSX.Element {
             {end_date && (
                 <div className="block">
                     <div className="text-xs font-semibold uppercase tracking-wide">End date</div>
+                    {/* Flex class here is to be have the same appearance as the start date. */}
                     <div className="flex items-center">
                         <TZLabel time={end_date} />
                     </div>
@@ -72,38 +73,4 @@ export function ExperimentDates(): JSX.Element {
             )}
         </>
     )
-    // return (
-    //     <div>
-    //         {isSelectorOpen ? (
-    //             <DatePicker
-    //                 onSelect={(date: dayjs.Dayjs) => {
-    //                     updateStartDate(date.toISOString())
-    //                 }}
-    //                 showTime={false}
-    //                 open={true}
-    //                 showToday={false}
-    //                 mode="date"
-    //                 value={dayjs(currentStartDate)}
-    //                 disabledDate={(dateMarker) => {
-    //                     const now = new Date()
-    //                     return dateMarker.toDate().getTime() > now.getTime()
-    //                 }}
-    //                 getPopupContainer={() => {
-    //                     const containerId = 'start-date-picker-container'
-    //                     let container = document.getElementById(containerId)
-    //                     if (container) {
-    //                         return container
-    //                     }
-    //                     container = document.createElement('div')
-    //                     container.id = 'start-date-picker-container'
-    //                     document.body.appendChild(container)
-    //                     return container
-    //                 }}
-    //                 allowClear={false}
-    //             />
-    //         ) : (
-    //             <LemonButton onClick={() => setIsSelectorOpen(true)}>Move experiment start date</LemonButton>
-    //         )}
-    //     </div>
-    // )
 }
