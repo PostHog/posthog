@@ -17,10 +17,10 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import (
 )
 from posthog.temporal.data_imports.workflow_activities.import_data import ImportDataActivityInputs, import_data_activity
 from posthog.warehouse.data_load.service import (
-    delete_external_data_schedule,
-    external_data_workflow_exists,
-    sync_external_data_job_workflow,
-    trigger_external_data_workflow,
+    a_delete_external_data_schedule,
+    a_external_data_workflow_exists,
+    a_sync_external_data_job_workflow,
+    a_trigger_external_data_workflow,
 )
 from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
@@ -97,6 +97,32 @@ async def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     await create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
 
+@activity.defn
+async def check_schedule_activity(inputs: ExternalDataWorkflowInputs) -> bool:
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+
+    # Creates schedules for all schemas if they don't exist yet, and then remove itself as a source schedule
+    if inputs.external_data_schema_id is None:
+        logger.info("Schema ID is none, creating schedules for schemas...")
+        schemas = await get_active_schemas_for_source_id(
+            team_id=inputs.team_id, source_id=inputs.external_data_source_id
+        )
+        for schema in schemas:
+            if await a_external_data_workflow_exists(schema.id):
+                await a_trigger_external_data_workflow(schema)
+                logger.info(f"Schedule exists for schema {schema.id}. Triggered schedule")
+            else:
+                await a_sync_external_data_job_workflow(schema, create=True)
+                logger.info(f"Created schedule for schema {schema.id}")
+        # Delete the source schedule in favour of the schema schedules
+        await a_delete_external_data_schedule(ExternalDataSource(id=inputs.external_data_source_id))
+        logger.info(f"Deleted schedule for source {inputs.external_data_source_id}")
+        return True
+
+    logger.info("Schema ID is set. Continuing...")
+    return False
+
+
 # TODO: update retry policies
 @workflow.defn(name="external-data-job")
 class ExternalDataJobWorkflow(PostHogWorkflow):
@@ -107,21 +133,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ExternalDataWorkflowInputs):
-        # Creates schedules for all schemas if they don't exist yet, and then remove itself as a source schedule
-        if inputs.external_data_schema_id is None:
-            schemas = await sync_to_async(get_active_schemas_for_source_id)(
-                team_id=inputs.team_id, source_id=inputs.external_data_source_id
-            )
-            for schema in schemas:
-                if external_data_workflow_exists(schema.id):
-                    trigger_external_data_workflow(schema)
-                else:
-                    sync_external_data_job_workflow(schema, create=True)
-            # Delete the source schedule in favour of the schema schedules
-            delete_external_data_schedule(ExternalDataSource(id=inputs.external_data_source_id))
+        logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+
+        should_exit = await workflow.execute_activity(
+            check_schedule_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
+                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+            ),
+        )
+
+        if should_exit:
             return
 
-        logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+        assert inputs.external_data_schema_id is not None
 
         # create external data job and trigger activity
         create_external_data_job_inputs = CreateExternalDataJobModelActivityInputs(

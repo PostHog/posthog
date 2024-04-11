@@ -49,7 +49,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
 
     schema: ExternalDataSchema = await aget_schema_by_id(inputs.schema_id, inputs.team_id)
 
-    endpoints = schema.name
+    endpoints = [schema.name]
 
     source = None
     if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:

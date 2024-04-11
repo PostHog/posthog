@@ -348,6 +348,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             trigger_external_data_workflow(instance)
 
         except temporalio.service.RPCError as e:
+            # if the source schedule has been removed - trigger the schema schedules
+            if e.message == "workflow execution already completed":
+                for schema in ExternalDataSchema.objects.filter(
+                    team_id=self.team_id, source_id=instance.id, should_sync=True
+                ).all():
+                    trigger_external_data_workflow(schema)
+
             # schedule doesn't exist
             if e.message == "sql: no rows in result set":
                 sync_external_data_job_workflow(instance, create=True)

@@ -12,9 +12,30 @@ async def create_schedule(temporal: Client, id: str, schedule: Schedule, trigger
     )
 
 
+async def a_create_schedule(temporal: Client, id: str, schedule: Schedule, trigger_immediately: bool = False):
+    """Async create a Temporal Schedule."""
+    return await temporal.create_schedule(
+        id=id,
+        schedule=schedule,
+        trigger_immediately=trigger_immediately,
+    )
+
+
 @async_to_sync
 async def update_schedule(temporal: Client, id: str, schedule: Schedule) -> None:
     """Update a Temporal Schedule."""
+    handle = temporal.get_schedule_handle(id)
+
+    async def updater(_: ScheduleUpdateInput) -> ScheduleUpdate:
+        return ScheduleUpdate(schedule=schedule)
+
+    return await handle.update(
+        updater=updater,
+    )
+
+
+async def a_update_schedule(temporal: Client, id: str, schedule: Schedule) -> None:
+    """Async update a Temporal Schedule."""
     handle = temporal.get_schedule_handle(id)
 
     async def updater(_: ScheduleUpdateInput) -> ScheduleUpdate:
@@ -35,6 +56,12 @@ async def unpause_schedule(temporal: Client, schedule_id: str, note: str | None 
 @async_to_sync
 async def delete_schedule(temporal: Client, schedule_id: str) -> None:
     """Delete a Temporal Schedule."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    await handle.delete()
+
+
+async def a_delete_schedule(temporal: Client, schedule_id: str) -> None:
+    """Async delete a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
     await handle.delete()
 
@@ -60,10 +87,16 @@ async def trigger_schedule(temporal: Client, schedule_id: str, note: str | None 
     await handle.trigger()
 
 
-def schedule_exists(temporal: Client, schedule_id: str) -> bool:
+async def a_trigger_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
+    """Trigger a Temporal Schedule."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    await handle.trigger()
+
+
+async def a_schedule_exists(temporal: Client, schedule_id: str) -> bool:
     """Check whether a schedule exists."""
     try:
-        temporal.get_schedule_handle(schedule_id)
+        await temporal.get_schedule_handle(schedule_id).describe()
         return True
     except:
         return False

@@ -47,8 +47,9 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
     return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
 
 
+@database_sync_to_async
 def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    return ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).all()
+    return list(ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).all())
 
 
 def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
@@ -57,7 +58,9 @@ def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
 
 def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, team_id: int):
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
-    schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas]
+    old_schemas_names = [schema.name for schema in old_schemas]
+
+    schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas_names]
 
     for schema in schemas_to_create:
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)

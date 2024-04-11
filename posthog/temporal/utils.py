@@ -7,4 +7,4 @@ import uuid
 class ExternalDataWorkflowInputs:
     team_id: int
     external_data_source_id: uuid.UUID
-    external_data_schema_id: uuid.UUID | None
+    external_data_schema_id: uuid.UUID | None = None

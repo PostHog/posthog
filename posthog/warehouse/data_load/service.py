@@ -12,11 +12,15 @@ from temporalio.client import (
 )
 
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
+    a_create_schedule,
+    a_delete_schedule,
+    a_trigger_schedule,
+    a_update_schedule,
     create_schedule,
     pause_schedule,
-    schedule_exists,
+    a_schedule_exists,
     trigger_schedule,
     update_schedule,
     delete_schedule,
@@ -34,17 +38,14 @@ import s3fs
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
 
-def sync_external_data_job_workflow(
-    external_data_schema: ExternalDataSchema, create: bool = False
-) -> ExternalDataSchema:
-    temporal = sync_connect()
+def get_sync_schedule(external_data_schema: ExternalDataSchema):
     inputs = ExternalDataWorkflowInputs(
-        team_id=external_data_schema.team.id,
+        team_id=external_data_schema.team_id,
         external_data_schema_id=external_data_schema.id,
         external_data_source_id=external_data_schema.source_id,
     )
 
-    schedule = Schedule(
+    return Schedule(
         action=ScheduleActionStartWorkflow(
             "external-data-job",
             asdict(inputs),
@@ -63,10 +64,33 @@ def sync_external_data_job_workflow(
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
+
+def sync_external_data_job_workflow(
+    external_data_schema: ExternalDataSchema, create: bool = False
+) -> ExternalDataSchema:
+    temporal = sync_connect()
+
+    schedule = get_sync_schedule(external_data_schema)
+
     if create:
         create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
     else:
         update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+
+    return external_data_schema
+
+
+async def a_sync_external_data_job_workflow(
+    external_data_schema: ExternalDataSchema, create: bool = False
+) -> ExternalDataSchema:
+    temporal = await async_connect()
+
+    schedule = get_sync_schedule(external_data_schema)
+
+    if create:
+        await a_create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+    else:
+        await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
     return external_data_schema
 
@@ -76,9 +100,14 @@ def trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
     trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 
 
-def external_data_workflow_exists(id: str) -> bool:
-    temporal = sync_connect()
-    return schedule_exists(temporal, schedule_id=id)
+async def a_trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
+    temporal = await async_connect()
+    await a_trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
+
+
+async def a_external_data_workflow_exists(id: str) -> bool:
+    temporal = await async_connect()
+    return await a_schedule_exists(temporal, schedule_id=id)
 
 
 def pause_external_data_schedule(external_data_source: ExternalDataSource):
@@ -95,6 +124,17 @@ def delete_external_data_schedule(external_data_source: ExternalDataSource):
     temporal = sync_connect()
     try:
         delete_schedule(temporal, schedule_id=str(external_data_source.id))
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
+
+
+async def a_delete_external_data_schedule(external_data_source: ExternalDataSource):
+    temporal = await async_connect()
+    try:
+        await a_delete_schedule(temporal, schedule_id=str(external_data_source.id))
     except temporalio.service.RPCError as e:
         # Swallow error if schedule does not exist already
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
