@@ -80,7 +80,7 @@ export interface TabularSecondaryMetricResults {
     results?: SecondaryMetricResult[]
 }
 
-interface ExperimentResultCalculationError {
+export interface ExperimentResultCalculationError {
     detail: string
     statusCode: string
 }
