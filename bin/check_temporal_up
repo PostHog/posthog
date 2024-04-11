@@ -4,11 +4,11 @@ set -e
 
 # Wait for Temporal to be ready
 SECONDS=0
-TIMEOUT=360
+TIMEOUT=180
 
 # Check Temporal by just checking that the port is open
 while true; do
-    if nc -z localhost 7233; then
+    if nc -vz localhost 7233; then
         echo "Temporal is up!"
         exit 0
     fi
