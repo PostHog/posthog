@@ -166,7 +166,7 @@ def create_hogql_database(
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled:
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
         database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
         database.events.fields["override"] = LazyJoin(
             from_field=["event_person_id"],

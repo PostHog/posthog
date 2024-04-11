@@ -19,9 +19,9 @@ class TestModifiers(BaseTest):
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events
         modifiers = create_default_modifiers_for_team(
             self.team,
-            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v2_enabled),
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_override_properties_on_events),
         )
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events
 
     def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"
@@ -63,7 +63,7 @@ class TestModifiers(BaseTest):
                 "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
             ),
             (
-                PersonsOnEventsMode.v2_enabled,
+                PersonsOnEventsMode.person_id_override_properties_on_events,
                 "events.event AS event",
                 "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",
                 "events.person_properties AS properties",
