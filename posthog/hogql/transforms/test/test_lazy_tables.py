@@ -138,8 +138,10 @@ class TestLazyJoins(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_lazy_table_indirectly_referenced(self):
+        # ensure that the `_override` table alias is added as a join when it is
+        # only referenced as the join constraint of a lazy join
         printed = self._print_select(
-            "select person.id from events",
+            "select person_id from events",
             HogQLQueryModifiers(
                 personOverridesMode=PersonOverridesMode.v3_enabled,
                 personPropertiesSource=PersonPropertiesSource.person,
@@ -150,8 +152,10 @@ class TestLazyJoins(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_lazy_table_indirect_duplicate_references(self):
+        # ensure that the `_override` table alias is added as a join (and only
+        # added once) when it is referenced via two different selected columns
         printed = self._print_select(
-            "select person.id, person_id from events",
+            "select person_id, person.properties from events",
             HogQLQueryModifiers(
                 personOverridesMode=PersonOverridesMode.v3_enabled,
                 personPropertiesSource=PersonPropertiesSource.person,
