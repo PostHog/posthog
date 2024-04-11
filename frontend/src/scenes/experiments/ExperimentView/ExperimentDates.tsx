@@ -27,7 +27,7 @@ export function ExperimentDates(): JSX.Element {
     }
     return (
         <>
-            <div className="block w-50">
+            <div className="block">
                 <div className="text-xs font-semibold uppercase tracking-wide">Start date</div>
                 <div className="flex items-center">
                     {isStartDatePickerOpen ? (
