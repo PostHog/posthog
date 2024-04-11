@@ -146,3 +146,15 @@ class TestLazyJoins(BaseTest):
             ),
         )
         assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_resolve_lazy_table_indirect_duplicate_references(self):
+        printed = self._print_select(
+            "select person.id, person_id from events",
+            HogQLQueryModifiers(
+                personOverridesMode=PersonOverridesMode.v3_enabled,
+                personPropertiesSource=PersonPropertiesSource.person,
+            ),
+        )
+        assert printed == self.snapshot
