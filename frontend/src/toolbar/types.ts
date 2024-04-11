@@ -8,6 +8,11 @@ export type ElementsEventType = {
 }
 
 export type HeatmapType = {
+    // count: number
+    // pointer_y: number
+    // pointer_relative_x: number
+    // pointer_target_fixed: boolean
+
     count: number
     x: number
     y: number

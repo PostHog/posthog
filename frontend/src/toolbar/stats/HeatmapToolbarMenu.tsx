@@ -1,5 +1,5 @@
 import { IconMagicWand } from '@posthog/icons'
-import { LemonCheckbox, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDivider, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -54,43 +54,47 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     />
                 </div>
 
-                <div className="border-b pt-2 pb-2">
-                    <div className="space-y-2">
-                        <div className="flex flex-row items-center gap-2 flex-wrap">
-                            {['autocapture', 'clicks', 'rageclicks', 'mousemove'].map((action) => (
-                                <LemonCheckbox
-                                    key={action}
-                                    size="small"
-                                    bordered
-                                    label={capitalizeFirstLetter(action)}
-                                    checked={heatmapFilter.types.includes(action as any)}
-                                    onChange={(checked) =>
-                                        patchHeatmapFilter({
-                                            types: (checked
-                                                ? [...heatmapFilter.types, action]
-                                                : heatmapFilter.types.filter((a) => a !== action)) as any[],
-                                        })
-                                    }
-                                />
-                            ))}
-                        </div>
-                        <div className="flex flex-row items-center gap-2">
-                            <LemonMenu items={dateItems}>
-                                <LemonButton size="small" type="secondary">
-                                    {dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')}
-                                </LemonButton>
-                            </LemonMenu>
+                <div className="flex flex-row items-center gap-2 my-2">
+                    <LemonMenu items={dateItems}>
+                        <LemonButton size="small" type="secondary">
+                            {dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')}
+                        </LemonButton>
+                    </LemonMenu>
 
-                            {heatmapLoading ? <Spinner /> : null}
-                        </div>
-                        <div>
-                            Found: {countedElements.length} elements / {clickCount} clicks!
-                        </div>
+                    {heatmapLoading ? <Spinner /> : null}
+                </div>
+
+                <div className="border-t py-2">
+                    <div className="flex items-center justify-between">
+                        <h4>Heatmaps</h4>
+
+                        <LemonSegmentedButton
+                            onChange={(e) => patchHeatmapFilter({ heatmap_type: e })}
+                            value={heatmapFilter.heatmap_type ?? undefined}
+                            options={[
+                                {
+                                    value: 'click',
+                                    label: 'Clicks',
+                                },
+                                {
+                                    value: 'rageclick',
+                                    label: 'Rageclicks',
+                                },
+                                {
+                                    value: 'mousemove',
+                                    label: 'Mouse moves',
+                                },
+                            ]}
+                            size="small"
+                        />
                     </div>
+                </div>
 
-                    {heatmapFilter.types.includes('autocapture') && (
+                <div className="border-t border-b py-2">
+                    <h4>Clickmaps</h4>
+
+                    {heatmapFilter.autocapture && (
                         <>
-                            <LemonDivider />
                             <div className="flex items-center gap-2">
                                 <LemonButton
                                     icon={<IconSync />}
@@ -120,6 +124,10 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                         bordered={true}
                                     />
                                 </Tooltip>
+                            </div>
+
+                            <div>
+                                Found: {countedElements.length} elements / {clickCount} clicks!
                             </div>
                         </>
                     )}

@@ -25,7 +25,8 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 export type HeatmapFilter = {
     date_from?: string
     date_to?: string
-    types: ('autocapture' | HeatmapType['type'])[]
+    autocapture?: boolean
+    heatmap_type?: HeatmapType['type'] | null
 }
 
 export const heatmapLogic = kea<heatmapLogicType>([
@@ -46,8 +47,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         patchHeatmapFilter: (filter: Partial<HeatmapFilter>) => ({ filter }),
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
-        loadHeatmap: (types: HeatmapType['type'][]) => ({
-            types,
+        loadHeatmap: (type: HeatmapType['type']) => ({
+            type,
         }),
         mabyeLoadRelevantHeatmap: true,
     }),
@@ -91,7 +92,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         ],
         heatmapFilter: [
             {
-                types: ['autocapture', 'click'],
+                autocapture: true,
+                heatmap_type: 'click',
             } as HeatmapFilter,
             {
                 setHeatmapFilter: (_, { filter }) => filter,
@@ -164,7 +166,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         heatmap: [
             null as HeatmapResponseType | null,
             {
-                loadHeatmap: async ({ types }) => {
+                loadHeatmap: async ({ type }) => {
                     // TODO: Implement real api
                     if ((window as any).heatmapData) {
                         return convertToHeatmapData((window as any).heatmapData)
@@ -341,15 +343,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
             if (values.heatmapEnabled) {
                 actions.resetElementStats()
 
-                const types = values.heatmapFilter.types
-
-                if (types.includes('autocapture')) {
+                if (values.heatmapFilter.autocapture) {
                     actions.getElementStats()
                 }
 
-                if (types.filter((x) => x !== 'autocapture').length) {
+                if (values.heatmapFilter.heatmap_type) {
                     // TODO: Save selected types
-                    actions.loadHeatmap(values.heatmapFilter.types as HeatmapType['type'][])
+                    actions.loadHeatmap(values.heatmapFilter.heatmap_type as HeatmapType['type'])
                 }
             }
         },
