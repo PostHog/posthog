@@ -432,12 +432,11 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     else:
         distinct_expression = "1"
 
-    # TODO: enhanced_persons: update this query to filter on enhanced_persons column
     result = sync_execute(
         f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed')
+        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed') AND person_mode = 'full'
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
