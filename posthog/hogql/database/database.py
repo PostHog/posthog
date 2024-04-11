@@ -163,14 +163,6 @@ def create_hogql_database(
         database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
         database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_mixed:
-        # person.id via a join, person.properties on events
-        database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
-        database.events.fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
-        database.events.fields["poe"].fields["created_at"] = FieldTraverser(chain=["..", "pdi", "person", "created_at"])
-        database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(name="person_properties")
-
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled:
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")

@@ -182,7 +182,6 @@ export interface HogQLQueryModifiers {
     personsOnEventsMode?:
         | 'disabled'
         | 'v1_enabled'
-        | 'v1_mixed'
         | 'v2_enabled'
         | 'v3_enabled'
         | 'person_id_override_properties_joined'
