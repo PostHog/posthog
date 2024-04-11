@@ -27,7 +27,7 @@ export function ExperimentDates(): JSX.Element {
     }
     return (
         <>
-            <div className="block">
+            <div className="block w-50">
                 <div className="text-xs font-semibold uppercase tracking-wide">Start date</div>
                 <div className="flex items-center">
                     {isStartDatePickerOpen ? (
@@ -40,7 +40,7 @@ export function ExperimentDates(): JSX.Element {
                             onOk={(newStartDate: dayjs.Dayjs) => {
                                 updateExperiment({ start_date: newStartDate.toISOString() })
                                     .then(() => loadExperiment())
-                                    .catch((error) => console.error('error on loading experiment:', error))
+                                    .catch((error) => console.error('error on loading an experiment:', error))
                             }}
                             autoFocus={true}
                             disabledDate={(dateMarker) => {
@@ -66,7 +66,7 @@ export function ExperimentDates(): JSX.Element {
             {end_date && (
                 <div className="block">
                     <div className="text-xs font-semibold uppercase tracking-wide">End date</div>
-                    {/* Flex class here is to be have the same appearance as the start date. */}
+                    {/* Flex class here is for the end date to have same appearance as the start date. */}
                     <div className="flex items-center">
                         <TZLabel time={end_date} />
                     </div>
