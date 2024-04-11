@@ -146,6 +146,22 @@ def _use_person_properties_from_events(database: Database) -> None:
     database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
 
+def _use_person_id_from_person_overrides(database: Database) -> None:
+    database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
+    database.events.fields["override"] = LazyJoin(
+        from_field=["event_person_id"],
+        join_table=PersonOverridesTable(),
+        join_function=join_with_person_overrides_table,
+    )
+    database.events.fields["person_id"] = ExpressionField(
+        name="person_id",
+        expr=parse_expr(
+            "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
+            start=None,
+        ),
+    )
+
+
 def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
@@ -171,23 +187,12 @@ def create_hogql_database(
         _use_person_properties_from_events(database)
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
-        database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-        database.events.fields["override"] = LazyJoin(
-            from_field=["event_person_id"],
-            join_table=PersonOverridesTable(),
-            join_function=join_with_person_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
-                start=None,
-            ),
-        )
+        _use_person_id_from_person_overrides(database)
         _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_joined:
+        _use_person_id_from_person_overrides(database)
         raise NotImplementedError
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
