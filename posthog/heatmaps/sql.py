@@ -10,11 +10,20 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_HEATMAP_EVENTS
 
 HEATMAPS_DATA_TABLE = lambda: "sharded_heatmaps"
 
+
 """
-Kafka needs slightly different column setup. It receives individual events, not aggregates.
-We write first_timestamp and last_timestamp as individual records
-They will be grouped as min_first_timestamp and max_last_timestamp in the main table
+We intend to send specific $heatmap events to build a heatmap instead of building from autocapture like the click map
+We'll be storing indiviudal clicks per url/team/session
+And we'll be querying for those clicks at day level of granularity
+And we'll be querying by URL exact or wildcard match
+And we'll _sometimes_ be querying by width
+
+We _could_ aggregate this data by day, but we're hoping this will be small/fast enough not to bother
+And can always add a materialized view for day (and week?) granularity driven by this data if needed
+
+We only add session_id so that we could offer example sessions for particular clicked areas in the toolbar
 """
+
 KAFKA_HEATMAPS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
