@@ -16,14 +16,13 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     create_schedule,
     pause_schedule,
+    schedule_exists,
     trigger_schedule,
     update_schedule,
     delete_schedule,
     unpause_schedule,
 )
-from posthog.temporal.data_imports.external_data_job import (
-    ExternalDataWorkflowInputs,
-)
+from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.warehouse.models import ExternalDataSource
 import temporalio
 from temporalio.client import Client as TemporalClient
@@ -32,46 +31,54 @@ from asgiref.sync import async_to_sync
 from django.conf import settings
 import s3fs
 
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+
 
 def sync_external_data_job_workflow(
-    external_data_source: ExternalDataSource, create: bool = False
-) -> ExternalDataSource:
+    external_data_schema: ExternalDataSchema, create: bool = False
+) -> ExternalDataSchema:
     temporal = sync_connect()
     inputs = ExternalDataWorkflowInputs(
-        team_id=external_data_source.team.id,
-        external_data_source_id=external_data_source.pk,
+        team_id=external_data_schema.team.id,
+        external_data_schema_id=external_data_schema.id,
+        external_data_source_id=external_data_schema.source_id,
     )
 
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "external-data-job",
             asdict(inputs),
-            id=str(external_data_source.pk),
+            id=str(external_data_schema.id),
             task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
         ),
         spec=ScheduleSpec(
             intervals=[
                 ScheduleIntervalSpec(
-                    every=timedelta(hours=24), offset=timedelta(hours=external_data_source.created_at.hour)
+                    every=timedelta(hours=24), offset=timedelta(hours=external_data_schema.created_at.hour)
                 )
             ],
             jitter=timedelta(hours=2),
         ),
-        state=ScheduleState(note=f"Schedule for external data source: {external_data_source.pk}"),
+        state=ScheduleState(note=f"Schedule for external data source: {external_data_schema.pk}"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if create:
-        create_schedule(temporal, id=str(external_data_source.id), schedule=schedule, trigger_immediately=True)
+        create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
     else:
-        update_schedule(temporal, id=str(external_data_source.id), schedule=schedule)
+        update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
-    return external_data_source
+    return external_data_schema
 
 
-def trigger_external_data_workflow(external_data_source: ExternalDataSource):
+def trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
     temporal = sync_connect()
-    trigger_schedule(temporal, schedule_id=str(external_data_source.id))
+    trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
+
+
+def external_data_workflow_exists(id: str) -> bool:
+    temporal = sync_connect()
+    return schedule_exists(temporal, schedule_id=id)
 
 
 def pause_external_data_schedule(external_data_source: ExternalDataSource):

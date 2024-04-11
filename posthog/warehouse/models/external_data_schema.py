@@ -48,13 +48,11 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 
 
 def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).values().all()
-    return [(val["id"], val["name"]) for val in schemas]
+    return ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).all()
 
 
 def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).values().all()
-    return [val["name"] for val in schemas]
+    return ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).all()
 
 
 def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, team_id: int):

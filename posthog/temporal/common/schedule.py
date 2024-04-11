@@ -55,6 +55,15 @@ async def pause_schedule(temporal: Client, schedule_id: str, note: str | None = 
 
 @async_to_sync
 async def trigger_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
-    """Pause a Temporal Schedule."""
+    """Trigger a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
     await handle.trigger()
+
+
+def schedule_exists(temporal: Client, schedule_id: str) -> bool:
+    """Check whether a schedule exists."""
+    try:
+        temporal.get_schedule_handle(schedule_id)
+        return True
+    except:
+        return False
