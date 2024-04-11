@@ -594,7 +594,6 @@ async def execute_batch_export_insert_activity(
     non_retryable_error_types: list[str],
     finish_inputs: FinishBatchExportRunInputs,
     interval: str,
-    start_to_close_timeout_multiplier: int = 2,
     heartbeat_timeout_seconds: int | None = 120,
     maximum_attempts: int = 15,
     initial_retry_interval_seconds: int = 30,
@@ -612,8 +611,6 @@ async def execute_batch_export_insert_activity(
         non_retryable_error_types: A list of errors to not retry on when executing the activity.
         finish_inputs: Inputs to the 'finish_batch_export_run' to run at the end.
         interval: The interval of the batch export used to set the start to close timeout.
-        start_to_close_timeout_multiplier: Multiply computed timeout by this multiplier. Used to add
-            some extra buffer to the timeout.
         maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
             Assuming the error that triggered the retry is not in non_retryable_error_types.
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
@@ -628,13 +625,13 @@ async def execute_batch_export_insert_activity(
     )
 
     if interval == "hour":
-        start_to_close_timeout = dt.timedelta(hours=1) * start_to_close_timeout_multiplier
+        start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
-        start_to_close_timeout = dt.timedelta(days=1) * start_to_close_timeout_multiplier
+        start_to_close_timeout = dt.timedelta(days=1)
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
-        start_to_close_timeout = dt.timedelta(**kwargs) * start_to_close_timeout_multiplier
+        start_to_close_timeout = dt.timedelta(**kwargs)
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
