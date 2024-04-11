@@ -127,7 +127,6 @@ export function SecondaryMetricsTable({
     const {
         experimentResults,
         secondaryMetricResultsLoading,
-        isExperimentRunning,
         experiment,
         secondaryMetricResults,
         tabularSecondaryMetricResults,
@@ -284,7 +283,7 @@ export function SecondaryMetricsTable({
 
                     <div className="w-1/2 flex flex-col justify-end">
                         <div className="ml-auto">
-                            {metrics && metrics.length > 0 && metrics.length < 3 && isExperimentRunning && (
+                            {metrics && metrics.length > 0 && metrics.length < 3 && (
                                 <div className="mb-2 mt-4 justify-end">
                                     <LemonButton
                                         type="secondary"
