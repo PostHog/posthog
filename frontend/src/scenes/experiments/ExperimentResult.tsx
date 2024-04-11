@@ -15,7 +15,6 @@ import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightTyp
 
 import { LoadingState } from './Experiment'
 import { experimentLogic } from './experimentLogic'
-import { NoResultsEmptyState } from './ExperimentView/components'
 import { getExperimentInsightColour } from './utils'
 
 interface ExperimentResultProps {
@@ -240,7 +239,26 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                     />
                 </div>
             ) : (
-                experiment.start_date && <NoResultsEmptyState />
+                experiment.start_date && (
+                    <>
+                        <div className="no-experiment-results p-4">
+                            {!targetResultsLoading && (
+                                <div className="text-center">
+                                    <div className="mb-4">
+                                        <b>
+                                            There are no results for this{' '}
+                                            {isSecondaryMetric ? 'secondary metric' : 'experiment'} yet.
+                                        </b>
+                                    </div>
+                                    <div className="text-sm ">
+                                        Wait a bit longer for your users to be exposed to the experiment. Double check
+                                        your feature flag implementation if you're still not seeing results.
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )
             )}
         </div>
     )
