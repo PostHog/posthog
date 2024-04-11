@@ -476,7 +476,7 @@ export function criteriaToHumanSentence(
                     words.push(<pre>{cohortsById?.[value]?.name ?? `Cohort ${value}`}</pre>)
                 } else if (type === FilterType.EventsAndActions && typeof value === 'number') {
                     words.push(<pre>{actionsById?.[value]?.name ?? `Action ${value}`}</pre>)
-                } else if (type === FilterType.EventFilters) {
+                } else if (type === FilterType.EventFilters && (criteria.event_filters?.length || 0) > 0) {
                     words.push(<pre>with filters</pre>)
                 } else {
                     words.push(<pre>{value}</pre>)
