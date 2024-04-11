@@ -51,15 +51,15 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "date_from": Constant(value=request_serializer.validated_data["date_from"]),
         }
         if request_serializer.validated_data.get("viewport_min_width", None):
-            placeholders["vp_min_w"] = Constant(value=request_serializer.viewport_min_width)
+            placeholders["vp_min_w"] = Constant(value=request_serializer.validated_date["viewport_min_width"])
         if request_serializer.validated_data.get("viewport_max_width", None):
-            placeholders["vp_max_w"] = Constant(value=request_serializer.viewport_max_width)
+            placeholders["vp_max_w"] = Constant(value=request_serializer.validated_data["viewport_max_width"])
         if request_serializer.validated_data.get("date_to", None):
-            placeholders["date_to"] = Constant(value=request_serializer.date_to)
+            placeholders["date_to"] = Constant(value=request_serializer.validated_data["date_to"])
         if request_serializer.validated_data.get("url_exact", None):
-            placeholders["url_exact"] = Constant(value=request_serializer.url_exact)
+            placeholders["url_exact"] = Constant(value=request_serializer.validated_data["url_exact"])
         if request_serializer.validated_data.get("url_pattern", None):
-            placeholders["url_pattern"] = Constant(value=request_serializer.url_pattern)
+            placeholders["url_pattern"] = Constant(value=request_serializer.validated_data["url_pattern"])
 
         q = """
             select *, count() as cnt
@@ -82,6 +82,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_from_predicate="and timestamp >= {date_from}",
             team_id_predicate="and team_id = {team_id}",
             # optional
+            # TODO add a day to date to so we don't have to deal with time
             date_to_predicate="and timestamp <= {date_to}"
             if request_serializer.validated_data.get("date_to", None)
             else "",
