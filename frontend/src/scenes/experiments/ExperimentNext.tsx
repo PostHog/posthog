@@ -2,16 +2,13 @@ import './Experiment.scss'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { NotFound } from 'lib/components/NotFound'
 
+import { LoadingState } from './Experiment'
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic } from './experimentLogic'
-import {
-    ExperimentLoader,
-    ExperimentLoadingAnimation,
-    NoResultsEmptyState,
-    PageHeaderCustom,
-} from './ExperimentView/components'
+import { ExperimentLoadingAnimation, NoResultsEmptyState, PageHeaderCustom } from './ExperimentView/components'
 import { DistributionTable } from './ExperimentView/DistributionTable'
 import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './ExperimentView/Goal'
 import { Info } from './ExperimentView/Info'
@@ -32,7 +29,7 @@ export function ExperimentView(): JSX.Element {
             <PageHeaderCustom />
             <div className="space-y-8 experiment-view">
                 {experimentLoading ? (
-                    <ExperimentLoader />
+                    <LoadingState />
                 ) : (
                     <>
                         <Info />
@@ -80,7 +77,11 @@ export function ExperimentView(): JSX.Element {
 }
 
 export function ExperimentNext(): JSX.Element {
-    const { experimentId, editingExistingExperiment } = useValues(experimentLogic)
+    const { experimentId, editingExistingExperiment, experimentMissing } = useValues(experimentLogic)
+
+    if (experimentMissing) {
+        return <NotFound object="experiment" />
+    }
 
     return experimentId === 'new' || editingExistingExperiment ? <ExperimentForm /> : <ExperimentView />
 }

@@ -1,20 +1,23 @@
 import '../Experiment.scss'
 
-import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
+import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { ExperimentResults, InsightShortId } from '~/types'
+import { ExperimentResults, FilterType, InsightShortId } from '~/types'
 
 import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
@@ -47,22 +50,6 @@ export function ResultsTag(): JSX.Element {
         <LemonTag type={result.color}>
             <b className="uppercase">{result.label}</b>
         </LemonTag>
-    )
-}
-
-export function ExperimentLoader(): JSX.Element {
-    return (
-        <LemonTable
-            dataSource={[]}
-            columns={[
-                {
-                    title: '',
-                    dataIndex: '',
-                },
-            ]}
-            loadingSkeletonRows={8}
-            loading={true}
-        />
     )
 }
 
@@ -100,6 +87,50 @@ export function ResultsQuery({
     )
 }
 
+export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element }): JSX.Element {
+    const { experimentResults, experiment } = useValues(experimentLogic)
+
+    // keep in sync with https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/funnel_experiment_result.py#L71
+    // :TRICKY: In the case of no results, we still want users to explore the query, so they can debug further.
+    // This generates a close enough query that the backend would use to compute results.
+    const filtersFromExperiment: Partial<FilterType> = {
+        ...experiment.filters,
+        date_from: experiment.start_date,
+        date_to: experiment.end_date,
+        explicit_date: true,
+        breakdown: `$feature/${experiment.feature_flag_key ?? experiment.feature_flag?.key}`,
+        breakdown_type: 'event',
+        properties: [],
+    }
+
+    return (
+        <LemonButton
+            className="ml-auto -translate-y-2"
+            size="small"
+            type="secondary"
+            icon={icon}
+            to={urls.insightNew(
+                undefined,
+                undefined,
+                JSON.stringify({
+                    kind: NodeKind.InsightVizNode,
+                    source: filtersToQueryNode(
+                        transformResultFilters(
+                            experimentResults?.filters
+                                ? { ...experimentResults.filters, explicit_date: true }
+                                : filtersFromExperiment
+                        )
+                    ),
+                    showTable: true,
+                    showLastComputation: true,
+                    showLastComputationRefresh: false,
+                })
+            )}
+        >
+            Explore
+        </LemonButton>
+    )
+}
 export function NoResultsEmptyState(): JSX.Element {
     const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
 
@@ -120,6 +151,9 @@ export function NoResultsEmptyState(): JSX.Element {
                     <div className="text-sm text-center text-balance">
                         Wait a bit longer for your users to be exposed to the experiment. Double check your feature flag
                         implementation if you're still not seeing results.
+                    </div>
+                    <div className="mt-6 text-center">
+                        <ExploreButton icon={<IconPlus />} />
                     </div>
                 </div>
             </div>
