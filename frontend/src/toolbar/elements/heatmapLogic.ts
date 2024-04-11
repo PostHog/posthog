@@ -14,7 +14,7 @@ import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
-import { testHeatmapData } from './test-data'
+import { convertToHeatmapData, testHeatmapData } from './test-data'
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
@@ -155,6 +155,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
             {
                 loadHeatmap: async ({ types }) => {
                     // TODO: Implement real api
+                    if ((window as any).heatmapData) {
+                        return convertToHeatmapData((window as any).heatmapData)
+                    }
                     return testHeatmapData
                 },
             },

@@ -11,7 +11,11 @@ export type HeatmapType = {
     count: number
     x: number
     y: number
+    viewport_width: number
+    viewport_height: number
+    scale_factor: number
     type: 'click' | 'mousemove'
+    target_fixed: boolean
 }
 
 export type HeatmapResponseType = {

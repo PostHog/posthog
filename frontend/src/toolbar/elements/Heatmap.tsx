@@ -2,30 +2,53 @@ import { useValues } from 'kea'
 
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
+import { toolbarConfigLogic } from '../toolbarConfigLogic'
 import { HeatmapType } from '../types'
 import { elementsLogic } from './elementsLogic'
 
 export function HeatmapElement({ element }: { element: HeatmapType }): JSX.Element | null {
+    const { posthog } = useValues(toolbarConfigLogic)
     const { inspectEnabled } = useValues(elementsLogic)
     const { shiftPressed } = useValues(heatmapLogic)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
     const size = 36 // TODO: How to decide on radius
     const opacity = Math.max(0.2, Math.min(0.7, element.count / 1000)) // TODO: How to decide on opacity
 
+    // Remove as any once we have the scrollmanager stuff merged
+    const ph = posthog as any
+
+    const scrollYOffset = element.target_fixed ? 0 : ph.scrollManager.scrollY()
+    const scrollXOffset = element.target_fixed ? 0 : ph.scrollManager.scrollX()
+
+    const color = element.type === 'click' ? 'red' : 'blue'
+
+    // TODO: We need to move all this into the logic and let it take care of reducing everything down
+    const mode = 'percentage'
+
+    // Default mode - place it exactly where it should be
+    let top = `${element.y - size * 0.5 - scrollYOffset}px`
+    let left = `${element.x - size * 0.5 - scrollXOffset}px`
+
+    if (mode === 'percentage') {
+        // Place it relative to its viewport
+        top = `calc(${(element.y / element.viewport_height) * 100}% - ${size * 0.5}px)`
+        left = `calc(${(element.x / element.viewport_width) * 100}% - ${size * 0.5}px)`
+    }
+
     return (
         <div
-            className="absolute rounded-full"
+            className="absolute rounded-full hover:scale-110 transition-transform duration-75 ease-in-out"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 pointerEvents: inspectEnabled ? 'none' : heatmapPointerEvents,
                 zIndex: 1,
-                top: `${element.y - size * 0.5 + window.pageYOffset}px`,
-                left: `${element.x - size * 0.5 + window.pageXOffset}px`,
+                top,
+                left,
                 width: size,
                 height: size,
                 opacity,
-                backgroundColor: 'red',
-                boxShadow: '0px 0px 10px 10px red',
+                backgroundColor: color,
+                boxShadow: `0px 0px 10px 10px ${color}`,
             }}
         />
     )
@@ -46,7 +69,7 @@ export function Heatmap(): JSX.Element | null {
     const yNum = window.innerHeight / squareSize
 
     return (
-        <>
+        <div className="fixed inset-0 overflow-hidden">
             {Array.from({ length: xNum }, (_, x) =>
                 Array.from({ length: yNum }, (_, y) => (
                     <div
@@ -69,6 +92,6 @@ export function Heatmap(): JSX.Element | null {
             {items.map((x, i) => (
                 <HeatmapElement key={i} element={x} />
             ))}
-        </>
+        </div>
     )
 }
