@@ -81,7 +81,7 @@ export const parseKafkaMessage = async (
     }
 
     // TODO are we receiving some scroll values too ?
-    const { screen_height, screen_width, $session_id, x, y } = event.properties || {}
+    const { $viewport_height, $viewport_width, $session_id, $pointer_x, $pointer_y } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$heatmap') {
@@ -89,10 +89,10 @@ export const parseKafkaMessage = async (
     }
 
     if (
-        !isPositiveNumber(screen_height) ||
-        !isPositiveNumber(screen_width) ||
-        !isPositiveNumber(x) ||
-        !isPositiveNumber(y) ||
+        !isPositiveNumber($viewport_height) ||
+        !isPositiveNumber($viewport_width) ||
+        !isPositiveNumber($pointer_x) ||
+        !isPositiveNumber($pointer_y) ||
         !$session_id
     ) {
         return dropMessage('received_invalid_heatmap_message')
@@ -105,20 +105,21 @@ export const parseKafkaMessage = async (
             timestamp: message.timestamp,
         },
         team_id: teamIdWithConfig?.teamId,
-        screen_height,
-        screen_width,
-        session_id: $session_id,
-        x,
-        y,
+        $viewport_height,
+        $viewport_width,
+        $session_id,
+        $pointer_x,
+        $pointer_y,
     }
 }
 
 function parsedHeatmapMessages(incomingMessages: IncomingHeatmapEventMessage[]): HeatmapEvent[] {
+    const scale_factor = 16
     return incomingMessages.map((rhe) => ({
         ...rhe,
-        quadrant_x: Math.ceil(rhe.x / 16),
-        quadrant_y: Math.ceil(rhe.y / 16),
-        resolution: 16,
+        x: Math.ceil(rhe.$pointer_x / scale_factor),
+        y: Math.ceil(rhe.$pointer_y / scale_factor),
+        scale_factor,
         timestamp: castTimestampOrNow(DateTime.fromMillis(rhe.metadata.timestamp), TimestampFormat.ClickHouse),
     }))
 }
@@ -170,7 +171,7 @@ export class HeatmapEventIngester {
             producer: producer,
             topic: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
             value: Buffer.from(JSON.stringify(message)),
-            key: message.session_id,
+            key: message.$session_id,
             waitForAck: true,
         })
     }
