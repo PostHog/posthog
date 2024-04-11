@@ -7,7 +7,13 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ExternalDataSourceCreatePayload, ExternalDataSourceSyncSchema, SourceConfig } from '~/types'
+import {
+    Breadcrumb,
+    ExternalDataSourceCreatePayload,
+    ExternalDataSourceSyncSchema,
+    SourceConfig,
+    SourceFieldConfig,
+} from '~/types'
 
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
@@ -492,7 +498,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             defaults: {
                 prefix: '',
                 payload: {},
-            } as Partial<ExternalDataSourceCreatePayload>,
+            } as {
+                prefix: string
+                payload: Record<string, any>
+            },
+            errors: (sourceValues) => {
+                return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues)
+            },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
                     const payload = {
@@ -519,27 +531,26 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     })),
 ])
 
-// const getErrorsForFields = (
-//     fields: SourceFieldConfig[]
-// ): ((args: { prefix: string; payload: Record<string, any> }) => Record<string, any>) => {
-//     return ({ prefix, payload }) => {
-//         const errors: Record<string, any> = {
-//             payload: {},
-//         }
+const getErrorsForFields = (
+    fields: SourceFieldConfig[],
+    { prefix, payload }: { prefix: string; payload: Record<string, any> }
+): Record<string, any> => {
+    const errors: Record<string, any> = {
+        payload: {},
+    }
 
-//         // Prefix errors
-//         if (!/^[a-zA-Z0-9_-]*$/.test(prefix)) {
-//             errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
-//         }
+    // Prefix errors
+    if (!/^[a-zA-Z0-9_-]*$/.test(prefix ?? '')) {
+        errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
+    }
 
-//         // Payload errors
-//         for (const field of fields) {
-//             const fieldValue = payload[field.name]
-//             if (field.required && !fieldValue) {
-//                 errors['payload'][field.name] = `Please enter a ${field.label.toLowerCase()}`
-//             }
-//         }
+    // Payload errors
+    for (const field of fields) {
+        const fieldValue = payload[field.name]
+        if (field.required && !fieldValue) {
+            errors['payload'][field.name] = `Please enter a ${field.label.toLowerCase()}`
+        }
+    }
 
-//         return errors
-//     }
-// }
+    return errors
+}
