@@ -193,7 +193,6 @@ export const WebTabs = ({
         id: string
         title: string
         linkText: string
-        docsUrl?: string
         content: React.ReactNode
         canOpenModal: boolean
         canOpenInsight: boolean
