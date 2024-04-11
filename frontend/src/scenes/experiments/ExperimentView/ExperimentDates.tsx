@@ -29,7 +29,7 @@ export function ExperimentDates(): JSX.Element {
         <>
             <div className="block">
                 <div className="text-xs font-semibold uppercase tracking-wide">Start date</div>
-                <div className="flex items-center">
+                <div className="flex">
                     {isStartDatePickerOpen ? (
                         <DatePicker
                             showTime={true}
@@ -67,7 +67,7 @@ export function ExperimentDates(): JSX.Element {
                 <div className="block">
                     <div className="text-xs font-semibold uppercase tracking-wide">End date</div>
                     {/* Flex class here is for the end date to have same appearance as the start date. */}
-                    <div className="flex items-center">
+                    <div className="flex">
                         <TZLabel time={end_date} />
                     </div>
                 </div>
