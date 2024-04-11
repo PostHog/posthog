@@ -33,7 +33,7 @@ export function ExperimentDates(): JSX.Element {
                     {isStartDatePickerOpen ? (
                         <DatePicker
                             showTime={true}
-                            showSeconds={false}
+                            showSecond={false}
                             open={true}
                             value={dayjs(start_date)}
                             onBlur={() => setIsStartDatePickerOpen(false)}
