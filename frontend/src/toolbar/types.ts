@@ -7,6 +7,21 @@ export type ElementsEventType = {
     type: '$autocapture' | '$rageclick'
 }
 
+export type HeatmapType = {
+    count: number
+    x: number
+    y: number
+    type: 'click' | 'mousemove'
+}
+
+export type HeatmapResponseType = {
+    query: {
+        width: number
+        height: number
+    }
+    results: HeatmapType[]
+}
+
 export interface CountedHTMLElement {
     count: number // total of types of clicks
     clickCount: number // autocapture clicks

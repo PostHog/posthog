@@ -12,6 +12,8 @@ import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 
+import { Heatmap } from './Heatmap'
+
 export function Elements(): JSX.Element {
     const {
         heatmapElements,
@@ -48,6 +50,7 @@ export function Elements(): JSX.Element {
                     zIndex: 2147483010,
                 }}
             >
+                <Heatmap />
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element }, index) => (

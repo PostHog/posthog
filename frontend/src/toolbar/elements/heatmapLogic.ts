@@ -9,11 +9,12 @@ import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-sha
 import { posthog } from '~/toolbar/posthog'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
+import { CountedHTMLElement, ElementsEventType, HeatmapResponseType, HeatmapType } from '~/toolbar/types'
 import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
+import { testHeatmapData } from './test-data'
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
@@ -38,6 +39,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
+        loadHeatmap: (types: HeatmapType['type'][]) => ({
+            types,
+        }),
+        mabyeLoadRelevantHeatmap: true,
     }),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
@@ -141,6 +146,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         next: paginatedResults.next,
                         previous: paginatedResults.previous,
                     } as PaginatedResponse<ElementsEventType>
+                },
+            },
+        ],
+
+        heatmap: [
+            null as HeatmapResponseType | null,
+            {
+                loadHeatmap: async ({ types }) => {
+                    // TODO: Implement real api
+                    return testHeatmapData
                 },
             },
         ],
@@ -286,9 +301,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
     })),
 
     afterMount(({ actions, values, cache }) => {
-        if (values.heatmapEnabled) {
-            actions.getElementStats()
-        }
+        actions.mabyeLoadRelevantHeatmap()
         cache.keyDownListener = (event: KeyboardEvent) => {
             if (event.shiftKey && !values.shiftPressed) {
                 actions.setShiftPressed(true)
@@ -309,26 +322,30 @@ export const heatmapLogic = kea<heatmapLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        mabyeLoadRelevantHeatmap: () => {
+            // TODO: Only load the kind of data that has been explicitly selected
+            if (values.heatmapEnabled) {
+                actions.resetElementStats()
+                actions.getElementStats()
+                // TODO: Save selected types
+                actions.loadHeatmap(['click', 'mousemove'])
+            }
+        },
+
         loadMoreElementStats: () => {
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
             }
         },
         setHref: () => {
-            if (values.heatmapEnabled) {
-                actions.resetElementStats()
-                actions.getElementStats()
-            }
+            actions.mabyeLoadRelevantHeatmap()
         },
         setWildcardHref: async (_, breakpoint) => {
             await breakpoint(100)
-            if (values.heatmapEnabled) {
-                actions.resetElementStats()
-                actions.getElementStats()
-            }
+            actions.mabyeLoadRelevantHeatmap()
         },
         enableHeatmap: () => {
-            actions.getElementStats()
+            actions.mabyeLoadRelevantHeatmap()
             posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
         disableHeatmap: () => {
@@ -346,8 +363,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
         },
         setHeatmapFilter: () => {
-            actions.resetElementStats()
-            actions.getElementStats()
+            actions.mabyeLoadRelevantHeatmap()
         },
     })),
 ])
