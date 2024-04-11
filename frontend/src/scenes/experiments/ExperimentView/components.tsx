@@ -263,6 +263,16 @@ export function ActionBanner(): JSX.Element {
         )
     }
 
+    // Trend: running, results present, not significant
+    if (isExperimentRunning && experimentResults && !isExperimentStopped && !areResultsSignificant) {
+        return (
+            <LemonBanner type="info" className="mt-4">
+                Your experiment is live and is collecting data, but hasn't yet reached the statistical significance
+                needed to make reliable decisions. It's important to wait for more data to avoid premature conclusions.
+            </LemonBanner>
+        )
+    }
+
     // Running, results present, not significant
     if (isExperimentRunning && experimentResults && !isExperimentStopped && !areResultsSignificant) {
         return (
