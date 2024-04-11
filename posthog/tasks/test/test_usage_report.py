@@ -147,6 +147,16 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     team=self.org_1_team_1,
                 )
 
+            _create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$personfull_event",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+                person_mode="propertyless",
+            )
+
             # create duplicate events
             for uuid in uuids:
                 _create_event(
@@ -368,8 +378,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_lifetime": 55,
-                    "event_count_in_period": 22,
-                    # TODO: enhanced_persons: modify this test so that there are fewer of these events than the base
+                    "event_count_in_period": 23,
                     "enhanced_persons_event_count_in_period": 22,
                     "event_count_in_month": 42,
                     "event_count_with_groups_in_period": 2,
@@ -412,7 +421,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "teams": {
                         str(self.org_1_team_1.id): {
                             "event_count_lifetime": 44,
-                            "event_count_in_period": 12,
+                            "event_count_in_period": 13,
                             "enhanced_persons_event_count_in_period": 12,
                             "event_count_in_month": 32,
                             "event_count_with_groups_in_period": 2,
