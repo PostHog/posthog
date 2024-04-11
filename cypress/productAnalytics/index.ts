@@ -67,7 +67,7 @@ export const insight = {
     },
     visitInsight: (insightName: string): void => {
         cy.clickNavMenu('savedinsights')
-        cy.contains('.row-name > .Link', insightName).click()
+        cy.contains('.Link', insightName).click()
     },
     create: (insightName: string, insightType: string = 'TRENDS'): void => {
         cy.clickNavMenu('savedinsights')
@@ -174,8 +174,8 @@ export const dashboard = {
         cy.get('[data-attr="property-filter-0"]').click()
         cy.get('[data-attr="taxonomic-filter-searchfield"]').click().type('Browser').wait(1000)
         cy.get('[data-attr="prop-filter-event_properties-0"]').click({ force: true })
-        cy.get('.ant-select-selector').type(value)
-        cy.get('.ant-select-item-option-content').click({ force: true })
+        cy.get('.LemonInput').type(value)
+        cy.contains('.LemonButton__content', value).click({ force: true })
     },
     addAnyFilter(): void {
         cy.get('.PropertyFilterButton').should('have.length', 0)

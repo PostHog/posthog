@@ -20,7 +20,7 @@ describe('Dashboard', () => {
     })
 
     it('Adding new insight to dashboard works', () => {
-        const dashboardName = randomString('Dashboard with insight A')
+        const dashboardName = randomString('Dashboard with matching filter')
         const insightName = randomString('insight to add to dashboard')
 
         // create and visit a dashboard to get it into turbomode cache
@@ -36,22 +36,27 @@ describe('Dashboard', () => {
         cy.get('main').contains('There are no matching events for this query').should('not.exist')
 
         cy.clickNavMenu('dashboards')
-        const dashboardNameB = randomString('Dashboard with insight B')
-        dashboards.createAndGoToEmptyDashboard(dashboardNameB)
+        const dashboardNonMatching = randomString('Dashboard with non-matching filter')
+        dashboards.createAndGoToEmptyDashboard(dashboardNonMatching)
 
         insight.visitInsight(insightName)
-        insight.addInsightToDashboard(dashboardNameB, { visitAfterAdding: true })
+        insight.addInsightToDashboard(dashboardNonMatching, { visitAfterAdding: true })
 
         dashboard.addPropertyFilter('Browser', 'Hogbrowser')
+        cy.get('main').contains('There are no matching events for this query').should('exist')
 
         // Go back and forth to make sure the filters are correctly applied
         for (let i = 0; i < 3; i++) {
             cy.clickNavMenu('dashboards')
             dashboards.visitDashboard(dashboardName)
+            cy.get('.CardMeta h4').should('have.text', insightName)
+            cy.get('h4').contains('Refreshing').should('not.exist')
             cy.get('main').contains('There are no matching events for this query').should('not.exist')
 
             cy.clickNavMenu('dashboards')
-            dashboards.visitDashboard(dashboardNameB)
+            dashboards.visitDashboard(dashboardNonMatching)
+            cy.get('.CardMeta h4').should('have.text', insightName)
+            cy.get('h4').contains('Refreshing').should('not.exist')
             cy.get('main').contains('There are no matching events for this query').should('exist')
         }
     })
