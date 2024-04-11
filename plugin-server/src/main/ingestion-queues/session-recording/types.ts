@@ -13,6 +13,7 @@ export type RawHeatmapEvent = {
     $viewport_width: number
     $viewport_height: number
     $pointer_target_fixed: boolean
+    $current_url: string
 }
 
 export type HeatmapEvent = RawHeatmapEvent & {

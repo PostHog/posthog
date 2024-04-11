@@ -81,7 +81,15 @@ export const parseKafkaMessage = async (
     }
 
     // TODO are we receiving some scroll values too ?
-    const { $viewport_height, $viewport_width, $session_id, $pointer_x, $pointer_y } = event.properties || {}
+    const {
+        $viewport_height,
+        $viewport_width,
+        $session_id,
+        $pointer_x,
+        $pointer_y,
+        $pointer_target_fixed,
+        $current_url,
+    } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$heatmap') {
@@ -110,18 +118,25 @@ export const parseKafkaMessage = async (
         $session_id,
         $pointer_x,
         $pointer_y,
+        $pointer_target_fixed: !!$pointer_target_fixed,
+        $current_url,
     }
 }
 
 function parsedHeatmapMessages(incomingMessages: IncomingHeatmapEventMessage[]): HeatmapEvent[] {
     const scale_factor = 16
-    return incomingMessages.map((rhe) => ({
-        ...rhe,
-        x: Math.ceil(rhe.$pointer_x / scale_factor),
-        y: Math.ceil(rhe.$pointer_y / scale_factor),
-        scale_factor,
-        timestamp: castTimestampOrNow(DateTime.fromMillis(rhe.metadata.timestamp), TimestampFormat.ClickHouse),
-    }))
+    return incomingMessages.map((rhe) => {
+        const { metadata, $pointer_x, $pointer_y, $viewport_height, $viewport_width, ...inbound } = rhe
+        return {
+            ...inbound,
+            x: Math.ceil($pointer_x / scale_factor),
+            y: Math.ceil($pointer_y / scale_factor),
+            $viewport_height: Math.ceil($viewport_height / scale_factor),
+            $viewport_width: Math.ceil($viewport_width / scale_factor),
+            scale_factor,
+            timestamp: castTimestampOrNow(DateTime.fromMillis(rhe.metadata.timestamp), TimestampFormat.ClickHouse),
+        }
+    })
 }
 
 /*
