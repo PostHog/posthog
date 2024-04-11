@@ -1,4 +1,4 @@
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
