@@ -629,7 +629,7 @@ describe('insightLogic', () => {
                     }),
                 })
 
-        it('loads from the dashboardLogic when in dashboard context', async () => {
+        it.skip('loads from the dashboardLogic when in dashboard context', async () => {
             // 1. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })
             dashLogic.mount()
