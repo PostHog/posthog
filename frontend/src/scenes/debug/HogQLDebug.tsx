@@ -68,7 +68,10 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         <LemonSelect
                             options={[
                                 { value: 'disabled', label: 'Disabled' },
-                                { value: 'v1_enabled', label: 'V1 Enabled' },
+                                {
+                                    value: 'person_id_no_override_properties_on_events',
+                                    label: 'Properties: Events, Person ID: Events',
+                                },
                                 { value: 'v2_enabled', label: 'V2 Enabled' },
                             ]}
                             onChange={(value) =>

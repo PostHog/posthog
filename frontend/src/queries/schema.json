@@ -2620,7 +2620,12 @@
                     "type": "string"
                 },
                 "personsOnEventsMode": {
-                    "enum": ["disabled", "v1_enabled", "v2_enabled", "person_id_override_properties_joined"],
+                    "enum": [
+                        "disabled",
+                        "person_id_no_override_properties_on_events",
+                        "v2_enabled",
+                        "person_id_override_properties_joined"
+                    ],
                     "type": "string"
                 }
             },

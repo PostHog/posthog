@@ -162,7 +162,7 @@ def create_hogql_database(
         database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
         database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled:
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 

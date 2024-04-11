@@ -14,16 +14,16 @@ class TestModifiers(BaseTest):
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled  # NB! not a None
         modifiers = create_default_modifiers_for_team(
             self.team,
-            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v1_enabled),
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_no_override_properties_on_events),
         )
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events
         modifiers = create_default_modifiers_for_team(
             self.team,
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v2_enabled),
         )
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled
 
-    def test_modifiers_persons_on_events_mode_v1_enabled(self):
+    def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"
 
         # Control
@@ -38,7 +38,9 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             query,
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v1_enabled),
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.person_id_no_override_properties_on_events
+            ),
         )
         assert " JOIN " not in response.clickhouse
 
@@ -54,7 +56,7 @@ class TestModifiers(BaseTest):
                 "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s) AS created_at",
             ),
             (
-                PersonsOnEventsMode.v1_enabled,
+                PersonsOnEventsMode.person_id_no_override_properties_on_events,
                 "events.event AS event",
                 "events.person_id AS id",
                 "events.person_properties AS properties",
