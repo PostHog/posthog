@@ -1,7 +1,7 @@
 import datetime as dt
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Literal, Optional, Set, Union
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import isoparse
@@ -46,7 +46,7 @@ def create_event(
     group2_created_at: Optional[Union[timezone.datetime, str]] = None,
     group3_created_at: Optional[Union[timezone.datetime, str]] = None,
     group4_created_at: Optional[Union[timezone.datetime, str]] = None,
-    person_mode: str = "full",
+    person_mode: Literal["full", "propertyless"] = "full",
 ) -> str:
     if not timestamp:
         timestamp = timezone.now()
@@ -102,7 +102,11 @@ def format_clickhouse_timestamp(
     return parsed_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
-def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Dict[str, Person]] = None) -> None:
+def bulk_create_events(
+    events: List[Dict[str, Any]],
+    person_mapping: Optional[Dict[str, Person]] = None,
+    person_mode: Literal["full", "propertyless"] = "full",
+) -> None:
     """
     TEST ONLY
     Insert events in bulk. List of dicts:
@@ -252,7 +256,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             "group4_created_at": (
                 event["group4_created_at"] if event.get("group4_created_at") else datetime64_default_timestamp
             ),
-            "person_mode": "full",
+            "person_mode": person_mode,
         }
 
         params = {
