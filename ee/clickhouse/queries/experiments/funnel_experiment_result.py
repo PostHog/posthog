@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple, Type
 from zoneinfo import ZoneInfo
 
 from numpy.random import default_rng
-from rest_framework.exceptions import ValidationError, APIException
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.experiments import (
     CONTROL_VARIANT_KEY,
@@ -327,8 +327,6 @@ def validate_event_variants(funnel_results, variants):
         ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
         ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
     }
-
-    raise APIException()
 
     if not funnel_results or not funnel_results[0]:
         raise ValidationError(code="no-results", detail=json.dumps(errors))

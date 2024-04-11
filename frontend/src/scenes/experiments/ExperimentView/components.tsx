@@ -183,13 +183,12 @@ export function NoResultsEmptyState(): JSX.Element {
     // Validation errors return 400 and are rendered as a checklist
     if (experimentInsightType === InsightType.FUNNELS && experimentResultCalculationError.statusCode === 400) {
         const checklistItems = []
-        for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError))) {
+        for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError.detail))) {
             checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
         }
 
         return (
             <div>
-                <ResultsHeader />
                 <div className="border rounded bg-bg-light py-2">
                     <div className="flex space-x-2">
                         <div className="w-1/2 my-auto px-6 space-y-4 items-center">
@@ -216,7 +215,6 @@ export function NoResultsEmptyState(): JSX.Element {
     // Non-400 errors are rendered as plain text
     return (
         <div>
-            <ResultsHeader />
             <div className="border rounded bg-bg-light pt-6 pb-8">
                 <div className="flex flex-col items-center mx-auto text-muted">
                     <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
@@ -226,10 +224,6 @@ export function NoResultsEmptyState(): JSX.Element {
                             {experimentResultCalculationError.detail}
                         </div>
                     )}
-                    <div className="text-sm text-center text-balance">
-                        Wait a bit longer for your users to be exposed to the experiment. Double check your feature flag
-                        implementation if you're still not seeing results.
-                    </div>
                 </div>
             </div>
         </div>
