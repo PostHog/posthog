@@ -1,14 +1,20 @@
 import { lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ExternalDataSourceCreatePayload, ExternalDataSourceSyncSchema, SourceConfig } from '~/types'
+import {
+    Breadcrumb,
+    ExternalDataSourceCreatePayload,
+    ExternalDataSourceSyncSchema,
+    SourceConfig,
+    SourceFieldConfig,
+} from '~/types'
 
-import { sourceFormLogic } from '../external/forms/sourceFormLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
@@ -160,6 +166,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setSourceId: (id: string) => ({ sourceId: id }),
         closeWizard: true,
+        cancelWizard: true,
+        setStep: (step: number) => ({ step }),
+        getDatabaseSchemas: true,
     }),
     connect({
         values: [
@@ -191,6 +200,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 onNext: (state) => state + 1,
                 onBack: (state) => state - 1,
                 onClear: () => 1,
+                setStep: (_, { step }) => step,
             },
         ],
         databaseSchema: [
@@ -385,8 +395,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (values.currentStep === 2) {
                 if (values.selectedConnector?.name) {
-                    const logic = sourceFormLogic({ sourceConfig: values.selectedConnector })
-                    logic.actions.submitSourceConnectionDetails()
+                    actions.submitSourceConnectionDetails()
                 } else {
                     // Used for manual S3 file links
                     dataWarehouseTableLogic.actions.submitTable()
@@ -413,6 +422,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.clearSource()
             actions.loadSources(null)
             router.actions.push(urls.dataWarehouseSettings())
+        },
+        cancelWizard: () => {
+            actions.onClear()
+            actions.setStep(1)
+            actions.loadSources(null)
         },
         createSource: async () => {
             if (values.selectedConnector === null) {
@@ -449,6 +463,19 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     lemonToast.error(`Something went wrong.`)
             }
         },
+        submitSourceConnectionDetailsSuccess: () => {
+            actions.getDatabaseSchemas()
+        },
+        getDatabaseSchemas: async () => {
+            if (values.selectedConnector) {
+                const schemas = await api.externalDataSources.database_schema(
+                    values.selectedConnector.name,
+                    values.source.payload ?? {}
+                )
+                actions.setDatabaseSchemas(schemas)
+                actions.onNext()
+            }
+        },
     })),
     urlToAction(({ actions }) => ({
         '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
@@ -462,8 +489,68 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.handleRedirect(searchParams.kind, {
                     code: searchParams.code,
                 })
-                actions.onNext()
+                actions.setStep(2)
             }
         },
     })),
+    forms(({ actions, values }) => ({
+        sourceConnectionDetails: {
+            defaults: {
+                prefix: '',
+                payload: {},
+            } as {
+                prefix: string
+                payload: Record<string, any>
+            },
+            errors: (sourceValues) => {
+                return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues)
+            },
+            submit: async (sourceValues) => {
+                if (values.selectedConnector) {
+                    const payload = {
+                        ...sourceValues,
+                        source_type: values.selectedConnector.name,
+                    }
+                    actions.setIsLoading(true)
+
+                    try {
+                        await api.externalDataSources.source_prefix(payload.source_type, payload.prefix)
+                        actions.updateSource(payload)
+                        actions.setIsLoading(false)
+                    } catch (e: any) {
+                        if (e?.data?.message) {
+                            actions.setSourceConnectionDetailsManualErrors({ prefix: e.data.message })
+                        }
+                        actions.setIsLoading(false)
+
+                        throw e
+                    }
+                }
+            },
+        },
+    })),
 ])
+
+const getErrorsForFields = (
+    fields: SourceFieldConfig[],
+    { prefix, payload }: { prefix: string; payload: Record<string, any> }
+): Record<string, any> => {
+    const errors: Record<string, any> = {
+        payload: {},
+    }
+
+    // Prefix errors
+    if (!/^[a-zA-Z0-9_-]*$/.test(prefix ?? '')) {
+        errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
+    }
+
+    // Payload errors
+    for (const field of fields) {
+        const fieldValue = payload[field.name]
+        if (field.required && !fieldValue) {
+            errors['payload'][field.name] = `Please enter a ${field.label.toLowerCase()}`
+        }
+    }
+
+    return errors
+}

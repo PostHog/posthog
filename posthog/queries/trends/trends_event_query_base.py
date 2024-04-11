@@ -80,7 +80,7 @@ class TrendsEventQueryBase(EventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+        if self._person_on_events_mode == PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._should_join_distinct_ids = False
 
         is_entity_per_user = self._entity.math in (
