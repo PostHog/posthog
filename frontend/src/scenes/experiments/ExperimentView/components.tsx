@@ -1,6 +1,6 @@
 import '../Experiment.scss'
 
-import { IconCheckbox, IconPlus } from '@posthog/icons'
+import { IconCheckbox } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -107,7 +107,7 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
         <LemonButton
             className="ml-auto -translate-y-2"
             size="small"
-            type="secondary"
+            type="primary"
             icon={icon}
             to={urls.insightNew(
                 undefined,
@@ -127,7 +127,7 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
                 })
             )}
         >
-            Explore
+            Explore results
         </LemonButton>
     )
 }
@@ -179,7 +179,9 @@ export function NoResultsEmptyState(): JSX.Element {
         return <></>
     }
 
-    if (experimentInsightType === InsightType.FUNNELS && experimentResultCalculationError) {
+    // TODO: use for Trends too once the Trends API is adjusted
+    // Validation errors return 400 and are rendered as a checklist
+    if (experimentInsightType === InsightType.FUNNELS && experimentResultCalculationError.statusCode === 400) {
         const checklistItems = []
         for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError))) {
             checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
@@ -211,6 +213,7 @@ export function NoResultsEmptyState(): JSX.Element {
         )
     }
 
+    // Non-400 errors are rendered as plain text
     return (
         <div>
             <ResultsHeader />
@@ -219,14 +222,13 @@ export function NoResultsEmptyState(): JSX.Element {
                     <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                     <h2 className="text-xl font-semibold leading-tight">There are no experiment results yet</h2>
                     {!!experimentResultCalculationError && (
-                        <div className="text-sm text-center text-balance">{experimentResultCalculationError}</div>
+                        <div className="text-sm text-center text-balance">
+                            {experimentResultCalculationError.detail}
+                        </div>
                     )}
                     <div className="text-sm text-center text-balance">
                         Wait a bit longer for your users to be exposed to the experiment. Double check your feature flag
                         implementation if you're still not seeing results.
-                    </div>
-                    <div className="mt-6 text-center">
-                        <ExploreButton icon={<IconPlus />} />
                     </div>
                 </div>
             </div>
