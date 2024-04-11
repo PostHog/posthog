@@ -141,7 +141,7 @@ class TestLazyJoins(BaseTest):
         # ensure that the `_override` table alias is added as a join when it is
         # only referenced as the join constraint of a lazy join
         printed = self._print_select(
-            "select person_id from events",
+            "select person.id from events",
             HogQLQueryModifiers(
                 personOverridesMode=PersonOverridesMode.v3_enabled,
                 personPropertiesSource=PersonPropertiesSource.person,
