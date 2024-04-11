@@ -1036,7 +1036,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The number of autocapture events in this session</span>,
             examples: ['123'],
         },
-        $initial_channel_type: {
+        $channel_type: {
             label: 'Channel type',
             description: <span>What type of acquisition channel this traffic came from.</span>,
             examples: ['Paid Search', 'Organic Video', 'Direct'],

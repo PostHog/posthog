@@ -34,6 +34,7 @@ class PropertyDefinition(UUIDModel):
         EVENT = 1, "event"
         PERSON = 2, "person"
         GROUP = 3, "group"
+        SESSION = 4, "session"
 
     team: models.ForeignKey = models.ForeignKey(
         Team,

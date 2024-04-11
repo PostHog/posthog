@@ -192,6 +192,15 @@ class QueryContext:
                     "group_type_index": group_type_index,
                 },
             )
+        elif type == "session":
+            return dataclasses.replace(
+                should_join_event_property=False,
+                params={
+                    **self.params,
+                    "type": PropertyDefinition.Type.SESSION,
+                    "group_type_index": -1,
+                },
+            )
 
     def with_event_property_filter(
         self, event_names: Optional[str], filter_by_event_names: Optional[bool]

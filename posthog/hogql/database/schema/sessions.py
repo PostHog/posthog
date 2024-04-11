@@ -121,7 +121,7 @@ def select_from_sessions_table(
                 ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
             ],
         ),
-        "channel_type": create_channel_type_expr(
+        "$channel_type": create_channel_type_expr(
             campaign=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]),
             medium=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
             source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
@@ -159,7 +159,7 @@ class SessionsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = {
         **SESSIONS_COMMON_FIELDS,
         "duration": IntegerDatabaseField(name="duration"),
-        "channel_type": StringDatabaseField(name="channel_type"),
+        "$channel_type": StringDatabaseField(name="channel_type"),
     }
 
     def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node: ast.SelectQuery):

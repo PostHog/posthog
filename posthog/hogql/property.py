@@ -69,7 +69,7 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    scope: Literal["event", "person"] = "event",
+    scope: Literal["event", "person", "session"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -139,7 +139,7 @@ def property_to_expr(
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
     ):
-        if scope == "person" and property.type != "person":
+        if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
             raise NotImplementedError(
                 f"The '{property.type}' property filter only works in 'event' scope, not in '{scope}' scope"
             )
@@ -157,6 +157,10 @@ def property_to_expr(
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "data_warehouse":
             chain = []
+        elif property.type == "session" and scope == "event":
+            chain = ["session"]
+        elif property.type == "session" and scope == "session":
+            chain = ["sessions"]
         else:
             chain = ["properties"]
 

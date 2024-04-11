@@ -496,8 +496,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 value: '$session_duration',
                             },
                             {
-                                name: 'Initial Channel Type',
-                                value: '$initial_channel_type',
+                                name: 'Channel Type',
+                                value: '$channel_type',
                             },
                         ],
                         getName: (option: any) => option.name,

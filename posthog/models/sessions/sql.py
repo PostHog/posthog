@@ -6,7 +6,6 @@ from posthog.clickhouse.table_engines import (
     ReplicationScheme,
     AggregatingMergeTree,
 )
-from posthog.hogql.database.schema.channel_type import POSSIBLE_CHANNEL_TYPES
 
 TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
@@ -261,15 +260,6 @@ FROM sessions
 GROUP BY session_id, team_id
 """
 )
-
-SESSION_PROPERTY_TO_EXPR = {
-    "$initial_referring_domain": "initial_referring_domain",
-    "$initial_utm_source": "initial_utm_source",
-}
-
-SESSION_PROPERTY_TO_HARDCODED_POSSIBLE_VALUES = {
-    "$initial_channel_type": POSSIBLE_CHANNEL_TYPES,
-}
 
 SELECT_SESSION_PROP_VALUES_SQL = """
 SELECT

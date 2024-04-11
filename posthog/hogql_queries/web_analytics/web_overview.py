@@ -95,7 +95,7 @@ CROSS JOIN sessions_query
                         "start": start,
                         "mid": mid,
                         "end": end,
-                        "event_properties": self.event_properties(),
+                        "event_properties": self.all_properties(),
                         "session_where": self.session_where(include_previous_period=True),
                         "session_having": self.session_having(include_previous_period=True),
                         "sample_rate": self._sample_ratio,
@@ -164,7 +164,7 @@ CROSS JOIN sessions_query
                         "start": start,
                         "mid": mid,
                         "end": end,
-                        "event_properties": self.event_properties(),
+                        "event_properties": self.all_properties(),
                         "session_where": self.session_where(include_previous_period=False),
                         "session_having": self.session_having(include_previous_period=False),
                         "sample_rate": self._sample_ratio,
@@ -213,7 +213,8 @@ FROM (
         event = '$pageview',
         timestamp >= {start},
         timestamp < {end},
-        {event_properties}
+        {event_properties},
+        {session_properties}
     )
     GROUP BY `$session_id`
     HAVING and(
@@ -228,6 +229,7 @@ FROM (
                     "mid": mid,
                     "end": end,
                     "event_properties": self.event_properties(),
+                    "session_properties": self.session_properties(),
                 },
             )
         else:
@@ -266,7 +268,8 @@ FROM (
         event = '$pageview',
         timestamp >= {mid},
         timestamp < {end},
-        {event_properties}
+        {event_properties},
+        {session_properties}
     )
     GROUP BY `$session_id`
     HAVING and(
@@ -275,7 +278,12 @@ FROM (
     )
 )
                 """,
-                placeholders={"mid": mid, "end": end, "event_properties": self.event_properties()},
+                placeholders={
+                    "mid": mid,
+                    "end": end,
+                    "event_properties": self.event_properties(),
+                    "session_properties": self.session_properties(),
+                },
             )
 
     def calculate(self):
@@ -311,8 +319,21 @@ FROM (
             now=datetime.now(),
         )
 
+    def all_properties(self) -> ast.Expr:
+        properties = self.query.properties + self._test_account_filters
+        return property_to_expr(properties, team=self.team)
+
     def event_properties(self) -> ast.Expr:
-        return property_to_expr(self.query.properties + self._test_account_filters, team=self.team)
+        properties = [
+            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
+        ]
+        return property_to_expr(properties, team=self.team, scope="event")
+
+    def session_properties(self) -> ast.Expr:
+        properties = [
+            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
+        ]
+        return property_to_expr(properties, team=self.team, scope="session")
 
 
 def to_data(
@@ -338,3 +359,10 @@ def to_data(
         if value is not None and previous is not None and previous != 0
         else None,
     }
+
+
+def get_property_type(property):
+    if isinstance(property, dict):
+        return property["type"]
+    else:
+        return property.type
