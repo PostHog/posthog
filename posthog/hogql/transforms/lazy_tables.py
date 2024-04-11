@@ -62,6 +62,9 @@ class LazyFinder(TraversingVisitor):
     def visit_lazy_table_type(self, node: ast.TableType):
         self.found_lazy = True
 
+    def visit_field_type(self, node: ast.FieldType):
+        self.visit(node.table_type)
+
 
 class LazyTableResolver(TraversingVisitor):
     lazy_finder_counter = 0
