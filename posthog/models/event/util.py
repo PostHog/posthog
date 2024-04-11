@@ -105,7 +105,6 @@ def format_clickhouse_timestamp(
 def bulk_create_events(
     events: List[Dict[str, Any]],
     person_mapping: Optional[Dict[str, Person]] = None,
-    person_mode: Literal["full", "propertyless"] = "full",
 ) -> None:
     """
     TEST ONLY
@@ -168,6 +167,7 @@ def bulk_create_events(
 
         #  use person properties mapping to populate person properties in given event
         team_id = event["team"].pk
+        person_mode = event.get("person_mode", "full")
         if person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]
             person_properties = person.properties
