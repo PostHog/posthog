@@ -131,6 +131,26 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
         </LemonButton>
     )
 }
+
+export function ResultsHeader(): JSX.Element {
+    return (
+        <div className="flex">
+            <div className="w-1/2">
+                <div className="inline-flex items-center space-x-2 mb-2">
+                    <h2 className="m-0 font-semibold text-lg">Results</h2>
+                    <ResultsTag />
+                </div>
+            </div>
+
+            <div className="w-1/2 flex flex-col justify-end">
+                <div className="ml-auto">
+                    <ExploreButton />
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export function NoResultsEmptyState(): JSX.Element {
     const { experimentResultsLoading, experimentResultCalculationError, experimentInsightType } =
         useValues(experimentLogic)
@@ -167,7 +187,7 @@ export function NoResultsEmptyState(): JSX.Element {
 
         return (
             <div>
-                <h2 className="font-semibold text-lg">Results</h2>
+                <ResultsHeader />
                 <div className="border rounded bg-bg-light py-2">
                     <div className="flex space-x-2">
                         <div className="w-1/2 my-auto px-6 space-y-4 items-center">
@@ -193,7 +213,7 @@ export function NoResultsEmptyState(): JSX.Element {
 
     return (
         <div>
-            <h2 className="font-semibold text-lg">Results</h2>
+            <ResultsHeader />
             <div className="border rounded bg-bg-light pt-6 pb-8">
                 <div className="flex flex-col items-center mx-auto text-muted">
                     <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
