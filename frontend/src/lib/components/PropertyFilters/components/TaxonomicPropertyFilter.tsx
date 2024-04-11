@@ -84,7 +84,6 @@ export function TaxonomicPropertyFilter({
         propertyAllowList,
     })
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
-    console.log({ filter, index, pageKey, groupTypes, activeTaxonomicGroup })
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const valuePresent = filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
@@ -124,8 +123,6 @@ export function TaxonomicPropertyFilter({
         300: 'small',
         550: 'medium',
     })
-
-    console.log({ activeTaxonomicGroup })
 
     return (
         <div

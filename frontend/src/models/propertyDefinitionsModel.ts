@@ -1,17 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api, { ApiMethodOptions } from 'lib/api'
-import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { colonDelimitedDuration } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { groupsModel } from '~/models/groupsModel'
 import {
     BreakdownKeyType,
     GroupTypeIndex,
@@ -189,14 +184,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             { ...localProperties } as PropertyDefinitionStorage,
             {
                 updatePropertyDefinitions: (state, { propertyDefinitions }) => {
-                    const x = {
+                    return {
                         ...state,
                         ...propertyDefinitions,
                     }
-                    console.log({ x })
-                    console.log({ x })
-
-                    return x
                 },
             },
         ],
@@ -338,7 +329,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         },
 
         loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames }, breakpoint) => {
-            console.log({ type, propertyKey, endpoint, taxonomicGroups: values.taxonomicGroups })
             if (['cohort'].includes(type)) {
                 return
             }

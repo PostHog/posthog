@@ -36,7 +36,6 @@ export function PropertyValue({
     eventNames = [],
     addRelativeDateTimeOptions = false,
 }: PropertyValueProps): JSX.Element {
-    console.log({ type, propertyKey, value })
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
 

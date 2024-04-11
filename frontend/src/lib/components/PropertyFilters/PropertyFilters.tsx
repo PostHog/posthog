@@ -79,8 +79,6 @@ export function PropertyFilters({
         setAllowOpenOnInsert(true)
     }, [])
 
-    console.log({ taxonomicGroupTypes })
-
     return (
         <div className="PropertyFilters">
             {showNestedArrow && !disablePopover && (

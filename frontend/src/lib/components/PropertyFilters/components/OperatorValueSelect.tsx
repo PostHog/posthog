@@ -70,7 +70,6 @@ export function OperatorValueSelect({
     defaultOpen,
     addRelativeDateTimeOptions,
 }: OperatorValueSelectProps): JSX.Element {
-    console.log({ type, propkey, value })
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
 
     // DateTime properties should not default to Exact
