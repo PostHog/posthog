@@ -62,7 +62,7 @@ from posthog.schema import (
     DataWarehouseEventsModifier,
 )
 from posthog.warehouse.models import DataWarehouseTable
-from posthog.utils import format_label_date
+from posthog.utils import format_label_date, multisort
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -634,33 +634,32 @@ class TrendsQueryRunner(QueryRunner):
         return series_with_extras
 
     def apply_formula(self, formula: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        if len(results) == 0:
-            # empty results
-            return []
-        elif self.query.trendsFilter is not None and self.query.trendsFilter.compare:
-            # with compare
-            sorted_results = sorted(results, key=itemgetter("compare_label"))
-            computed_results = []
-            for _key, group in groupby(sorted_results, key=itemgetter("compare_label")):
-                results_group = list(group)
-                aggregate_values = self._trends_display.should_aggregate_values()
-                computed_results.append(self.apply_formula_to_results_group(results_group, formula, aggregate_values))
-            return computed_results
+        has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
+        has_breakdown = bool(self.query.breakdownFilter and self.query.breakdownFilter.breakdown)
+        aggregate_values = self._trends_display.should_aggregate_values()
 
-        elif self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
-            # with breakdown
-            breakdown_values_count = len(results) // len(self.query.series)
+        if len(results) == 0:
+            return []
+
+        # we need to apply the formula to a group of results when we have a breakdown or the compare option is enabled
+        if has_compare or has_breakdown:
+            # compare queries are executed separately and some breakdown values might be missing from the other dataset
+            # we need to fill them up for
+
+            keys = [*(["compare_label"] if has_compare else []), *(["breakdown_value"] if has_breakdown else [])]
+            sorted_results = sorted(results, key=itemgetter(*keys))
+
             computed_results = []
-            for i in range(0, breakdown_values_count):
-                results_group = [results[i], results[i + breakdown_values_count]]
-                computed_results.append(self.apply_formula_to_results_group(results_group, formula))
-            return computed_results
+            for _key, group in groupby(sorted_results, key=itemgetter(*keys)):
+                results_group = list(group)
+                computed_results.append(self.apply_formula_to_results_group(results_group, formula, aggregate_values))
+
+            if has_compare:
+                return multisort(computed_results, (("compare_label", False), ("count", True)))
+
+            return sorted(computed_results, key=itemgetter("count"), reverse=True)
         else:
-            return [
-                self.apply_formula_to_results_group(
-                    results, formula, aggregate_values=self._trends_display.should_aggregate_values()
-                )
-            ]
+            return [self.apply_formula_to_results_group(results, formula, aggregate_values=aggregate_values)]
 
     @staticmethod
     def apply_formula_to_results_group(
