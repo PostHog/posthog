@@ -142,6 +142,10 @@ class Database(BaseModel):
             self._warehouse_table_names.append(f_name)
 
 
+def _use_person_properties_from_events(database: Database) -> None:
+    database.events.fields["person"] = FieldTraverser(chain=["poe"])
+
+
 def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
@@ -163,8 +167,8 @@ def create_hogql_database(
         database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+        _use_person_properties_from_events(database)
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
         database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
@@ -180,8 +184,8 @@ def create_hogql_database(
                 start=None,
             ),
         )
+        _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
