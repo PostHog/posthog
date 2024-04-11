@@ -13,6 +13,7 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 
 import { Heatmap } from './Heatmap'
+import { ScrollDepth } from './ScrollDepth'
 
 export function Elements(): JSX.Element {
     const {
@@ -50,6 +51,7 @@ export function Elements(): JSX.Element {
                     zIndex: 2147483010,
                 }}
             >
+                <ScrollDepth />
                 <Heatmap />
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 

@@ -1,12 +1,12 @@
 import { IconMagicWand } from '@posthog/icons'
-import { LemonCheckbox, LemonDivider, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'kea-forms'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -54,7 +54,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     />
                 </div>
 
-                <div className="flex flex-row items-center gap-2 my-2">
+                <div className="flex flex-row items-center gap-2 py-2 border-b">
                     <LemonMenu items={dateItems}>
                         <LemonButton size="small" type="secondary">
                             {dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')}
@@ -63,37 +63,88 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
 
                     {heatmapLoading ? <Spinner /> : null}
                 </div>
+            </ToolbarMenu.Header>
+            <ToolbarMenu.Body>
+                <div className="border-b p-2">
+                    <LemonSwitch
+                        className="w-full"
+                        checked={!!heatmapFilter.scrolldepth}
+                        label="Scroll depth"
+                        onChange={(e) =>
+                            patchHeatmapFilter({
+                                scrolldepth: e,
+                            })
+                        }
+                    />
 
-                <div className="border-t p-2">
-                    <div className="flex items-center justify-between">
-                        <h4>Heatmaps</h4>
-
-                        <LemonSegmentedButton
-                            onChange={(e) => patchHeatmapFilter({ heatmap_type: e })}
-                            value={heatmapFilter.heatmap_type ?? undefined}
-                            options={[
-                                {
-                                    value: 'click',
-                                    label: 'Clicks',
-                                },
-                                {
-                                    value: 'rageclick',
-                                    label: 'Rageclicks',
-                                },
-                                {
-                                    value: 'mousemove',
-                                    label: 'Mouse moves',
-                                },
-                            ]}
-                            size="small"
-                        />
-                    </div>
+                    <p>TODO: Add notice about config settings required by checking their posthog-js version</p>
                 </div>
 
-                <div className="border-t border-b p-2">
-                    <h4>Clickmaps</h4>
+                <div className="border-b p-2">
+                    <LemonSwitch
+                        className="w-full"
+                        checked={!!heatmapFilter.heatmaps}
+                        label="Heatmaps"
+                        onChange={(e) =>
+                            patchHeatmapFilter({
+                                heatmaps: e,
+                            })
+                        }
+                    />
 
-                    {heatmapFilter.autocapture && (
+                    <p>Heatmaps are a blah blah blah</p>
+
+                    {heatmapFilter.heatmaps && (
+                        <>
+                            <div className="space-y-2">
+                                <div className="flex gap-2 justify-between items-center">
+                                    <LemonLabel>Heatmap type</LemonLabel>
+                                    <LemonSegmentedButton
+                                        onChange={(e) => patchHeatmapFilter({ heatmap_type: e })}
+                                        value={heatmapFilter.heatmap_type ?? undefined}
+                                        options={[
+                                            {
+                                                value: 'click',
+                                                label: 'Clicks',
+                                            },
+                                            {
+                                                value: 'rageclick',
+                                                label: 'Rageclicks',
+                                            },
+                                            {
+                                                value: 'mousemove',
+                                                label: 'Mouse moves',
+                                            },
+                                        ]}
+                                        size="small"
+                                    />
+                                </div>
+
+                                <div className="flex gap-2 justify-between items-center">
+                                    <LemonLabel>Viewport width</LemonLabel>
+                                    <LemonSlider className="flex-1" min={0} max={100} value={10} />
+                                    <code>1200 x 1400</code>
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                <div className="p-2">
+                    <LemonSwitch
+                        className="w-full"
+                        checked={!!heatmapFilter.clickmaps}
+                        label="Clickmaps (autocapture)"
+                        onChange={(e) =>
+                            patchHeatmapFilter({
+                                clickmaps: e,
+                            })
+                        }
+                    />
+
+                    <p>Clickmaps are a blah blah blah</p>
+
+                    {heatmapFilter.clickmaps && (
                         <>
                             <div className="flex items-center gap-2">
                                 <LemonButton
@@ -129,50 +180,46 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             <div>
                                 Found: {countedElements.length} elements / {clickCount} clicks!
                             </div>
+                            <div className="flex flex-col w-full h-full">
+                                {heatmapLoading ? (
+                                    <span className="flex-1 flex justify-center items-center p-4">
+                                        <Spinner className="text-2xl" />
+                                    </span>
+                                ) : countedElements.length ? (
+                                    countedElements.map(({ element, count, actionStep }, index) => {
+                                        return (
+                                            <LemonButton
+                                                key={index}
+                                                size="small"
+                                                fullWidth
+                                                onClick={() => setSelectedElement(element)}
+                                            >
+                                                <div
+                                                    className="flex flex-1 justify-between"
+                                                    key={index}
+                                                    onMouseEnter={() => setHighlightElement(element)}
+                                                    onMouseLeave={() => setHighlightElement(null)}
+                                                >
+                                                    <div>
+                                                        {index + 1}.&nbsp;
+                                                        {actionStep?.text ||
+                                                            (actionStep?.tag_name ? (
+                                                                <code>&lt;{actionStep.tag_name}&gt;</code>
+                                                            ) : (
+                                                                <em>Element</em>
+                                                            ))}
+                                                    </div>
+                                                    <div>{count} clicks</div>
+                                                </div>
+                                            </LemonButton>
+                                        )
+                                    })
+                                ) : (
+                                    <div className="p-2">No elements found.</div>
+                                )}
+                            </div>
                         </>
                     )}
-                </div>
-            </ToolbarMenu.Header>
-            <ToolbarMenu.Body>
-                <div className="flex flex-col gap-2 my-2">
-                    <div className="flex flex-col w-full h-full">
-                        {heatmapLoading ? (
-                            <span className="flex-1 flex justify-center items-center p-4">
-                                <Spinner className="text-2xl" />
-                            </span>
-                        ) : countedElements.length ? (
-                            countedElements.map(({ element, count, actionStep }, index) => {
-                                return (
-                                    <LemonButton
-                                        key={index}
-                                        size="small"
-                                        fullWidth
-                                        onClick={() => setSelectedElement(element)}
-                                    >
-                                        <div
-                                            className="flex flex-1 justify-between"
-                                            key={index}
-                                            onMouseEnter={() => setHighlightElement(element)}
-                                            onMouseLeave={() => setHighlightElement(null)}
-                                        >
-                                            <div>
-                                                {index + 1}.&nbsp;
-                                                {actionStep?.text ||
-                                                    (actionStep?.tag_name ? (
-                                                        <code>&lt;{actionStep.tag_name}&gt;</code>
-                                                    ) : (
-                                                        <em>Element</em>
-                                                    ))}
-                                            </div>
-                                            <div>{count} clicks</div>
-                                        </div>
-                                    </LemonButton>
-                                )
-                            })
-                        ) : (
-                            <div className="p-2">No elements found.</div>
-                        )}
-                    </div>
                 </div>
             </ToolbarMenu.Body>
         </ToolbarMenu>

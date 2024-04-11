@@ -23,9 +23,13 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 }
 
 export type HeatmapFilter = {
+    url?: string
     date_from?: string
     date_to?: string
-    autocapture?: boolean
+    clickmaps?: boolean
+    heatmaps?: boolean
+    scrolldepth?: boolean
+
     heatmap_type?: HeatmapType['type'] | null
 }
 
@@ -93,6 +97,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         heatmapFilter: [
             {
                 autocapture: true,
+                heatmaps: true,
                 heatmap_type: 'click',
             } as HeatmapFilter,
             {
@@ -343,11 +348,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
             if (values.heatmapEnabled) {
                 actions.resetElementStats()
 
-                if (values.heatmapFilter.autocapture) {
+                if (values.heatmapFilter.clickmaps) {
                     actions.getElementStats()
                 }
 
-                if (values.heatmapFilter.heatmap_type) {
+                if (values.heatmapFilter.heatmaps) {
                     // TODO: Save selected types
                     actions.loadHeatmap(values.heatmapFilter.heatmap_type as HeatmapType['type'])
                 }
@@ -384,7 +389,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setShowHeatmapTooltip(false)
             }
         },
-        setHeatmapFilter: () => {
+        setHeatmapFilter: async (_, breakpoint) => {
+            await breakpoint(200)
+            actions.mabyeLoadRelevantHeatmap()
+        },
+        patchHeatmapFilter: async (_, breakpoint) => {
+            await breakpoint(200)
             actions.mabyeLoadRelevantHeatmap()
         },
     })),

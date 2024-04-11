@@ -56,7 +56,7 @@ export function HeatmapElement({ element }: { element: HeatmapType }): JSX.Eleme
 export function Heatmap(): JSX.Element | null {
     const { heatmap, heatmapEnabled, heatmapFilter } = useValues(heatmapLogic)
 
-    if (!heatmapEnabled) {
+    if (!heatmapEnabled || !heatmapFilter.heatmaps) {
         return null
     }
 
