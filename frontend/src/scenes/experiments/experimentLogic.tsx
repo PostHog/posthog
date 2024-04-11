@@ -82,7 +82,7 @@ export interface TabularSecondaryMetricResults {
 
 export interface ExperimentResultCalculationError {
     detail: string
-    statusCode: string
+    statusCode: number
 }
 
 export const experimentLogic = kea<experimentLogicType>([

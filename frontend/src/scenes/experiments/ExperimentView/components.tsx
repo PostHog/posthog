@@ -181,7 +181,7 @@ export function NoResultsEmptyState(): JSX.Element {
 
     // TODO: use for Trends too once the Trends API is adjusted
     // Validation errors return 400 and are rendered as a checklist
-    if (experimentInsightType === InsightType.FUNNELS && experimentResultCalculationError.statusCode === 400) {
+    if (experimentInsightType === InsightType.FUNNELS && experimentResultCalculationError?.statusCode === 400) {
         const checklistItems = []
         for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError.detail))) {
             checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
