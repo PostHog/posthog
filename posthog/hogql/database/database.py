@@ -34,7 +34,6 @@ from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
     RawPersonDistinctIdOverridesTable,
-    join_with_person_distinct_id_overrides_table,
 )
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
@@ -178,24 +177,6 @@ def create_hogql_database(
             name="person_id",
             expr=parse_expr(
                 "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
-                start=None,
-            ),
-        )
-        database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
-
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v3_enabled:
-        database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-        database.events.fields["override"] = LazyJoin(
-            from_field=["distinct_id"],  # ???
-            join_table=PersonDistinctIdOverridesTable(),
-            join_function=join_with_person_distinct_id_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
                 start=None,
             ),
         )
