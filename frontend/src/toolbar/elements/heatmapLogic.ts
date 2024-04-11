@@ -22,6 +22,12 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     results: [],
 }
 
+export type HeatmapFilter = {
+    date_from?: string
+    date_to?: string
+    types: ('autocapture' | HeatmapType['type'])[]
+}
+
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
@@ -36,7 +42,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         disableHeatmap: true,
         setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
-        setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
+        setHeatmapFilter: (filter: HeatmapFilter) => ({ filter }),
+        patchHeatmapFilter: (filter: Partial<HeatmapFilter>) => ({ filter }),
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         loadHeatmap: (types: HeatmapType['type'][]) => ({
@@ -83,9 +90,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         heatmapFilter: [
-            {} as Partial<FilterType>,
+            {
+                types: ['autocapture', 'click'],
+            } as HeatmapFilter,
             {
                 setHeatmapFilter: (_, { filter }) => filter,
+                patchHeatmapFilter: (state, { filter }) => ({ ...state, ...filter }),
             },
         ],
     }),
@@ -115,7 +125,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                           type: PropertyFilterType.Event,
                                       },
                             ],
-                            ...values.heatmapFilter,
+                            date_from: values.heatmapFilter.date_from,
+                            date_to: values.heatmapFilter.date_to,
                         }
 
                         defaultUrl = `/api/element/stats/${encodeParams({ ...params, paginate_response: true }, '?')}`
@@ -329,9 +340,17 @@ export const heatmapLogic = kea<heatmapLogicType>([
             // TODO: Only load the kind of data that has been explicitly selected
             if (values.heatmapEnabled) {
                 actions.resetElementStats()
-                actions.getElementStats()
-                // TODO: Save selected types
-                actions.loadHeatmap(['click', 'mousemove'])
+
+                const types = values.heatmapFilter.types
+
+                if (types.includes('autocapture')) {
+                    actions.getElementStats()
+                }
+
+                if (types.filter((x) => x !== 'autocapture').length) {
+                    // TODO: Save selected types
+                    actions.loadHeatmap(values.heatmapFilter.types as HeatmapType['type'][])
+                }
             }
         },
 

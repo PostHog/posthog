@@ -4,11 +4,11 @@ import { useActions, useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 import { Fragment } from 'react'
 
+import { AutocaptureElement } from '~/toolbar/elements/AutocaptureElement'
+import { AutocaptureElementLabel } from '~/toolbar/elements/AutocaptureElementLabel'
 import { ElementInfoWindow } from '~/toolbar/elements/ElementInfoWindow'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
-import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
-import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 
@@ -54,7 +54,7 @@ export function Elements(): JSX.Element {
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element }, index) => (
-                    <HeatmapElement
+                    <AutocaptureElement
                         key={`inspect-${index}`}
                         rect={rect}
                         style={{
@@ -79,7 +79,7 @@ export function Elements(): JSX.Element {
                 {heatmapElements.map(({ rect, count, clickCount, rageclickCount, element }, index) => {
                     return (
                         <Fragment key={`heatmap-${index}`}>
-                            <HeatmapElement
+                            <AutocaptureElement
                                 rect={rect}
                                 style={{
                                     pointerEvents: inspectEnabled ? 'none' : heatmapPointerEvents,
@@ -98,7 +98,7 @@ export function Elements(): JSX.Element {
                                 onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             />
                             {!!clickCount && (
-                                <HeatmapLabel
+                                <AutocaptureElementLabel
                                     rect={rect}
                                     style={{
                                         pointerEvents: heatmapPointerEvents,
@@ -125,10 +125,10 @@ export function Elements(): JSX.Element {
                                     onMouseOut={() => selectedElement === null && setHoverElement(null)}
                                 >
                                     {compactNumber(clickCount || 0)}
-                                </HeatmapLabel>
+                                </AutocaptureElementLabel>
                             )}
                             {!!rageclickCount && (
-                                <HeatmapLabel
+                                <AutocaptureElementLabel
                                     rect={rect}
                                     style={{
                                         pointerEvents: heatmapPointerEvents,
@@ -156,7 +156,7 @@ export function Elements(): JSX.Element {
                                     onMouseOut={() => selectedElement === null && setHoverElement(null)}
                                 >
                                     {compactNumber(rageclickCount)}&#128545;
-                                </HeatmapLabel>
+                                </AutocaptureElementLabel>
                             )}
                         </Fragment>
                     )
@@ -165,7 +165,7 @@ export function Elements(): JSX.Element {
                 {labelsToDisplay.map(({ element, rect, index }, loopIndex) => {
                     if (rect) {
                         return (
-                            <HeatmapLabel
+                            <AutocaptureElementLabel
                                 key={`label-${loopIndex}`}
                                 rect={rect}
                                 align="left"
@@ -185,7 +185,7 @@ export function Elements(): JSX.Element {
                                 onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             >
                                 {(index || loopIndex) + 1}
-                            </HeatmapLabel>
+                            </AutocaptureElementLabel>
                         )
                     }
                 })}

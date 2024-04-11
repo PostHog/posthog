@@ -1,4 +1,4 @@
-import { IconPencil, IconPlus, IconSearch, IconTrash, IconX } from '@posthog/icons'
+import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
@@ -52,7 +52,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                 enableFormOnSubmit
                 className="flex flex-col overflow-hidden flex-1"
             >
-                <ToolbarMenu.Header>
+                <ToolbarMenu.Header border>
                     <h1 className="p-1 font-bold text-sm mb-0">
                         {selectedActionId === 'new' ? 'New ' : 'Edit '}
                         action
@@ -198,22 +198,25 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                 </ToolbarMenu.Body>
                 <ToolbarMenu.Footer>
                     <span className="flex-1">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => selectAction(null)}
-                            sideIcon={<IconX />}
-                        >
-                            Cancel
-                        </LemonButton>
+                        {selectedActionId !== 'new' ? (
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                onClick={deleteAction}
+                                icon={<IconTrash />}
+                                size="small"
+                            >
+                                Delete
+                            </LemonButton>
+                        ) : null}
                     </span>
-                    <LemonButton type="primary" htmlType="submit">
+                    <LemonButton type="secondary" size="small" onClick={() => selectAction(null)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" htmlType="submit" size="small">
                         {selectedActionId === 'new' ? 'Create ' : 'Save '}
                         action
                     </LemonButton>
-                    {selectedActionId !== 'new' ? (
-                        <LemonButton type="secondary" status="danger" onClick={deleteAction} icon={<IconTrash />} />
-                    ) : null}
                 </ToolbarMenu.Footer>
             </Form>
         </ToolbarMenu>

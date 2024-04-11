@@ -12,18 +12,18 @@ const heatmapLabelStyle = {
     fontFamily: 'monospace',
 }
 
-interface HeatmapLabelProps extends React.PropsWithoutRef<JSX.IntrinsicElements['div']> {
+interface AutocaptureElementLabelProps extends React.PropsWithoutRef<JSX.IntrinsicElements['div']> {
     rect?: ElementRect
     align?: 'left' | 'right'
 }
 
-export function HeatmapLabel({
+export function AutocaptureElementLabel({
     rect,
     style = {},
     align = 'right',
     children,
     ...props
-}: HeatmapLabelProps): JSX.Element | null {
+}: AutocaptureElementLabelProps): JSX.Element | null {
     if (!rect) {
         return null
     }

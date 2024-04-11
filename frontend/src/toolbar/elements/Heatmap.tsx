@@ -26,12 +26,11 @@ export function HeatmapElement({ element }: { element: HeatmapType }): JSX.Eleme
     const mode = 'percentage'
 
     // Default mode - place it exactly where it should be
-    let top = `${element.y - size * 0.5 - scrollYOffset}px`
+    const top = `${element.y - size * 0.5 - scrollYOffset}px`
     let left = `${element.x - size * 0.5 - scrollXOffset}px`
 
     if (mode === 'percentage') {
-        // Place it relative to its viewport
-        top = `calc(${(element.y / element.viewport_height) * 100}% - ${size * 0.5}px)`
+        // Scale the x axis to account for different browser widths
         left = `calc(${(element.x / element.viewport_width) * 100}% - ${size * 0.5}px)`
     }
 
@@ -55,11 +54,9 @@ export function HeatmapElement({ element }: { element: HeatmapType }): JSX.Eleme
 }
 
 export function Heatmap(): JSX.Element | null {
-    const { heatmap, heatmapEnabled } = useValues(heatmapLogic)
+    const { heatmap, heatmapEnabled, heatmapFilter } = useValues(heatmapLogic)
 
-    const items = heatmap?.results
-
-    if (!items?.length || !heatmapEnabled) {
+    if (!heatmapEnabled) {
         return null
     }
 
@@ -70,7 +67,7 @@ export function Heatmap(): JSX.Element | null {
 
     return (
         <div className="fixed inset-0 overflow-hidden">
-            {Array.from({ length: xNum }, (_, x) =>
+            {/* {Array.from({ length: xNum }, (_, x) =>
                 Array.from({ length: yNum }, (_, y) => (
                     <div
                         key={`${x}-${y}`}
@@ -87,9 +84,9 @@ export function Heatmap(): JSX.Element | null {
                         }}
                     />
                 ))
-            )}
+            )} */}
 
-            {items.map((x, i) => (
+            {heatmap?.results.map((x, i) => (
                 <HeatmapElement key={i} element={x} />
             ))}
         </div>

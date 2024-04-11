@@ -14,7 +14,7 @@ export type HeatmapType = {
     viewport_width: number
     viewport_height: number
     scale_factor: number
-    type: 'click' | 'mousemove'
+    type: 'click' | 'mousemove' | 'rageclick'
     target_fixed: boolean
 }
 
