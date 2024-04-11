@@ -64,7 +64,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     {heatmapLoading ? <Spinner /> : null}
                 </div>
 
-                <div className="border-t py-2">
+                <div className="border-t p-2">
                     <div className="flex items-center justify-between">
                         <h4>Heatmaps</h4>
 
@@ -90,7 +90,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     </div>
                 </div>
 
-                <div className="border-t border-b py-2">
+                <div className="border-t border-b p-2">
                     <h4>Clickmaps</h4>
 
                     {heatmapFilter.autocapture && (
