@@ -82,8 +82,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_from_predicate="and timestamp >= {date_from}",
             team_id_predicate="and team_id = {team_id}",
             # optional
-            # TODO add a day to date to so we don't have to deal with time
-            date_to_predicate="and timestamp <= {date_to}"
+            date_to_predicate="and timestamp <= {date_to} + interval 1 day"
             if request_serializer.validated_data.get("date_to", None)
             else "",
             viewport_min_width_predicate="and `$viewport_width` >= ceil({vp_min_w} / 16)"
