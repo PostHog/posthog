@@ -1,4 +1,4 @@
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -254,19 +254,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </LemonField>
 
                 <SignupRoleSelect />
-
-                <LemonField name="email_opt_in">
-                    {({ value, onChange }) => {
-                        return (
-                            <LemonCheckbox
-                                checked={value}
-                                onChange={onChange}
-                                disabled={isSignupSubmitting}
-                                label="Send me product and security updates"
-                            />
-                        )
-                    }}
-                </LemonField>
 
                 <LemonButton
                     type="primary"
