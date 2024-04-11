@@ -187,6 +187,9 @@ def create_hogql_database(
         _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
 
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_joined:
+        raise NotImplementedError
+
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
     )
