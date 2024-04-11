@@ -19,7 +19,7 @@ class HeatmapsTable(Table):
         "scale_factor": IntegerDatabaseField(name="scale_factor"),
         "$viewport_width": IntegerDatabaseField(name="$viewport_width"),
         "$viewport_height": IntegerDatabaseField(name="$viewport_height"),
-        "$pointer_Target_fixed": BooleanDatabaseField(name="$pointer_target_fixed"),
+        "$pointer_target_fixed": BooleanDatabaseField(name="$pointer_target_fixed"),
         "$current_url": StringDatabaseField(name="$current_url"),
         "timestamp": DateTimeDatabaseField(name="timestamp"),
         # join to get analytics for heatmap areas?
