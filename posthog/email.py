@@ -42,13 +42,13 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     )
 
 
-EMAIL_TASK_KWARGS = dict(
-    queue=CeleryQueue.EMAIL.value,
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+EMAIL_TASK_KWARGS = {
+    "queue": CeleryQueue.EMAIL.value,
+    "ignore_result": True,
+    "autoretry_for": (Exception,),
+    "max_retries": 3,
+    "retry_backoff": True,
+}
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

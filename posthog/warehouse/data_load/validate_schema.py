@@ -64,7 +64,7 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
 
 
 async def validate_schema(
-    credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int
+    credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int, row_count: int
 ) -> Dict:
     params = {
         "credential": credential,
@@ -72,6 +72,7 @@ async def validate_schema(
         "format": "Parquet",
         "url_pattern": new_url_pattern,
         "team_id": team_id,
+        "row_count": row_count,
     }
 
     table = DataWarehouseTable(**params)
@@ -83,11 +84,16 @@ async def validate_schema(
         "format": "Parquet",
         "url_pattern": new_url_pattern,
         "team_id": team_id,
+        "row_count": row_count,
     }
 
 
 async def validate_schema_and_update_table(
-    run_id: str, team_id: int, schemas: list[Tuple[str, str]], table_schema: TSchemaTables
+    run_id: str,
+    team_id: int,
+    schemas: list[Tuple[str, str]],
+    table_schema: TSchemaTables,
+    table_row_counts: Dict[str, int],
 ) -> None:
     """
 
@@ -117,11 +123,16 @@ async def validate_schema_and_update_table(
 
         table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
         new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
+        row_count = table_row_counts.get(_schema_name, 0)
 
         # Check
         try:
             data = await validate_schema(
-                credential=credential, table_name=table_name, new_url_pattern=new_url_pattern, team_id=team_id
+                credential=credential,
+                table_name=table_name,
+                new_url_pattern=new_url_pattern,
+                team_id=team_id,
+                row_count=row_count,
             )
         except ServerException as err:
             if err.code == 636:
@@ -149,6 +160,7 @@ async def validate_schema_and_update_table(
                 table_created = None
             else:
                 table_created.url_pattern = new_url_pattern
+                table_created.row_count = row_count
                 await asave_datawarehousetable(table_created)
 
         if not table_created:

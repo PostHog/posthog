@@ -182,22 +182,48 @@ export const SidePanelSupport = (): JSX.Element => {
                         </ul>
                     </Section>
 
-                    <Section title="Ask the community">
-                        <p>
-                            Questions about features, how to's, or use cases? There are thousands of discussions in our
-                            community forums.
-                        </p>
-                        <LemonButton
-                            type="primary"
-                            fullWidth
-                            center
-                            to="https://posthog.com/questions"
-                            targetBlank
-                            className="mt-2"
-                        >
-                            Ask a question
-                        </LemonButton>
-                    </Section>
+                    {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
+                        <>
+                            <Section title="Contact us">
+                                <p>Can't find what you need in the docs?</p>
+                                <LemonButton
+                                    type="primary"
+                                    fullWidth
+                                    center
+                                    onClick={() => openEmailForm()}
+                                    targetBlank
+                                    className="mt-2"
+                                >
+                                    Email an engineer
+                                </LemonButton>
+                            </Section>
+                            {isEmailFormOpen ? <SupportFormBlock onCancel={() => closeEmailForm()} /> : null}
+                            <Section title="Ask the community">
+                                <p>
+                                    Questions about features, how to's, or use cases? There are thousands of discussions
+                                    in our community forums.{' '}
+                                    <Link to="https://posthog.com/questions">Ask a question</Link>
+                                </p>
+                            </Section>
+                        </>
+                    ) : (
+                        <Section title="Ask the community">
+                            <p>
+                                Questions about features, how to's, or use cases? There are thousands of discussions in
+                                our community forums.
+                            </p>
+                            <LemonButton
+                                type="primary"
+                                fullWidth
+                                center
+                                to="https://posthog.com/questions"
+                                targetBlank
+                                className="mt-2"
+                            >
+                                Ask a question
+                            </LemonButton>
+                        </Section>
+                    )}
 
                     <Section title="Share feedback">
                         <ul>
@@ -248,18 +274,7 @@ export const SidePanelSupport = (): JSX.Element => {
                         </ul>
                     </Section>
 
-                    {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
-                        <Section title="More options">
-                            {isEmailFormOpen ? (
-                                <SupportFormBlock onCancel={() => closeEmailForm()} />
-                            ) : (
-                                <p>
-                                    Can't find what you need in the docs?{' '}
-                                    <Link onClick={() => openEmailForm()}>Email an engineer</Link>
-                                </p>
-                            )}
-                        </Section>
-                    ) : (
+                    {!hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
                         <Section title="Contact support">
                             <p>
                                 Due to our large userbase, we're unable to offer email support to organizations on the
@@ -303,7 +318,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </li>
                             </ol>
                         </Section>
-                    )}
+                    ) : null}
                 </div>
             </div>
         </>

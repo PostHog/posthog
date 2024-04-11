@@ -27,11 +27,13 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             logger.debug("No AsyncDeletion to perform")
             return
 
+        team_ids = list({row.team_id for row in deletions})
+
         logger.info(
             "Starting AsyncDeletion on `events` table in ClickHouse",
             {
                 "count": len(deletions),
-                "team_ids": list(set(row.team_id for row in deletions)),
+                "team_ids": team_ids,
             },
         )
         temp_table_name = f"{CLICKHOUSE_DATABASE}.async_deletion_run"
@@ -49,10 +51,13 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             ON CLUSTER '{CLICKHOUSE_CLUSTER}'
             DELETE
             WHERE
-                joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0 OR
-                joinGet({temp_table_name}, 'id', team_id, 1, toString(person_id)) > 0
+                team_id IN %(team_ids)s AND
+                (
+                    joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0 OR
+                    joinGet({temp_table_name}, 'id', team_id, 1, toString(person_id)) > 0
+                )
             """,
-            {},
+            {"team_ids": team_ids},
             workload=Workload.OFFLINE,
         )
 
@@ -66,7 +71,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             "Starting AsyncDeletion for teams on other tables",
             {
                 "count": len(team_deletions),
-                "team_ids": list(set(row.team_id for row in deletions)),
+                "team_ids": list({row.team_id for row in deletions}),
             },
         )
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
@@ -74,9 +79,11 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 f"""
                 ALTER TABLE {table}
                 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-                DELETE WHERE joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0
+                DELETE WHERE
+                team_id IN %(team_ids)s AND
+                joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0
                 """,
-                {},
+                {"team_ids": [deletion.team_id for deletion in team_deletions]},
                 workload=Workload.OFFLINE,
             )
 
@@ -110,7 +117,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             return [row for row in async_deletions if (row.team_id,) not in team_ids_with_data]
         elif deletion_type in (DeletionType.Person, DeletionType.Group):
             columns = f"team_id, {self._column_name(async_deletions[0])}"
-            with_data = set((team_id, str(key)) for team_id, key in self._verify_by_column(columns, async_deletions))
+            with_data = {(team_id, str(key)) for team_id, key in self._verify_by_column(columns, async_deletions)}
             return [row for row in async_deletions if (row.team_id, row.key) not in with_data]
         else:
             return []
@@ -126,7 +133,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             args,
             workload=Workload.OFFLINE,
         )
-        return set(tuple(row) for row in clickhouse_result)
+        return {tuple(row) for row in clickhouse_result}
 
     def _column_name(self, async_deletion: AsyncDeletion):
         assert async_deletion.deletion_type in (DeletionType.Person, DeletionType.Group)
