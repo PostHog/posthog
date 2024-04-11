@@ -145,3 +145,13 @@ class TestLazyJoins(BaseTest):
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_override_properties_joined),
         )
         assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_resolve_lazy_table_indirect_duplicate_references(self):
+        # Ensures that the override table is only joined one time, even when it
+        # is referenced via two different selected columns.
+        printed = self._print_select(
+            "select person_id, person.properties from events",
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_override_properties_joined),
+        )
+        assert printed == self.snapshot
