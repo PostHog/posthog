@@ -192,13 +192,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
 
+        active_schemas: List[ExternalDataSchema] = []
+
         for schema in enabled_schemas:
-            ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=True)
+            active_schemas.append(
+                ExternalDataSchema.objects.create(
+                    name=schema, team=self.team, source=new_source_model, should_sync=True
+                )
+            )
         for schema in disabled_schemas:
             ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=False)
 
         try:
-            sync_external_data_job_workflow(new_source_model, create=True)
+            for active_schema in active_schemas:
+                sync_external_data_job_workflow(active_schema, create=True)
         except Exception as e:
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
