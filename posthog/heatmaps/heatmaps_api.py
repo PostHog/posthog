@@ -26,7 +26,6 @@ DEFAULT_QUERY = """
                      {url_exact_predicate}
                      {url_pattern_predicate}
                      {type_predicate}
-                     {team_id_predicate}
                      )
             group by `pointer_target_fixed`, relative_client_x, client_y
             """
@@ -52,7 +51,6 @@ FROM (
         {url_exact_predicate}
         {url_pattern_predicate}
         {type_predicate}
-        {team_id_predicate}
     )
     GROUP BY bucket
 )
@@ -131,7 +129,6 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer.is_valid(raise_exception=True)
 
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
-        placeholders["team_id"] = Constant(value=self.team.pk)
 
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
         raw_query = SCROLL_DEPTH_QUERY if is_scrolldepth_query else DEFAULT_QUERY
