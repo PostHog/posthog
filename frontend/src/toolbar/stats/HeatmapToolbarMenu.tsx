@@ -186,15 +186,15 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     </>
                                 )}
 
-                                <LemonLabel>Viewport width fuzziness</LemonLabel>
+                                <LemonLabel>Viewport accuracy</LemonLabel>
                                 <div className="flex gap-2 justify-between items-center">
                                     <LemonSlider
                                         className="flex-1"
                                         min={0}
                                         max={1}
                                         step={0.01}
-                                        value={heatmapFilters.viewportFuzziness ?? 0}
-                                        onChange={(value) => patchHeatmapFilters({ viewportFuzziness: value })}
+                                        value={heatmapFilters.viewportAccuracy ?? 0}
+                                        onChange={(value) => patchHeatmapFilters({ viewportAccuracy: value })}
                                     />
                                     <Tooltip
                                         title={`
@@ -203,7 +203,11 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
 
                                     `}
                                     >
-                                        <code className="w-[6rem] text-right">{`${viewportRange.min} - ${viewportRange.max}`}</code>
+                                        <code className="w-[12rem] text-right text-xs whitsepace-nowrap">
+                                            {`${Math.round((heatmapFilters.viewportAccuracy ?? 1) * 100)}% (${
+                                                viewportRange.min
+                                            }px - ${viewportRange.max}px)`}
+                                        </code>
                                     </Tooltip>
                                 </div>
                             </div>

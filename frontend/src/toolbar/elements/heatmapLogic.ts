@@ -37,7 +37,7 @@ export type CommonFilters = {
 export type HeatmapFilters = {
     enabled: boolean
     type?: string
-    viewportFuzziness?: number
+    viewportAccuracy?: number
     aggregation?: 'total_count' | 'unique_visitors'
 }
 
@@ -104,7 +104,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             {
                 enabled: true,
                 type: 'click',
-                viewportFuzziness: 0.2,
+                viewportAccuracy: 0.9,
                 aggregation: 'total_count',
             } as HeatmapFilters,
             { persist: true },
@@ -450,9 +450,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
         viewportRange: [
             (s) => [s.heatmapFilters, s.windowWidth],
             (heatmapFilters, windowWidth): { max: number; min: number } => {
-                const viewportFuzziness = heatmapFilters.viewportFuzziness || 0.2
-                const minWidth = Math.max(0, windowWidth - windowWidth * viewportFuzziness)
-                const maxWidth = windowWidth + windowWidth * viewportFuzziness
+                const viewportAccuracy = heatmapFilters.viewportAccuracy ?? 0.2
+                const extraPixels = windowWidth - windowWidth * viewportAccuracy
+
+                const minWidth = Math.max(0, windowWidth - extraPixels)
+                const maxWidth = windowWidth + extraPixels
 
                 return {
                     min: Math.round(minWidth),
