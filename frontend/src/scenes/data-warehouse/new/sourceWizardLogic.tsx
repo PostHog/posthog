@@ -379,6 +379,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        onBack: () => {
+            if (values.currentStep <= 2) {
+                actions.selectConnector(null)
+            }
+        },
         onClear: () => {
             actions.selectConnector(null)
             actions.clearSource()
