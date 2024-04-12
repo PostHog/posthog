@@ -43,8 +43,8 @@ class HeatmapsRequestSerializer(serializers.Serializer):
                 return value
             else:
                 raise serializers.ValidationError("Invalid date_from provided: {}".format(value))
-        except Exception as e:
-            raise serializers.ValidationError("Error parsing date: {}".format(e))
+        except Exception:
+            raise serializers.ValidationError("Error parsing provided date_from: {}".format(value))
 
 
 class HeatmapsResponseSerializer(serializers.Serializer):
