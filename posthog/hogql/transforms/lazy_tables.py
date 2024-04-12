@@ -55,6 +55,8 @@ class FieldChainReplacer(TraversingVisitor):
 
 class LazyFinder(TraversingVisitor):
     found_lazy: bool = False
+    max_type_visits: int = 3
+    visited_field_type_counts: Dict[int, int] = {}
 
     def visit_lazy_join_type(self, node: ast.LazyJoinType):
         self.found_lazy = True
@@ -63,7 +65,11 @@ class LazyFinder(TraversingVisitor):
         self.found_lazy = True
 
     def visit_field_type(self, node: ast.FieldType):
-        self.visit(node.table_type)
+        node_ref = id(node)
+        visited_count = self.visited_field_type_counts.get(node_ref, 0)
+        if visited_count < self.max_type_visits:
+            self.visited_field_type_counts[node_ref] = visited_count + 1
+            self.visit(node.table_type)
 
 
 class LazyTableResolver(TraversingVisitor):
