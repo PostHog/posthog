@@ -286,6 +286,8 @@ export class HeatmapEventIngester {
     }
 
     async stop(): Promise<PromiseSettledResult<any>[]> {
+        status.info('🔁', 'heatmap_ingester_consumer - stopping heatmap events consumer')
+
         return Promise.allSettled([
             this.sharedClusterProducerWrapper ? this.sharedClusterProducerWrapper.disconnect() : Promise.resolve(),
         ])

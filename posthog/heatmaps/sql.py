@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     viewport_height Int16,
     -- some elements move when the page scrolls, others do not
     pointer_target_fixed Bool,
-    current_url VARCHAR
+    current_url VARCHAR,
     type LowCardinality(String)
 ) ENGINE = {engine}
 """
