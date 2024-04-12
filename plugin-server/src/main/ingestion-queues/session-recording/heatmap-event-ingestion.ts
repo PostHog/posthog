@@ -97,28 +97,34 @@ export const parseKafkaMessage = async (
 
     let heatmapEvents: HeatmapEvent[] = []
 
-    Object.entries($heatmap_data).forEach(([url, items]) => {
-        heatmapEvents = heatmapEvents.concat(
-            (items as any[]).map(
-                (hme: { x: number; y: number; target_fixed: boolean; type: string }): HeatmapEvent => ({
-                    type: hme.type,
-                    x: Math.ceil(hme.x / scale_factor),
-                    y: Math.ceil(hme.y / scale_factor),
-                    pointer_target_fixed: hme.target_fixed,
-                    viewport_height: Math.ceil($viewport_height / scale_factor),
-                    viewport_width: Math.ceil($viewport_width / scale_factor),
-                    current_url: url,
-                    session_id: $session_id,
-                    scale_factor,
-                    timestamp: castTimestampOrNow(
-                        DateTime.fromMillis(message.timestamp ?? Date.now()),
-                        TimestampFormat.ClickHouse
-                    ),
-                    team_id: teamId,
-                })
-            )
-        )
-    })
+    try {
+        Object.entries($heatmap_data).forEach(([url, items]) => {
+            if (Array.isArray(items)) {
+                heatmapEvents = heatmapEvents.concat(
+                    (items as any[]).map(
+                        (hme: { x: number; y: number; target_fixed: boolean; type: string }): HeatmapEvent => ({
+                            type: hme.type,
+                            x: Math.ceil(hme.x / scale_factor),
+                            y: Math.ceil(hme.y / scale_factor),
+                            pointer_target_fixed: hme.target_fixed,
+                            viewport_height: Math.ceil($viewport_height / scale_factor),
+                            viewport_width: Math.ceil($viewport_width / scale_factor),
+                            current_url: url,
+                            session_id: $session_id,
+                            scale_factor,
+                            timestamp: castTimestampOrNow(
+                                DateTime.fromMillis(message.timestamp ?? Date.now()),
+                                TimestampFormat.ClickHouse
+                            ),
+                            team_id: teamId,
+                        })
+                    )
+                )
+            }
+        })
+    } catch (e) {
+        status.error('🔥', 'heatmap_ingester_consumer - failed to parse heatmap data', e)
+    }
 
     return heatmapEvents
 }
