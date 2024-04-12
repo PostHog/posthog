@@ -13,21 +13,22 @@ from posthog.schema import HogQLQueryResponse
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 DEFAULT_QUERY = """
-            select *, count() as cnt
+            select pointer_target_fixed, relative_client_x, client_y, {aggregation_count}
             from (
-                     select pointer_target_fixed, round((x / viewport_width), 2) as relative_client_x,
-                            y * scale_factor                  as client_y
+                     select
+                        distinct_id,
+                        pointer_target_fixed,
+                        round((x / viewport_width), 2) as relative_client_x,
+                        y * scale_factor as client_y
                      from heatmaps
-                     where 1=1
-                     {date_from_predicate}
+                     where {date_from_predicate}
                      {date_to_predicate}
                      {viewport_min_width_predicate}
                      {viewport_max_width_predicate}
                      {url_exact_predicate}
                      {url_pattern_predicate}
                      {type_predicate}
-                     {team_id_predicate}
-                     )
+                )
             group by `pointer_target_fixed`, relative_client_x, client_y
             """
 
@@ -39,20 +40,18 @@ SELECT
 FROM (
     SELECT
         intDiv(scroll_y, 100) * 100 as bucket,
-        count() as cnt
+        count({aggregation_count}) as cnt
     FROM (
         SELECT
-            (y + viewport_height) * scale_factor as scroll_y
+           distinct_id, (y + viewport_height) * scale_factor as scroll_y
         FROM heatmaps
-        WHERE 1=1
-        {date_from_predicate}
+        WHERE {date_from_predicate}
         {date_to_predicate}
         {viewport_min_width_predicate}
         {viewport_max_width_predicate}
         {url_exact_predicate}
         {url_pattern_predicate}
         {type_predicate}
-        {team_id_predicate}
     )
     GROUP BY bucket
 )
@@ -79,6 +78,13 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     date_to = serializers.DateField(required=False)
     url_exact = serializers.CharField(required=False)
     url_pattern = serializers.CharField(required=False)
+    aggregation = serializers.CharField(required=False, default="total_count")
+
+    def validate_aggregation(self, value: str) -> str:
+        if value not in ["total_count", "unique_visitors"]:
+            raise serializers.ValidationError("Invalid aggregation provided: {}".format(value))
+
+        return value
 
     def validate_date_from(self, value) -> date:
         try:
@@ -130,16 +136,21 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
         request_serializer.is_valid(raise_exception=True)
 
+        aggregation = request_serializer.validated_data.pop("aggregation")
+
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
-        placeholders["team_id"] = Constant(value=self.team.pk)
 
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
         raw_query = SCROLL_DEPTH_QUERY if is_scrolldepth_query else DEFAULT_QUERY
 
+        aggregation_value = "count(*) as cnt" if aggregation == "total_count" else "count(distinct distinct_id) as cnt"
+        if is_scrolldepth_query:
+            # then this is dropped in to `count`
+            aggregation_value = "*" if aggregation == "total_count" else "distinct distinct_id"
         formatted_query = raw_query.format(
             # required
-            date_from_predicate="and timestamp >= {date_from}",
-            team_id_predicate="and team_id = {team_id}",
+            date_from_predicate="timestamp >= {date_from}",
+            aggregation_count=aggregation_value,
             # optional
             date_to_predicate="and timestamp <= {date_to} + interval 1 day"
             if placeholders.get("date_to", None)
