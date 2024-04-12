@@ -56,10 +56,9 @@ class FieldChainReplacer(TraversingVisitor):
 class LazyFinder(TraversingVisitor):
     found_lazy: bool = False
     max_type_visits: int = 3
-    visited_field_type_counts: Dict[int, int] = {}
 
     def __init__(self) -> None:
-        assert not self.visited_field_type_counts, f"expected visited fields to be empty"
+        self.visited_field_type_counts: Dict[int, int] = {}
 
     def visit_lazy_join_type(self, node: ast.LazyJoinType):
         self.found_lazy = True
