@@ -5,6 +5,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    _create_person,
 )
 
 
@@ -103,3 +104,35 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             result[0],
             "Paid Search",
         )
+
+    def test_persons_and_sessions_on_events(self):
+        p1 = _create_person(distinct_ids=["d1"], team=self.team)
+        p2 = _create_person(distinct_ids=["d2"], team=self.team)
+
+        s1 = "session_test_persons_and_sessions_on_events_1"
+        s2 = "session_test_persons_and_sessions_on_events_2"
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$session_id": s1, "utm_source": "source1"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d2",
+            properties={"$session_id": s2, "utm_source": "source2"},
+        )
+
+        response = execute_hogql_query(
+            parse_select(
+                "select events.person_id, session.initial_utm_source from events where $session_id = {session_id} or $session_id = {session_id2} order by 2 asc",
+                placeholders={"session_id": ast.Constant(value=s1), "session_id2": ast.Constant(value=s2)},
+            ),
+            self.team,
+        )
+
+        [row1, row2] = response.results
+        self.assertEqual(row1, (p1.uuid, "source1"))
+        self.assertEqual(row2, (p2.uuid, "source2"))
