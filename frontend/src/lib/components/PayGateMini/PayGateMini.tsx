@@ -89,6 +89,7 @@ export function PayGateMini({
                 gateVariant={gateVariant}
                 productWithFeature={productWithFeature}
                 isGrandfathered={isGrandfathered}
+                isAddonProduct={isAddonProduct}
             >
                 {/* we don't support plan comparisons for addons yet, so we'll use the variant that just sends them to the billing page */}
                 {featureFlags[FEATURE_FLAGS.SUBSCRIBE_FROM_PAYGATE] === 'test' && !isAddonProduct ? (
@@ -121,6 +122,7 @@ interface PayGateContentProps {
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type
     isGrandfathered?: boolean
+    isAddonProduct?: boolean
     children: React.ReactNode
 }
 
@@ -132,6 +134,7 @@ function PayGateContent({
     gateVariant,
     productWithFeature,
     isGrandfathered,
+    isAddonProduct,
     children,
 }: PayGateContentProps): JSX.Element {
     return (
@@ -146,7 +149,13 @@ function PayGateContent({
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
             </div>
             <h3>{featureInfo.name}</h3>
-            {renderUsageLimitMessage(featureAvailableOnOrg, gateVariant, featureInfo, productWithFeature)}
+            {renderUsageLimitMessage(
+                featureAvailableOnOrg,
+                gateVariant,
+                featureInfo,
+                productWithFeature,
+                isAddonProduct
+            )}
             {isGrandfathered && <GrandfatheredMessage />}
             {featureInfo.docsUrl && <DocsLink url={featureInfo.docsUrl} />}
             {children}
@@ -158,7 +167,8 @@ const renderUsageLimitMessage = (
     featureAvailableOnOrg: BillingV2FeatureType | null | undefined,
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     featureInfo: BillingV2FeatureType,
-    productWithFeature: BillingProductV2AddonType | BillingProductV2Type
+    productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    isAddonProduct?: boolean
 ): JSX.Element => {
     if (featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud') {
         return (
@@ -188,7 +198,7 @@ const renderUsageLimitMessage = (
         return (
             <>
                 <p>{featureInfo.description}</p>
-                <p>{renderGateVariantMessage(gateVariant, productWithFeature)}</p>
+                <p>{renderGateVariantMessage(gateVariant, productWithFeature, isAddonProduct)}</p>
             </>
         )
     }
@@ -196,11 +206,12 @@ const renderUsageLimitMessage = (
 
 const renderGateVariantMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
-    productWithFeature: BillingProductV2AddonType | BillingProductV2Type
+    productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
+    isAddonProduct?: boolean
 ): JSX.Element => {
     if (gateVariant === 'move-to-cloud') {
         return <>This feature is only available on PostHog Cloud.</>
-    } else if (productWithFeature.type === 'addon') {
+    } else if (isAddonProduct) {
         return (
             <>
                 Subscribe to the <b>{productWithFeature?.name}</b> addon to use this feature.
