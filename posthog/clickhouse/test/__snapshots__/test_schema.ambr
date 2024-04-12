@@ -140,6 +140,7 @@
   (
       session_id VARCHAR,
       team_id Int64,
+      distinct_id VARCHAR,
       timestamp DateTime64(6, 'UTC'),
       -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
       x Int16,
@@ -679,6 +680,7 @@
   (
       session_id VARCHAR,
       team_id Int64,
+      distinct_id VARCHAR,
       timestamp DateTime64(6, 'UTC'),
       -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
       x Int16,
@@ -705,6 +707,7 @@
   AS SELECT
       session_id,
       team_id,
+      distinct_id,
       timestamp,
       -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
       x,
@@ -865,6 +868,7 @@
   (
       session_id VARCHAR,
       team_id Int64,
+      distinct_id VARCHAR,
       timestamp DateTime64(6, 'UTC'),
       -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
       x Int16,
@@ -1919,6 +1923,7 @@
   (
       session_id VARCHAR,
       team_id Int64,
+      distinct_id VARCHAR,
       timestamp DateTime64(6, 'UTC'),
       -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
       x Int16,
@@ -2229,6 +2234,7 @@
   (
       session_id VARCHAR,
       team_id Int64,
+      distinct_id VARCHAR,
       timestamp DateTime64(6, 'UTC'),
       -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
       x Int16,
@@ -2804,6 +2810,7 @@
   (
       session_id VARCHAR,
       team_id Int64,
+      distinct_id VARCHAR,
       timestamp DateTime64(6, 'UTC'),
       -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
       x Int16,
