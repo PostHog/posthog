@@ -135,7 +135,7 @@ WRITABLE_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
         # we'll be querying for team data by url and date,
         # so I _think_ this offers a reasonable spread of write load
         # without needing to query too many shards
-        sharding_key="cityHash64(concat(toString(team_id), '-', $current_url, '-', toString(toDate(timestamp))))",
+        sharding_key="cityHash64(concat(toString(team_id), '-', $session_id, '-', toString(toDate(timestamp))))",
     ),
 )
 
