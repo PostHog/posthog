@@ -235,7 +235,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 <LemonButton
                                     type="secondary"
                                     status="alt"
-                                    to={`https://github.com/PostHog/posthog/issues/new?&labels=bug&template=bug_report.md&debug-info=${encodeURIComponent(
+                                    to={`https://github.com/PostHog/posthog/issues/new?&labels=bug&template=bug_report.yml&debug-info=${encodeURIComponent(
                                         getPublicSupportSnippet(region, user)
                                     )}`}
                                     icon={<IconBug />}
@@ -270,7 +270,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 <LemonButton
                                     type="secondary"
                                     status="alt"
-                                    to={`https://github.com/PostHog/posthog/issues/new?&labels=enhancement&template=feature_request.md&debug-info=${encodeURIComponent(
+                                    to={`https://github.com/PostHog/posthog/issues/new?&labels=enhancement&template=feature_request.yml&debug-info=${encodeURIComponent(
                                         getPublicSupportSnippet(region, user)
                                     )}`}
                                     icon={<IconFeatures />}
