@@ -26,6 +26,7 @@ export function ScrollDepth(): JSX.Element | null {
         { depth: 900, count: 3000 },
         { depth: 1000, count: 2000 },
         { depth: 1100, count: 1000 },
+        { depth: 1300, count: 0 },
     ]
 
     // Remove as any once we have the scrollmanager stuff merged
@@ -37,12 +38,17 @@ export function ScrollDepth(): JSX.Element | null {
 
     const maxCount = scrollDepths[0].count
 
-    const color = (count: number): string => {
-        const percentage = count / maxCount
-        const red = 255
-        const green = Math.max(0, Math.min(255, Math.round(percentage * 255)))
-        const blue = Math.max(0, Math.min(255, Math.round(1 - percentage * 255)))
-        return `rgb(${red}, ${green}, ${blue})`
+    function color(count: number): string {
+        const value = 1 - count / maxCount
+
+        const safeValue = Math.max(0, Math.min(1, value))
+
+        // Calculate hue
+
+        const hue = Math.round(260 * safeValue)
+
+        // Return hsl color. You can adjust saturation and lightness to your liking
+        return `hsl(${hue}, 100%, 50%)`
     }
 
     return (
@@ -72,10 +78,4 @@ export function ScrollDepth(): JSX.Element | null {
             </div>
         </div>
     )
-
-    // return (
-    //     <div className="fixed inset-0 overflow-hidden">
-    //         <p>Wat</p>
-    //     </div>
-    // )
 }

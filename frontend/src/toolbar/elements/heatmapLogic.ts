@@ -100,6 +100,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 heatmaps: true,
                 heatmap_type: 'click',
             } as HeatmapFilter,
+            { persist: true },
             {
                 setHeatmapFilter: (_, { filter }) => filter,
                 patchHeatmapFilter: (state, { filter }) => ({ ...state, ...filter }),
