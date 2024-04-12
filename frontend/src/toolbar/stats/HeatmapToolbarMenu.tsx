@@ -157,6 +157,25 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     />
                                 </div>
 
+                                <LemonLabel>Aggregation</LemonLabel>
+                                <div className="flex gap-2 justify-between items-center">
+                                    <LemonSegmentedButton
+                                        onChange={(e) => patchHeatmapFilters({ aggregation: e })}
+                                        value={heatmapFilters.aggregation ?? 'total_count'}
+                                        options={[
+                                            {
+                                                value: 'total_count',
+                                                label: 'Total count',
+                                            },
+                                            {
+                                                value: 'unique_visitors',
+                                                label: 'Unique visitors',
+                                            },
+                                        ]}
+                                        size="small"
+                                    />
+                                </div>
+
                                 {heatmapFilters.type === 'scrolldepth' && (
                                     <>
                                         <p>
@@ -167,7 +186,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     </>
                                 )}
 
-                                <LemonLabel>Viewport width</LemonLabel>
+                                <LemonLabel>Viewport width fuzziness</LemonLabel>
                                 <div className="flex gap-2 justify-between items-center">
                                     <LemonSlider
                                         className="flex-1"

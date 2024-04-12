@@ -38,6 +38,7 @@ export type HeatmapFilters = {
     enabled: boolean
     type?: string
     viewportFuzziness?: number
+    aggregation?: 'total_count' | 'unique_visitors'
 }
 
 export const heatmapLogic = kea<heatmapLogicType>([
@@ -104,6 +105,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 enabled: true,
                 type: 'click',
                 viewportFuzziness: 0.2,
+                aggregation: 'total_count',
             } as HeatmapFilters,
             { persist: true },
             {
@@ -187,7 +189,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 loadHeatmap: async () => {
                     const { href, wildcardHref } = values
                     const { date_from, date_to } = values.commonFilters
-                    const { type } = values.heatmapFilters
+                    const { type, aggregation } = values.heatmapFilters
                     const urlExact = wildcardHref === href ? href : undefined
                     const urlRegex = wildcardHref !== href ? wildcardHref : undefined
 
@@ -202,6 +204,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                 url_regex: urlRegex,
                                 viewport_width_min: values.viewportRange.min,
                                 viewport_width_max: values.viewportRange.max,
+                                aggregation,
                             },
                             '?'
                         )}`,
@@ -227,6 +230,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 loadScrollmap: async () => {
                     const { href, wildcardHref } = values
                     const { date_from, date_to } = values.commonFilters
+                    const { aggregation } = values.heatmapFilters
                     const urlExact = wildcardHref === href ? href : undefined
                     const urlRegex = wildcardHref !== href ? wildcardHref : undefined
 
@@ -241,6 +245,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                 url_regex: urlRegex,
                                 viewport_width_min: values.viewportRange.min,
                                 viewport_width_max: values.viewportRange.max,
+                                aggregation,
                             },
                             '?'
                         )}`,
