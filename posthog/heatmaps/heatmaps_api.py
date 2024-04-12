@@ -52,7 +52,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer = HeatmapsRequestSerializer(data=request.query_params)
         request_serializer.is_valid(raise_exception=True)
 
-        placeholders: dict[str, Expr] | None = {
+        placeholders: dict[str, Expr] = {
             "team_id": Constant(value=self.team.pk),
             "date_from": Constant(value=request_serializer.validated_data["date_from"]),
         }
@@ -82,7 +82,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     {url_pattern_predicate}
                      {team_id_predicate}
                      )
-            group by `$pointer_target_fixed`, relative_client_x, client_y
+            group by `pointer_target_fixed`, relative_client_x, client_y
             """.format(
             # required
             date_from_predicate="and timestamp >= {date_from}",
@@ -118,7 +118,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "pointer_y": item[2],
                 "count": item[3],
             }
-            for item in doohickies.results
+            for item in doohickies.results or []
         ]
 
         response_serializer = HeatmapsResponseSerializer(data={"results": data})
