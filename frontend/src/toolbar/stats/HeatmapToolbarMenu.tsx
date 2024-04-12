@@ -21,9 +21,19 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
     const { wildcardHref } = useValues(currentPageLogic)
     const { setWildcardHref } = useActions(currentPageLogic)
 
-    const { matchLinksByHref, countedElements, clickCount, heatmapLoading, heatmapFilter, canLoadMoreElementStats } =
-        useValues(heatmapLogic)
-    const { patchHeatmapFilter, loadMoreElementStats, setMatchLinksByHref } = useActions(heatmapLogic)
+    const {
+        matchLinksByHref,
+        countedElements,
+        clickCount,
+        heatmapFilter,
+        canLoadMoreElementStats,
+        heatmapFilterViewportFuzziness,
+        viewportRange,
+        rawHeatmapLoading,
+        elementStatsLoading,
+    } = useValues(heatmapLogic)
+    const { patchHeatmapFilter, loadMoreElementStats, setMatchLinksByHref, setHeatmapFilterViewportFuzziness } =
+        useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     const dateItems = dateMapping
@@ -60,8 +70,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             {dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')}
                         </LemonButton>
                     </LemonMenu>
-
-                    {heatmapLoading ? <Spinner /> : null}
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
@@ -84,7 +92,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     <LemonSwitch
                         className="w-full"
                         checked={!!heatmapFilter.heatmaps}
-                        label="Heatmaps"
+                        label={<>Heatmaps {rawHeatmapLoading ? <Spinner /> : null}</>}
                         onChange={(e) =>
                             patchHeatmapFilter({
                                 heatmaps: e,
@@ -122,8 +130,23 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
 
                                 <div className="flex gap-2 justify-between items-center">
                                     <LemonLabel>Viewport width</LemonLabel>
-                                    <LemonSlider className="flex-1" min={0} max={100} value={10} />
-                                    <code>1200 x 1400</code>
+                                    <LemonSlider
+                                        className="flex-1"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={heatmapFilterViewportFuzziness}
+                                        onChange={(value) => setHeatmapFilterViewportFuzziness(value)}
+                                    />
+                                    <Tooltip
+                                        title={`
+                                    The range of values 
+                                    Heatmap will be loaded for all viewports where the width is above 
+
+                                    `}
+                                    >
+                                        <code className="w-[6rem] text-right">{`${viewportRange.min} - ${viewportRange.max}`}</code>
+                                    </Tooltip>
                                 </div>
                             </div>
                         </>
@@ -134,7 +157,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     <LemonSwitch
                         className="w-full"
                         checked={!!heatmapFilter.clickmaps}
-                        label="Clickmaps (autocapture)"
+                        label={<>Clickmaps (autocapture) {elementStatsLoading ? <Spinner /> : null}</>}
                         onChange={(e) =>
                             patchHeatmapFilter({
                                 clickmaps: e,
@@ -181,7 +204,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 Found: {countedElements.length} elements / {clickCount} clicks!
                             </div>
                             <div className="flex flex-col w-full h-full">
-                                {heatmapLoading ? (
+                                {elementStatsLoading ? (
                                     <span className="flex-1 flex justify-center items-center p-4">
                                         <Spinner className="text-2xl" />
                                     </span>

@@ -1,6 +1,7 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
+import { windowValues } from 'kea-window-values'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
 import { dateFilterToText } from 'lib/utils'
@@ -46,6 +47,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setHeatmapFilter: (filter: HeatmapFilter) => ({ filter }),
+        setHeatmapFilterViewportFuzziness: (viewportFuzziness: number) => ({ viewportFuzziness }),
         patchHeatmapFilter: (filter: Partial<HeatmapFilter>) => ({ filter }),
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
@@ -54,6 +56,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
         }),
         maybeLoadRelevantHeatmap: true,
     }),
+    windowValues(() => ({
+        windowWidth: (window: Window) => window.innerWidth,
+    })),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
         canLoadMoreElementStats: [
@@ -69,15 +74,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 enableHeatmap: () => true,
                 disableHeatmap: () => false,
                 getElementStatsFailure: () => false,
-            },
-        ],
-        heatmapLoading: [
-            false,
-            {
-                getElementStats: () => true,
-                getElementStatsSuccess: () => false,
-                getElementStatsFailure: () => false,
-                resetElementStats: () => false,
             },
         ],
         showHeatmapTooltip: [
@@ -102,6 +98,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
             {
                 setHeatmapFilter: (_, { filter }) => filter,
                 patchHeatmapFilter: (state, { filter }) => ({ ...state, ...filter }),
+            },
+        ],
+        heatmapFilterViewportFuzziness: [
+            0.2,
+            { persist: true },
+            {
+                setHeatmapFilterViewportFuzziness: (_, { viewportFuzziness }) => viewportFuzziness,
             },
         ],
     }),
@@ -172,9 +175,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             {
                 loadHeatmap: async () => {
                     const { href, wildcardHref } = values
-                    const { date_from, date_to } = values.heatmapFilter
-                    const viewportMinWidth = 0
-                    const viewportMaxWidth = 100_000
+                    const { date_from, date_to, heatmap_type } = values.heatmapFilter
                     const urlExact = wildcardHref === href ? href : undefined
                     const urlRegex = wildcardHref !== href ? wildcardHref : undefined
 
@@ -182,13 +183,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     const response = await toolbarFetch(
                         `/api/heatmap/${encodeParams(
                             {
-                                type: 'click',
+                                type: heatmap_type,
                                 date_from,
                                 date_to,
                                 url: urlExact,
                                 url_regex: urlRegex,
-                                viewport_width_min: viewportMinWidth,
-                                viewport_width_max: viewportMaxWidth,
+                                viewport_width_min: values.viewportRange.min,
+                                viewport_width_max: values.viewportRange.max,
                             },
                             '?'
                         )}`,
@@ -197,7 +198,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                     if (response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
-                        return null
+                    }
+
+                    if (response.status !== 200) {
+                        throw new Error('API error')
                     }
 
                     return await response.json()
@@ -346,15 +350,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
         heatmapElements: [
             (s) => [s.rawHeatmap, s.heatmapFilter],
-            (rawHeatmap, heatmapFilter): HeatmapElement[] => {
+            (rawHeatmap, _heatmapFilter): HeatmapElement[] => {
                 if (!rawHeatmap) {
                     return []
                 }
 
-                console.log(rawHeatmap, heatmapFilter)
-
                 const elements: HeatmapElement[] = []
 
+                // TODO: Do we want to group these values better?
                 rawHeatmap?.results.forEach((element) => {
                     elements.push({
                         count: element.count,
@@ -365,6 +368,19 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 })
 
                 return elements
+            },
+        ],
+
+        viewportRange: [
+            (s) => [s.heatmapFilterViewportFuzziness, s.windowWidth],
+            (viewportFuzziness, windowWidth): { max: number; min: number } => {
+                const minWidth = Math.max(0, windowWidth - windowWidth * viewportFuzziness)
+                const maxWidth = windowWidth + windowWidth * viewportFuzziness
+
+                return {
+                    min: Math.round(minWidth),
+                    max: Math.round(maxWidth),
+                }
             },
         ],
     })),
@@ -400,7 +416,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     actions.getElementStats()
                 }
 
-                if (values.heatmapFilter.heatmaps) {
+                if (values.heatmapFilter.heatmaps && values.heatmapFilter.heatmap_type) {
                     // TODO: Save selected types
                     actions.loadHeatmap(values.heatmapFilter.heatmap_type)
                 }
@@ -443,6 +459,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
         patchHeatmapFilter: async (_, breakpoint) => {
             await breakpoint(200)
+            actions.maybeLoadRelevantHeatmap()
+        },
+
+        setHeatmapFilterViewportFuzziness: async (_, breakpoint) => {
+            await breakpoint(500)
             actions.maybeLoadRelevantHeatmap()
         },
     })),

@@ -17,7 +17,7 @@ function HeatmapElementView({ element }: { element: HeatmapElement }): JSX.Eleme
     // Remove as any once we have the scrollmanager stuff merged
     const ph = posthog as any
 
-    const { count, xPercentage, y, targetFixed } = element
+    const { xPercentage, y, targetFixed } = element
 
     const scrollYOffset = targetFixed ? 0 : ph.scrollManager.scrollY()
 
