@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     session_id VARCHAR,
     team_id Int64,
+    distinct_id VARCHAR,
     timestamp DateTime64(6, 'UTC'),
     -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
     x Int16,
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     session_id VARCHAR,
     team_id Int64,
+    distinct_id VARCHAR,
     timestamp DateTime64(6, 'UTC'),
     -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
     x Int16,
@@ -106,6 +108,7 @@ TO {database}.{target_table}
 AS SELECT
     session_id,
     team_id,
+    distinct_id,
     timestamp,
     -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
     x,
@@ -170,6 +173,7 @@ INSERT_SINGLE_HEATMAP_EVENT = """
 INSERT INTO sharded_heatmaps (
     session_id,
     team_id,
+    distinct_id,
     timestamp,
     x,
     y,
@@ -183,6 +187,7 @@ INSERT INTO sharded_heatmaps (
 SELECT
     %(session_id)s,
     %(team_id)s,
+    %(distinct_id)s,
     %(timestamp)s,
     %(x)s,
     %(y)s,

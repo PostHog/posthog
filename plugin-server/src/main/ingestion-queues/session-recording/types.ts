@@ -8,6 +8,7 @@ export type HeatmapEvent = {
      * it should always be treated as an exemplar and not as concrete values
      */
     session_id: string
+    distinct_id: string
     viewport_width: number
     viewport_height: number
     pointer_target_fixed: boolean

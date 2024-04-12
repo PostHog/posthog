@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, date
-from typing import Any
+from typing import Any, Dict
 
 from rest_framework import viewsets, request, response, serializers, status
 
@@ -94,6 +94,17 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         except Exception:
             raise serializers.ValidationError("Error parsing provided date_from: {}".format(value))
 
+    def validate(self, values) -> Dict:
+        url_exact = values.get("url_exact", None)
+        url_pattern = values.get("url_pattern", None)
+        if isinstance(url_exact, str) and isinstance(url_pattern, str):
+            if url_exact == url_pattern:
+                values.pop("url_pattern")
+            else:
+                values.pop("url_exact")
+
+        return values
+
 
 class HeatmapsResponseSerializer(serializers.Serializer):
     results = HeatmapResponseItemSerializer(many=True)
@@ -125,7 +136,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
         raw_query = SCROLL_DEPTH_QUERY if is_scrolldepth_query else DEFAULT_QUERY
 
-        q = raw_query.format(
+        formatted_query = raw_query.format(
             # required
             date_from_predicate="and timestamp >= {date_from}",
             team_id_predicate="and team_id = {team_id}",
@@ -140,12 +151,14 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if placeholders.get("viewport_width_max", None)
             else "",
             url_exact_predicate="and current_url = {url_exact}" if placeholders.get("url_exact", None) else "",
-            url_pattern_predicate="and current_url like {url_pattern}" if placeholders.get("url_pattern", None) else "",
+            url_pattern_predicate="and match(current_url, {url_pattern})"
+            if placeholders.get("url_pattern", None)
+            else "",
             type_predicate="and type = {type}" if placeholders.get("type", None) else "",
         )
 
         doohickies = execute_hogql_query(
-            query=q,
+            query=formatted_query,
             placeholders=placeholders,
             team=self.team,
         )

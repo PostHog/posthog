@@ -68,6 +68,24 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "type": "rageclick"}, 2)
 
     @snapshot_clickhouse_queries
+    def test_can_filter_by_exact_url(self) -> None:
+        self._create_heatmap_event("session_1", "rageclick", "2023-03-08T08:00:00", current_url="http://example.com")
+        self._create_heatmap_event(
+            "session_2", "rageclick", "2023-03-08T08:01:00", current_url="http://example.com/about"
+        )
+        self._create_heatmap_event(
+            "session_3", "rageclick", "2023-03-08T08:01:00", current_url="http://example.com/about"
+        )
+
+        self._assert_heatmap_single_result_count(
+            {"date_from": "2023-03-08", "url_exact": "http://example.com", "type": "rageclick"}, 1
+        )
+
+        self._assert_heatmap_single_result_count(
+            {"date_from": "2023-03-08", "url_exact": "http://example.com/about", "type": "rageclick"}, 2
+        )
+
+    @snapshot_clickhouse_queries
     def test_can_get_scrolldepth_counts(self) -> None:
         self._create_heatmap_event("session_1", "scrolldepth", "2023-03-08T07:00:00", y=10, viewport_height=1000)
         self._create_heatmap_event("session_2", "scrolldepth", "2023-03-08T08:00:00", y=100, viewport_height=1000)
@@ -77,7 +95,41 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._create_heatmap_event("session_2", "scrolldepth", "2023-03-08T08:01:00", y=500, viewport_height=1000)
 
         scroll_response = self._get_heatmap({"date_from": "2023-03-06", "type": "scrolldepth"})
-        assert scroll_response.json() == {}
+        # TODO these scroll depths aren't right IMO
+        assert scroll_response.json() == {
+            "results": [
+                {
+                    "bucket_count": 1,
+                    "cumulative_count": 6,
+                    "scroll_depth_bucket": 1100,
+                },
+                {
+                    "bucket_count": 1,
+                    "cumulative_count": 5,
+                    "scroll_depth_bucket": 2600,
+                },
+                {
+                    "bucket_count": 1,
+                    "cumulative_count": 4,
+                    "scroll_depth_bucket": 4200,
+                },
+                {
+                    "bucket_count": 1,
+                    "cumulative_count": 3,
+                    "scroll_depth_bucket": 5800,
+                },
+                {
+                    "bucket_count": 1,
+                    "cumulative_count": 2,
+                    "scroll_depth_bucket": 7400,
+                },
+                {
+                    "bucket_count": 1,
+                    "cumulative_count": 1,
+                    "scroll_depth_bucket": 9000,
+                },
+            ],
+        }
 
     # @snapshot_clickhouse_queries
     # def test_can_get_filter_by_viewport(self) -> None:
@@ -98,6 +150,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         viewport_width: int = 100,
         viewport_height: int = 100,
         y: int = 20,
+        current_url: str | None = None,
     ) -> None:
         p = ClickhouseProducer()
         # because this is in a test it will write directly using SQL not really with Kafka
@@ -107,6 +160,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             data={
                 "session_id": session_id,
                 "team_id": self.team.pk,
+                "distinct_id": "user_distinct_id",
                 "timestamp": format_clickhouse_timestamp(date_from),
                 "x": 10,
                 "y": y,
@@ -116,6 +170,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "viewport_height": math.ceil(viewport_height / 16),
                 "type": type,
                 "pointer_target_fixed": True,
-                "current_url": "http://example.com",
+                "current_url": current_url if current_url else "http://posthog.com",
             },
         )

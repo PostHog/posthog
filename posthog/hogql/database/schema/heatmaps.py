@@ -14,6 +14,7 @@ class HeatmapsTable(Table):
     fields: Dict[str, FieldOrTable] = {
         "session_id": StringDatabaseField(name="session_id"),
         "team_id": IntegerDatabaseField(name="team_id"),
+        "distinct_id": StringDatabaseField(name="distinct_id"),
         "x": IntegerDatabaseField(name="x"),
         "y": IntegerDatabaseField(name="y"),
         "scale_factor": IntegerDatabaseField(name="scale_factor"),

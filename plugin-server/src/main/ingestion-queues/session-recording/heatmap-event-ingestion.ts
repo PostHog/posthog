@@ -82,6 +82,7 @@ export const parseKafkaMessage = async (
 
     // TODO are we receiving some scroll values too ?
     const { $viewport_height, $viewport_width, $session_id, $heatmap_data } = event.properties || {}
+    const distinct_id = event.distinct_id
     const teamId = teamIdWithConfig.teamId
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
@@ -117,6 +118,7 @@ export const parseKafkaMessage = async (
                                 TimestampFormat.ClickHouse
                             ),
                             team_id: teamId,
+                            distinct_id: distinct_id,
                         })
                     )
                 )
