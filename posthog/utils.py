@@ -1305,8 +1305,8 @@ def patchable(fn):
 
 class PersonOnEventsMode(str, Enum):
     DISABLED = "disabled"
-    PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "v1_enabled"
-    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "v2_enabled"
+    PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_no_override_properties_on_events"
+    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_override_properties_on_events"
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
