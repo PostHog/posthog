@@ -369,6 +369,33 @@ class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if experiment.exposure_cohort:
             raise ValidationError("Experiment already has an exposure cohort")
 
+        exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
+        exposure_filter = None
+        if exposure_filter_data:
+            exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
+
+        target_entity: int | str = "$feature_flag_called"
+        target_entity_type = "events"
+        target_filters = [
+            {
+                "key": "$feature_flag",
+                "value": [flag.key],
+                "operator": "exact",
+                "type": "event",
+            }
+        ]
+
+        if exposure_filter:
+            entity = exposure_filter.entities[0]
+            if entity.id:
+                target_entity = entity.id
+                target_entity_type = entity.type if entity.type in ["events", "actions"] else "events"
+                target_filters = [
+                    prop.to_dict()
+                    for prop in entity.property_groups.flat
+                    if prop.type in ("event", "feature", "element", "hogql")
+                ]
+
         cohort_serializer = CohortSerializer(
             data={
                 "is_static": False,
@@ -384,17 +411,10 @@ class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                                     {
                                         "type": "behavioral",
                                         "value": "performed_event",
-                                        "key": "$feature_flag_called",
+                                        "key": target_entity,
                                         "negation": False,
-                                        "event_type": "events",
-                                        "event_filters": [
-                                            {
-                                                "key": "$feature_flag",
-                                                "value": [flag.key],
-                                                "operator": "exact",
-                                                "type": "event",
-                                            }
-                                        ],
+                                        "event_type": target_entity_type,
+                                        "event_filters": target_filters,
                                         "explicit_datetime": experiment.start_date.isoformat(),
                                     }
                                 ],

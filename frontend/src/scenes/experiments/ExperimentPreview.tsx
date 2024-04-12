@@ -426,6 +426,8 @@ export function ExperimentPreview({
                         <MetricSelector
                             dashboardItemId={EXPERIMENT_EXPOSURE_INSIGHT_ID}
                             setPreviewInsight={setExperimentExposureInsight}
+                            // TODO: Try a flow with removing this, change to funnel, and see if it reverts back to trend
+                            forceTrenExposureMetric
                         />
                     </Field>
                 </Form>
