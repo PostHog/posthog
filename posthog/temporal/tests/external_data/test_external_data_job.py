@@ -861,3 +861,110 @@ async def test_run_postgres_job(
             Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/posthog_test/"
         )
         assert len(job_1_team_objects["Contents"]) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_check_schedule_activity_with_schema_id(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key"},
+    )
+
+    test_1_schema = await _create_schema("test-1", new_source, team)
+
+    should_exit = await activity_environment.run(
+        check_schedule_activity,
+        ExternalDataWorkflowInputs(
+            team_id=team.id,
+            external_data_source_id=new_source.id,
+            external_data_schema_id=test_1_schema.id,
+        ),
+    )
+
+    assert should_exit is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_check_schedule_activity_with_missing_schema_id_but_with_schedule(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key"},
+    )
+
+    await sync_to_async(ExternalDataSchema.objects.create)(
+        name="test-1",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    with mock.patch(
+        "posthog.temporal.data_imports.external_data_job.a_external_data_workflow_exists", return_value=True
+    ), mock.patch(
+        "posthog.temporal.data_imports.external_data_job.a_delete_external_data_schedule", return_value=True
+    ), mock.patch(
+        "posthog.temporal.data_imports.external_data_job.a_trigger_external_data_workflow"
+    ) as mock_a_trigger_external_data_workflow:
+        should_exit = await activity_environment.run(
+            check_schedule_activity,
+            ExternalDataWorkflowInputs(
+                team_id=team.id,
+                external_data_source_id=new_source.id,
+                external_data_schema_id=None,
+            ),
+        )
+
+    assert should_exit is True
+    assert mock_a_trigger_external_data_workflow.call_count == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_check_schedule_activity_with_missing_schema_id_and_no_schedule(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key"},
+    )
+
+    await sync_to_async(ExternalDataSchema.objects.create)(
+        name="test-1",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    with mock.patch(
+        "posthog.temporal.data_imports.external_data_job.a_external_data_workflow_exists", return_value=False
+    ), mock.patch(
+        "posthog.temporal.data_imports.external_data_job.a_delete_external_data_schedule", return_value=True
+    ), mock.patch(
+        "posthog.temporal.data_imports.external_data_job.a_sync_external_data_job_workflow"
+    ) as mock_a_sync_external_data_job_workflow:
+        should_exit = await activity_environment.run(
+            check_schedule_activity,
+            ExternalDataWorkflowInputs(
+                team_id=team.id,
+                external_data_source_id=new_source.id,
+                external_data_schema_id=None,
+            ),
+        )
+
+    assert should_exit is True
+    assert mock_a_sync_external_data_job_workflow.call_count == 1
