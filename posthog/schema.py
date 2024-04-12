@@ -423,10 +423,8 @@ class PersonsArgMaxVersion(str, Enum):
 
 class PersonsOnEventsMode(str, Enum):
     disabled = "disabled"
-    v1_enabled = "v1_enabled"
-    v1_mixed = "v1_mixed"
-    v2_enabled = "v2_enabled"
-    v3_enabled = "v3_enabled"
+    person_id_no_override_properties_on_events = "person_id_no_override_properties_on_events"
+    person_id_override_properties_on_events = "person_id_override_properties_on_events"
     person_id_override_properties_joined = "person_id_override_properties_joined"
 
 
