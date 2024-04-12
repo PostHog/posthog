@@ -320,21 +320,15 @@ export function pipelinePluginBackedNodeMenuCommonItems(
     const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
 
     return [
-        ...(!inOverview
-            ? [
-                  {
-                      label: node.enabled ? 'Disable app' : 'Enable app',
-                      onClick: () =>
-                          toggleEnabled({
-                              enabled: !node.enabled,
-                              id: node.id,
-                          }),
-                      disabledReason: canConfigurePlugins
-                          ? undefined
-                          : 'You do not have permission to enable/disable apps.',
-                  },
-              ]
-            : []),
+        {
+            label: node.enabled ? 'Disable app' : 'Enable app',
+            onClick: () =>
+                toggleEnabled({
+                    enabled: !node.enabled,
+                    id: node.id,
+                }),
+            disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to enable/disable apps.',
+        },
         ...pipelineNodeMenuCommonItems(node),
         ...(!inOverview
             ? [

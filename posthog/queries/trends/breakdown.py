@@ -111,9 +111,9 @@ class TrendsBreakdown:
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
         self.add_person_urls = add_person_urls
         self.person_on_events_mode = person_on_events_mode
-        if person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+        if person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
-        elif person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+        elif person_on_events_mode == PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
         else:
             self._person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
@@ -163,7 +163,7 @@ class TrendsBreakdown:
             filter=self.filter,
             event_table_alias=self.EVENT_TABLE_ALIAS,
             person_id_alias=f"person_id"
-            if self.person_on_events_mode == PersonOnEventsMode.V1_ENABLED
+            if self.person_on_events_mode == PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
             else self._person_id_alias,
         )
 
@@ -748,10 +748,10 @@ class TrendsBreakdown:
             return str(value) or BREAKDOWN_NULL_DISPLAY
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
-        if self.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+        if self.person_on_events_mode == PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             return "", {}
 
-        if self.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+        if self.person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             return (
                 PERSON_OVERRIDES_JOIN_SQL.format(
                     person_overrides_table_alias=self.PERSON_ID_OVERRIDES_TABLE_ALIAS,

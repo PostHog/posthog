@@ -154,6 +154,26 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
             return self.visit_and(ast.And(exprs=node.args))
         elif node.name == "or":
             return self.visit_or(ast.Or(exprs=node.args))
+        elif node.name == "greaterOrEquals":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.GtEq, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "greater":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Gt, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "lessOrEquals":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.LtEq, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "less":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Lt, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "equals":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Eq, left=node.args[0], right=node.args[1])
+            )
         return ast.Constant(value=True)
 
     def visit_field(self, node: ast.Field) -> ast.Expr:

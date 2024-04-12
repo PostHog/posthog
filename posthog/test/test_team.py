@@ -138,7 +138,7 @@ class TestTeam(BaseTest):
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
+                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
                 # called more than once when evaluating hogql
                 mock_feature_enabled.assert_called_with(
                     "persons-on-events-v2-reads-enabled",
@@ -159,7 +159,7 @@ class TestTeam(BaseTest):
         with self.is_cloud(False):
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
+                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
                 mock_feature_enabled.assert_not_called()
 
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
