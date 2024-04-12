@@ -9,7 +9,55 @@ from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.rate_limit import ClickHouseSustainedRateThrottle, ClickHouseBurstRateThrottle
+from posthog.schema import HogQLQueryResponse
 from posthog.utils import relative_date_parse_with_delta_mapping
+
+DEFAULT_QUERY = """
+            select *, count() as cnt
+            from (
+                     select pointer_target_fixed, round((x / viewport_width), 2) as relative_client_x,
+                            y * scale_factor                  as client_y
+                     from heatmaps
+                     where 1=1
+                     {date_from_predicate}
+                     {date_to_predicate}
+                     {viewport_min_width_predicate}
+                     {viewport_max_width_predicate}
+                     {url_exact_predicate}
+                     {url_pattern_predicate}
+                     {type_predicate}
+                     {team_id_predicate}
+                     )
+            group by `pointer_target_fixed`, relative_client_x, client_y
+            """
+
+SCROLL_DEPTH_QUERY = """
+SELECT
+    bucket,
+    cnt as bucket_count,
+    sum(cnt) OVER (ORDER BY bucket DESC) AS cumulative_count
+FROM (
+    SELECT
+        intDiv(scroll_y, 100) * 100 as bucket,
+        count() as cnt
+    FROM (
+        SELECT
+            (y + viewport_height) * scale_factor as scroll_y
+        FROM heatmaps
+        WHERE 1=1
+        {date_from_predicate}
+        {date_to_predicate}
+        {viewport_min_width_predicate}
+        {viewport_max_width_predicate}
+        {url_exact_predicate}
+        {url_pattern_predicate}
+        {type_predicate}
+        {team_id_predicate}
+    )
+    GROUP BY bucket
+)
+ORDER BY bucket
+"""
 
 
 class HeatmapResponseItemSerializer(serializers.Serializer):
@@ -26,17 +74,17 @@ def default_start_date():
 class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_min = serializers.IntegerField(required=False)
     viewport_width_max = serializers.IntegerField(required=False)
-    type = serializers.CharField(required=False)
+    type = serializers.CharField(required=False, default="click")
     date_from = serializers.CharField(required=False, default="-7d")
     date_to = serializers.DateField(required=False)
     url_exact = serializers.CharField(required=False)
     url_pattern = serializers.CharField(required=False)
 
-    def validate_date_from(self, value):
+    def validate_date_from(self, value) -> date:
         try:
             if isinstance(value, str):
                 parsed_date, _, _ = relative_date_parse_with_delta_mapping(value, self.context["team"].timezone_info)
-                return parsed_date
+                return parsed_date.date()
             if isinstance(value, datetime):
                 return value.date()
             if isinstance(value, date):
@@ -49,6 +97,10 @@ class HeatmapsRequestSerializer(serializers.Serializer):
 
 class HeatmapsResponseSerializer(serializers.Serializer):
     results = HeatmapResponseItemSerializer(many=True)
+
+
+class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
+    results = serializers.ListField(child=serializers.DictField())
 
 
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -70,24 +122,10 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
         placeholders["team_id"] = Constant(value=self.team.pk)
 
-        q = """
-            select *, count() as cnt
-            from (
-                     select pointer_target_fixed, round((x / viewport_width), 2) as relative_client_x,
-                            y * scale_factor                  as client_y
-                     from heatmaps
-                     where 1=1
-                     {date_from_predicate}
-                     {date_to_predicate}
-                     {viewport_min_width_predicate}
-                     {viewport_max_width_predicate}
-                     {url_exact_predicate}
-                     {url_pattern_predicate}
-                     {type_predicate}
-                     {team_id_predicate}
-                     )
-            group by `pointer_target_fixed`, relative_client_x, client_y
-            """.format(
+        is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
+        raw_query = SCROLL_DEPTH_QUERY if is_scrolldepth_query else DEFAULT_QUERY
+
+        q = raw_query.format(
             # required
             date_from_predicate="and timestamp >= {date_from}",
             team_id_predicate="and team_id = {team_id}",
@@ -112,6 +150,12 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team=self.team,
         )
 
+        if is_scrolldepth_query:
+            return self._return_scroll_depth_response(doohickies)
+        else:
+            return self._return_heatmap_coordinates_response(doohickies)
+
+    def _return_heatmap_coordinates_response(self, query_response: HogQLQueryResponse) -> response.Response:
         data = [
             {
                 "pointer_target_fixed": item[0],
@@ -119,10 +163,24 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "pointer_y": item[2],
                 "count": item[3],
             }
-            for item in doohickies.results or []
+            for item in query_response.results or []
         ]
 
         response_serializer = HeatmapsResponseSerializer(data={"results": data})
+        response_serializer.is_valid(raise_exception=True)
+        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
+    def _return_scroll_depth_response(self, query_response: HogQLQueryResponse) -> response.Response:
+        data = [
+            {
+                "scroll_depth_bucket": item[0],
+                "bucket_count": item[1],
+                "cumulative_count": item[2],
+            }
+            for item in query_response.results or []
+        ]
+
+        response_serializer = HeatmapsScrollDepthResponseSerializer(data={"results": data})
         response_serializer.is_valid(raise_exception=True)
         return response.Response(response_serializer.data, status=status.HTTP_200_OK)
 
