@@ -250,10 +250,12 @@ export class HeatmapEventIngester {
         })
 
         const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
+        const groupId = this.consumerGroupId
+        const topic = this.topic
         this.batchConsumer = await startBatchConsumer({
             connectionConfig: replayClusterConnectionConfig,
-            groupId: this.consumerGroupId,
-            topic: this.topic,
+            groupId,
+            topic,
             autoCommit: true, // each event is an island
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
