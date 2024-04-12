@@ -133,6 +133,6 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        [row1, row2] = response.results
+        [row1, row2] = response.results or []
         self.assertEqual(row1, (p1.uuid, "source1"))
         self.assertEqual(row2, (p2.uuid, "source2"))
