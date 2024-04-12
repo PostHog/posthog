@@ -55,7 +55,7 @@ const ScrollDepthJSWarning = (): JSX.Element | null => {
 
 export const HeatmapToolbarMenu = (): JSX.Element => {
     const { wildcardHref } = useValues(currentPageLogic)
-    const { setWildcardHref } = useActions(currentPageLogic)
+    const { setWildcardHref, autoWildcardHref } = useActions(currentPageLogic)
 
     const {
         matchLinksByHref,
@@ -89,6 +89,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         type="secondary"
                         icon={<IconMagicWand />}
                         size="small"
+                        onClick={() => autoWildcardHref()}
                         tooltip={
                             <>
                                 You can use the wildcard character <code>*</code> to match any character in the URL. For
@@ -265,11 +266,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 Found: {countedElements.length} elements / {clickCount} clicks!
                             </div>
                             <div className="flex flex-col w-full h-full">
-                                {elementStatsLoading ? (
-                                    <span className="flex-1 flex justify-center items-center p-4">
-                                        <Spinner className="text-2xl" />
-                                    </span>
-                                ) : countedElements.length ? (
+                                {countedElements.length ? (
                                     countedElements.map(({ element, count, actionStep }, index) => {
                                         return (
                                             <LemonButton

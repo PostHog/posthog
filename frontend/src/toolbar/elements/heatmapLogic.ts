@@ -530,7 +530,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.loadAllEnabled()
         },
         setWildcardHref: () => {
-            actions.loadAllEnabled(100)
+            actions.loadAllEnabled(1000)
         },
         setCommonFilters: () => {
             actions.loadAllEnabled(200)
