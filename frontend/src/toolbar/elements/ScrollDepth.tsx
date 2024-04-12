@@ -1,33 +1,83 @@
 import { useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
 
+const scrollDepths = [
+    { depth: 0, count: 10000 },
+    { depth: 100, count: 10000 },
+    { depth: 200, count: 9880 },
+    { depth: 300, count: 9000 },
+    { depth: 400, count: 8000 },
+    { depth: 500, count: 8000 },
+    { depth: 600, count: 8000 },
+    { depth: 700, count: 8000 },
+    { depth: 800, count: 6000 },
+    { depth: 900, count: 3000 },
+    { depth: 1000, count: 2000 },
+    { depth: 1100, count: 1000 },
+    { depth: 1300, count: 0 },
+]
+
+const reversedScrollDepths = [...scrollDepths].reverse()
+
+function ScrollDepthMouseInfo(): JSX.Element | null {
+    const { posthog } = useValues(toolbarConfigLogic)
+
+    // Track the mouse position and render an indicator about how many people have scrolled to this point
+
+    const [mouseY, setMouseY] = useState<null | number>(0)
+
+    // Remove as any once we have the scrollmanager stuff merged
+    const ph = posthog as any
+    const scrollOffset = ph.scrollManager.scrollY()
+    const countAtThisDepth = reversedScrollDepths.find((x) => x.depth < scrollOffset + mouseY)
+    const percentage = ((countAtThisDepth?.count ?? 0) / scrollDepths[0].count) * 100
+
+    useEffect(() => {
+        const onMove = (e: MouseEvent): void => {
+            setMouseY(e.clientY)
+        }
+
+        window.addEventListener('mousemove', onMove)
+        return () => {
+            window.removeEventListener('mousemove', onMove)
+        }
+    }, [])
+
+    if (!mouseY) {
+        return null
+    }
+
+    return (
+        <div
+            className="absolute left-0 right-0 flex items-center"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                top: mouseY,
+                transform: 'translateY(-50%)',
+            }}
+        >
+            <div className="border-b w-full" />
+            <div className="bg-border whitespace-nowrap text-default rounded p-2 font-semibold">
+                {percentage.toPrecision(4)}% scrolled this far
+            </div>
+
+            <div className="border-b w-10" />
+        </div>
+    )
+}
+
 export function ScrollDepth(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
 
-    const { heatmap, heatmapEnabled, heatmapFilter } = useValues(heatmapLogic)
+    const { heatmapEnabled, heatmapFilter } = useValues(heatmapLogic)
 
     if (!heatmapEnabled || !heatmapFilter.scrolldepth) {
         return null
     }
-
-    const scrollDepths = [
-        { depth: 0, count: 10000 },
-        { depth: 100, count: 10000 },
-        { depth: 200, count: 9880 },
-        { depth: 300, count: 9000 },
-        { depth: 400, count: 8000 },
-        { depth: 500, count: 8000 },
-        { depth: 600, count: 8000 },
-        { depth: 700, count: 8000 },
-        { depth: 800, count: 6000 },
-        { depth: 900, count: 3000 },
-        { depth: 1000, count: 2000 },
-        { depth: 1100, count: 1000 },
-        { depth: 1300, count: 0 },
-    ]
 
     // Remove as any once we have the scrollmanager stuff merged
     const ph = posthog as any
@@ -76,6 +126,7 @@ export function ScrollDepth(): JSX.Element | null {
                     />
                 ))}
             </div>
+            <ScrollDepthMouseInfo />
         </div>
     )
 }
