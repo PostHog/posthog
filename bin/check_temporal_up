@@ -19,5 +19,6 @@ while true; do
     fi
 
     echo "Waiting for Temporal to be ready"
+    docker-compose -f docker-compose.dev.yml logs temporal
     sleep 1
 done
