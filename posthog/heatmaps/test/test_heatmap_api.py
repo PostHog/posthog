@@ -93,44 +93,46 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_can_get_scrolldepth_counts(self) -> None:
         self._create_heatmap_event("session_1", "scrolldepth", "2023-03-08T07:00:00", y=10, viewport_height=1000)
         self._create_heatmap_event("session_2", "scrolldepth", "2023-03-08T08:00:00", y=100, viewport_height=1000)
-        self._create_heatmap_event("session_2", "scrolldepth", "2023-03-08T08:01:00", y=200, viewport_height=1000)
-        self._create_heatmap_event("session_2", "scrolldepth", "2023-03-08T08:01:00", y=300, viewport_height=1000)
-        self._create_heatmap_event("session_2", "scrolldepth", "2023-03-08T08:01:00", y=400, viewport_height=1000)
-        self._create_heatmap_event("session_2", "scrolldepth", "2023-03-08T08:01:00", y=500, viewport_height=1000)
+        self._create_heatmap_event("session_3", "scrolldepth", "2023-03-08T08:01:00", y=200, viewport_height=1000)
+        self._create_heatmap_event("session_4", "scrolldepth", "2023-03-08T08:01:00", y=300, viewport_height=1000)
+        self._create_heatmap_event("session_5", "scrolldepth", "2023-03-08T08:01:00", y=400, viewport_height=1000)
+        self._create_heatmap_event("session_6", "scrolldepth", "2023-03-08T08:01:00", y=500, viewport_height=1000)
+        self._create_heatmap_event("session_7", "scrolldepth", "2023-03-08T08:01:00", y=900, viewport_height=1000)
+        self._create_heatmap_event("session_8", "scrolldepth", "2023-03-08T08:01:00", y=900, viewport_height=1000)
 
         scroll_response = self._get_heatmap({"date_from": "2023-03-06", "type": "scrolldepth"})
-        # TODO these scroll depths aren't right IMO
+
         assert scroll_response.json() == {
             "results": [
                 {
                     "bucket_count": 1,
-                    "cumulative_count": 6,
-                    "scroll_depth_bucket": 1100,
+                    "cumulative_count": 8,
+                    "scroll_depth_bucket": 1000,
                 },
                 {
                     "bucket_count": 1,
-                    "cumulative_count": 5,
-                    "scroll_depth_bucket": 2600,
+                    "cumulative_count": 7,
+                    "scroll_depth_bucket": 1100,
+                },
+                {
+                    "bucket_count": 2,
+                    "cumulative_count": 6,
+                    "scroll_depth_bucket": 1200,
                 },
                 {
                     "bucket_count": 1,
                     "cumulative_count": 4,
-                    "scroll_depth_bucket": 4200,
+                    "scroll_depth_bucket": 1400,
                 },
                 {
                     "bucket_count": 1,
                     "cumulative_count": 3,
-                    "scroll_depth_bucket": 5800,
+                    "scroll_depth_bucket": 1500,
                 },
                 {
-                    "bucket_count": 1,
+                    "bucket_count": 2,
                     "cumulative_count": 2,
-                    "scroll_depth_bucket": 7400,
-                },
-                {
-                    "bucket_count": 1,
-                    "cumulative_count": 1,
-                    "scroll_depth_bucket": 9000,
+                    "scroll_depth_bucket": 1900,
                 },
             ],
         }
@@ -166,8 +168,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "team_id": self.team.pk,
                 "distinct_id": "user_distinct_id",
                 "timestamp": format_clickhouse_timestamp(date_from),
-                "x": 10,
-                "y": y,
+                "x": 10 / 16,
+                "y": y / 16,
                 "scale_factor": 16,
                 # this adjustment is done at ingestion
                 "viewport_width": math.ceil(viewport_width / 16),
