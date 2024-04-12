@@ -1,4 +1,5 @@
 import dataclasses
+import datetime as dt
 import uuid
 
 from dlt.common.schema.typing import TSchemaTables
@@ -9,6 +10,7 @@ from posthog.temporal.data_imports.pipelines.helpers import aupdate_job_count
 from posthog.temporal.data_imports.pipelines.zendesk.credentials import ZendeskCredentialsToken
 
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
+from posthog.utils import get_instance_region
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
@@ -18,6 +20,7 @@ from posthog.temporal.common.logger import bind_temporal_worker_logger
 from typing import Dict, Tuple
 import asyncio
 from django.conf import settings
+from django.utils import timezone
 
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
 
@@ -61,12 +64,25 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
         # until we require re update of account_ids in stripe so they're all store
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
+
+        # Hacky just for specific user
+        region = get_instance_region()
+        if region == "EU" and inputs.team_id == 11870:
+            prev_day = timezone.now() - dt.timedelta(days=1)
+            start_date = prev_day.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = start_date + dt.timedelta(1)
+        else:
+            start_date = None
+            end_date = None
+
         source = stripe_source(
             api_key=stripe_secret_key,
             account_id=account_id,
             endpoints=tuple(endpoints),
             team_id=inputs.team_id,
             job_id=inputs.run_id,
+            start_date=start_date,
+            end_date=end_date,
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
         from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token
