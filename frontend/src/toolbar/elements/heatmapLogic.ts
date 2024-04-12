@@ -54,7 +54,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         loadHeatmap: (type: HeatmapType['type']) => ({
             type,
         }),
-        mabyeLoadRelevantHeatmap: true,
+        maybeLoadRelevantHeatmap: true,
     }),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
@@ -171,13 +171,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
         heatmap: [
             null as HeatmapResponseType | null,
             {
-                loadHeatmap: async ({ type }) => {
-                    // TODO: Implement real api
-                    if ((window as any).heatmapData) {
-                        return convertToHeatmapData((window as any).heatmapData)
-                    }
-                    return testHeatmapData
-                },
+                loadHeatmap: async () =>
+                    /**  { type } **/
+                    {
+                        // TODO: Implement real api
+
+                        if ((window as any).heatmapData) {
+                            return convertToHeatmapData((window as any).heatmapData)
+                        }
+                        return testHeatmapData
+                    },
             },
         ],
     })),
@@ -322,7 +325,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
     })),
 
     afterMount(({ actions, values, cache }) => {
-        actions.mabyeLoadRelevantHeatmap()
+        actions.maybeLoadRelevantHeatmap()
         cache.keyDownListener = (event: KeyboardEvent) => {
             if (event.shiftKey && !values.shiftPressed) {
                 actions.setShiftPressed(true)
@@ -343,7 +346,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        mabyeLoadRelevantHeatmap: () => {
+        maybeLoadRelevantHeatmap: () => {
             // TODO: Only load the kind of data that has been explicitly selected
             if (values.heatmapEnabled) {
                 actions.resetElementStats()
@@ -365,14 +368,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
         },
         setHref: () => {
-            actions.mabyeLoadRelevantHeatmap()
+            actions.maybeLoadRelevantHeatmap()
         },
         setWildcardHref: async (_, breakpoint) => {
             await breakpoint(100)
-            actions.mabyeLoadRelevantHeatmap()
+            actions.maybeLoadRelevantHeatmap()
         },
         enableHeatmap: () => {
-            actions.mabyeLoadRelevantHeatmap()
+            actions.maybeLoadRelevantHeatmap()
             posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
         disableHeatmap: () => {
@@ -391,11 +394,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
         setHeatmapFilter: async (_, breakpoint) => {
             await breakpoint(200)
-            actions.mabyeLoadRelevantHeatmap()
+            actions.maybeLoadRelevantHeatmap()
         },
         patchHeatmapFilter: async (_, breakpoint) => {
             await breakpoint(200)
-            actions.mabyeLoadRelevantHeatmap()
+            actions.maybeLoadRelevantHeatmap()
         },
     })),
 ])

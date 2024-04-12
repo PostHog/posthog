@@ -13,7 +13,7 @@ HEATMAPS_DATA_TABLE = lambda: "sharded_heatmaps"
 
 """
 We intend to send specific $heatmap events to build a heatmap instead of building from autocapture like the click map
-We'll be storing indiviudal clicks per url/team/session
+We'll be storing individual clicks per url/team/session
 And we'll be querying for those clicks at day level of granularity
 And we'll be querying by URL exact or wildcard match
 And we'll _sometimes_ be querying by width
@@ -78,12 +78,11 @@ HEATMAPS_TABLE_SQL = lambda: (
     --   * width
     -- we'll almost never query this by session id
     -- so from least to most cardinality that's
-    ORDER BY (team_id, $viewport_width, $current_url, toDate(timestamp))
+    ORDER BY (team_id,  toDate(timestamp), $current_url, $viewport_width)
 -- I am purposefully not setting index granularity
 -- the default is 8192, and we will be loading a lot of data
 -- per query, we tend to copy this 512 around the place but
 -- i don't think it applies here
--- SETTINGS index_granularity=512
 """
 ).format(
     table_name=HEATMAPS_DATA_TABLE(),
@@ -136,7 +135,7 @@ WRITABLE_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
         # we'll be querying for team data by url and date,
         # so I _think_ this offers a reasonable spread of write load
         # without needing to query too many shards
-        sharding_key="cityHash64(concat(toString(team_id), '-', $current_url, '-', toString(toDate(timestamp))))",
+        sharding_key="cityHash64(concat(toString(team_id), '-', $session_id, '-', toString(toDate(timestamp))))",
     ),
 )
 

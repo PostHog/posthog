@@ -10,7 +10,7 @@ export const scene: SceneExport = {
 
 export function DataWarehouseRedirectScene(): JSX.Element {
     return (
-        <div className="text-center gap-4 flex">
+        <div className="text-left flex flex-col">
             <Spinner />
         </div>
     )
