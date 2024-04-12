@@ -123,6 +123,10 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
 
                     {heatmapFilter.scrolldepth && (
                         <>
+                            <p>
+                                Scroll depth uses additional information from Pageview and Pageleave events to indicate
+                                how far down the page users have scrolled.
+                            </p>
                             <ScrollDepthJSWarning />
                         </>
                     )}

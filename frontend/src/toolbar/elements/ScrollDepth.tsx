@@ -32,7 +32,7 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
 
     const elementInMouseY = scrollmapElements.find((x, i) => {
         const lastY = scrollmapElements[i - 1]?.y ?? 0
-        return scrolledMouseY > lastY && scrolledMouseY < x.y
+        return scrolledMouseY >= lastY && scrolledMouseY < x.y
     })
 
     const percentage = ((elementInMouseY?.count ?? 0) / scrollmapElements[0].count) * 100
