@@ -9,7 +9,7 @@ import { elementsLogic } from './elementsLogic'
 function HeatmapElementView({ element }: { element: HeatmapElement }): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
     const { inspectEnabled } = useValues(elementsLogic)
-    const { shiftPressed, heatmapFilter } = useValues(heatmapLogic)
+    const { shiftPressed } = useValues(heatmapLogic)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
     const size = 36 // TODO: How to decide on radius
     const opacity = Math.max(0.2, Math.min(0.7, element.count / 1000)) // TODO: How to decide on opacity

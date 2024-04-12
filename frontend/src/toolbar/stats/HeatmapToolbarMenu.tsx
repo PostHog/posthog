@@ -140,10 +140,13 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }
                     />
 
-                    <p>Heatmaps are a blah blah blah</p>
-
                     {heatmapFilter.heatmaps && (
                         <>
+                            <p>
+                                Heatmaps are calculated using additional data sent along with standard events. They are
+                                based off of general pointer interactions and might not be 100% accurate to the page you
+                                are viewing.
+                            </p>
                             <div className="space-y-2">
                                 <div className="flex gap-2 justify-between items-center">
                                     <LemonLabel>Heatmap type</LemonLabel>
@@ -205,10 +208,13 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }
                     />
 
-                    <p>Clickmaps are a blah blah blah</p>
-
                     {heatmapFilter.clickmaps && (
                         <>
+                            <p>
+                                Clickmaps are built using Autocapture events. They are more accurate than heatmaps if
+                                the event can be mapped to a specific element found on the page you are viewing but less
+                                data is usually captured.
+                            </p>
                             <div className="flex items-center gap-2">
                                 <LemonButton
                                     icon={<IconSync />}

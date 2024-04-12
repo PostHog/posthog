@@ -81,7 +81,7 @@ export const parseKafkaMessage = async (
     }
 
     // TODO are we receiving some scroll values too ?
-    const { $viewport_height, $viewport_width, $session_id, $current_url, $heatmap_data } = event.properties || {}
+    const { $viewport_height, $viewport_width, $session_id, $heatmap_data } = event.properties || {}
     const teamId = teamIdWithConfig.teamId
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
@@ -89,34 +89,38 @@ export const parseKafkaMessage = async (
         return dropMessage('received_non_heatmap_message')
     }
 
-    if (
-        !isPositiveNumber($viewport_height) ||
-        !isPositiveNumber($viewport_width) ||
-        !Array.isArray($heatmap_data) ||
-        !$session_id
-    ) {
+    if (!isPositiveNumber($viewport_height) || !isPositiveNumber($viewport_width) || !$session_id) {
         return dropMessage('received_invalid_heatmap_message')
     }
 
     const scale_factor = 16
-    return $heatmap_data.map(
-        (hme: { x: number; y: number; target_fixed: boolean; type: string }): HeatmapEvent => ({
-            type: hme.type,
-            x: Math.ceil(hme.x / scale_factor),
-            y: Math.ceil(hme.y / scale_factor),
-            pointer_target_fixed: hme.target_fixed,
-            viewport_height: Math.ceil($viewport_height / scale_factor),
-            viewport_width: Math.ceil($viewport_width / scale_factor),
-            current_url: $current_url,
-            session_id: $session_id,
-            scale_factor,
-            timestamp: castTimestampOrNow(
-                DateTime.fromMillis(message.timestamp ?? Date.now()),
-                TimestampFormat.ClickHouse
-            ),
-            team_id: teamId,
-        })
-    )
+
+    let heatmapEvents: HeatmapEvent[] = []
+
+    Object.entries($heatmap_data).forEach(([url, items]) => {
+        heatmapEvents = heatmapEvents.concat(
+            (items as any[]).map(
+                (hme: { x: number; y: number; target_fixed: boolean; type: string }): HeatmapEvent => ({
+                    type: hme.type,
+                    x: Math.ceil(hme.x / scale_factor),
+                    y: Math.ceil(hme.y / scale_factor),
+                    pointer_target_fixed: hme.target_fixed,
+                    viewport_height: Math.ceil($viewport_height / scale_factor),
+                    viewport_width: Math.ceil($viewport_width / scale_factor),
+                    current_url: url,
+                    session_id: $session_id,
+                    scale_factor,
+                    timestamp: castTimestampOrNow(
+                        DateTime.fromMillis(message.timestamp ?? Date.now()),
+                        TimestampFormat.ClickHouse
+                    ),
+                    team_id: teamId,
+                })
+            )
+        )
+    })
+
+    return heatmapEvents
 }
 
 /*
