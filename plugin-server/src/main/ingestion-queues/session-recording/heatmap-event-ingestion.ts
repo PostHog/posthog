@@ -19,7 +19,7 @@ import { castTimestampOrNow } from '../../../utils/utils'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { eventDroppedCounter } from '../metrics'
 import { KAFKA_CONSUMER_SESSION_TIMEOUT_MS, TeamIDWithConfig } from './session-recordings-consumer'
-import { HeatmapEvent, IncomingHeatmapEventMessage } from './types'
+import { HeatmapEvent } from './types'
 import { readTokenFromHeaders } from './utils'
 
 const KAFKA_CONSUMER_GROUP_ID = 'replay-heatmaps-ingestion'
@@ -31,7 +31,7 @@ function isPositiveNumber(candidate: unknown): candidate is number {
 export const parseKafkaMessage = async (
     message: Message,
     getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
-): Promise<IncomingHeatmapEventMessage | void> => {
+): Promise<HeatmapEvent[] | void> => {
     const dropMessage = (reason: string, extra?: Record<string, any>) => {
         eventDroppedCounter
             .labels({
@@ -81,15 +81,7 @@ export const parseKafkaMessage = async (
     }
 
     // TODO are we receiving some scroll values too ?
-    const {
-        $viewport_height,
-        $viewport_width,
-        $session_id,
-        $pointer_x,
-        $pointer_y,
-        $pointer_target_fixed,
-        $current_url,
-    } = event.properties || {}
+    const { $viewport_height, $viewport_width, $session_id, $current_url, $heatmap_data } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$heatmap') {
@@ -99,44 +91,30 @@ export const parseKafkaMessage = async (
     if (
         !isPositiveNumber($viewport_height) ||
         !isPositiveNumber($viewport_width) ||
-        !isPositiveNumber($pointer_x) ||
-        !isPositiveNumber($pointer_y) ||
+        !Array.isArray($heatmap_data) ||
         !$session_id
     ) {
         return dropMessage('received_invalid_heatmap_message')
     }
 
-    return {
-        metadata: {
-            partition: message.partition,
-            topic: message.topic,
-            timestamp: message.timestamp,
-        },
-        team_id: teamIdWithConfig?.teamId,
-        $viewport_height,
-        $viewport_width,
-        $session_id,
-        $pointer_x,
-        $pointer_y,
-        $pointer_target_fixed: !!$pointer_target_fixed,
-        $current_url,
-    }
-}
-
-function parsedHeatmapMessages(incomingMessages: IncomingHeatmapEventMessage[]): HeatmapEvent[] {
     const scale_factor = 16
-    return incomingMessages.map((rhe) => {
-        const { metadata, $pointer_x, $pointer_y, $viewport_height, $viewport_width, ...inbound } = rhe
-        return {
-            ...inbound,
-            x: Math.ceil($pointer_x / scale_factor),
-            y: Math.ceil($pointer_y / scale_factor),
+    return $heatmap_data.map(
+        (hme: { x: number; y: number; target_fixed: boolean; type: string }): HeatmapEvent => ({
+            type: hme.type,
+            x: Math.ceil(hme.x / scale_factor),
+            y: Math.ceil(hme.y / scale_factor),
+            $pointer_target_fixed: hme.target_fixed,
             $viewport_height: Math.ceil($viewport_height / scale_factor),
             $viewport_width: Math.ceil($viewport_width / scale_factor),
+            $current_url,
+            $session_id,
             scale_factor,
-            timestamp: castTimestampOrNow(DateTime.fromMillis(rhe.metadata.timestamp), TimestampFormat.ClickHouse),
-        }
-    })
+            timestamp: castTimestampOrNow(
+                DateTime.fromMillis(message.timestamp ?? Date.now()),
+                TimestampFormat.ClickHouse
+            ),
+        })
+    )
 }
 
 /*
@@ -206,7 +184,7 @@ export class HeatmapEventIngester {
             size: messages.length,
         })
 
-        const incomingMessages: IncomingHeatmapEventMessage[] = []
+        let parsedMessages: HeatmapEvent[] = []
 
         for (const m of messages) {
             const parsedToIncoming = await parseKafkaMessage(m, (token) =>
@@ -217,16 +195,9 @@ export class HeatmapEventIngester {
                 }))
             )
             if (parsedToIncoming) {
-                incomingMessages.push(parsedToIncoming)
+                parsedMessages = parsedMessages.concat(parsedToIncoming)
             }
         }
-
-        status.info('🔁', `heatmap_ingester_consumer - filtered batch`, {
-            size: messages.length,
-            filteredSize: incomingMessages.length,
-        })
-
-        const parsedMessages: HeatmapEvent[] = parsedHeatmapMessages(incomingMessages)
 
         const pendingProduceRequests = []
         for (const message of parsedMessages) {

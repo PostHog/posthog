@@ -24,6 +24,7 @@ from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
+from posthog.heatmaps.heatmaps_capture_utils import extract_heatmap_events
 from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
@@ -425,6 +426,14 @@ def get_event(request):
                 request,
                 generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
             )
+
+        try:
+            # split the replay events off as they are passed to kafka separately
+            events = extract_heatmap_events(events)
+
+        except Exception as e:
+            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
+            capture_exception(e)
 
         # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
         site_url = request.build_absolute_uri("/")[:-1]
