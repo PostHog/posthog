@@ -1996,3 +1996,80 @@ class TestCapture(BaseTest):
             kafka_produce.call_args_list[0][1]["topic"],
             KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
         )
+
+    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
+    @patch("posthog.api.capture.KafkaProducer")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_can_redirect_heatmaps_to_alternative_kafka(
+        self,
+        kafka_produce: MagicMock,
+        default_kafka_producer_mock: MagicMock,
+        session_recording_producer_factory_mock: MagicMock,
+    ) -> None:
+        with self.settings(
+            KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
+            SESSION_RECORDING_KAFKA_HOSTS=[
+                "another-server:9092",
+                "a-fourth.server:9092",
+            ],
+        ):
+            default_kafka_producer_mock.return_value = KafkaProducer()
+            session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
+
+            data = {
+                "event": "some_event",
+                "properties": {
+                    "distinct_id": 2,
+                    "token": self.team.api_token,
+                    "$heatmap_data": {
+                        "http://localhost:8000/": [{"x": 123, "y": 345, "target_fixed": False, "type": "click"}]
+                    },
+                    "$prev_pageview_pathname": "/",
+                    "$prev_pageview_max_scroll": 456,
+                    "$current_url": "http://localhost:8000/",
+                },
+            }
+
+            self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)),
+                HTTP_X_FORWARDED_FOR="1.2.3.4:5555",
+                HTTP_ORIGIN="https://localhost",
+            )
+
+            # session events don't get routed through the default kafka producer
+            default_kafka_producer_mock.assert_called_once()
+            session_recording_producer_factory_mock.assert_called_once()
+
+            assert len(kafka_produce.call_args_list) == 2
+
+            call_one = kafka_produce.call_args_list[0][1]
+            call_two = kafka_produce.call_args_list[1][1]
+
+            assert call_one["topic"] == "events_plugin_ingestion_test"
+            call_one_event_json = json.loads(call_one["data"]["data"])
+            assert call_one_event_json["event"] == "some_event"
+            # scroll info still there
+            assert call_one_event_json["properties"]["$prev_pageview_max_scroll"] == 456
+            # heatmap data is removed
+            assert call_one_event_json["properties"].get("$heatmap_data", None) is None
+
+            assert call_two["topic"] == "session_recording_snapshot_item_events_test"
+            call_two_event_json = json.loads(call_two["data"]["data"])
+            assert call_two_event_json["event"] == "$heatmap"
+            # heatmap data has scrolldepth added to it
+            assert call_two_event_json["properties"].get("$heatmap_data", None) == {
+                "http://localhost:8000/": [
+                    {
+                        "target_fixed": False,
+                        "type": "click",
+                        "x": 123,
+                        "y": 345,
+                    },
+                    {
+                        "target_fixed": False,
+                        "type": "scrolldepth",
+                        "x": 0,
+                        "y": 456,
+                    },
+                ],
+            }
