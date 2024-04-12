@@ -61,14 +61,15 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         matchLinksByHref,
         countedElements,
         clickCount,
-        heatmapFilter,
+        commonFilters,
+        heatmapFilters,
         canLoadMoreElementStats,
-        heatmapFilterViewportFuzziness,
         viewportRange,
         rawHeatmapLoading,
         elementStatsLoading,
+        clickmapsEnabled,
     } = useValues(heatmapLogic)
-    const { patchHeatmapFilter, loadMoreElementStats, setMatchLinksByHref, setHeatmapFilterViewportFuzziness } =
+    const { setCommonFilters, patchHeatmapFilters, loadMoreElementStats, setMatchLinksByHref, toggleClickmapsEnabled } =
         useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -76,7 +77,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         .filter((dm) => dm.key !== CUSTOM_OPTION_KEY)
         .map((dateOption) => ({
             label: dateOption.key,
-            onClick: () => patchHeatmapFilter({ date_from: dateOption.values[0], date_to: dateOption.values[1] }),
+            onClick: () => setCommonFilters({ date_from: dateOption.values[0], date_to: dateOption.values[1] }),
         }))
 
     return (
@@ -103,7 +104,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 <div className="flex flex-row items-center gap-2 py-2 border-b">
                     <LemonMenu items={dateItems}>
                         <LemonButton size="small" type="secondary">
-                            {dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')}
+                            {dateFilterToText(commonFilters.date_from, commonFilters.date_to, 'Last 7 days')}
                         </LemonButton>
                     </LemonMenu>
                 </div>
@@ -112,39 +113,16 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 <div className="border-b p-2">
                     <LemonSwitch
                         className="w-full"
-                        checked={!!heatmapFilter.scrolldepth}
-                        label="Scroll depth"
-                        onChange={(e) =>
-                            patchHeatmapFilter({
-                                scrolldepth: e,
-                            })
-                        }
-                    />
-
-                    {heatmapFilter.scrolldepth && (
-                        <>
-                            <p>
-                                Scroll depth uses additional information from Pageview and Pageleave events to indicate
-                                how far down the page users have scrolled.
-                            </p>
-                            <ScrollDepthJSWarning />
-                        </>
-                    )}
-                </div>
-
-                <div className="border-b p-2">
-                    <LemonSwitch
-                        className="w-full"
-                        checked={!!heatmapFilter.heatmaps}
+                        checked={!!heatmapFilters.enabled}
                         label={<>Heatmaps {rawHeatmapLoading ? <Spinner /> : null}</>}
                         onChange={(e) =>
-                            patchHeatmapFilter({
-                                heatmaps: e,
+                            patchHeatmapFilters({
+                                enabled: e,
                             })
                         }
                     />
 
-                    {heatmapFilter.heatmaps && (
+                    {heatmapFilters.enabled && (
                         <>
                             <p>
                                 Heatmaps are calculated using additional data sent along with standard events. They are
@@ -152,11 +130,11 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 are viewing.
                             </p>
                             <div className="space-y-2">
+                                <LemonLabel>Heatmap type</LemonLabel>
                                 <div className="flex gap-2 justify-between items-center">
-                                    <LemonLabel>Heatmap type</LemonLabel>
                                     <LemonSegmentedButton
-                                        onChange={(e) => patchHeatmapFilter({ heatmap_type: e })}
-                                        value={heatmapFilter.heatmap_type ?? undefined}
+                                        onChange={(e) => patchHeatmapFilters({ type: e })}
+                                        value={heatmapFilters.type ?? undefined}
                                         options={[
                                             {
                                                 value: 'click',
@@ -170,20 +148,34 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                                 value: 'mousemove',
                                                 label: 'Mouse moves',
                                             },
+                                            {
+                                                value: 'scrolldepth',
+                                                label: 'Scroll depth',
+                                            },
                                         ]}
                                         size="small"
                                     />
                                 </div>
 
+                                {heatmapFilters.type === 'scrolldepth' && (
+                                    <>
+                                        <p>
+                                            Scroll depth uses additional information from Pageview and Pageleave events
+                                            to indicate how far down the page users have scrolled.
+                                        </p>
+                                        <ScrollDepthJSWarning />
+                                    </>
+                                )}
+
+                                <LemonLabel>Viewport width</LemonLabel>
                                 <div className="flex gap-2 justify-between items-center">
-                                    <LemonLabel>Viewport width</LemonLabel>
                                     <LemonSlider
                                         className="flex-1"
                                         min={0}
                                         max={1}
                                         step={0.01}
-                                        value={heatmapFilterViewportFuzziness}
-                                        onChange={(value) => setHeatmapFilterViewportFuzziness(value)}
+                                        value={heatmapFilters.viewportFuzziness ?? 0}
+                                        onChange={(value) => patchHeatmapFilters({ viewportFuzziness: value })}
                                     />
                                     <Tooltip
                                         title={`
@@ -203,16 +195,12 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 <div className="p-2">
                     <LemonSwitch
                         className="w-full"
-                        checked={!!heatmapFilter.clickmaps}
+                        checked={!!clickmapsEnabled}
                         label={<>Clickmaps (autocapture) {elementStatsLoading ? <Spinner /> : null}</>}
-                        onChange={(e) =>
-                            patchHeatmapFilter({
-                                clickmaps: e,
-                            })
-                        }
+                        onChange={(e) => toggleClickmapsEnabled(e)}
                     />
 
-                    {heatmapFilter.clickmaps && (
+                    {clickmapsEnabled && (
                         <>
                             <p>
                                 Clickmaps are built using Autocapture events. They are more accurate than heatmaps if

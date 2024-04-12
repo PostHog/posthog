@@ -45,38 +45,14 @@ function HeatmapElementView({ element }: { element: HeatmapElement }): JSX.Eleme
 }
 
 export function Heatmap(): JSX.Element | null {
-    const { heatmapElements, heatmapEnabled, heatmapFilter } = useValues(heatmapLogic)
+    const { heatmapElements, heatmapEnabled, heatmapFilters } = useValues(heatmapLogic)
 
-    if (!heatmapEnabled || !heatmapFilter.heatmaps) {
+    if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
         return null
     }
 
-    const squareSize = 16
-
-    const xNum = window.innerWidth / squareSize
-    const yNum = window.innerHeight / squareSize
-
     return (
         <div className="fixed inset-0 overflow-hidden">
-            {/* {Array.from({ length: xNum }, (_, x) =>
-                Array.from({ length: yNum }, (_, y) => (
-                    <div
-                        key={`${x}-${y}`}
-                        className="absolute"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            top: `${y * squareSize}px`,
-                            left: `${x * squareSize}px`,
-                            width: squareSize,
-                            height: squareSize,
-                            backgroundColor: 'rgba(255, 0, 0, 0.1)',
-                            border: '1px solid rgba(255, 0, 0, 0.3)',
-                            boxSizing: 'border-box',
-                        }}
-                    />
-                ))
-            )} */}
-
             {heatmapElements?.map((x, i) => (
                 <HeatmapElementView key={i} element={x} />
             ))}

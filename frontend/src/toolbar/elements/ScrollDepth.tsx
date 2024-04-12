@@ -7,7 +7,7 @@ import { toolbarConfigLogic } from '../toolbarConfigLogic'
 
 function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
-    const { scrollmapElements } = useValues(heatmapLogic)
+    const { scrollmapElements, rawScrollmapLoading } = useValues(heatmapLogic)
 
     // Track the mouse position and render an indicator about how many people have scrolled to this point
     const [mouseY, setMouseY] = useState<null | number>(0)
@@ -23,7 +23,7 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
         }
     }, [])
 
-    if (!scrollmapElements.length || !mouseY) {
+    if (!mouseY) {
         return null
     }
 
@@ -35,7 +35,8 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
         return scrolledMouseY >= lastY && scrolledMouseY < x.y
     })
 
-    const percentage = ((elementInMouseY?.count ?? 0) / scrollmapElements[0].count) * 100
+    const maxCount = scrollmapElements[0]?.count ?? 0
+    const percentage = ((elementInMouseY?.count ?? 0) / maxCount) * 100
 
     return (
         <div
@@ -48,7 +49,13 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
         >
             <div className="border-b w-full" />
             <div className="bg-border whitespace-nowrap text-default rounded p-2 font-semibold">
-                {percentage.toPrecision(4)}% scrolled this far
+                {rawScrollmapLoading ? (
+                    <>Loading...</>
+                ) : scrollmapElements.length ? (
+                    <>{percentage.toPrecision(4)}% scrolled this far</>
+                ) : (
+                    <>No scroll data for the current dimension range</>
+                )}
             </div>
 
             <div className="border-b w-10" />
@@ -58,9 +65,9 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
 
 export function ScrollDepth(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
-    const { heatmapEnabled, heatmapFilter, scrollmapElements } = useValues(heatmapLogic)
+    const { heatmapEnabled, heatmapFilters, scrollmapElements } = useValues(heatmapLogic)
 
-    if (!heatmapEnabled || !heatmapFilter.scrolldepth || !scrollmapElements.length) {
+    if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type !== 'scrolldepth') {
         return null
     }
 
@@ -71,7 +78,7 @@ export function ScrollDepth(): JSX.Element | null {
 
     // We want to have a fading color from red to orange to green to blue to grey, fading from the highest coun to the lowest
 
-    const maxCount = scrollmapElements[0].count
+    const maxCount = scrollmapElements[0]?.count ?? 0
 
     function color(count: number): string {
         const value = 1 - count / maxCount
