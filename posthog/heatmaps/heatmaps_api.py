@@ -18,8 +18,7 @@ DEFAULT_QUERY = """
                      select pointer_target_fixed, round((x / viewport_width), 2) as relative_client_x,
                             y * scale_factor                  as client_y
                      from heatmaps
-                     where 1=1
-                     {date_from_predicate}
+                     where {date_from_predicate}
                      {date_to_predicate}
                      {viewport_min_width_predicate}
                      {viewport_max_width_predicate}
@@ -43,8 +42,7 @@ FROM (
         SELECT
             (y + viewport_height) * scale_factor as scroll_y
         FROM heatmaps
-        WHERE 1=1
-        {date_from_predicate}
+        WHERE {date_from_predicate}
         {date_to_predicate}
         {viewport_min_width_predicate}
         {viewport_max_width_predicate}
@@ -135,7 +133,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         formatted_query = raw_query.format(
             # required
-            date_from_predicate="and timestamp >= {date_from}",
+            date_from_predicate="timestamp >= {date_from}",
             team_id_predicate="and team_id = {team_id}",
             # optional
             date_to_predicate="and timestamp <= {date_to} + interval 1 day"
