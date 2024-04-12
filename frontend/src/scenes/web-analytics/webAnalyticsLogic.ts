@@ -94,7 +94,6 @@ export interface TabsTile extends BaseTile {
         id: string
         title: string
         linkText: string
-        docsLink?: string
         query: QuerySchema
         showIntervalSelect?: boolean
         showPathCleaningControls?: boolean
