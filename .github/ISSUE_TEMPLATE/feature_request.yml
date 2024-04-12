@@ -1,5 +1,5 @@
 name: Feature request
-description: "Let us know what you have in mind"
+description: "Suggest a feature for PostHog"
 labels: ["enhancement, feature"]
 body:
   - type: textarea
