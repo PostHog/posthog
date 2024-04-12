@@ -190,14 +190,17 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
     return selectResult.rows[0] ?? null
 }
 
-export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamIDWithConfig>> {
+export async function fetchTeamTokensWithRecordings(
+    client: PostgresRouter,
+    enforceReplayOptIn: boolean = true
+): Promise<Record<string, TeamIDWithConfig>> {
     const selectResult = await client.query<{ capture_console_log_opt_in: boolean } & Pick<Team, 'id' | 'api_token'>>(
         PostgresUse.COMMON_READ,
         `
-            SELECT id, api_token, capture_console_log_opt_in
-            FROM posthog_team
-            WHERE session_recording_opt_in = true
-        `,
+        SELECT id, api_token, capture_console_log_opt_in
+        FROM posthog_team
+        ${enforceReplayOptIn ? 'WHERE session_recording_opt_in = true' : ''}
+    `,
         [],
         'fetchTeamTokensWithRecordings'
     )

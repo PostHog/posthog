@@ -152,7 +152,7 @@ export class HeatmapEventIngester {
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
                 status.info('🔁', 'heatmap_ingester_consumer - refreshing teams in the background')
-                return await fetchTeamTokensWithRecordings(this.postgres)
+                return await fetchTeamTokensWithRecordings(this.postgres, false)
             } catch (e) {
                 status.error('🔥', 'heatmap_ingester_consumer - failed to refresh teams in the background', e)
                 captureException(e)
