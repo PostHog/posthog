@@ -315,7 +315,6 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
             }
         >
             <LemonButton
-                targetBlank={true}
                 type="tertiary"
                 onClick={() => setIsOpen(!isOpen)}
                 size="small"
