@@ -4,6 +4,7 @@ from typing import Any
 from rest_framework import viewsets, request, response, serializers, status
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import TemporaryTokenAuthentication
 from posthog.hogql.ast import Constant
 from posthog.hogql.query import execute_hogql_query
 from posthog.rate_limit import ClickHouseSustainedRateThrottle, ClickHouseBurstRateThrottle
@@ -35,9 +36,13 @@ class HeatmapsResponseSerializer(serializers.Serializer):
 
 
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "heatmaps"
+    scope_object = "INTERNAL"
+    filter_rewrite_rules = {"team_id": "group__team_id"}
+
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
+
+    authentication_classes = [TemporaryTokenAuthentication]
 
     def get_queryset(self):
         return None
@@ -118,3 +123,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         response_serializer = HeatmapsResponseSerializer(data={"results": data})
         response_serializer.is_valid(raise_exception=True)
         return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+class LegacyHeatmapViewSet(HeatmapViewSet):
+    derive_current_team_from_user_only = True

@@ -172,16 +172,43 @@ export const heatmapLogic = kea<heatmapLogicType>([
         heatmap: [
             null as HeatmapResponseType | null,
             {
-                loadHeatmap: async () =>
-                    /**  { type } **/
-                    {
-                        // TODO: Implement real api
+                loadHeatmap: async () => {
+                    const { href, wildcardHref } = values
+                    const { date_from, date_to } = values.heatmapFilter
+                    const viewportMinWidth = 0
+                    const viewportMaxWidth = 100_000
+                    const urlExact = wildcardHref === href ? href : undefined
+                    const urlRegex = wildcardHref !== href ? wildcardHref : undefined
 
-                        if ((window as any).heatmapData) {
-                            return convertToHeatmapData((window as any).heatmapData)
-                        }
-                        return testHeatmapData
-                    },
+                    // toolbar fetch collapses queryparams but this URL has multiple with the same name
+                    const response = await toolbarFetch(
+                        `/api/heatmap/${encodeParams(
+                            {
+                                type: 'click',
+                                date_from,
+                                date_to,
+                                url: urlExact,
+                                url_regex: urlRegex,
+                                viewport_width_min: viewportMinWidth,
+                                viewport_width_max: viewportMaxWidth,
+                            },
+                            '?'
+                        )}`,
+                        'GET'
+                    )
+
+                    if (response.status === 403) {
+                        toolbarConfigLogic.actions.authenticate()
+                        return null
+                    }
+
+                    const responseJson = await response.json()
+                    const heatmapData = responseJson.results
+                    if (heatmapData) {
+                        return convertToHeatmapData(heatmapData)
+                    }
+                    return testHeatmapData
+                },
             },
         ],
     })),
