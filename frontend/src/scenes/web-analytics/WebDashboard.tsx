@@ -118,13 +118,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && <h2 className="m-0 mb-3">{title}</h2>}
-            {docs && (
-                <LearnMorePopover
-                    docsURL="https://posthog.com/docs/data/channel-type"
-                    title="Channel Type"
-                    description="Channel type tells what kind of acquisition channel this traffic comes from, e.g. Paid Search or Organic Social"
-                />
-            )}
+            {docs && <LearnMorePopover docsURL={docs.docsUrl} title={docs.title} description={docs.description} />}
             <WebQuery
                 query={query}
                 insightProps={insightProps}
@@ -306,7 +300,7 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
                             to={docsURL}
                             onClick={() => setIsOpen(false)}
                             targetBlank={true}
-                            sideIcon={<IconOpenSidebar className="w-4 h-4" />}
+                            sideIcon={<IconOpenSidebar />}
                         >
                             Learn more
                         </LemonButton>
@@ -314,11 +308,7 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
                 </div>
             }
         >
-            <LemonButton
-                onClick={() => setIsOpen(!isOpen)}
-                size="small"
-                icon={<IconInfo />}
-            />
+            <LemonButton onClick={() => setIsOpen(!isOpen)} size="small" icon={<IconInfo />} />
         </Popover>
     )
 }
