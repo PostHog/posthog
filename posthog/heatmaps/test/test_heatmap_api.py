@@ -85,6 +85,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"date_from": "2023-03-08", "url_exact": "http://example.com/about", "type": "rageclick"}, 2
         )
 
+        self._assert_heatmap_single_result_count(
+            {"date_from": "2023-03-08", "url_pattern": "http://example.com*", "type": "rageclick"}, 3
+        )
+
     @snapshot_clickhouse_queries
     def test_can_get_scrolldepth_counts(self) -> None:
         self._create_heatmap_event("session_1", "scrolldepth", "2023-03-08T07:00:00", y=10, viewport_height=1000)
