@@ -285,7 +285,7 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
             overlay={
                 <div className="p-4">
                     <div className="flex flex-row w-full">
-                        <h2 className="flex-1 text-lg font-bold">{title}</h2>
+                        <h2 className="flex-1">{title}</h2>
                         <LemonButton
                             targetBlank
                             type="tertiary"
