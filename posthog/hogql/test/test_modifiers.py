@@ -50,12 +50,21 @@ class TestModifiers(BaseTest):
 
         class TestCase(NamedTuple):
             mode: PersonsOnEventsMode
+            use_person_distinct_id_overrides: bool | None
             expected_columns: list[str]
             other_expected_values: list[str] = []
+
+            @property
+            def modifiers(self) -> HogQLQueryModifiers:
+                return HogQLQueryModifiers(
+                    personsOnEventsMode=self.mode,
+                    usePersonDistinctIdOverrides=self.use_person_distinct_id_overrides,
+                )
 
         test_cases: list[TestCase] = [
             TestCase(
                 PersonsOnEventsMode.disabled,
+                None,
                 [
                     "events.event AS event",
                     "events__pdi__person.id AS id",
@@ -65,6 +74,7 @@ class TestModifiers(BaseTest):
             ),
             TestCase(
                 PersonsOnEventsMode.person_id_no_override_properties_on_events,
+                None,
                 [
                     "events.event AS event",
                     "events.person_id AS id",
@@ -74,6 +84,7 @@ class TestModifiers(BaseTest):
             ),
             TestCase(
                 PersonsOnEventsMode.person_id_override_properties_on_events,
+                False,
                 [
                     "events.event AS event",
                     "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",
@@ -85,7 +96,21 @@ class TestModifiers(BaseTest):
                 ],
             ),
             TestCase(
+                PersonsOnEventsMode.person_id_override_properties_on_events,
+                True,
+                [
+                    "events.event AS event",
+                    "if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS id",
+                    "events.person_properties AS properties",
+                    "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
+                ],
+                [
+                    "events__override ON equals(events.distinct_id, events__override.distinct_id)",
+                ],
+            ),
+            TestCase(
                 PersonsOnEventsMode.person_id_override_properties_joined,
+                False,
                 [
                     "events.event AS event",
                     "events__person.id AS id",
@@ -97,19 +122,33 @@ class TestModifiers(BaseTest):
                     "events__override ON equals(events.person_id, events__override.old_person_id)",
                 ],
             ),
+            TestCase(
+                PersonsOnEventsMode.person_id_override_properties_joined,
+                True,
+                [
+                    "events.event AS event",
+                    "events__person.id AS id",
+                    "events__person.properties AS properties",
+                    "toTimeZone(events__person.created_at, %(hogql_val_0)s) AS created_at",
+                ],
+                [
+                    "events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)",
+                    "events__override ON equals(events.distinct_id, events__override.distinct_id)",
+                ],
+            ),
         ]
 
         for test_case in test_cases:
             clickhouse_query = execute_hogql_query(
                 query,
                 team=self.team,
-                modifiers=HogQLQueryModifiers(personsOnEventsMode=test_case.mode),
+                modifiers=test_case.modifiers,
                 pretty=False,
             ).clickhouse
             assert clickhouse_query is not None
             assert (
                 f"SELECT {', '.join(test_case.expected_columns)} FROM" in clickhouse_query
-            ), f"PoE mode: {test_case.mode}"
+            ), f"{test_case.modifiers!r}"
             for value in test_case.other_expected_values:
                 assert value in clickhouse_query
 
