@@ -7,28 +7,20 @@ export type ElementsEventType = {
     type: '$autocapture' | '$rageclick'
 }
 
-export type HeatmapType = {
-    // count: number
-    // pointer_y: number
-    // pointer_relative_x: number
-    // pointer_target_fixed: boolean
-
-    count: number
-    x: number
-    y: number
-    viewport_width: number
-    viewport_height: number
-    scale_factor: number
-    type: 'click' | 'mousemove' | 'rageclick'
-    target_fixed: boolean
+export type HeatmapResponseType = {
+    results: {
+        count: number
+        pointer_relative_x: number
+        pointer_target_fixed: boolean
+        pointer_y: number
+    }[]
 }
 
-export type HeatmapResponseType = {
-    query: {
-        width: number
-        height: number
-    }
-    results: HeatmapType[]
+export type HeatmapElement = {
+    count: number
+    xPercentage: number
+    targetFixed: boolean
+    y: number
 }
 
 export interface CountedHTMLElement {

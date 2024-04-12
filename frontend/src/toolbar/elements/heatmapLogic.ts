@@ -9,12 +9,11 @@ import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-sha
 import { posthog } from '~/toolbar/posthog'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { CountedHTMLElement, ElementsEventType, HeatmapResponseType, HeatmapType } from '~/toolbar/types'
+import { CountedHTMLElement, ElementsEventType, HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
-import { convertToHeatmapData, testHeatmapData } from './test-data'
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
@@ -29,8 +28,7 @@ export type HeatmapFilter = {
     clickmaps?: boolean
     heatmaps?: boolean
     scrolldepth?: boolean
-
-    heatmap_type?: HeatmapType['type'] | null
+    heatmap_type?: string
 }
 
 export const heatmapLogic = kea<heatmapLogicType>([
@@ -51,7 +49,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         patchHeatmapFilter: (filter: Partial<HeatmapFilter>) => ({ filter }),
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
-        loadHeatmap: (type: HeatmapType['type']) => ({
+        loadHeatmap: (type: string) => ({
             type,
         }),
         maybeLoadRelevantHeatmap: true,
@@ -169,7 +167,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
 
-        heatmap: [
+        rawHeatmap: [
             null as HeatmapResponseType | null,
             {
                 loadHeatmap: async () => {
@@ -202,12 +200,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         return null
                     }
 
-                    const responseJson = await response.json()
-                    const heatmapData = responseJson.results
-                    if (heatmapData) {
-                        return convertToHeatmapData(heatmapData)
-                    }
-                    return testHeatmapData
+                    return await response.json()
                 },
             },
         ],
@@ -350,6 +343,30 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (countedElements) =>
                 countedElements ? countedElements.map((e) => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
+
+        heatmapElements: [
+            (s) => [s.rawHeatmap, s.heatmapFilter],
+            (rawHeatmap, heatmapFilter): HeatmapElement[] => {
+                if (!rawHeatmap) {
+                    return []
+                }
+
+                console.log(rawHeatmap, heatmapFilter)
+
+                const elements: HeatmapElement[] = []
+
+                rawHeatmap?.results.forEach((element) => {
+                    elements.push({
+                        count: element.count,
+                        xPercentage: element.pointer_relative_x,
+                        targetFixed: element.pointer_target_fixed,
+                        y: element.pointer_y,
+                    })
+                })
+
+                return elements
+            },
+        ],
     })),
 
     afterMount(({ actions, values, cache }) => {
@@ -385,7 +402,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                 if (values.heatmapFilter.heatmaps) {
                     // TODO: Save selected types
-                    actions.loadHeatmap(values.heatmapFilter.heatmap_type as HeatmapType['type'])
+                    actions.loadHeatmap(values.heatmapFilter.heatmap_type)
                 }
             }
         },

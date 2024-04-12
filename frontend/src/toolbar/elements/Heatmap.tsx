@@ -3,13 +3,13 @@ import { useValues } from 'kea'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
-import { HeatmapType } from '../types'
+import { HeatmapElement } from '../types'
 import { elementsLogic } from './elementsLogic'
 
-export function HeatmapElement({ element }: { element: HeatmapType }): JSX.Element | null {
+function HeatmapElementView({ element }: { element: HeatmapElement }): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
     const { inspectEnabled } = useValues(elementsLogic)
-    const { shiftPressed } = useValues(heatmapLogic)
+    const { shiftPressed, heatmapFilter } = useValues(heatmapLogic)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
     const size = 36 // TODO: How to decide on radius
     const opacity = Math.max(0.2, Math.min(0.7, element.count / 1000)) // TODO: How to decide on opacity
@@ -17,22 +17,13 @@ export function HeatmapElement({ element }: { element: HeatmapType }): JSX.Eleme
     // Remove as any once we have the scrollmanager stuff merged
     const ph = posthog as any
 
-    const scrollYOffset = element.target_fixed ? 0 : ph.scrollManager.scrollY()
-    const scrollXOffset = element.target_fixed ? 0 : ph.scrollManager.scrollX()
+    const { count, xPercentage, y, targetFixed } = element
 
-    const color = element.type === 'click' ? 'red' : 'blue'
-
-    // TODO: We need to move all this into the logic and let it take care of reducing everything down
-    const mode = 'percentage'
+    const scrollYOffset = targetFixed ? 0 : ph.scrollManager.scrollY()
 
     // Default mode - place it exactly where it should be
-    const top = `${element.y - size * 0.5 - scrollYOffset}px`
-    let left = `${element.x - size * 0.5 - scrollXOffset}px`
-
-    if (mode === 'percentage') {
-        // Scale the x axis to account for different browser widths
-        left = `calc(${(element.x / element.viewport_width) * 100}% - ${size * 0.5}px)`
-    }
+    const top = `${y - size * 0.5 - scrollYOffset}px`
+    const left = `calc(${xPercentage * 100}% - ${size * 0.5}px)`
 
     return (
         <div
@@ -46,15 +37,15 @@ export function HeatmapElement({ element }: { element: HeatmapType }): JSX.Eleme
                 width: size,
                 height: size,
                 opacity,
-                backgroundColor: color,
-                boxShadow: `0px 0px 10px 10px ${color}`,
+                backgroundColor: 'red',
+                boxShadow: `0px 0px 10px 10px red`,
             }}
         />
     )
 }
 
 export function Heatmap(): JSX.Element | null {
-    const { heatmap, heatmapEnabled, heatmapFilter } = useValues(heatmapLogic)
+    const { heatmapElements, heatmapEnabled, heatmapFilter } = useValues(heatmapLogic)
 
     if (!heatmapEnabled || !heatmapFilter.heatmaps) {
         return null
@@ -86,8 +77,8 @@ export function Heatmap(): JSX.Element | null {
                 ))
             )} */}
 
-            {heatmap?.results.map((x, i) => (
-                <HeatmapElement key={i} element={x} />
+            {heatmapElements?.map((x, i) => (
+                <HeatmapElementView key={i} element={x} />
             ))}
         </div>
     )
