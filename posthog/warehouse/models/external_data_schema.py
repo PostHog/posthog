@@ -61,7 +61,7 @@ def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
 
 
 def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    return ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).all()
+    return list(ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).all())
 
 
 def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, team_id: int):
