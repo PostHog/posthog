@@ -12,14 +12,17 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
     const reversedScrollmapElements = useMemo(() => [...scrollmapElements].reverse(), [scrollmapElements])
 
     // Track the mouse position and render an indicator about how many people have scrolled to this point
-
     const [mouseY, setMouseY] = useState<null | number>(0)
+
+    if (!scrollmapElements.length) {
+        return null
+    }
 
     // Remove as any once we have the scrollmanager stuff merged
     const ph = posthog as any
     const scrollOffset = ph.scrollManager.scrollY()
-    const countAtThisDepth = reversedScrollDepths.find((x) => x.depth < scrollOffset + mouseY)
-    const percentage = ((countAtThisDepth?.count ?? 0) / scrollDepths[0].count) * 100
+    const countAtThisDepth = reversedScrollmapElements.find((x) => x.y < scrollOffset + mouseY)
+    const percentage = ((countAtThisDepth?.count ?? 0) / reversedScrollmapElements[0].count) * 100
 
     useEffect(() => {
         const onMove = (e: MouseEvent): void => {
@@ -59,7 +62,7 @@ export function ScrollDepth(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
     const { heatmapEnabled, heatmapFilter, scrollmapElements } = useValues(heatmapLogic)
 
-    if (!heatmapEnabled || !heatmapFilter.scrolldepth || !scrollmapElements) {
+    if (!heatmapEnabled || !heatmapFilter.scrolldepth || !scrollmapElements.length) {
         return null
     }
 
