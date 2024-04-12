@@ -168,6 +168,9 @@ services:
             kompose.volume.type: configMap
         volumes:
             - ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
+        depends_on:
+            - db
+            - elasticsearch
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
