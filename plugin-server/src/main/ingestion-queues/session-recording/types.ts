@@ -1,5 +1,3 @@
-// This is the incoming message from Kafka
-
 import { RRWebEvent } from '../../../types'
 
 export type HeatmapEvent = {
@@ -9,11 +7,11 @@ export type HeatmapEvent = {
      * we will break the relationship between particular sessions and clicks in aggregating this data
      * it should always be treated as an exemplar and not as concrete values
      */
-    $session_id: string
-    $viewport_width: number
-    $viewport_height: number
-    $pointer_target_fixed: boolean
-    $current_url: string
+    session_id: string
+    viewport_width: number
+    viewport_height: number
+    pointer_target_fixed: boolean
+    current_url: string
     // x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
     x: number
     // y is the y with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid

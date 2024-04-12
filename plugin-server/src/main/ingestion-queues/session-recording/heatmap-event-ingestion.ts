@@ -103,11 +103,11 @@ export const parseKafkaMessage = async (
             type: hme.type,
             x: Math.ceil(hme.x / scale_factor),
             y: Math.ceil(hme.y / scale_factor),
-            $pointer_target_fixed: hme.target_fixed,
-            $viewport_height: Math.ceil($viewport_height / scale_factor),
-            $viewport_width: Math.ceil($viewport_width / scale_factor),
-            $current_url,
-            $session_id,
+            pointer_target_fixed: hme.target_fixed,
+            viewport_height: Math.ceil($viewport_height / scale_factor),
+            viewport_width: Math.ceil($viewport_width / scale_factor),
+            current_url: $current_url,
+            session_id: $session_id,
             scale_factor,
             timestamp: castTimestampOrNow(
                 DateTime.fromMillis(message.timestamp ?? Date.now()),
@@ -164,7 +164,7 @@ export class HeatmapEventIngester {
             producer: producer,
             topic: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
             value: Buffer.from(JSON.stringify(message)),
-            key: message.$session_id,
+            key: message.session_id,
             waitForAck: true,
         })
     }

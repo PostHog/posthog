@@ -27,7 +27,7 @@ We only add session_id so that we could offer example sessions for particular cl
 KAFKA_HEATMAPS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
-    $session_id VARCHAR,
+    session_id VARCHAR,
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
     -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
@@ -36,18 +36,18 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     y Int16,
     -- stored so that in future we can support other resolutions
     scale_factor Int16,
-    $viewport_width Int16,
-    $viewport_height Int16,
+    viewport_width Int16,
+    viewport_height Int16,
     -- some elements move when the page scrolls, others do not
-    $pointer_target_fixed Bool,
-    $current_url VARCHAR
+    pointer_target_fixed Bool,
+    current_url VARCHAR
 ) ENGINE = {engine}
 """
 
 HEATMAPS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
-    $session_id VARCHAR,
+    session_id VARCHAR,
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
     -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
@@ -56,11 +56,11 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     y Int16,
     -- stored so that in future we can support other resolutions
     scale_factor Int16,
-    $viewport_width Int16,
-    $viewport_height Int16,
+    viewport_width Int16,
+    viewport_height Int16,
     -- some elements move when the page scrolls, others do not
-    $pointer_target_fixed Bool,
-    $current_url VARCHAR,
+    pointer_target_fixed Bool,
+    current_url VARCHAR,
     _timestamp DateTime
 ) ENGINE = {engine}
 """
@@ -78,7 +78,7 @@ HEATMAPS_TABLE_SQL = lambda: (
     --   * width
     -- we'll almost never query this by session id
     -- so from least to most cardinality that's
-    ORDER BY (team_id,  toDate(timestamp), $current_url, $viewport_width)
+    ORDER BY (team_id,  toDate(timestamp), current_url, viewport_width)
 -- I am purposefully not setting index granularity
 -- the default is 8192, and we will be loading a lot of data
 -- per query, we tend to copy this 512 around the place but
@@ -101,7 +101,7 @@ HEATMAPS_TABLE_MV_SQL = (
 CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
-    $session_id,
+    session_id,
     team_id,
     timestamp,
     -- x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
@@ -110,11 +110,11 @@ AS SELECT
     y,
     -- stored so that in future we can support other resolutions
     scale_factor,
-    $viewport_width,
-    $viewport_height,
+    viewport_width,
+    viewport_height,
     -- some elements move when the page scrolls, others do not
-    $pointer_target_fixed,
-    $current_url
+    pointer_target_fixed,
+    current_url
 FROM {database}.kafka_heatmaps
 """.format(
         target_table="writable_heatmaps",
@@ -135,7 +135,7 @@ WRITABLE_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
         # we'll be querying for team data by url and date,
         # so I _think_ this offers a reasonable spread of write load
         # without needing to query too many shards
-        sharding_key="cityHash64(concat(toString(team_id), '-', $session_id, '-', toString(toDate(timestamp))))",
+        sharding_key="cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))",
     ),
 )
 
@@ -149,7 +149,7 @@ DISTRIBUTED_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
         # we'll be querying for team data by url and date,
         # so I _think_ this offers a reasonable spread of write load
         # without needing to query too many shards
-        sharding_key="cityHash64(concat(toString(team_id), '-', $current_url, '-', toString(toDate(timestamp))))",
+        sharding_key="cityHash64(concat(toString(team_id), '-', current_url, '-', toString(toDate(timestamp))))",
     ),
 )
 

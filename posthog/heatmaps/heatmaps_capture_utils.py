@@ -13,7 +13,7 @@ event_properties_to_keep = [
 ]
 
 
-def extract_heatmap_events(events: List[Event]) -> List[Event]:  # noqa: F821
+def extract_heatmap_events(events: List[Event]) -> List[Event]:
     """
     To save on data transfer and simplify the event processing, we piggyback $heatmap events on top of existing events
 
@@ -32,9 +32,8 @@ def extract_heatmap_events(events: List[Event]) -> List[Event]:  # noqa: F821
                 },
                 "timestamp": event.get("timestamp"),
             }
-            heatmap_event["event"] = "$heatmap"
-            # Only copy the event data we need:
 
+            # Only copy the event data we need:
             for prop in event_properties_to_keep:
                 heatmap_event["properties"][prop] = event["properties"].get(prop, None)
 

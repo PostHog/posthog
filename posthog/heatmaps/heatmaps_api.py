@@ -69,7 +69,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         q = """
             select *, count() as cnt
             from (
-                     select `$pointer_target_fixed`, round((x / `$viewport_width`), 2) as relative_client_x,
+                     select pointer_target_fixed, round((x / viewport_width), 2) as relative_client_x,
                             y * scale_factor                  as client_y
                      from heatmaps
                      where 1=1
@@ -90,16 +90,16 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_to_predicate="and timestamp <= {date_to} + interval 1 day"
             if request_serializer.validated_data.get("date_to", None)
             else "",
-            viewport_min_width_predicate="and `$viewport_width` >= ceil({vp_min_w} / 16)"
+            viewport_min_width_predicate="and viewport_width >= ceil({vp_min_w} / 16)"
             if request_serializer.validated_data.get("viewport_min_width", None)
             else "",
-            viewport_max_width_predicate="and `$viewport_width` <= ceil({vp_max_w} / 16)"
+            viewport_max_width_predicate="and viewport_width <= ceil({vp_max_w} / 16)"
             if request_serializer.validated_data.get("viewport_max_width", None)
             else "",
-            url_exact_predicate="and `$current_url` = {url_exact}"
+            url_exact_predicate="and current_url = {url_exact}"
             if request_serializer.validated_data.get("url_exact", None)
             else "",
-            url_pattern_predicate="and `$current_url` like {url_pattern}"
+            url_pattern_predicate="and current_url like {url_pattern}"
             if request_serializer.validated_data.get("url_pattern", None)
             else "",
         )
