@@ -6,7 +6,7 @@ body:
     id: feature_request
     attributes:
       label: Feature request
-      value: "## Is your feature request related to a problem?\n*Please describe.*\n\n## Describe the solution you'd like\n\n\n## Describe alternatives you've considered\n\n\n## Additional context\n\n\n
+      value: "## Is your feature request related to a problem?\n\n*Please describe.*\n\n## Describe the solution you'd like\n\n\n## Describe alternatives you've considered\n\n\n## Additional context\n\n\n
             
             "
   - type: textarea
