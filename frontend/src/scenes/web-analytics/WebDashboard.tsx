@@ -307,7 +307,6 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
                             onClick={() => setIsOpen(false)}
                             targetBlank={true}
                             sideIcon={<IconOpenSidebar className="w-4 h-4" />}
-                            type="tertiary"
                         >
                             Learn more
                         </LemonButton>
