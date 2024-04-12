@@ -1,30 +1,15 @@
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
 
-const scrollDepths = [
-    { depth: 0, count: 10000 },
-    { depth: 100, count: 10000 },
-    { depth: 200, count: 9880 },
-    { depth: 300, count: 9000 },
-    { depth: 400, count: 8000 },
-    { depth: 500, count: 8000 },
-    { depth: 600, count: 8000 },
-    { depth: 700, count: 8000 },
-    { depth: 800, count: 6000 },
-    { depth: 900, count: 3000 },
-    { depth: 1000, count: 2000 },
-    { depth: 1100, count: 1000 },
-    { depth: 1300, count: 0 },
-]
-
-const reversedScrollDepths = [...scrollDepths].reverse()
-
 function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
+    const { scrollmapElements } = useValues(heatmapLogic)
+
+    const reversedScrollmapElements = useMemo(() => [...scrollmapElements].reverse(), [scrollmapElements])
 
     // Track the mouse position and render an indicator about how many people have scrolled to this point
 
@@ -72,10 +57,9 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
 
 export function ScrollDepth(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
+    const { heatmapEnabled, heatmapFilter, scrollmapElements } = useValues(heatmapLogic)
 
-    const { heatmapEnabled, heatmapFilter } = useValues(heatmapLogic)
-
-    if (!heatmapEnabled || !heatmapFilter.scrolldepth) {
+    if (!heatmapEnabled || !heatmapFilter.scrolldepth || !scrollmapElements) {
         return null
     }
 
@@ -86,7 +70,7 @@ export function ScrollDepth(): JSX.Element | null {
 
     // We want to have a fading color from red to orange to green to blue to grey, fading from the highest coun to the lowest
 
-    const maxCount = scrollDepths[0].count
+    const maxCount = scrollmapElements[0].count
 
     function color(count: number): string {
         const value = 1 - count / maxCount
@@ -110,13 +94,13 @@ export function ScrollDepth(): JSX.Element | null {
                     transform: `translateY(${-scrollOffset}px)`,
                 }}
             >
-                {scrollDepths.map(({ depth, count }) => (
+                {scrollmapElements.map(({ y, count }) => (
                     <div
-                        key={depth}
+                        key={y}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             position: 'absolute',
-                            top: depth,
+                            top: y,
                             left: 0,
                             width: '100%',
                             height: 100,

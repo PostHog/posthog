@@ -16,6 +16,14 @@ export type HeatmapResponseType = {
     }[]
 }
 
+export type ScrollmapElementsResponseType = {
+    results: {
+        scroll_depth_bucket: number
+        bucket_count: number
+        cumulative_count: number
+    }[]
+}
+
 export type HeatmapElement = {
     count: number
     xPercentage: number

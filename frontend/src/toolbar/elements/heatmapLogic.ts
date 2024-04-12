@@ -10,7 +10,13 @@ import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-sha
 import { posthog } from '~/toolbar/posthog'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { CountedHTMLElement, ElementsEventType, HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
+import {
+    CountedHTMLElement,
+    ElementsEventType,
+    HeatmapElement,
+    HeatmapResponseType,
+    ScrollmapElementsResponseType,
+} from '~/toolbar/types'
 import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -208,6 +214,45 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 },
             },
         ],
+
+        rawScrollmap: [
+            null as ScrollmapElementsResponseType | null,
+            {
+                loadScrollmap: async () => {
+                    const { href, wildcardHref } = values
+                    const { date_from, date_to } = values.heatmapFilter
+                    const urlExact = wildcardHref === href ? href : undefined
+                    const urlRegex = wildcardHref !== href ? wildcardHref : undefined
+
+                    // toolbar fetch collapses queryparams but this URL has multiple with the same name
+                    const response = await toolbarFetch(
+                        `/api/heatmap/${encodeParams(
+                            {
+                                type: 'scrolldepth',
+                                date_from,
+                                date_to,
+                                url: urlExact,
+                                url_regex: urlRegex,
+                                viewport_width_min: values.viewportRange.min,
+                                viewport_width_max: values.viewportRange.max,
+                            },
+                            '?'
+                        )}`,
+                        'GET'
+                    )
+
+                    if (response.status === 403) {
+                        toolbarConfigLogic.actions.authenticate()
+                    }
+
+                    if (response.status !== 200) {
+                        throw new Error('API error')
+                    }
+
+                    return await response.json()
+                },
+            },
+        ],
     })),
 
     selectors(({ cache }) => ({
@@ -371,6 +416,28 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
 
+        scrollmapElements: [
+            (s) => [s.rawScrollmap],
+            (rawScrollmap): HeatmapElement[] => {
+                if (!rawScrollmap) {
+                    return []
+                }
+
+                const elements: HeatmapElement[] = []
+
+                rawScrollmap?.results.forEach((element) => {
+                    elements.push({
+                        count: element.cumulative_count,
+                        xPercentage: 0,
+                        targetFixed: false,
+                        y: element.scroll_depth_bucket,
+                    })
+                })
+
+                return elements
+            },
+        ],
+
         viewportRange: [
             (s) => [s.heatmapFilterViewportFuzziness, s.windowWidth],
             (viewportFuzziness, windowWidth): { max: number; min: number } => {
@@ -419,6 +486,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 if (values.heatmapFilter.heatmaps && values.heatmapFilter.heatmap_type) {
                     // TODO: Save selected types
                     actions.loadHeatmap(values.heatmapFilter.heatmap_type)
+                }
+
+                if (values.heatmapFilter.scrolldepth) {
+                    actions.loadScrollmap()
                 }
             }
         },
