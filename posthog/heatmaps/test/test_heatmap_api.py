@@ -1,6 +1,8 @@
 import math
 from typing import Dict
 
+import freezegun
+
 from posthog.heatmaps.sql import INSERT_SINGLE_HEATMAP_EVENT
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
@@ -18,7 +20,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         query_params = "&".join([f"{key}={value}" for key, value in params.items()])
 
         response = self.client.get(f"/api/heatmap/?{query_params}")
-        assert response.status_code == 200
+        assert response.status_code == 200, response.json()
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["count"] == expected_grouped_count
 
@@ -41,6 +43,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00")
 
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 1)
+
+    @snapshot_clickhouse_queries
+    @freezegun.freeze_time("2023-03-14T09:00:00")
+    def test_can_get_filter_by_relative_date_from(self) -> None:
+        self._create_heatmap_event("session_1", "click", "2023-03-07T07:00:00")
+        self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00")
+
+        self._assert_heatmap_single_result_count({"date_from": "-7d"}, 1)
 
     @snapshot_clickhouse_queries
     def test_can_get_filter_by_click(self) -> None:

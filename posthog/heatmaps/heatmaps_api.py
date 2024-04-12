@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Any
 
 from rest_framework import viewsets, request, response, serializers, status
@@ -9,6 +9,7 @@ from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.rate_limit import ClickHouseSustainedRateThrottle, ClickHouseBurstRateThrottle
+from posthog.utils import relative_date_parse_with_delta_mapping
 
 
 class HeatmapResponseItemSerializer(serializers.Serializer):
@@ -26,10 +27,24 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_min = serializers.IntegerField(required=False)
     viewport_width_max = serializers.IntegerField(required=False)
     type = serializers.CharField(required=False)
-    date_from = serializers.DateField(required=False, default=default_start_date)
+    date_from = serializers.CharField(required=False, default="-7d")
     date_to = serializers.DateField(required=False)
     url_exact = serializers.CharField(required=False)
     url_pattern = serializers.CharField(required=False)
+
+    def validate_date_from(self, value):
+        try:
+            if isinstance(value, str):
+                parsed_date, _, _ = relative_date_parse_with_delta_mapping(value, self.context["team"].timezone_info)
+                return parsed_date
+            if isinstance(value, datetime):
+                return value.date()
+            if isinstance(value, date):
+                return value
+            else:
+                raise serializers.ValidationError("Invalid date_from provided: {}".format(value))
+        except Exception as e:
+            raise serializers.ValidationError("Error parsing date: {}".format(e))
 
 
 class HeatmapsResponseSerializer(serializers.Serializer):
@@ -49,7 +64,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return None
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        request_serializer = HeatmapsRequestSerializer(data=request.query_params)
+        request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
         request_serializer.is_valid(raise_exception=True)
 
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
