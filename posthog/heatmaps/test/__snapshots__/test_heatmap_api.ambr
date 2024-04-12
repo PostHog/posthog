@@ -32,7 +32,7 @@
             round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS relative_client_x,
             multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
      FROM heatmaps
-     WHERE and(equals(heatmaps.team_id, 2), 1, greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDateTime64('2024-04-05 15:55:57.933256', 6, 'UTC')), equals(heatmaps.team_id, 2)))
+     WHERE and(equals(heatmaps.team_id, 2), 1, greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDateTime64('2024-04-05 16:14:16.220525', 6, 'UTC')), equals(heatmaps.team_id, 2)))
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
