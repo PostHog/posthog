@@ -1,5 +1,5 @@
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isEventPropertyOrPersonPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { WebAnalyticsPropertyFilters } from '~/queries/schema'
@@ -14,7 +14,7 @@ export const WebPropertyFilters = ({
     return (
         <PropertyFilters
             taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]}
-            onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyOrPersonPropertyFilter))}
+            onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))}
             propertyFilters={webAnalyticsFilters}
             pageKey="web-analytics"
             eventNames={['$pageview', '$pageleave', '$autocapture']}

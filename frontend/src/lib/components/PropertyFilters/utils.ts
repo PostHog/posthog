@@ -183,10 +183,14 @@ export function isEventPropertyFilter(filter?: AnyFilterLike | null): filter is 
 export function isPersonPropertyFilter(filter?: AnyFilterLike | null): filter is PersonPropertyFilter {
     return filter?.type === PropertyFilterType.Person
 }
-export function isEventPropertyOrPersonPropertyFilter(
+export function isEventPersonOrSessionPropertyFilter(
     filter?: AnyFilterLike | null
-): filter is EventPropertyFilter | PersonPropertyFilter {
-    return filter?.type === PropertyFilterType.Event || filter?.type === PropertyFilterType.Person
+): filter is EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter {
+    return (
+        filter?.type === PropertyFilterType.Event ||
+        filter?.type === PropertyFilterType.Person ||
+        filter?.type === PropertyFilterType.Session
+    )
 }
 export function isElementPropertyFilter(filter?: AnyFilterLike | null): filter is ElementPropertyFilter {
     return filter?.type === PropertyFilterType.Element
@@ -308,6 +312,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.Person
         : filterType === PropertyFilterType.Group
         ? PropertyDefinitionType.Group
+        : filterType === PropertyFilterType.Session
+        ? PropertyDefinitionType.Session
         : PropertyDefinitionType.Event
 }
 
