@@ -40,7 +40,7 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
 
     return (
         <div
-            className="absolute left-0 right-0 flex items-center"
+            className="absolute left-0 right-0 flex items-center z-10"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 top: mouseY,

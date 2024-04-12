@@ -261,7 +261,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 </Tooltip>
                             </div>
 
-                            <div>
+                            <div className="my-2">
                                 Found: {countedElements.length} elements / {clickCount} clicks!
                             </div>
                             <div className="flex flex-col w-full h-full">
