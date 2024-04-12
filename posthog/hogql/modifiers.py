@@ -1,5 +1,7 @@
 from typing import Optional, TYPE_CHECKING
 
+import posthoganalytics
+
 from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsArgMaxVersion
 from posthog.utils import PersonOnEventsMode
 
@@ -17,6 +19,21 @@ def create_default_modifiers_for_team(
 
     if modifiers.personsOnEventsMode is None:
         modifiers.personsOnEventsMode = team.person_on_events_mode or PersonOnEventsMode.DISABLED
+
+    if modifiers.usePersonDistinctIdOverrides is None:
+        modifiers.usePersonDistinctIdOverrides = posthoganalytics.feature_enabled(
+            "hogql-use-person-distinct-id-overrides",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization_id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
 
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.auto
