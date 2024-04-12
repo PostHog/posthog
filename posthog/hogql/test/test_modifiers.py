@@ -1,3 +1,4 @@
+from typing import NamedTuple
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
@@ -47,8 +48,13 @@ class TestModifiers(BaseTest):
     def test_modifiers_persons_on_events_mode_mapping(self):
         query = "SELECT event, person.id, person.properties, person.created_at FROM events"
 
-        test_cases: list[tuple[PersonsOnEventsMode, list[str], list[str]]] = [
-            (
+        class TestCase(NamedTuple):
+            mode: PersonsOnEventsMode
+            expected_columns: list[str]
+            other_expected_values: list[str] = []
+
+        test_cases: list[TestCase] = [
+            TestCase(
                 PersonsOnEventsMode.disabled,
                 [
                     "events.event AS event",
@@ -56,9 +62,8 @@ class TestModifiers(BaseTest):
                     "events__pdi__person.properties AS properties",
                     "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s) AS created_at",
                 ],
-                [],
             ),
-            (
+            TestCase(
                 PersonsOnEventsMode.person_id_no_override_properties_on_events,
                 [
                     "events.event AS event",
@@ -66,9 +71,8 @@ class TestModifiers(BaseTest):
                     "events.person_properties AS properties",
                     "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
                 ],
-                [],
             ),
-            (
+            TestCase(
                 PersonsOnEventsMode.person_id_override_properties_on_events,
                 [
                     "events.event AS event",
@@ -80,7 +84,7 @@ class TestModifiers(BaseTest):
                     "events__override ON equals(events.person_id, events__override.old_person_id)",
                 ],
             ),
-            (
+            TestCase(
                 PersonsOnEventsMode.person_id_override_properties_joined,
                 [
                     "events.event AS event",
@@ -95,16 +99,18 @@ class TestModifiers(BaseTest):
             ),
         ]
 
-        for mode, expected_columns, other_expected_values in test_cases:
+        for test_case in test_cases:
             clickhouse_query = execute_hogql_query(
                 query,
                 team=self.team,
-                modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=test_case.mode),
                 pretty=False,
             ).clickhouse
             assert clickhouse_query is not None
-            assert f"SELECT {', '.join(expected_columns)} FROM" in clickhouse_query, f"PoE mode: {mode}"
-            for value in other_expected_values:
+            assert (
+                f"SELECT {', '.join(test_case.expected_columns)} FROM" in clickhouse_query
+            ), f"PoE mode: {test_case.mode}"
+            for value in test_case.other_expected_values:
                 assert value in clickhouse_query
 
     def test_modifiers_persons_argmax_version_v2(self):
