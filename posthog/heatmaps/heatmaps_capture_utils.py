@@ -34,7 +34,6 @@ def extract_heatmap_events(events: List[Event]) -> List[Event]:
         # Slight optimization: We derive heatmap data for scrolling from existing scroll properties
         prev_pageview_pathname = event["properties"].get("$prev_pageview_pathname", None)
         prev_pageview_max_scroll = event["properties"].get("$prev_pageview_max_scroll", None)
-        viewport_height = event["properties"].get("$viewport_height", None)
         current_url = event["properties"].get("$current_url", None)
 
         if prev_pageview_pathname and current_url:
@@ -68,25 +67,5 @@ def extract_heatmap_events(events: List[Event]) -> List[Event]:
                 heatmap_event["properties"][prop] = event["properties"].get(prop, None)
 
             heatmap_events.append(heatmap_event)
-
-        # Additionally we copy out $prev_pageview_last_scroll
-
-        if prev_pageview_pathname and prev_pageview_last_scroll and viewport_height:
-            heatmap_data = [{}]
-
-            heatmap_scroll_event: Dict = {
-                "event": "$heatmap",
-                "uuid": str(uuid4()),
-                "properties": {
-                    "$heatmap_data": heatmap_data,
-                },
-                "timestamp": event.get("timestamp"),
-            }
-
-            # Only copy the event data we need:
-            for prop in event_properties_to_keep:
-                heatmap_scroll_event["properties"][prop] = event["properties"].get(prop, None)
-
-            heatmap_events.append(heatmap_scroll_event)
 
     return events + heatmap_events
