@@ -83,7 +83,6 @@ HEATMAPS_TABLE_SQL = lambda: (
 -- the default is 8192, and we will be loading a lot of data
 -- per query, we tend to copy this 512 around the place but
 -- i don't think it applies here
--- SETTINGS index_granularity=512
 """
 ).format(
     table_name=HEATMAPS_DATA_TABLE(),
