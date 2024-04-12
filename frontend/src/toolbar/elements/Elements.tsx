@@ -62,7 +62,7 @@ export function Elements(): JSX.Element {
                         style={{
                             pointerEvents: heatmapPointerEvents,
                             cursor: 'pointer',
-                            zIndex: 0,
+                            zIndex: hoverElement === element ? 2 : 1,
                             opacity:
                                 (!hoverElement && !selectedElement) ||
                                 selectedElement === element ||
@@ -70,6 +70,7 @@ export function Elements(): JSX.Element {
                                     ? 1
                                     : 0.4,
                             transition: 'opacity 0.2s, box-shadow 0.2s',
+                            borderRadius: 5,
                             ...getBoxColors('blue', hoverElement === element || selectedElement === element),
                         }}
                         onClick={() => selectElement(element)}
@@ -85,10 +86,11 @@ export function Elements(): JSX.Element {
                                 rect={rect}
                                 style={{
                                     pointerEvents: inspectEnabled ? 'none' : heatmapPointerEvents,
-                                    zIndex: 1,
+                                    zIndex: hoverElement === element ? 4 : 3,
                                     opacity: !hoverElement || hoverElement === element ? 1 : 0.4,
                                     transition: 'opacity 0.2s, box-shadow 0.2s',
                                     cursor: 'pointer',
+                                    borderRadius: 5,
                                     ...getBoxColors(
                                         'red',
                                         hoverElement === element,

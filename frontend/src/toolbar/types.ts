@@ -68,12 +68,6 @@ export interface ActionElementWithMetadata extends ElementWithMetadata {
     step?: ActionStepType
 }
 
-export type BoxColor = {
-    backgroundBlendMode: string
-    background: string
-    boxShadow: string
-}
-
 export type ActionDraftType = Omit<ActionType, 'id' | 'created_at' | 'created_by'>
 
 export interface ActionStepForm extends ActionStepType {
