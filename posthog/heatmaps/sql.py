@@ -78,7 +78,7 @@ HEATMAPS_TABLE_SQL = lambda: (
     --   * width
     -- we'll almost never query this by session id
     -- so from least to most cardinality that's
-    ORDER BY (team_id, $viewport_width, $current_url, toDate(timestamp))
+    ORDER BY (team_id,  toDate(timestamp), $current_url, $viewport_width)
 -- I am purposefully not setting index granularity
 -- the default is 8192, and we will be loading a lot of data
 -- per query, we tend to copy this 512 around the place but
