@@ -166,13 +166,13 @@ const labelFromKey = (key: string): string => {
         case 'visitors':
             return 'Visitors'
         case 'views':
-            return 'Views'
+            return 'Page views'
         case 'sessions':
             return 'Sessions'
         case 'session duration':
-            return 'Session Duration'
+            return 'Session duration'
         case 'bounce rate':
-            return 'Bounce Rate'
+            return 'Bounce rate'
         default:
             return key
                 .split(' ')
