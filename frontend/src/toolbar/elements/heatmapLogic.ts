@@ -181,7 +181,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
                     const response = await toolbarFetch(
-                        `/api/heatmaps/${encodeParams(
+                        `/api/heatmap/${encodeParams(
                             {
                                 type: 'click',
                                 date_from,
@@ -198,7 +198,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                     if (response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
-                        return emptyElementsStatsPages
+                        return null
                     }
 
                     const responseJson = await response.json()
