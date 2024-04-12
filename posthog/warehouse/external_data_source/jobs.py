@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
@@ -32,9 +33,9 @@ def update_external_job_status(run_id: UUID, team_id: int, status: str, latest_e
     model.latest_error = latest_error
     model.save()
 
-    pipeline = ExternalDataSource.objects.get(id=model.pipeline_id, team_id=team_id)
-    pipeline.status = status
-    pipeline.save()
+    schema = ExternalDataSchema.objects.get(id=model.schema_id, team_id=team_id)
+    schema.status = status
+    schema.save()
 
     model.refresh_from_db()
 

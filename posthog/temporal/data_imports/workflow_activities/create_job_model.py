@@ -14,7 +14,7 @@ from posthog.warehouse.models import (
     sync_old_schemas_with_new_schemas,
     ExternalDataSource,
 )
-from posthog.warehouse.models.external_data_schema import get_postgres_schemas
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema, get_postgres_schemas
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -34,9 +34,11 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
         workflow_id=activity.info().workflow_id,
     )
 
+    schema = await sync_to_async(ExternalDataSchema.objects.get)(team_id=inputs.team_id, id=inputs.schema_id)
+    schema.status = ExternalDataSchema.Status.RUNNING
+    await sync_to_async(schema.save)()
+
     source = await sync_to_async(ExternalDataSource.objects.get)(team_id=inputs.team_id, id=inputs.source_id)
-    source.status = "Running"
-    await sync_to_async(source.save)()
 
     if source.source_type == ExternalDataSource.Type.POSTGRES:
         host = source.job_inputs.get("host")

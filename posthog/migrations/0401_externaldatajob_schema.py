@@ -17,4 +17,9 @@ class Migration(migrations.Migration):
                 null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.externaldataschema"
             ),
         ),
+        migrations.AddField(
+            model_name="externaldataschema",
+            name="status",
+            field=models.CharField(max_length=400, null=True),
+        ),
     ]

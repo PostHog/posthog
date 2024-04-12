@@ -10,6 +10,13 @@ from posthog.warehouse.util import database_sync_to_async
 
 
 class ExternalDataSchema(CreatedMetaFields, UUIDModel):
+    class Status(models.TextChoices):
+        RUNNING = "Running", "Running"
+        PAUSED = "Paused", "Paused"
+        ERROR = "Error", "Error"
+        COMPLETED = "Completed", "Completed"
+        CANCELLED = "Cancelled", "Cancelled"
+
     name: models.CharField = models.CharField(max_length=400)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     source: models.ForeignKey = models.ForeignKey(
@@ -22,6 +29,7 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     latest_error: models.TextField = models.TextField(
         null=True, help_text="The latest error that occurred when syncing this schema."
     )
+    status: models.CharField = models.CharField(max_length=400, null=True)
     last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     __repr__ = sane_repr("name")

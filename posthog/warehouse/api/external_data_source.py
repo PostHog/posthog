@@ -41,6 +41,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -67,6 +68,28 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         )
 
         return latest_completed_run.created_at if latest_completed_run else None
+
+    def get_status(self, instance: ExternalDataSource) -> str:
+        active_schemas: List[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
+        any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
+        any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
+        any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
+        any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
+        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
+
+        if any_failures:
+            return ExternalDataSchema.Status.ERROR
+        elif any_cancelled:
+            return ExternalDataSchema.Status.CANCELLED
+        elif any_paused:
+            return ExternalDataSchema.Status.PAUSED
+        elif any_running:
+            return ExternalDataSchema.Status.RUNNING
+        elif any_completed:
+            return ExternalDataSchema.Status.COMPLETED
+        else:
+            # Fallback during migration phase of going from source -> schema as the source of truth for syncs
+            return instance.status
 
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
