@@ -6,22 +6,15 @@ body:
     id: feature_request
     attributes:
       label: Feature request
-      value: "## Is your feature request related to a problem?\n*Please describe.*\n\n## Describe the solution you'd like\n\n\n## Describe alternatives you've considered\n\n\n
-
-              ## Additional context\n\n\n
+      value: "## Is your feature request related to a problem?\n*Please describe.*\n\n## Describe the solution you'd like\n\n\n## Describe alternatives you've considered\n\n\n## Additional context\n\n\n
             
             "
-    validations:
-      required: true
-  
   - type: textarea
     id: debug-info
     attributes:
       label: Debug info
       value: "- [ ] PostHog Cloud, Debug information: [please copy/paste from https://us.posthog.com/settings/project-details#variables]\n- [ ] PostHog Hobby self-hosted with `docker compose`, version/commit: [please provide]\n- [ ] PostHog self-hosted with Kubernetes (deprecated, see [`Sunsetting Kubernetes support`](https://posthog.com/blog/sunsetting-helm-support-posthog)), version/commit: [please provide]\n"
-      render: markdown
-    validations:
-      required: false
+      render: shell
     
   - type: markdown
     attributes:
