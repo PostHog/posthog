@@ -11,11 +11,47 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText, dateMapping } from 'lib/utils'
+import { useMemo } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+
+import { toolbarConfigLogic } from '../toolbarConfigLogic'
+
+const SCROLL_DEPTH_JS_VERSION = [1, 99]
+
+const ScrollDepthJSWarning = (): JSX.Element | null => {
+    const { posthog } = useValues(toolbarConfigLogic)
+
+    const message = useMemo(() => {
+        const posthogVersion = posthog?._calculate_event_properties('test', {})?.['$lib_version'] ?? '0.0.0'
+        const majorMinorVersion = posthogVersion.split('.')
+        const majorVersion = parseInt(majorMinorVersion[0], 10)
+        const minorVersion = parseInt(majorMinorVersion[1], 10)
+
+        const isSupported =
+            majorVersion > SCROLL_DEPTH_JS_VERSION[0] ||
+            (majorVersion === SCROLL_DEPTH_JS_VERSION[0] && minorVersion >= SCROLL_DEPTH_JS_VERSION[1])
+        const isDisabled = posthog?.config.disable_scroll_properties
+
+        return !isSupported ? (
+            <>This feature requires a newer version of posthog-js</>
+        ) : isDisabled ? (
+            <>
+                Your posthog-js config has <i>disable_scroll_properties</i> set - these properties are required for
+                scroll depth calculations to work.
+            </>
+        ) : null
+    }, [posthog])
+
+    if (!message) {
+        return null
+    }
+
+    return <p className="my-2 bg-danger-highlight border border-danger rounded p-2">{message}</p>
+}
 
 export const HeatmapToolbarMenu = (): JSX.Element => {
     const { wildcardHref } = useValues(currentPageLogic)
@@ -85,7 +121,11 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }
                     />
 
-                    <p>TODO: Add notice about config settings required by checking their posthog-js version</p>
+                    {heatmapFilter.scrolldepth && (
+                        <>
+                            <ScrollDepthJSWarning />
+                        </>
+                    )}
                 </div>
 
                 <div className="border-b p-2">
