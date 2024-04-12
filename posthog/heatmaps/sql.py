@@ -117,8 +117,9 @@ AS SELECT
     viewport_height,
     -- some elements move when the page scrolls, others do not
     pointer_target_fixed,
-    current_url
-    type
+    current_url,
+    type,
+    _timestamp
 FROM {database}.kafka_heatmaps
 """.format(
         target_table="writable_heatmaps",
@@ -164,3 +165,31 @@ DROP_HEATMAPS_TABLE_SQL = lambda: (
 TRUNCATE_HEATMAPS_TABLE_SQL = lambda: (
     f"TRUNCATE TABLE IF EXISTS {HEATMAPS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
+
+INSERT_SINGLE_HEATMAP_EVENT = """
+INSERT INTO sharded_heatmaps (
+    session_id,
+    team_id,
+    timestamp,
+    x,
+    y,
+    scale_factor,
+    viewport_width,
+    viewport_height,
+    pointer_target_fixed,
+    current_url,
+    type
+)
+SELECT
+    %(session_id)s,
+    %(team_id)s,
+    %(timestamp)s,
+    %(x)s,
+    %(y)s,
+    %(scale_factor)s,
+    %(viewport_width)s,
+    %(viewport_height)s,
+    %(pointer_target_fixed)s,
+    %(current_url)s,
+    %(type)s
+"""
