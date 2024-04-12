@@ -54,6 +54,7 @@ class TestModifiers(BaseTest):
                 "events__pdi__person.id AS id",
                 "events__pdi__person.properties AS properties",
                 "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s) AS created_at",
+                [],
             ),
             (
                 PersonsOnEventsMode.person_id_no_override_properties_on_events,
@@ -61,6 +62,7 @@ class TestModifiers(BaseTest):
                 "events.person_id AS id",
                 "events.person_properties AS properties",
                 "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
+                [],
             ),
             (
                 PersonsOnEventsMode.person_id_override_properties_on_events,
@@ -68,6 +70,9 @@ class TestModifiers(BaseTest):
                 "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",
                 "events.person_properties AS properties",
                 "toTimeZone(events.person_created_at, %(hogql_val_1)s) AS created_at",
+                [
+                    "events__override ON equals(events.person_id, events__override.old_person_id)",
+                ],
             ),
             (
                 PersonsOnEventsMode.person_id_override_properties_joined,
@@ -75,10 +80,14 @@ class TestModifiers(BaseTest):
                 "events__person.id AS id",
                 "events__person.properties AS properties",
                 "toTimeZone(events__person.created_at, %(hogql_val_1)s) AS created_at",
+                [
+                    "events__person ON equals(ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id), events__person.id)",
+                    "events__override ON equals(events.person_id, events__override.old_person_id)",
+                ],
             ),
         ]
 
-        for mode, *expected in test_cases:
+        for mode, *expected, other_expected_values in test_cases:
             response = execute_hogql_query(
                 query,
                 team=self.team,
@@ -86,6 +95,8 @@ class TestModifiers(BaseTest):
                 pretty=False,
             )
             assert f"SELECT {', '.join(expected)} FROM" in response.clickhouse, f"PoE mode: {mode}"
+            for value in other_expected_values:
+                assert value in response.clickhouse
 
     def test_modifiers_persons_argmax_version_v2(self):
         query = "SELECT * FROM persons"
