@@ -293,7 +293,7 @@ export const LearnMorePopover = ({ docsURL, title, description }: LearnMorePopov
                     <div className="flex flex-row w-full">
                         <h2 className="flex-1 text-lg font-bold">{title}</h2>
                         <LemonButton
-                            targetBlank={true}
+                            targetBlank
                             type="tertiary"
                             onClick={() => setIsOpen(false)}
                             size="xsmall"
