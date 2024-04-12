@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
@@ -9,20 +9,8 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
     const { scrollmapElements } = useValues(heatmapLogic)
 
-    const reversedScrollmapElements = useMemo(() => [...scrollmapElements].reverse(), [scrollmapElements])
-
     // Track the mouse position and render an indicator about how many people have scrolled to this point
     const [mouseY, setMouseY] = useState<null | number>(0)
-
-    if (!scrollmapElements.length) {
-        return null
-    }
-
-    // Remove as any once we have the scrollmanager stuff merged
-    const ph = posthog as any
-    const scrollOffset = ph.scrollManager.scrollY()
-    const countAtThisDepth = reversedScrollmapElements.find((x) => x.y < scrollOffset + mouseY)
-    const percentage = ((countAtThisDepth?.count ?? 0) / reversedScrollmapElements[0].count) * 100
 
     useEffect(() => {
         const onMove = (e: MouseEvent): void => {
@@ -35,9 +23,19 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
         }
     }, [])
 
-    if (!mouseY) {
+    if (!scrollmapElements.length || !mouseY) {
         return null
     }
+
+    const scrollOffset = (posthog as any).scrollManager.scrollY()
+    const scrolledMouseY = mouseY + scrollOffset
+
+    const elementInMouseY = scrollmapElements.find((x, i) => {
+        const lastY = scrollmapElements[i - 1]?.y ?? 0
+        return scrolledMouseY > lastY && scrolledMouseY < x.y
+    })
+
+    const percentage = ((elementInMouseY?.count ?? 0) / scrollmapElements[0].count) * 100
 
     return (
         <div
@@ -97,16 +95,16 @@ export function ScrollDepth(): JSX.Element | null {
                     transform: `translateY(${-scrollOffset}px)`,
                 }}
             >
-                {scrollmapElements.map(({ y, count }) => (
+                {scrollmapElements.map(({ y, count }, i) => (
                     <div
                         key={y}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             position: 'absolute',
-                            top: y,
+                            top: scrollmapElements[i - 1]?.y ?? 0,
                             left: 0,
                             width: '100%',
-                            height: 100,
+                            height: y - (scrollmapElements[i - 1]?.y ?? 0),
                             backgroundColor: color(count),
                             opacity: 0.5,
                         }}
