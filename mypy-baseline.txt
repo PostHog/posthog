@@ -556,7 +556,6 @@ posthog/hogql/test/test_modifiers.py:0: error: Unsupported right operand type fo
 posthog/hogql/test/test_modifiers.py:0: error: Unsupported right operand type for in ("str | None")  [operator]
 posthog/hogql/test/test_modifiers.py:0: error: Unsupported right operand type for in ("str | None")  [operator]
 posthog/hogql/test/test_modifiers.py:0: error: Unsupported right operand type for in ("str | None")  [operator]
-posthog/hogql/test/test_modifiers.py:0: error: Unsupported right operand type for in ("str | None")  [operator]
 posthog/hogql/test/test_filters.py:0: error: Incompatible default for argument "placeholders" (default has type "None", argument has type "dict[str, Any]")  [assignment]
 posthog/hogql/test/test_filters.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/test/test_filters.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase

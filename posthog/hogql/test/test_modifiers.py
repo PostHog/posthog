@@ -47,39 +47,47 @@ class TestModifiers(BaseTest):
     def test_modifiers_persons_on_events_mode_mapping(self):
         query = "SELECT event, person.id, person.properties, person.created_at FROM events"
 
-        test_cases = [
+        test_cases: list[tuple[PersonsOnEventsMode, list[str], list[str]]] = [
             (
                 PersonsOnEventsMode.disabled,
-                "events.event AS event",
-                "events__pdi__person.id AS id",
-                "events__pdi__person.properties AS properties",
-                "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s) AS created_at",
+                [
+                    "events.event AS event",
+                    "events__pdi__person.id AS id",
+                    "events__pdi__person.properties AS properties",
+                    "toTimeZone(events__pdi__person.created_at, %(hogql_val_0)s) AS created_at",
+                ],
                 [],
             ),
             (
                 PersonsOnEventsMode.person_id_no_override_properties_on_events,
-                "events.event AS event",
-                "events.person_id AS id",
-                "events.person_properties AS properties",
-                "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
+                [
+                    "events.event AS event",
+                    "events.person_id AS id",
+                    "events.person_properties AS properties",
+                    "toTimeZone(events.person_created_at, %(hogql_val_0)s) AS created_at",
+                ],
                 [],
             ),
             (
                 PersonsOnEventsMode.person_id_override_properties_on_events,
-                "events.event AS event",
-                "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",
-                "events.person_properties AS properties",
-                "toTimeZone(events.person_created_at, %(hogql_val_1)s) AS created_at",
+                [
+                    "events.event AS event",
+                    "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",
+                    "events.person_properties AS properties",
+                    "toTimeZone(events.person_created_at, %(hogql_val_1)s) AS created_at",
+                ],
                 [
                     "events__override ON equals(events.person_id, events__override.old_person_id)",
                 ],
             ),
             (
                 PersonsOnEventsMode.person_id_override_properties_joined,
-                "events.event AS event",
-                "events__person.id AS id",
-                "events__person.properties AS properties",
-                "toTimeZone(events__person.created_at, %(hogql_val_1)s) AS created_at",
+                [
+                    "events.event AS event",
+                    "events__person.id AS id",
+                    "events__person.properties AS properties",
+                    "toTimeZone(events__person.created_at, %(hogql_val_1)s) AS created_at",
+                ],
                 [
                     "events__person ON equals(ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id), events__person.id)",
                     "events__override ON equals(events.person_id, events__override.old_person_id)",
@@ -87,16 +95,17 @@ class TestModifiers(BaseTest):
             ),
         ]
 
-        for mode, *expected, other_expected_values in test_cases:
-            response = execute_hogql_query(
+        for mode, expected_columns, other_expected_values in test_cases:
+            clickhouse_query = execute_hogql_query(
                 query,
                 team=self.team,
                 modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
                 pretty=False,
-            )
-            assert f"SELECT {', '.join(expected)} FROM" in response.clickhouse, f"PoE mode: {mode}"
+            ).clickhouse
+            assert clickhouse_query is not None
+            assert f"SELECT {', '.join(expected_columns)} FROM" in clickhouse_query, f"PoE mode: {mode}"
             for value in other_expected_values:
-                assert value in response.clickhouse
+                assert value in clickhouse_query
 
     def test_modifiers_persons_argmax_version_v2(self):
         query = "SELECT * FROM persons"
