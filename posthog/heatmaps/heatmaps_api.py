@@ -6,6 +6,7 @@ from rest_framework import viewsets, request, response, serializers, status
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.hogql.ast import Constant
+from posthog.hogql.base import Expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.rate_limit import ClickHouseSustainedRateThrottle, ClickHouseBurstRateThrottle
 
@@ -32,7 +33,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
 
 
 class HeatmapsResponseSerializer(serializers.Serializer):
-    results: serializers.ListSerializer = HeatmapResponseItemSerializer(many=True)
+    results = HeatmapResponseItemSerializer(many=True)
 
 
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -51,12 +52,12 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer = HeatmapsRequestSerializer(data=request.query_params)
         request_serializer.is_valid(raise_exception=True)
 
-        placeholders = {
+        placeholders: dict[str, Expr] | None = {
             "team_id": Constant(value=self.team.pk),
             "date_from": Constant(value=request_serializer.validated_data["date_from"]),
         }
         if request_serializer.validated_data.get("viewport_min_width", None):
-            placeholders["vp_min_w"] = Constant(value=request_serializer.validated_date["viewport_min_width"])
+            placeholders["vp_min_w"] = Constant(value=request_serializer.validated_data["viewport_min_width"])
         if request_serializer.validated_data.get("viewport_max_width", None):
             placeholders["vp_max_w"] = Constant(value=request_serializer.validated_data["viewport_max_width"])
         if request_serializer.validated_data.get("date_to", None):
