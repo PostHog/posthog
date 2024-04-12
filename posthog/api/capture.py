@@ -428,7 +428,7 @@ def get_event(request):
             )
 
         try:
-            # split the replay events off as they are passed to kafka separately
+            # split the heatmap events off as they are passed to kafka separately
             events = extract_heatmap_events(events)
 
         except Exception as e:

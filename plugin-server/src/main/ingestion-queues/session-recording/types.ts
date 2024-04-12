@@ -19,6 +19,7 @@ export type HeatmapEvent = {
     scale_factor: 16 // in the future we may support other values
     timestamp: string
     type: string
+    team_id: number
 }
 
 export type IncomingRecordingMessage = {

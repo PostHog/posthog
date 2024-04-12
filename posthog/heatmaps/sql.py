@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- some elements move when the page scrolls, others do not
     pointer_target_fixed Bool,
     current_url VARCHAR
+    type LowCardinality(String)
 ) ENGINE = {engine}
 """
 
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- some elements move when the page scrolls, others do not
     pointer_target_fixed Bool,
     current_url VARCHAR,
+    type LowCardinality(String),
     _timestamp DateTime
 ) ENGINE = {engine}
 """
@@ -72,13 +74,14 @@ HEATMAPS_TABLE_SQL = lambda: (
     + """
     PARTITION BY toYYYYMM(timestamp)
     -- almost always this is being queried by
+    --   * type,
     --   * team_id,
     --   * date range,
     --   * URL (maybe matching wild cards),
     --   * width
     -- we'll almost never query this by session id
     -- so from least to most cardinality that's
-    ORDER BY (team_id,  toDate(timestamp), current_url, viewport_width)
+    ORDER BY (type, team_id,  toDate(timestamp), current_url, viewport_width)
 -- I am purposefully not setting index granularity
 -- the default is 8192, and we will be loading a lot of data
 -- per query, we tend to copy this 512 around the place but
@@ -115,6 +118,7 @@ AS SELECT
     -- some elements move when the page scrolls, others do not
     pointer_target_fixed,
     current_url
+    type
 FROM {database}.kafka_heatmaps
 """.format(
         target_table="writable_heatmaps",

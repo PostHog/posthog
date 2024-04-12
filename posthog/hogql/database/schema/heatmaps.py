@@ -22,6 +22,7 @@ class HeatmapsTable(Table):
         "pointer_target_fixed": BooleanDatabaseField(name="pointer_target_fixed"),
         "current_url": StringDatabaseField(name="current_url"),
         "timestamp": DateTimeDatabaseField(name="timestamp"),
+        "type": StringDatabaseField(name="type"),
         # join to get analytics for heatmap areas?
         # "session": LazyJoin(
         #     from_field=["session_id"],
