@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
 
@@ -61,7 +62,10 @@ export const EventDebugMenu = (): JSX.Element => {
                                     <AnimatedCollapsible
                                         collapsed={e.uuid === undefined ? true : isCollapsedEventRow(e.uuid)}
                                     >
-                                        <pre>{JSON.stringify(e, null, 2)}</pre>
+                                        <SimpleKeyValueList
+                                            item={e.event === '$snapshot' ? e : e.properties}
+                                            emptyMessage="No events seen yet."
+                                        />
                                     </AnimatedCollapsible>
                                 </div>
                             )
