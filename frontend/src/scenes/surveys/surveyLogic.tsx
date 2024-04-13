@@ -26,7 +26,7 @@ import {
 
 import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
-import { surveysLogic } from './surveysLogic'
+import { duplicateExistingSurvey, surveysLogic } from './surveysLogic'
 import { sanitizeHTML } from './utils'
 
 export enum SurveyEditSection {
@@ -159,6 +159,11 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             updateSurvey: async (surveyPayload: Partial<Survey>) => {
                 return await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
+            },
+            duplicateSurvey: async () => {
+                const { survey } = values
+                const payload = duplicateExistingSurvey(survey)
+                return await api.surveys.create(sanitizeQuestions(payload))
             },
             launchSurvey: async () => {
                 const startDate = dayjs()
@@ -412,6 +417,11 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.editingSurvey(false)
             actions.reportSurveyEdited(survey)
             actions.loadSurveys()
+        },
+        duplicateSurveySuccess: ({ survey }) => {
+            lemonToast.success(<>Survey {survey.name} is a duplicate copy, and can be edited now</>)
+            actions.loadSurveys()
+            router.actions.replace(urls.survey(survey.id))
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)

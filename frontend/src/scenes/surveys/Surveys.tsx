@@ -58,7 +58,7 @@ export function Surveys(): JSX.Element {
         showSurveysDisabledBanner,
     } = useValues(surveysLogic)
 
-    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters } = useActions(surveysLogic)
+    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, duplicateSurvey } = useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
 
@@ -311,6 +311,14 @@ export function Surveys(): JSX.Element {
                                                                 Resume survey
                                                             </LemonButton>
                                                         )}
+                                                        <LemonButton
+                                                            fullWidth
+                                                            onClick={() => {
+                                                                duplicateSurvey(survey.id)
+                                                            }}
+                                                        >
+                                                            Duplicate Survey
+                                                        </LemonButton>
                                                         <LemonDivider />
                                                         {survey.end_date && survey.archived && (
                                                             <LemonButton

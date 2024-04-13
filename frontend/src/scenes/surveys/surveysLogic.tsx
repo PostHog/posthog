@@ -11,7 +11,22 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 
+import { NEW_SURVEY, NewSurvey } from './constants'
 import type { surveysLogicType } from './surveysLogicType'
+
+export function duplicateExistingSurvey(survey: Partial<Survey>): NewSurvey {
+    const copiedNewSurvey = Object.keys(NEW_SURVEY).reduce((acc, key) => {
+        acc[key] = survey[key]
+        return acc
+    }, {}) as NewSurvey
+
+    return {
+        ...copiedNewSurvey,
+        id: NEW_SURVEY.id,
+        name: `${survey.name} (copy)`,
+        archived: false,
+    }
+}
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -53,6 +68,11 @@ export const surveysLogic = kea<surveysLogicType>([
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
                 return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
             },
+            duplicateSurvey: async (id) => {
+                const surveyToDuplicate = await api.surveys.get(id)
+                const newSurvey = await api.surveys.create(duplicateExistingSurvey(surveyToDuplicate))
+                return [...values.surveys, newSurvey]
+            },
         },
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
@@ -93,6 +113,10 @@ export const surveysLogic = kea<surveysLogicType>([
             actions.loadResponsesCount()
         },
         loadSurveysSuccess: () => {
+            actions.loadCurrentTeam()
+        },
+        duplicateSurveySuccess: () => {
+            lemonToast.success('Survey duplicated')
             actions.loadCurrentTeam()
         },
     })),

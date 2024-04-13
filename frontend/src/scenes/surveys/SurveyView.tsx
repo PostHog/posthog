@@ -34,8 +34,16 @@ import {
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, selectedQuestion, targetingFlagFilters } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, setSelectedQuestion } =
-        useActions(surveyLogic)
+    const {
+        editingSurvey,
+        updateSurvey,
+        launchSurvey,
+        stopSurvey,
+        archiveSurvey,
+        resumeSurvey,
+        setSelectedQuestion,
+        duplicateSurvey,
+    } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
@@ -65,6 +73,13 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     onClick={() => editingSurvey(true)}
                                                 >
                                                     Edit
+                                                </LemonButton>
+                                                <LemonButton
+                                                    data-attr="duplicate-survey"
+                                                    fullWidth
+                                                    onClick={duplicateSurvey}
+                                                >
+                                                    Duplicate
                                                 </LemonButton>
                                                 <LemonDivider />
                                             </>
