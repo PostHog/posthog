@@ -14,6 +14,10 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
     CLASS_DATA_LEVEL_SETUP = False
 
+    def _assert_heatmap_no_result_count(self, params: Dict[str, str] | None) -> None:
+        response = self._get_heatmap(params)
+        assert len(response.json()["results"]) == 0
+
     def _assert_heatmap_single_result_count(self, params: Dict[str, str] | None, expected_grouped_count: int) -> None:
         response = self._get_heatmap(params)
         assert len(response.json()["results"]) == 1
@@ -31,7 +35,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @snapshot_clickhouse_queries
     def test_can_get_empty_response(self) -> None:
-        response = self.client.get("/api/heatmap/")
+        response = self.client.get("/api/heatmap/?date_from=2024-05-03")
         assert response.status_code == 200
         self.assertEqual(response.json(), {"results": []})
 
@@ -137,16 +141,38 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ],
         }
 
-    # @snapshot_clickhouse_queries
-    # def test_can_get_filter_by_viewport(self) -> None:
-    #     self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", 150)
-    #     self._create_heatmap_event("session_2", "rageclick", "2023-03-08T08:00:00", 151)
-    #     self._create_heatmap_event("session_2", "rageclick", "2023-03-08T08:01:00", 152)
-    #
-    #     self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "150"}, 3)
-    #     self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "151"}, 1)
-    #     self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "152"}, 1)
-    #     self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "153"}, 1)
+    @snapshot_clickhouse_queries
+    def test_can_get_filter_by_min_viewport(self) -> None:
+        # all scale to 10
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", 150)
+        self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", 151)
+        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 152)
+        # scale to 11
+        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 161)
+        # scales to 12
+        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 177)
+
+        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "150"}, 5)
+        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "161"}, 2)
+        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "177"}, 1)
+        self._assert_heatmap_no_result_count({"date_from": "2023-03-08", "viewport_width_min": "193"})
+
+    @snapshot_clickhouse_queries
+    def test_can_get_filter_by_min_and_max_viewport(self) -> None:
+        # all scale to 10
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", 150)
+        self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", 151)
+        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 152)
+        # scale to 11
+        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 161)
+        # scales to 12
+        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 177)
+        # scales to 13
+        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 193)
+
+        self._assert_heatmap_single_result_count(
+            {"date_from": "2023-03-08", "viewport_width_min": 161, "viewport_width_max": 192}, 2
+        )
 
     @snapshot_clickhouse_queries
     def test_can_get_count_by_aggregation(self) -> None:
