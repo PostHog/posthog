@@ -58,7 +58,9 @@ export const ActivityMenu = (): JSX.Element => {
                                             <TZLabel time={e.timestamp} />
                                         </div>
                                     </div>
-                                    <AnimatedCollapsible collapsed={isCollapsedEventRow(e.uuid as string)}>
+                                    <AnimatedCollapsible
+                                        collapsed={e.uuid === undefined ? true : isCollapsedEventRow(e.uuid)}
+                                    >
                                         <pre>{JSON.stringify(e, null, 2)}</pre>
                                     </AnimatedCollapsible>
                                 </div>
