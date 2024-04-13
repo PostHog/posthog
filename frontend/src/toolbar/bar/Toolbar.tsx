@@ -21,7 +21,7 @@ import { useEffect, useRef } from 'react'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { ActivityMenu } from '~/toolbar/debug/ActivityMenu'
+import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -100,8 +100,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ActionsToolbarMenu />
     ) : visibleMenu === 'hedgehog' ? (
         <HedgehogMenu />
-    ) : visibleMenu === 'activity' ? (
-        <ActivityMenu />
+    ) : visibleMenu === 'debugger' ? (
+        <EventDebugMenu />
     ) : null
 
     useEffect(() => {
@@ -208,7 +208,7 @@ export function Toolbar(): JSX.Element {
                         <ToolbarButton menuId="flags" title="Feature flags">
                             <IconToggle />
                         </ToolbarButton>
-                        <ToolbarButton menuId="activity" title="Live events">
+                        <ToolbarButton menuId="debugger" title="Event debugger">
                             <IconLive />
                         </ToolbarButton>
                     </>

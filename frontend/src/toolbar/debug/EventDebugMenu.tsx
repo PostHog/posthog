@@ -4,13 +4,13 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
-import { activityMenuLogic } from '~/toolbar/debug/activityMenuLogic'
+import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
 
 import { ToolbarMenu } from '../bar/ToolbarMenu'
 
-export const ActivityMenu = (): JSX.Element => {
-    const { events, isCollapsedEventRow, expandedEvent, showRecordingSnapshots } = useValues(activityMenuLogic)
-    const { markExpanded, setShowRecordingSnapshots } = useActions(activityMenuLogic)
+export const EventDebugMenu = (): JSX.Element => {
+    const { events, isCollapsedEventRow, expandedEvent, showRecordingSnapshots } = useValues(eventDebugMenuLogic)
+    const { markExpanded, setShowRecordingSnapshots } = useActions(eventDebugMenuLogic)
 
     return (
         <ToolbarMenu>
@@ -46,7 +46,7 @@ export const ActivityMenu = (): JSX.Element => {
                         .map((e, i) => {
                             return (
                                 <div
-                                    className={clsx('-mx-1 py-1 px-2 pointer', i === 0 && 'bg-mark')}
+                                    className={clsx('-mx-1 py-1 px-2 cursor-pointer', i === 0 && 'bg-mark')}
                                     key={e.uuid}
                                     onClick={() => {
                                         expandedEvent === e.uuid ? markExpanded(null) : markExpanded(e.uuid || null)

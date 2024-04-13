@@ -5,10 +5,10 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { EventType } from '~/types'
 
-import type { activityMenuLogicType } from './activityMenuLogicType'
+import type { eventDebugMenuLogicType } from './eventDebugMenuLogicType'
 
-export const activityMenuLogic = kea<activityMenuLogicType>([
-    path(['toolbar', 'debug', 'activityMenuLogic']),
+export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
+    path(['toolbar', 'debug', 'eventDebugMenuLogic']),
     connect(() => ({
         values: [toolbarConfigLogic, ['posthog']],
     })),
@@ -52,8 +52,8 @@ export const activityMenuLogic = kea<activityMenuLogicType>([
             },
         ],
     }),
-    afterMount(({ cache, values, actions }) => {
-        cache.unsubscribe = values.posthog?.debugEventEmitter.on('eventCaptured', (e) => {
+    afterMount(({ values, actions }) => {
+        values.posthog?.debugEventEmitter.on('eventCaptured', (e) => {
             if (!e.uuid) {
                 e.uuid = uuid()
             }
