@@ -1,12 +1,14 @@
 from datetime import datetime, timedelta, date
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from rest_framework import viewsets, request, response, serializers, status
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import TemporaryTokenAuthentication
+from posthog.hogql import ast
 from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.rate_limit import ClickHouseSustainedRateThrottle, ClickHouseBurstRateThrottle
 from posthog.schema import HogQLQueryResponse
@@ -21,15 +23,12 @@ DEFAULT_QUERY = """
                         round((x / viewport_width), 2) as relative_client_x,
                         y * scale_factor as client_y
                      from heatmaps
-                     where {date_from_predicate}
-                     {date_to_predicate}
-                     {viewport_min_width_predicate}
-                     {viewport_max_width_predicate}
-                     {url_exact_predicate}
-                     {url_pattern_predicate}
-                     {type_predicate}
+                     where {predicates}
                 )
             group by `pointer_target_fixed`, relative_client_x, client_y
+            -- hogql enforces a limit (and only allows a max of 10000) but we don't really want one
+            -- see https://github.com/PostHog/posthog/blob/715a8b924e7c5dca7ae986bfdba6072b3999dbed/posthog/hogql/constants.py#L33
+            limit 10000000
             """
 
 SCROLL_DEPTH_QUERY = """
@@ -40,22 +39,19 @@ SELECT
 FROM (
     SELECT
         intDiv(scroll_y, 100) * 100 as bucket,
-        count({aggregation_count}) as cnt
+        {aggregation_count} as cnt
     FROM (
         SELECT
            distinct_id, (y + viewport_height) * scale_factor as scroll_y
         FROM heatmaps
-        WHERE {date_from_predicate}
-        {date_to_predicate}
-        {viewport_min_width_predicate}
-        {viewport_max_width_predicate}
-        {url_exact_predicate}
-        {url_pattern_predicate}
-        {type_predicate}
+        WHERE {predicates}
     )
     GROUP BY bucket
 )
 ORDER BY bucket
+-- hogql enforces a limit (and only allows a max of 10000) but we don't really want one
+-- see https://github.com/PostHog/posthog/blob/715a8b924e7c5dca7ae986bfdba6072b3999dbed/posthog/hogql/constants.py#L33
+limit 10000000
 """
 
 
@@ -145,32 +141,15 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation_value = "count(*) as cnt" if aggregation == "total_count" else "count(distinct distinct_id) as cnt"
         if is_scrolldepth_query:
-            # then this is dropped in to `count`
-            aggregation_value = "*" if aggregation == "total_count" else "distinct distinct_id"
-        formatted_query = raw_query.format(
-            # required
-            date_from_predicate="timestamp >= {date_from}",
-            aggregation_count=aggregation_value,
-            # optional
-            date_to_predicate="and timestamp <= {date_to} + interval 1 day"
-            if placeholders.get("date_to", None)
-            else "",
-            viewport_min_width_predicate="and viewport_width >= ceil({viewport_width_min} / 16)"
-            if placeholders.get("viewport_width_min", None)
-            else "",
-            viewport_max_width_predicate="and viewport_width <= ceil({viewport_width_max} / 16)"
-            if placeholders.get("viewport_width_max", None)
-            else "",
-            url_exact_predicate="and current_url = {url_exact}" if placeholders.get("url_exact", None) else "",
-            url_pattern_predicate="and match(current_url, {url_pattern})"
-            if placeholders.get("url_pattern", None)
-            else "",
-            type_predicate="and type = {type}" if placeholders.get("type", None) else "",
-        )
+            aggregation_value = "count(*)" if aggregation == "total_count" else "count(distinct distinct_id)"
+        aggregation_count = parse_expr(aggregation_value)
+
+        exprs = self._predicate_expressions(placeholders)
+
+        stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
 
         doohickies = execute_hogql_query(
-            query=formatted_query,
-            placeholders=placeholders,
+            query=stmt,
             team=self.team,
         )
 
@@ -178,6 +157,51 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self._return_scroll_depth_response(doohickies)
         else:
             return self._return_heatmap_coordinates_response(doohickies)
+
+    def _predicate_expressions(self, placeholders):
+        exprs: List[ast.Expr] = []
+
+        predicate_mapping = {
+            # should always have values
+            "date_from": "timestamp >= {date_from}",
+            "type": "`type` = {type}",
+            # optional
+            "date_to": "timestamp <= {date_to} + interval 1 day",
+            "viewport_width_min": "viewport_width >= ceil({viewport_width_min} / 16)",
+            "viewport_width_max": "viewport_width <= ceil({viewport_width_max} / 16)",
+            "url_exact": "current_url = {url_exact}",
+            "url_pattern": "match(current_url, {url_pattern})",
+        }
+
+        for predicate_key in placeholders.keys():
+            exprs.append(parse_expr(predicate_mapping[predicate_key], {predicate_key: placeholders[predicate_key]}))
+
+        if len(exprs) == 0:
+            raise serializers.ValidationError("must always generate some filter conditions")
+
+        # if placeholders.get("date_to", None):
+        #     exprs.append(parse_expr("timestamp <= {date_to} + interval 1 day", {"date_to": placeholders["date_to"]}))
+        # if placeholders.get("viewport_width_min", None):
+        #     exprs.append(
+        #         parse_expr(
+        #             "viewport_width >= ceil({viewport_width_min} / 16)",
+        #             {"viewport_width_min": placeholders["viewport_width_min"]},
+        #         )
+        #     )
+        # if placeholders.get("viewport_width_max", None):
+        #     exprs.append(
+        #         parse_expr(
+        #             "viewport_width <= ceil({viewport_width_max} / 16)",
+        #             {"viewport_width_max": placeholders["viewport_width_max"]},
+        #         )
+        #     )
+        # if placeholders.get("url_exact", None):
+        #     exprs.append(parse_expr("current_url = {url_exact}", {"url_exact": placeholders["url_exact"]}))
+        # if placeholders.get("url_pattern", None):
+        #     exprs.append(parse_expr("match(current_url, {url_pattern})", {"url_pattern": placeholders["url_pattern"]}))
+        # if placeholders.get("type", None):
+        #     exprs.append(parse_expr("`type` = {type}", {"type": placeholders["type"]}))
+        return exprs
 
     def _return_heatmap_coordinates_response(self, query_response: HogQLQueryResponse) -> response.Response:
         data = [
