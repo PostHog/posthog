@@ -69,9 +69,7 @@ export const EventDebugMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
-                <span className="text-xs">
-                    View events from this page before they are sent to PostHog (newest first).
-                </span>
+                <span className="text-xs">View events from this page as they are sent to PostHog.</span>
             </ToolbarMenu.Footer>
         </ToolbarMenu>
     )
