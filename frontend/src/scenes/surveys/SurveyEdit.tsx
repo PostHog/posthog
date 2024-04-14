@@ -523,6 +523,11 @@ export default function SurveyEdit(): JSX.Element {
                                                                                 ...value,
                                                                                 seenSurveyWaitPeriodInDays: val,
                                                                             })
+                                                                        } else {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                seenSurveyWaitPeriodInDays: null,
+                                                                            })
                                                                         }
                                                                     }}
                                                                     className="w-16"
@@ -616,7 +621,7 @@ export default function SurveyEdit(): JSX.Element {
                                         min={1}
                                         value={survey.responses_limit || NaN}
                                         onChange={(value) => {
-                                            if (value > 0) {
+                                            if (value && value > 0) {
                                                 setSurveyValue('responses_limit', value)
                                             } else {
                                                 setSurveyValue('responses_limit', null)
