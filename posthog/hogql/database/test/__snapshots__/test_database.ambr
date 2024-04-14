@@ -636,6 +636,10 @@
               "type": "string"
           },
           {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
               "key": "x",
               "type": "integer"
           },
@@ -1612,6 +1616,10 @@
       "heatmaps": [
           {
               "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
               "type": "string"
           },
           {

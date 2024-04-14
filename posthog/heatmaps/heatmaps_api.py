@@ -158,10 +158,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         else:
             return self._return_heatmap_coordinates_response(doohickies)
 
-    def _predicate_expressions(self, placeholders):
-        exprs: List[ast.Expr] = []
+    @staticmethod
+    def _predicate_expressions(placeholders: Dict[str, Expr]) -> List[ast.Expr]:
+        predicate_expressions: List[ast.Expr] = []
 
-        predicate_mapping = {
+        predicate_mapping: Dict[str, str] = {
             # should always have values
             "date_from": "timestamp >= {date_from}",
             "type": "`type` = {type}",
@@ -174,36 +175,17 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         }
 
         for predicate_key in placeholders.keys():
-            exprs.append(parse_expr(predicate_mapping[predicate_key], {predicate_key: placeholders[predicate_key]}))
+            predicate_expressions.append(
+                parse_expr(predicate_mapping[predicate_key], {predicate_key: placeholders[predicate_key]})
+            )
 
-        if len(exprs) == 0:
+        if len(predicate_expressions) == 0:
             raise serializers.ValidationError("must always generate some filter conditions")
 
-        # if placeholders.get("date_to", None):
-        #     exprs.append(parse_expr("timestamp <= {date_to} + interval 1 day", {"date_to": placeholders["date_to"]}))
-        # if placeholders.get("viewport_width_min", None):
-        #     exprs.append(
-        #         parse_expr(
-        #             "viewport_width >= ceil({viewport_width_min} / 16)",
-        #             {"viewport_width_min": placeholders["viewport_width_min"]},
-        #         )
-        #     )
-        # if placeholders.get("viewport_width_max", None):
-        #     exprs.append(
-        #         parse_expr(
-        #             "viewport_width <= ceil({viewport_width_max} / 16)",
-        #             {"viewport_width_max": placeholders["viewport_width_max"]},
-        #         )
-        #     )
-        # if placeholders.get("url_exact", None):
-        #     exprs.append(parse_expr("current_url = {url_exact}", {"url_exact": placeholders["url_exact"]}))
-        # if placeholders.get("url_pattern", None):
-        #     exprs.append(parse_expr("match(current_url, {url_pattern})", {"url_pattern": placeholders["url_pattern"]}))
-        # if placeholders.get("type", None):
-        #     exprs.append(parse_expr("`type` = {type}", {"type": placeholders["type"]}))
-        return exprs
+        return predicate_expressions
 
-    def _return_heatmap_coordinates_response(self, query_response: HogQLQueryResponse) -> response.Response:
+    @staticmethod
+    def _return_heatmap_coordinates_response(query_response: HogQLQueryResponse) -> response.Response:
         data = [
             {
                 "pointer_target_fixed": item[0],
@@ -218,7 +200,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         response_serializer.is_valid(raise_exception=True)
         return response.Response(response_serializer.data, status=status.HTTP_200_OK)
 
-    def _return_scroll_depth_response(self, query_response: HogQLQueryResponse) -> response.Response:
+    @staticmethod
+    def _return_scroll_depth_response(query_response: HogQLQueryResponse) -> response.Response:
         data = [
             {
                 "scroll_depth_bucket": item[0],
