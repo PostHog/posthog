@@ -65,18 +65,17 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
 
 export function ScrollDepth(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
-    const { heatmapEnabled, heatmapFilters, scrollmapElements } = useValues(heatmapLogic)
+
+    const { heatmapEnabled, heatmapFilters, scrollmapElements, scrollDepthPosthogJsError } = useValues(heatmapLogic)
 
     if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type !== 'scrolldepth') {
         return null
     }
 
-    const ph = posthog as any
-
-    if (!ph.scrollManager || !ph.scrollManager.scrollY) {
-        return <div>Scroll depth issue</div>
+    if (!scrollDepthPosthogJsError) {
+        return null
     }
-    const supportsScrollDepth = ph.scrollManager.scrollY()
+    const scrollOffset = (posthog as any).scrollManager.scrollY()
 
     // We want to have a fading color from red to orange to green to blue to grey, fading from the highest coun to the lowest
 
