@@ -72,7 +72,7 @@ export function ScrollDepth(): JSX.Element | null {
         return null
     }
 
-    if (!scrollDepthPosthogJsError) {
+    if (scrollDepthPosthogJsError) {
         return null
     }
     const scrollOffset = (posthog as any).scrollManager.scrollY()
