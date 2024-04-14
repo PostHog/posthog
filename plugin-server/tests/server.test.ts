@@ -54,6 +54,8 @@ describe('server', () => {
     })
 
     test('starting and stopping node-schedule scheduled jobs', async () => {
+        jest.setTimeout(3000)
+
         expect(numberOfScheduledJobs()).toEqual(0)
 
         pluginsServer = await createPluginServer()
