@@ -610,8 +610,8 @@ export default function SurveyEdit(): JSX.Element {
                                     <LemonCheckbox
                                         checked={!!survey.responses_limit}
                                         onChange={(checked) => {
-                                            const newValue = checked ? 100 : null
-                                            setSurveyValue('responses_limit', newValue)
+                                            const newResponsesLimit = checked ? 100 : null
+                                            setSurveyValue('responses_limit', newResponsesLimit)
                                         }}
                                     />
                                     Stop the survey once received

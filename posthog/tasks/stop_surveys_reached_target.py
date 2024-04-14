@@ -1,10 +1,12 @@
 from typing import List, Dict
-from posthog.models import Survey
-from posthog.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+
+from celery import shared_task
 from django.db.models import UUIDField
 from django.utils import timezone
-from celery import shared_task
+
+from posthog.clickhouse.client.connection import Workload
+from posthog.client import sync_execute
+from posthog.models import Survey
 
 
 def _get_surveys_response_counts(surveys_ids: List[UUIDField]) -> Dict[str, int]:
@@ -38,6 +40,7 @@ def stop_surveys_reached_target() -> None:
         if survey_id not in response_counts:
             continue
 
+        assert survey.responses_limit is not None
         response_count = response_counts[survey_id]
         if response_count < survey.responses_limit:
             continue
