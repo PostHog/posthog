@@ -40,6 +40,7 @@ const MOCK_BASIC_SURVEY: Survey = {
     start_date: null,
     end_date: null,
     archived: false,
+    responses_limit: null,
 }
 
 const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
@@ -110,6 +111,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     start_date: '2023-04-29T10:04:37.977401Z',
     end_date: null,
     archived: false,
+    responses_limit: null,
 }
 
 const MOCK_SURVEY_SHOWN = {
