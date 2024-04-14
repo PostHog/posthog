@@ -11,46 +11,31 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText, dateMapping } from 'lib/utils'
-import { useMemo } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
-import { toolbarConfigLogic } from '../toolbarConfigLogic'
-
-const SCROLL_DEPTH_JS_VERSION = [1, 99]
-
 const ScrollDepthJSWarning = (): JSX.Element | null => {
-    const { posthog } = useValues(toolbarConfigLogic)
+    const { scrollDepthPosthogJsError } = useValues(heatmapLogic)
 
-    const message = useMemo(() => {
-        const posthogVersion = posthog?._calculate_event_properties('test', {})?.['$lib_version'] ?? '0.0.0'
-        const majorMinorVersion = posthogVersion.split('.')
-        const majorVersion = parseInt(majorMinorVersion[0], 10)
-        const minorVersion = parseInt(majorMinorVersion[1], 10)
-
-        const isSupported =
-            majorVersion > SCROLL_DEPTH_JS_VERSION[0] ||
-            (majorVersion === SCROLL_DEPTH_JS_VERSION[0] && minorVersion >= SCROLL_DEPTH_JS_VERSION[1])
-        const isDisabled = posthog?.config.disable_scroll_properties
-
-        return !isSupported ? (
-            <>This feature requires a newer version of posthog-js</>
-        ) : isDisabled ? (
-            <>
-                Your posthog-js config has <i>disable_scroll_properties</i> set - these properties are required for
-                scroll depth calculations to work.
-            </>
-        ) : null
-    }, [posthog])
-
-    if (!message) {
+    if (!scrollDepthPosthogJsError) {
         return null
     }
 
-    return <p className="my-2 bg-danger-highlight border border-danger rounded p-2">{message}</p>
+    return (
+        <p className="my-2 bg-danger-highlight border border-danger rounded p-2">
+            {scrollDepthPosthogJsError === 'version' ? (
+                <>This feature requires a newer version of posthog-js</>
+            ) : scrollDepthPosthogJsError === 'disabled' ? (
+                <>
+                    Your posthog-js config has <i>disable_scroll_properties</i> set - these properties are required for
+                    scroll depth calculations to work.
+                </>
+            ) : null}
+        </p>
+    )
 }
 
 export const HeatmapToolbarMenu = (): JSX.Element => {
@@ -158,6 +143,16 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     />
                                 </div>
 
+                                {heatmapFilters.type === 'scrolldepth' && (
+                                    <>
+                                        <p>
+                                            Scroll depth uses additional information from Pageview and Pageleave events
+                                            to indicate how far down the page users have scrolled.
+                                        </p>
+                                        <ScrollDepthJSWarning />
+                                    </>
+                                )}
+
                                 <LemonLabel>Aggregation</LemonLabel>
                                 <div className="flex gap-2 justify-between items-center">
                                     <LemonSegmentedButton
@@ -176,16 +171,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                         size="small"
                                     />
                                 </div>
-
-                                {heatmapFilters.type === 'scrolldepth' && (
-                                    <>
-                                        <p>
-                                            Scroll depth uses additional information from Pageview and Pageleave events
-                                            to indicate how far down the page users have scrolled.
-                                        </p>
-                                        <ScrollDepthJSWarning />
-                                    </>
-                                )}
 
                                 <LemonLabel>Viewport accuracy</LemonLabel>
                                 <div className="flex gap-2 justify-between items-center">

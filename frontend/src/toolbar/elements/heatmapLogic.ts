@@ -23,6 +23,8 @@ import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
 
+export const SCROLL_DEPTH_JS_VERSION = [1, 99]
+
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
     previous: undefined,
@@ -460,6 +462,27 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     min: Math.round(minWidth),
                     max: Math.round(maxWidth),
                 }
+            },
+        ],
+
+        scrollDepthPosthogJsError: [
+            (s) => [toolbarConfigLogic.selectors.posthog],
+            (posthog): 'version' | 'disabled' | null => {
+                const posthogVersion = posthog?._calculate_event_properties('test', {})?.['$lib_version'] ?? '0.0.0'
+                const majorMinorVersion = posthogVersion.split('.')
+                const majorVersion = parseInt(majorMinorVersion[0], 10)
+                const minorVersion = parseInt(majorMinorVersion[1], 10)
+
+                if (!posthog?.scrollManager?.scrollY) {
+                    return 'version'
+                }
+
+                const isSupported =
+                    majorVersion > SCROLL_DEPTH_JS_VERSION[0] ||
+                    (majorVersion === SCROLL_DEPTH_JS_VERSION[0] && minorVersion >= SCROLL_DEPTH_JS_VERSION[1])
+                const isDisabled = posthog?.config.disable_scroll_properties
+
+                return !isSupported ? 'version' : isDisabled ? 'disabled' : null
             },
         ],
     })),

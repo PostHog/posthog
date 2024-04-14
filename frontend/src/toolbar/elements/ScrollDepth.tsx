@@ -71,10 +71,12 @@ export function ScrollDepth(): JSX.Element | null {
         return null
     }
 
-    // Remove as any once we have the scrollmanager stuff merged
     const ph = posthog as any
 
-    const scrollOffset = ph.scrollManager.scrollY()
+    if (!ph.scrollManager || !ph.scrollManager.scrollY) {
+        return <div>Scroll depth issue</div>
+    }
+    const supportsScrollDepth = ph.scrollManager.scrollY()
 
     // We want to have a fading color from red to orange to green to blue to grey, fading from the highest coun to the lowest
 
