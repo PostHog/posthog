@@ -25,6 +25,7 @@ class TestMappings(BaseTest):
     def test_find_case_sensitive_function(self):
         self.assertEquals(self._get_hogql_function("toString").clickhouse_name, "toString")
         self.assertEquals(find_hogql_function("TOString"), None)
+        self.assertEquals(find_hogql_function("PlUs"), None)
 
         self.assertEquals(self._get_hogql_aggregation("countIf").clickhouse_name, "countIf")
         self.assertEquals(find_hogql_aggregation("COUNTIF"), None)
