@@ -159,7 +159,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self._return_heatmap_coordinates_response(doohickies)
 
     @staticmethod
-    def _predicate_expressions(placeholders: Dict[str, str | int]) -> List[ast.Expr]:
+    def _predicate_expressions(placeholders: Dict[str, Expr]) -> List[ast.Expr]:
         predicate_expressions: List[ast.Expr] = []
 
         predicate_mapping: Dict[str, str] = {
@@ -184,7 +184,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return predicate_expressions
 
-    def _return_heatmap_coordinates_response(self, query_response: HogQLQueryResponse) -> response.Response:
+    @staticmethod
+    def _return_heatmap_coordinates_response(query_response: HogQLQueryResponse) -> response.Response:
         data = [
             {
                 "pointer_target_fixed": item[0],
@@ -199,7 +200,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         response_serializer.is_valid(raise_exception=True)
         return response.Response(response_serializer.data, status=status.HTTP_200_OK)
 
-    def _return_scroll_depth_response(self, query_response: HogQLQueryResponse) -> response.Response:
+    @staticmethod
+    def _return_scroll_depth_response(query_response: HogQLQueryResponse) -> response.Response:
         data = [
             {
                 "scroll_depth_bucket": item[0],
