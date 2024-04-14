@@ -125,7 +125,7 @@ export const parseKafkaMessage = async (
             }
         })
     } catch (e) {
-        status.error('🔥', 'heatmap_ingester_consumer - failed to parse heatmap data', e)
+        status.error('🔥', `heatmap_ingester_consumer - failed to parse heatmap data: ${e}`)
     }
 
     return heatmapEvents
