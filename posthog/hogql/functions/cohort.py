@@ -31,32 +31,32 @@ def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.E
     from posthog.models import Cohort
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-        cohorts = Cohort.objects.filter(id=int(arg.value), team_id=context.team_id).values_list(
+        cohorts1 = Cohort.objects.filter(id=int(arg.value), team_id=context.team_id).values_list(
             "id", "is_static", "version", "name"
         )
-        if len(cohorts) == 1:
+        if len(cohorts1) == 1:
             context.add_notice(
                 start=arg.start,
                 end=arg.end,
-                message=f"Cohort #{cohorts[0][0]} can also be specified as {escape_clickhouse_string(cohorts[0][3])}",
-                fix=escape_clickhouse_string(cohorts[0][3]),
+                message=f"Cohort #{cohorts1[0][0]} can also be specified as {escape_clickhouse_string(cohorts1[0][3])}",
+                fix=escape_clickhouse_string(cohorts1[0][3]),
             )
-            return cohort_subquery(cohorts[0][0], cohorts[0][1], cohorts[0][2])
+            return cohort_subquery(cohorts1[0][0], cohorts1[0][1], cohorts1[0][2])
         raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
     if isinstance(arg.value, str):
-        cohorts = Cohort.objects.filter(name=arg.value, team_id=context.team_id).values_list(
+        cohorts2 = Cohort.objects.filter(name=arg.value, team_id=context.team_id).values_list(
             "id", "is_static", "version"
         )
-        if len(cohorts) == 1:
+        if len(cohorts2) == 1:
             context.add_notice(
                 start=arg.start,
                 end=arg.end,
-                message=f"Searching for cohort by name. Replace with numeric ID {cohorts[0][0]} to protect against renaming.",
-                fix=str(cohorts[0][0]),
+                message=f"Searching for cohort by name. Replace with numeric ID {cohorts2[0][0]} to protect against renaming.",
+                fix=str(cohorts2[0][0]),
             )
-            return cohort_subquery(cohorts[0][0], cohorts[0][1], cohorts[0][2])
-        elif len(cohorts) > 1:
+            return cohort_subquery(cohorts2[0][0], cohorts2[0][1], cohorts2[0][2])
+        elif len(cohorts2) > 1:
             raise QueryError(f"Found multiple cohorts with name '{arg.value}'", node=arg)
         raise QueryError(f"Could not find a cohort with the name '{arg.value}'", node=arg)
 
