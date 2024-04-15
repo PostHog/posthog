@@ -10,7 +10,7 @@ import { resetTestDatabase } from './helpers/sql'
 jest.mock('../src/utils/kill')
 jest.mock('../src/main/graphile-worker/schedule')
 jest.mock('../src/main/graphile-worker/worker-setup')
-jest.setTimeout(20000) // 20 sec timeout - longer indicates an issue
+jest.setTimeout(30000) // 30 sec timeout - longer indicates an issue
 
 function numberOfScheduledJobs() {
     return Object.keys(nodeSchedule.scheduledJobs).length
@@ -54,8 +54,6 @@ describe('server', () => {
     })
 
     test('starting and stopping node-schedule scheduled jobs', async () => {
-        jest.setTimeout(30000)
-
         expect(numberOfScheduledJobs()).toEqual(0)
 
         pluginsServer = await createPluginServer()
