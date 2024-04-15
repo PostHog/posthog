@@ -960,7 +960,6 @@
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
   '''
-  /* cohort_calculation: */
   SELECT [ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), '')] AS value,
          count(*) AS count
   FROM events AS e
@@ -982,7 +981,6 @@
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen.1
   '''
-  /* cohort_calculation: */
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
@@ -1068,7 +1066,6 @@
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
   '''
-  /* cohort_calculation: */
   SELECT [ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), '')] AS value,
          count(*) AS count
   FROM events AS e
@@ -1090,7 +1087,6 @@
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step.1
   '''
-  /* cohort_calculation: */
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
