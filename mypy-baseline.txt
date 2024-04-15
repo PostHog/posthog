@@ -255,8 +255,6 @@ posthog/hogql/transforms/in_cohort.py:0: note: Use https://github.com/hauntsanin
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/in_cohort.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-posthog/hogql/transforms/in_cohort.py:0: error: Argument 1 to "escape_clickhouse_string" has incompatible type "str | None"; expected "float | int | str | list[Any] | tuple[Any, ...] | date | datetime | UUID | UUIDT"  [arg-type]
-posthog/hogql/transforms/in_cohort.py:0: error: Argument 1 to "escape_clickhouse_string" has incompatible type "str | None"; expected "float | int | str | list[Any] | tuple[Any, ...] | date | datetime | UUID | UUIDT"  [arg-type]
 posthog/hogql/transforms/in_cohort.py:0: error: Argument "is_static" to "_add_join_for_cohort" of "InCohortResolver" has incompatible type "bool | None"; expected "bool"  [arg-type]
 posthog/hogql/transforms/in_cohort.py:0: error: Incompatible types in assignment (expression has type "ValuesQuerySet[Cohort, tuple[int, bool | None]]", variable has type "ValuesQuerySet[Cohort, tuple[int, bool | None, str | None]]")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: error: Argument "is_static" to "_add_join_for_cohort" of "InCohortResolver" has incompatible type "bool | None"; expected "bool"  [arg-type]
