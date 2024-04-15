@@ -1,8 +1,9 @@
 use std::future::Future;
-use std::net::{SocketAddr, TcpListener};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use time::Duration;
+use tokio::net::TcpListener;
 
 use crate::config::Config;
 use crate::health::{ComponentStatus, HealthRegistry};
@@ -15,7 +16,7 @@ use crate::sinks::print::PrintSink;
 
 pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
-    F: Future<Output = ()>,
+    F: Future<Output = ()> + Send + 'static,
 {
     let liveness = HealthRegistry::new("liveness");
 
@@ -80,10 +81,11 @@ where
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
-    axum::Server::from_tcp(listener)
-        .unwrap()
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown)
-        .await
-        .unwrap()
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await
+    .unwrap()
 }

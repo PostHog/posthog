@@ -1,4 +1,3 @@
-use std::net::TcpListener;
 use std::time::Duration;
 
 use envconfig::Envconfig;
@@ -76,6 +75,8 @@ async fn main() {
         .init();
 
     // Open the TCP port and start the server
-    let listener = TcpListener::bind(config.address).unwrap();
+    let listener = tokio::net::TcpListener::bind(config.address)
+        .await
+        .expect("could not bind port");
     serve(config, listener, shutdown()).await
 }

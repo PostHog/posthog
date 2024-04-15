@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 
-use axum::Json;
+use axum::{debug_handler, Json};
 // TODO: stream this instead
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, Method};
@@ -38,6 +38,7 @@ use crate::{
         compression
     )
 )]
+#[debug_handler]
 pub async fn event(
     state: State<router::State>,
     InsecureClientIp(ip): InsecureClientIp,

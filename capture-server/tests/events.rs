@@ -14,7 +14,7 @@ async fn it_captures_one_event() -> Result<()> {
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
     let topic = EphemeralTopic::new().await;
-    let server = ServerHandle::for_topic(&topic);
+    let server = ServerHandle::for_topic(&topic).await;
 
     let event = json!({
         "token": token,
@@ -44,7 +44,7 @@ async fn it_captures_a_batch() -> Result<()> {
     let distinct_id2 = random_string("id", 16);
 
     let topic = EphemeralTopic::new().await;
-    let server = ServerHandle::for_topic(&topic);
+    let server = ServerHandle::for_topic(&topic).await;
 
     let event = json!([{
         "token": token,
@@ -90,7 +90,7 @@ async fn it_overflows_events_on_burst() -> Result<()> {
     config.overflow_burst_limit = NonZeroU32::new(2).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
 
-    let server = ServerHandle::for_config(config);
+    let server = ServerHandle::for_config(config).await;
 
     let event = json!([{
         "token": token,
@@ -139,7 +139,7 @@ async fn it_does_not_overflow_team_with_different_ids() -> Result<()> {
     config.overflow_burst_limit = NonZeroU32::new(1).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
 
-    let server = ServerHandle::for_config(config);
+    let server = ServerHandle::for_config(config).await;
 
     let event = json!([{
         "token": token,
@@ -176,7 +176,7 @@ async fn it_trims_distinct_id() -> Result<()> {
     let (trimmed_distinct_id2, _) = distinct_id2.split_at(200); // works because ascii chars
 
     let topic = EphemeralTopic::new().await;
-    let server = ServerHandle::for_topic(&topic);
+    let server = ServerHandle::for_topic(&topic).await;
 
     let event = json!([{
         "token": token,

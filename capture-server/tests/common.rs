@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::default::Default;
-use std::net::{SocketAddr, TcpListener};
+use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::str::FromStr;
 use std::string::ToString;
@@ -17,6 +17,7 @@ use rdkafka::config::{ClientConfig, FromClientConfig};
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::util::Timeout;
 use rdkafka::{Message, TopicPartitionList};
+use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{debug, warn};
@@ -59,20 +60,20 @@ pub struct ServerHandle {
 }
 
 impl ServerHandle {
-    pub fn for_topic(topic: &EphemeralTopic) -> Self {
+    pub async fn for_topic(topic: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.kafka.kafka_topic = topic.topic_name().to_string();
-        Self::for_config(config)
+        Self::for_config(config).await
     }
-    pub fn for_config(config: Config) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    pub async fn for_config(config: Config) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
-        tokio::spawn(
-            async move { serve(config, listener, async { notify.notified().await }).await },
-        );
+        tokio::spawn(async move {
+            serve(config, listener, async move { notify.notified().await }).await
+        });
         Self { addr, shutdown }
     }
 

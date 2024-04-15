@@ -9,11 +9,9 @@ chrono = { workspace = true }
 envconfig = { workspace = true }
 futures = "0.3"
 hook-common = { path = "../hook-common" }
-http = { version = "0.2" }
+http = { workspace = true }
 metrics = { workspace = true }
 reqwest = { workspace = true }
-serde = { workspace = true }
-serde_derive = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 thiserror = { workspace = true }
