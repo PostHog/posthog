@@ -38,7 +38,7 @@ import {
     startAsyncWebhooksHandlerConsumer,
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
-import { HeatmapEventIngester } from './ingestion-queues/session-recording/heatmap-event-ingestion'
+import { HeatmapEventIngester } from './ingestion-queues/session-recording/services/heatmap-event-ingester'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { SessionRecordingIngesterV3 } from './ingestion-queues/session-recording/session-recordings-consumer-v3'
 import { setupCommonRoutes } from './services/http-server'
