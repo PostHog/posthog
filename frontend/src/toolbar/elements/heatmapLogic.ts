@@ -453,17 +453,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 // Max is the highest value in the data set we have
                 const max = data.reduce((max, { value }) => Math.max(max, value), 0)
 
+                // TODO: Group based on some sensible resolutions (we can then use this for a hover state to show more detail)
+
                 return {
                     min: 0,
                     max: max,
                     data,
-                    // max: scrollAdjustedHeatmapElements.reduce((max, { count }) => Math.max(max, count), 0),
-                    // data: scrollAdjustedHeatmapElements.map(({ xPercentage, y, count }) => ({
-                    //     x: xPercentage * (h337ContainerRef.current?.offsetWidth ?? window.innerWidth),
-                    //     y: y,
-                    //     value: count,
-                    //     // targetFixed,
-                    // })),
                 }
             },
         ],
