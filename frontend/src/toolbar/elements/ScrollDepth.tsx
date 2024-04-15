@@ -77,17 +77,12 @@ export function ScrollDepth(): JSX.Element | null {
     }
     const scrollOffset = (posthog as any).scrollManager.scrollY()
 
-    // We want to have a fading color from red to orange to green to blue to grey, fading from the highest coun to the lowest
-
+    // We want to have a fading color from red to orange to green to blue to grey, fading from the highest count to the lowest
     const maxCount = scrollmapElements[0]?.count ?? 0
 
     function color(count: number): string {
         const value = 1 - count / maxCount
-
         const safeValue = Math.max(0, Math.min(1, value))
-
-        // Calculate hue
-
         const hue = Math.round(260 * safeValue)
 
         // Return hsl color. You can adjust saturation and lightness to your liking
