@@ -15,8 +15,8 @@ import {
     CountedHTMLElement,
     ElementsEventType,
     HeatmapElement,
+    HeatmapRequestType,
     HeatmapResponseType,
-    ScrollmapElementsResponseType,
 } from '~/toolbar/types'
 import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
@@ -40,7 +40,7 @@ export type HeatmapFilters = {
     enabled: boolean
     type?: string
     viewportAccuracy?: number
-    aggregation?: 'total_count' | 'unique_visitors'
+    aggregation?: HeatmapRequestType['aggregation']
 }
 
 export const heatmapLogic = kea<heatmapLogicType>([
@@ -69,6 +69,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         loadAllEnabled: (delayMs: number = 0) => ({ delayMs }),
         maybeLoadClickmap: (delayMs: number = 0) => ({ delayMs }),
         maybeLoadHeatmap: (delayMs: number = 0) => ({ delayMs }),
+        fetchHeatmapApi: (params: HeatmapRequestType) => ({ params }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -200,47 +201,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         `/api/heatmap/${encodeParams(
                             {
                                 type,
-                                date_from,
-                                date_to,
-                                url_exact: urlExact,
-                                url_pattern: urlRegex,
-                                viewport_width_min: values.viewportRange.min,
-                                viewport_width_max: values.viewportRange.max,
-                                aggregation,
-                            },
-                            '?'
-                        )}`,
-                        'GET'
-                    )
-
-                    if (response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
-                    }
-
-                    if (response.status !== 200) {
-                        throw new Error('API error')
-                    }
-
-                    return await response.json()
-                },
-            },
-        ],
-
-        rawScrollmap: [
-            null as ScrollmapElementsResponseType | null,
-            {
-                loadScrollmap: async () => {
-                    const { href, wildcardHref } = values
-                    const { date_from, date_to } = values.commonFilters
-                    const { aggregation } = values.heatmapFilters
-                    const urlExact = wildcardHref === href ? href : undefined
-                    const urlRegex = wildcardHref !== href ? wildcardHref : undefined
-
-                    // toolbar fetch collapses queryparams but this URL has multiple with the same name
-                    const response = await toolbarFetch(
-                        `/api/heatmap/${encodeParams(
-                            {
-                                type: 'scrolldepth',
                                 date_from,
                                 date_to,
                                 url_exact: urlExact,
@@ -413,36 +373,22 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                 const elements: HeatmapElement[] = []
 
-                // TODO: Do we want to group these values better?
                 rawHeatmap?.results.forEach((element) => {
-                    elements.push({
-                        count: element.count,
-                        xPercentage: element.pointer_relative_x,
-                        targetFixed: element.pointer_target_fixed,
-                        y: element.pointer_y,
-                    })
-                })
-
-                return elements
-            },
-        ],
-
-        scrollmapElements: [
-            (s) => [s.rawScrollmap],
-            (rawScrollmap): HeatmapElement[] => {
-                if (!rawScrollmap) {
-                    return []
-                }
-
-                const elements: HeatmapElement[] = []
-
-                rawScrollmap?.results.forEach((element) => {
-                    elements.push({
-                        count: element.cumulative_count,
-                        xPercentage: 0,
-                        targetFixed: false,
-                        y: element.scroll_depth_bucket,
-                    })
+                    if ('scroll_depth_bucket' in element) {
+                        elements.push({
+                            count: element.cumulative_count,
+                            xPercentage: 0,
+                            targetFixed: false,
+                            y: element.scroll_depth_bucket,
+                        })
+                    } else {
+                        elements.push({
+                            count: element.count,
+                            xPercentage: element.pointer_relative_x,
+                            targetFixed: element.pointer_target_fixed,
+                            y: element.pointer_y,
+                        })
+                    }
                 })
 
                 return elements
@@ -515,6 +461,41 @@ export const heatmapLogic = kea<heatmapLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        fetchHeatmapApi: async () => {
+            const { href, wildcardHref } = values
+            const { date_from, date_to } = values.commonFilters
+            const { type, aggregation } = values.heatmapFilters
+            const urlExact = wildcardHref === href ? href : undefined
+            const urlRegex = wildcardHref !== href ? wildcardHref : undefined
+
+            // toolbar fetch collapses queryparams but this URL has multiple with the same name
+            const response = await toolbarFetch(
+                `/api/heatmap/${encodeParams(
+                    {
+                        type,
+                        date_from,
+                        date_to,
+                        url_exact: urlExact,
+                        url_pattern: urlRegex,
+                        viewport_width_min: values.viewportRange.min,
+                        viewport_width_max: values.viewportRange.max,
+                        aggregation,
+                    },
+                    '?'
+                )}`,
+                'GET'
+            )
+
+            if (response.status === 403) {
+                toolbarConfigLogic.actions.authenticate()
+            }
+
+            if (response.status !== 200) {
+                throw new Error('API error')
+            }
+
+            return await response.json()
+        },
         enableHeatmap: () => {
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
@@ -540,11 +521,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         maybeLoadHeatmap: async ({ delayMs }, breakpoint) => {
             await breakpoint(delayMs)
             if (values.heatmapEnabled) {
-                if (values.heatmapFilters.enabled && values.heatmapFilters.type !== 'scrolldepth') {
-                    actions.loadHeatmap(values.heatmapFilters.type ?? 'clicks')
-                }
-                if (values.heatmapFilters.enabled && values.heatmapFilters.type === 'scrolldepth') {
-                    actions.loadScrollmap()
+                if (values.heatmapFilters.enabled && values.heatmapFilters.type) {
+                    actions.loadHeatmap(values.heatmapFilters.type)
                 }
             }
         },
@@ -570,6 +548,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
             }
+        },
+
+        patchHeatmapFilters: ({ filters }) => {
+            if (filters.type) {
+                // Clear the heatmap if the type changes
+                actions.loadHeatmapSuccess({ results: [] })
+            }
+            actions.maybeLoadHeatmap(200)
         },
     })),
 ])
