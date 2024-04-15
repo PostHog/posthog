@@ -4931,7 +4931,6 @@
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "const": "$session_duration",
                     "type": "string"
                 },
                 "label": {

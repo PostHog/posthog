@@ -694,7 +694,6 @@ export interface ElementPropertyFilter extends BasePropertyFilter {
 
 export interface SessionPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Session
-    key: '$session_duration'
     operator: PropertyOperator
 }
 
