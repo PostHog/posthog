@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestLifecycleQueryRunner.test_cohort_filter
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
