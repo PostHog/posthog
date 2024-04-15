@@ -35,7 +35,7 @@ export const EventDebugMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                <div className="flex flex-col space-y-1 LiveCapture">
+                <div className="flex flex-col space-y-1">
                     {events
                         .filter((e) => {
                             if (showRecordingSnapshots) {
