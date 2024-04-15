@@ -18,7 +18,7 @@ import { SessionPlayerState } from '~/types'
 
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
-import { SeekSkip } from './PlayerControllerTime'
+import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
 export function PlayerController(): JSX.Element {
@@ -38,7 +38,6 @@ export function PlayerController(): JSX.Element {
         <div className="bg-bg-light flex flex-col select-none">
             <Seekbar />
             <div className="flex justify-between items-center h-8 gap-2 m-2">
-                <div className="flex-1" />
                 <div className="flex items-center gap-1">
                     <SeekSkip direction="backward" />
 
@@ -56,6 +55,10 @@ export function PlayerController(): JSX.Element {
                     </LemonButton>
                     <SeekSkip direction="forward" />
                 </div>
+                <div className="flex-1">
+                    <Timestamp />
+                </div>
+
                 <div className="flex items-center gap-1 flex-1 justify-end">
                     <Tooltip title="Playback speed">
                         <LemonButtonWithDropdown
