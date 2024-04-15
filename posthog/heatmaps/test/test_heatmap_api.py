@@ -1,6 +1,5 @@
 import math
 from typing import Dict
-from unittest import skip
 
 import freezegun
 from django.http import HttpResponse
@@ -57,10 +56,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 1)
 
     @snapshot_clickhouse_queries
-    @freezegun.freeze_time("2023-03-14T09:00:00")
-    @skip(
-        "running this gives an error posthog.hogql.errors.ResolutionError: SQLValueEscaper has no method visit_fakedate"
-    )
+    @freezegun.freeze_time("2023-03-15T09:00:00")
     def test_can_get_filter_by_relative_date_from(self) -> None:
         self._create_heatmap_event("session_1", "click", "2023-03-07T07:00:00")
         self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00")

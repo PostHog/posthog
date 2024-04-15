@@ -114,6 +114,9 @@ class SQLValueEscaper:
             return f"toUUID({self.visit(str(value))})"
         return f"toUUIDOrNull({self.visit(str(value))})"
 
+    def visit_fakedate(self, value: date):
+        return self.visit_date(value)
+
     def visit_fakedatetime(self, value: datetime):
         return self.visit_datetime(value)
 
