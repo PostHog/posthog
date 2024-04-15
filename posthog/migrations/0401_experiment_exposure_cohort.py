@@ -4,22 +4,35 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
-# :KLUDGE: Work around test_migrations_are_safe
-# See https://github.com/PostHog/posthog/blob/master/posthog/migrations/0253_add_async_migration_parameters.py#L7
-class AddFieldNullSafe(migrations.AddField):
-    def describe(self):
-        return super().describe() + " -- existing-table-constraint-ignore"
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0400_datawarehousetable_row_count"),
     ]
 
     operations = [
-        AddFieldNullSafe(
-            model_name="experiment",
-            name="exposure_cohort",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.cohort"),
-        )
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="experiment",
+                    name="exposure_cohort",
+                    field=models.ForeignKey(
+                        null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.cohort"
+                    ),
+                )
+            ],
+            database_operations=[
+                # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
+                # This should be safe, because we are making the constraint NOT VALID, so doesn't lock things up for long.
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_experiment" ADD COLUMN "exposure_cohort_id" integer NULL CONSTRAINT "posthog_experiment_exposure_cohort_id_19450b9e_fk_posthog_c" REFERENCES "posthog_cohort"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_experiment_exposure_cohort_id_19450b9e_fk_posthog_c" IMMEDIATE; -- existing-table-constraint-ignore
+                    CREATE INDEX CONCURRENTLY "posthog_experiment_exposure_cohort_id_19450b9e" ON "posthog_experiment" ("exposure_cohort_id"); -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_experiment" DROP COLUMN IF EXISTS "exposure_cohort_id";
+                    """,
+                ),
+            ],
+        ),
     ]
