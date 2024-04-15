@@ -190,14 +190,20 @@ export const SidePanelSupport = (): JSX.Element => {
 
                     {status !== 'operational' ? (
                         <Section title="">
-                            <LemonBanner
-                                action={{
-                                    children: 'View system status',
-                                    onClick: () => openSidePanel(SidePanelTab.Status),
-                                }}
-                                type={status.includes('outage') ? 'error' : 'warning'}
-                            >
-                                We are experiencing {status.includes('outage') ? 'major' : ''} issues.
+                            <LemonBanner type={status.includes('outage') ? 'error' : 'warning'}>
+                                <div>
+                                    <span>We are experiencing {status.includes('outage') ? 'major' : ''} issues.</span>
+                                    <LemonButton
+                                        type="secondary"
+                                        fullWidth
+                                        center
+                                        targetBlank
+                                        onClick={() => openSidePanel(SidePanelTab.Status)}
+                                        className="mt-2 bg-[white]"
+                                    >
+                                        View system status
+                                    </LemonButton>
+                                </div>
                             </LemonBanner>
                         </Section>
                     ) : null}
