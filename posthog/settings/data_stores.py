@@ -23,7 +23,7 @@ SQLCOMMENTER_WITH_FRAMEWORK = False
 JOB_QUEUE_GRAPHILE_URL = os.getenv("JOB_QUEUE_GRAPHILE_URL")
 
 
-def postgres_config(host: str) -> dict:
+def postgres_config(host: str, database: str | None = None) -> dict:
     """Generate the config map we need for a postgres database.
 
     Generally all our postgres databases will need the same config - replicas are identical other than host.
@@ -37,7 +37,7 @@ def postgres_config(host: str) -> dict:
 
     return {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": get_from_env("POSTHOG_DB_NAME"),
+        "NAME": database or get_from_env("POSTHOG_DB_NAME"),
         "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
         "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
         "HOST": host,
@@ -106,8 +106,9 @@ else:
 # This should have all the same config as our main writer DB, just use a different host.
 # Our database router will point here.
 read_host = os.getenv("POSTHOG_POSTGRES_READ_HOST")
+read_db_name = os.getenv("POSTHOG_POSTGRES_READ_DB_NAME")
 if read_host:
-    DATABASES["replica"] = postgres_config(read_host)
+    DATABASES["replica"] = postgres_config(read_host, read_db_name)
     DATABASE_ROUTERS = ["posthog.dbrouter.ReplicaRouter"]
 
 if JOB_QUEUE_GRAPHILE_URL:
