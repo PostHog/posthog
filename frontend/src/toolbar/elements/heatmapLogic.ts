@@ -8,9 +8,9 @@ import { PaginatedResponse } from 'lib/api'
 import { dateFilterToText } from 'lib/utils'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import {
     CountedHTMLElement,
     ElementsEventType,
@@ -202,8 +202,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                 type,
                                 date_from,
                                 date_to,
-                                url: urlExact,
-                                url_regex: urlRegex,
+                                url_exact: urlExact,
+                                url_pattern: urlRegex,
                                 viewport_width_min: values.viewportRange.min,
                                 viewport_width_max: values.viewportRange.max,
                                 aggregation,
@@ -243,8 +243,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                 type: 'scrolldepth',
                                 date_from,
                                 date_to,
-                                url: urlExact,
-                                url_regex: urlRegex,
+                                url_exact: urlExact,
+                                url_pattern: urlRegex,
                                 viewport_width_min: values.viewportRange.min,
                                 viewport_width_max: values.viewportRange.max,
                                 aggregation,
