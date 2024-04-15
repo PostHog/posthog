@@ -4,15 +4,22 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
+# :KLUDGE: Work around test_migrations_are_safe
+# See https://github.com/PostHog/posthog/blob/master/posthog/migrations/0253_add_async_migration_parameters.py#L7
+class AddFieldNullSafe(migrations.AddField):
+    def describe(self):
+        return super().describe() + " -- existing-table-constraint-ignore"
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0400_datawarehousetable_row_count"),
     ]
 
     operations = [
-        migrations.AddField(
+        AddFieldNullSafe(
             model_name="experiment",
             name="exposure_cohort",
             field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.cohort"),
-        ),
+        )
     ]
