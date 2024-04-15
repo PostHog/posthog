@@ -5,6 +5,8 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("posthog", "0400_datawarehousetable_row_count"),
     ]
@@ -22,15 +24,21 @@ class Migration(migrations.Migration):
             ],
             database_operations=[
                 # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
-                # This should be safe, because we are making the constraint NOT VALID, so doesn't lock things up for long.
                 migrations.RunSQL(
                     """
                     ALTER TABLE "posthog_experiment" ADD COLUMN "exposure_cohort_id" integer NULL CONSTRAINT "posthog_experiment_exposure_cohort_id_19450b9e_fk_posthog_c" REFERENCES "posthog_cohort"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
                     SET CONSTRAINTS "posthog_experiment_exposure_cohort_id_19450b9e_fk_posthog_c" IMMEDIATE; -- existing-table-constraint-ignore
-                    CREATE INDEX CONCURRENTLY "posthog_experiment_exposure_cohort_id_19450b9e" ON "posthog_experiment" ("exposure_cohort_id"); -- existing-table-constraint-ignore
                     """,
                     reverse_sql="""
                         ALTER TABLE "posthog_experiment" DROP COLUMN IF EXISTS "exposure_cohort_id";
+                    """,
+                ),
+                migrations.RunSQL(
+                    """
+                    CREATE INDEX CONCURRENTLY "posthog_experiment_exposure_cohort_id_19450b9e" ON "posthog_experiment" ("exposure_cohort_id");
+                    """,
+                    reverse_sql="""
+                        DROP INDEX CONCURRENTLY IF EXISTS "posthog_experiment_exposure_cohort_id_19450b9e";
                     """,
                 ),
             ],
