@@ -60,7 +60,7 @@ async def stripe_pagination(
     endpoint: str,
     team_id: int,
     job_id: str,
-    starting_after: Optional[str] = None,
+    starting_after: Optional[dlt.sources.incremental[Any]] = dlt.sources.incremental("starting_after", initial_value=None),
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
 ):
@@ -79,9 +79,11 @@ async def stripe_pagination(
     logger = await bind_temporal_worker_logger(team_id)
     logger.info(f"Stripe: getting {endpoint}")
 
+    _starting_after = starting_after.last_value if starting_after else None
+
     while True:
         if starting_after is not None:
-            logger.info(f"Stripe: getting {endpoint} after {starting_after}")
+            logger.info(f"Stripe: getting {endpoint} after {_starting_after}")
 
         count = 0
 
@@ -89,13 +91,13 @@ async def stripe_pagination(
             api_key,
             account_id,
             endpoint,
-            starting_after=starting_after,
+            starting_after=_starting_after,
             start_date=start_date,
             end_date=end_date,
         )
 
         if len(response["data"]) > 0:
-            starting_after = response["data"][-1]["id"]
+            _starting_after = response["data"][-1]["id"]
         yield response["data"]
 
         count, status = await check_limit(
@@ -130,7 +132,6 @@ def stripe_source(
             endpoint=endpoint,
             team_id=team_id,
             job_id=job_id,
-            starting_after=starting_after,
             start_date=start_date,
             end_date=end_date,
         )
