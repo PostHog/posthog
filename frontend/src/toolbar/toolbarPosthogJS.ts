@@ -21,9 +21,6 @@ if (runningOnPosthog && window.JS_POSTHOG_SELF_CAPTURE) {
     toolbarPosthogJS.debug()
 }
 
-window.toolbarPosthogJS = toolbarPosthogJS
-console.log(window.toolbarPosthogJS)
-
 export const useToolbarFeatureFlag = (flag: FeatureFlagKey, match?: string): boolean => {
     const [flagValue, setFlagValue] = useState<boolean | string | undefined>(toolbarPosthogJS.getFeatureFlag(flag))
 
