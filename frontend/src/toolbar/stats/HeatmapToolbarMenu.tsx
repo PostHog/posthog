@@ -1,5 +1,5 @@
 import { IconMagicWand } from '@posthog/icons'
-import { LemonCheckbox, LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { IconSync } from 'lib/lemon-ui/icons'
