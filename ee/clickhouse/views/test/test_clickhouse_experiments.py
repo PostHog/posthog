@@ -1476,7 +1476,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                 "custom_exposure_filter": {
                     "actions": [
                         {
-                            "id": action1.id,
+                            "id": str(action1.id),  # should support string ids
                             "order": 0,
                             "entity_type": "actions",
                             "properties": [
@@ -1605,6 +1605,39 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["1", "person1"], sorted([res["name"] for res in response.json()["results"]]))
+
+    def test_create_exposure_cohort_for_experiment_with_invalid_action_filters_exposure(self):
+        response = self._generate_experiment(
+            "2024-01-01T10:23",
+            {
+                "custom_exposure_filter": {
+                    "actions": [
+                        {
+                            "id": "oogabooga",
+                            "order": 0,
+                            "entity_type": "actions",
+                            "properties": [
+                                {"key": "bonk", "value": "bonk"},
+                                {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
+                                {"key": "bonk-person", "value": "bonk", "type": "person"},
+                            ],
+                        }
+                    ],
+                    "filter_test_accounts": False,
+                }
+            },
+        )
+
+        created_experiment = response.json()["id"]
+
+        # now call to make cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+            {},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid action ID")
 
     def test_create_exposure_cohort_for_experiment_with_draft_experiment(self):
         response = self._generate_experiment(None)

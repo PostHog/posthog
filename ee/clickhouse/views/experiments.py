@@ -166,6 +166,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "feature_flag",
+            "exposure_cohort",
         ]
 
     def validate_parameters(self, value):
@@ -388,8 +389,14 @@ class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if exposure_filter:
             entity = exposure_filter.entities[0]
             if entity.id:
-                target_entity = entity.id
                 target_entity_type = entity.type if entity.type in ["events", "actions"] else "events"
+                target_entity = entity.id
+                if entity.type == "actions":
+                    try:
+                        target_entity = int(target_entity)
+                    except ValueError:
+                        raise ValidationError("Invalid action ID")
+
                 target_filters = [
                     prop.to_dict()
                     for prop in entity.property_groups.flat

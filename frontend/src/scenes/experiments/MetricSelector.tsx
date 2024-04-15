@@ -29,14 +29,14 @@ export interface MetricSelectorProps {
     dashboardItemId: InsightShortId
     setPreviewInsight: (filters?: Partial<FilterType>) => void
     showDateRangeBanner?: boolean
-    forceTrenExposureMetric?: boolean
+    forceTrendExposureMetric?: boolean
 }
 
 export function MetricSelector({
     dashboardItemId,
     setPreviewInsight,
     showDateRangeBanner,
-    forceTrenExposureMetric,
+    forceTrendExposureMetric,
 }: MetricSelectorProps): JSX.Element {
     // insightLogic
     const logic = insightLogic({ dashboardItemId, syncWithUrl: false })
@@ -49,10 +49,10 @@ export function MetricSelector({
     const { isTrends } = useValues(insightVizDataLogic(insightProps))
 
     useEffect(() => {
-        if (forceTrenExposureMetric && !isTrends) {
+        if (forceTrendExposureMetric && !isTrends) {
             setPreviewInsight({ insight: InsightType.TRENDS })
         }
-    }, [forceTrenExposureMetric, isTrends])
+    }, [forceTrendExposureMetric, isTrends])
 
     return (
         <>
@@ -68,7 +68,7 @@ export function MetricSelector({
                         { value: InsightType.TRENDS, label: <b>Trends</b> },
                         { value: InsightType.FUNNELS, label: <b>Funnels</b> },
                     ]}
-                    disabledReason={forceTrenExposureMetric ? 'Exposure metric can only be a trend graph' : undefined}
+                    disabledReason={forceTrendExposureMetric ? 'Exposure metric can only be a trend graph' : undefined}
                 />
             </div>
 
