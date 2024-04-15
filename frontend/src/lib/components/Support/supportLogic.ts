@@ -338,7 +338,10 @@ export const supportLogic = kea<supportLogicType>([
             }
         },
         openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {
-            const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
+            let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
+            if (!userLogic.values.user) {
+                area = 'login'
+            }
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({
                 name: name ?? '',
