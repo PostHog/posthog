@@ -131,7 +131,6 @@ function TZLabelRaw({
         return (
             <LemonDropdown
                 placement="top"
-                showArrow
                 {...dropdownProps}
                 trigger="hover"
                 overlay={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} />}

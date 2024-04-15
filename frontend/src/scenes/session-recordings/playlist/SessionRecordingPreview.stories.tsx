@@ -23,7 +23,6 @@ const Template: StoryFn<typeof PropertyIcons> = (args: PropertyIconsProps) => {
 
 export const WebRecording = Template.bind({})
 WebRecording.args = {
-    iconClassnames: 'wat',
     loading: false,
     recordingProperties: [
         { label: 'Mac OS X', value: 'Mac OS X', property: '$os', tooltipValue: 'Mac OS X' },
