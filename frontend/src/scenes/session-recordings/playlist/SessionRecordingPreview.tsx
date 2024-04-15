@@ -17,12 +17,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
-import { useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -221,16 +218,18 @@ export function SessionRecordingPreview({
 
     const iconClassnames = 'text-base text-muted-alt'
 
-    const [summaryPopoverIsVisible, setSummaryPopoverIsVisible] = useState<boolean>(false)
-
-    const [summaryButtonIsVisible, setSummaryButtonIsVisible] = useState<boolean>(false)
-
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
             <LemonDropdown
                 placement="right-start"
                 trigger="hover"
-                overlay={<SessionRecordingPreviewPopover recording={recording} />}
+                overlay={
+                    <SessionRecordingPreviewPopover
+                        recording={recording}
+                        summariseFn={summariseFn}
+                        sessionSummaryLoading={sessionSummaryLoading}
+                    />
+                }
             >
                 <div
                     key={recording.id}
@@ -239,44 +238,7 @@ export function SessionRecordingPreview({
                         isActive && 'SessionRecordingPreview--active'
                     )}
                     onClick={() => onClick?.()}
-                    onMouseEnter={() => setSummaryButtonIsVisible(true)}
-                    onMouseLeave={() => setSummaryButtonIsVisible(false)}
                 >
-                    <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
-                        {summariseFn && (
-                            <Popover
-                                showArrow={true}
-                                visible={summaryPopoverIsVisible && summaryButtonIsVisible}
-                                placement="right"
-                                onClickOutside={() => setSummaryPopoverIsVisible(false)}
-                                overlay={
-                                    sessionSummaryLoading ? (
-                                        <Spinner />
-                                    ) : (
-                                        <div className="text-xl max-w-auto lg:max-w-3/5">{recording.summary}</div>
-                                    )
-                                }
-                            >
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    className={clsx(
-                                        summaryButtonIsVisible ? 'block' : 'hidden',
-                                        'absolute right-px top-px'
-                                    )}
-                                    icon={<IconMagicWand />}
-                                    onClick={(e) => {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                        setSummaryPopoverIsVisible(!summaryPopoverIsVisible)
-                                        if (!recording.summary) {
-                                            summariseFn(recording)
-                                        }
-                                    }}
-                                />
-                            </Popover>
-                        )}
-                    </FlaggedFeature>
                     <div className="grow overflow-hidden space-y-px">
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-1 shrink overflow-hidden">
@@ -315,7 +277,7 @@ export function SessionRecordingPreview({
                     </div>
 
                     <div className="w-6 flex flex-col items-center mt-1">
-                        <ViewedIndicator viewed={false} />
+                        <ViewedIndicator viewed={recording.viewed} />
                         {pinned ? <PinnedIndicator /> : null}
                     </div>
                 </div>
@@ -324,7 +286,15 @@ export function SessionRecordingPreview({
     )
 }
 
-function SessionRecordingPreviewPopover({ recording }: { recording: SessionRecordingType }): JSX.Element {
+function SessionRecordingPreviewPopover({
+    recording,
+    summariseFn,
+    sessionSummaryLoading,
+}: {
+    recording: SessionRecordingType
+    summariseFn?: (recording: SessionRecordingType) => void
+    sessionSummaryLoading?: boolean
+}): JSX.Element {
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
     const recordingProperties = recordingPropertiesById[recording.id]
     const loading = !recordingProperties && recordingPropertiesLoading
@@ -333,44 +303,79 @@ function SessionRecordingPreviewPopover({ recording }: { recording: SessionRecor
     const iconClassNames = 'text-muted-alt mr-2 shrink-0'
 
     return (
-        <div className="max-w-80 flex flex-1 flex-col gap-1">
-            <h3 className="mb-0">Session data</h3>
+        <div className="max-w-80">
+            <div className="gap-1 px-2">
+                <h3>Session data</h3>
 
-            <PropertyIcons recordingProperties={iconProperties} iconClassNames={iconClassNames} loading={loading} />
+                <PropertyIcons recordingProperties={iconProperties} iconClassNames={iconClassNames} loading={loading} />
 
-            <div className="flex items-center">
-                <IconLink className={iconClassNames} />
-                <Link to={recording.start_url} target="_blank" className="truncate">
-                    {recording.start_url}
-                </Link>
-            </div>
+                <div className="flex items-center">
+                    <IconLink className={iconClassNames} />
+                    <Link to={recording.start_url} target="_blank" className="truncate">
+                        {recording.start_url}
+                    </Link>
+                </div>
 
-            <div className="flex items-center">
-                <IconCalendar className={iconClassNames} />
-                <TZLabel
-                    time={recording.start_time}
-                    formatDate="MMMM DD, YYYY"
-                    formatTime="h:mm A"
-                    showPopover={false}
-                />
+                <div className="flex items-center">
+                    <IconCalendar className={iconClassNames} />
+                    <TZLabel
+                        time={recording.start_time}
+                        formatDate="MMMM DD, YYYY"
+                        formatTime="h:mm A"
+                        showPopover={false}
+                    />
+                </div>
             </div>
 
             <LemonDivider className="" />
 
-            <h3 className="mb-0">Activity</h3>
+            <div className="gap-1 px-2">
+                <h3>Activity</h3>
 
-            <div className="flex items-center">
-                <IconCursorClick className={iconClassNames} />
-                <span>{recording.click_count} clicks</span>
+                <div className="flex items-center">
+                    <IconCursorClick className={iconClassNames} />
+                    <span>{recording.click_count} clicks</span>
+                </div>
+                <div className="flex items-center">
+                    <IconKeyboard className={iconClassNames} />
+                    <span>{recording.keypress_count} key presses</span>
+                </div>
+                <div className="flex items-center">
+                    <IconTerminal className={iconClassNames} />
+                    <span>{recording.console_error_count} console errors</span>
+                </div>
             </div>
-            <div className="flex items-center">
-                <IconKeyboard className={iconClassNames} />
-                <span>{recording.keypress_count} key presses</span>
-            </div>
-            <div className="flex items-center">
-                <IconTerminal className={iconClassNames} />
-                <span>{recording.console_error_count} console errors</span>
-            </div>
+
+            <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
+                {summariseFn && (
+                    <>
+                        <LemonDivider className="" />
+                        <div className="gap-1 pt-1 pb-2 px-1.5">
+                            {recording.summary ? (
+                                <span>{recording.summary}</span>
+                            ) : (
+                                <div>
+                                    <LemonButton
+                                        size="small"
+                                        type="primary"
+                                        icon={<IconMagicWand />}
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            if (!recording.summary) {
+                                                summariseFn(recording)
+                                            }
+                                        }}
+                                        loading={sessionSummaryLoading}
+                                    >
+                                        Generate AI summary
+                                    </LemonButton>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+            </FlaggedFeature>
         </div>
     )
 }
