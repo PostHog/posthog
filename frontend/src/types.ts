@@ -1115,7 +1115,7 @@ export interface CohortType {
     filters: {
         properties: CohortCriteriaGroupFilter
     }
-    experiment_set: number[] | null
+    experiment_set?: number[]
 }
 
 export interface InsightHistory {
