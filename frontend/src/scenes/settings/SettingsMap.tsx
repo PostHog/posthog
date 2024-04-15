@@ -31,7 +31,6 @@ import {
     ReplayCostControl,
     ReplayGeneral,
 } from './project/SessionRecordingSettings'
-import { SettingPersonsOnEvents } from './project/SettingPersonsOnEvents'
 import { SlackIntegration } from './project/SlackIntegration'
 import { SurveySettings } from './project/SurveySettings'
 import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig'
@@ -138,11 +137,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
-            },
-            {
-                id: 'persons-on-events',
-                title: 'Persons on events (beta)',
-                component: <SettingPersonsOnEvents />,
             },
         ],
     },

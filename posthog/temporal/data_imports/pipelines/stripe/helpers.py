@@ -61,6 +61,8 @@ async def stripe_pagination(
     team_id: int,
     job_id: str,
     starting_after: Optional[str] = None,
+    start_date: Optional[Any] = None,
+    end_date: Optional[Any] = None,
 ):
     """
     Retrieves data from an endpoint with pagination.
@@ -88,6 +90,8 @@ async def stripe_pagination(
             account_id,
             endpoint,
             starting_after=starting_after,
+            start_date=start_date,
+            end_date=end_date,
         )
 
         if len(response["data"]) > 0:
@@ -106,7 +110,14 @@ async def stripe_pagination(
 
 @dlt.source(max_table_nesting=0)
 def stripe_source(
-    api_key: str, account_id: str, endpoints: Tuple[str, ...], team_id, job_id, starting_after: Optional[str] = None
+    api_key: str,
+    account_id: str,
+    endpoints: Tuple[str, ...],
+    team_id,
+    job_id,
+    starting_after: Optional[str] = None,
+    start_date: Optional[Any] = None,
+    end_date: Optional[Any] = None,
 ) -> Iterable[DltResource]:
     for endpoint in endpoints:
         yield dlt.resource(
@@ -120,4 +131,6 @@ def stripe_source(
             team_id=team_id,
             job_id=job_id,
             starting_after=starting_after,
+            start_date=start_date,
+            end_date=end_date,
         )
