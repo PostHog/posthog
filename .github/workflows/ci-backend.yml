@@ -235,7 +235,7 @@ jobs:
         needs: changes
         timeout-minutes: 30
 
-        name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }}, Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: depot-ubuntu-latest-4
 
         strategy:
@@ -244,8 +244,7 @@ jobs:
                 python-version: ['3.10.10']
                 clickhouse-server-image:
                     ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:23.12.5.81-alpine']
-                segment: ['FOSS', 'EE']
-                person-on-events: [false, true]
+                segment: ['FOSS', 'FOSS-PoE', 'EE', 'EE-PoE', 'HogQL']
                 # :NOTE: Keep concurrency and groups in sync
                 concurrency: [5]
                 group: [1, 2, 3, 4, 5]
@@ -266,7 +265,6 @@ jobs:
               if: needs.changes.outputs.backend == 'true'
               with:
                   segment: ${{ matrix.segment }}
-                  person-on-events: ${{ matrix.person-on-events }}
                   python-version: ${{ matrix.python-version }}
                   clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
                   concurrency: ${{ matrix.concurrency }}
@@ -276,7 +274,7 @@ jobs:
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
-              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && matrix.segment != 'FOSS-PoE' && matrix.segment != 'EE-PoE' }}
               with:
                   add: '["ee", "./**/*.ambr", "posthog/queries/", "posthog/migrations", "posthog/tasks", "posthog/hogql/"]'
                   message: 'Update query snapshots'
@@ -286,7 +284,7 @@ jobs:
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
-              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && matrix.segment != 'FOSS-PoE' && matrix.segment != 'EE-PoE' }}
               run: |
                   if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
@@ -304,7 +302,7 @@ jobs:
 
             - name: Archive email renders
               uses: actions/upload-artifact@v3
-              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'FOSS' && matrix.person-on-events == false
+              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'FOSS'
               with:
                   name: email_renders
                   path: posthog/tasks/test/__emails__
