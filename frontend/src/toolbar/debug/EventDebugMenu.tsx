@@ -10,7 +10,7 @@ import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
 import { ToolbarMenu } from '../bar/ToolbarMenu'
 
 export const EventDebugMenu = (): JSX.Element => {
-    const { events, isCollapsedEventRow, expandedEvent, showRecordingSnapshots, snapshotCount, eventCount } =
+    const { filteredEvents, isCollapsedEventRow, expandedEvent, showRecordingSnapshots, snapshotCount, eventCount } =
         useValues(eventDebugMenuLogic)
     const { markExpanded, setShowRecordingSnapshots } = useActions(eventDebugMenuLogic)
 
@@ -33,40 +33,32 @@ export const EventDebugMenu = (): JSX.Element => {
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="flex flex-col space-y-1">
-                    {events
-                        .filter((e) => {
-                            if (showRecordingSnapshots) {
-                                return true
-                            } else {
-                                return e.event !== '$snapshot'
-                            }
-                        })
-                        .map((e, i) => {
-                            return (
-                                <div
-                                    className={clsx('-mx-1 py-1 px-2 cursor-pointer', i === 0 && 'bg-mark')}
-                                    key={e.uuid}
-                                    onClick={() => {
-                                        expandedEvent === e.uuid ? markExpanded(null) : markExpanded(e.uuid || null)
-                                    }}
-                                >
-                                    <div className="flex flex-row justify-between">
-                                        <div>{e.event}</div>
-                                        <div>
-                                            <TZLabel time={e.timestamp} />
-                                        </div>
+                    {filteredEvents.map((e, i) => {
+                        return (
+                            <div
+                                className={clsx('-mx-1 py-1 px-2 cursor-pointer', i === 0 && 'bg-mark')}
+                                key={e.uuid}
+                                onClick={() => {
+                                    expandedEvent === e.uuid ? markExpanded(null) : markExpanded(e.uuid || null)
+                                }}
+                            >
+                                <div className="flex flex-row justify-between">
+                                    <div>{e.event}</div>
+                                    <div>
+                                        <TZLabel time={e.timestamp} />
                                     </div>
-                                    <AnimatedCollapsible
-                                        collapsed={e.uuid === undefined ? true : isCollapsedEventRow(e.uuid)}
-                                    >
-                                        <SimpleKeyValueList
-                                            item={e.event === '$snapshot' ? e : e.properties}
-                                            emptyMessage="No events seen yet."
-                                        />
-                                    </AnimatedCollapsible>
                                 </div>
-                            )
-                        })}
+                                <AnimatedCollapsible
+                                    collapsed={e.uuid === undefined ? true : isCollapsedEventRow(e.uuid)}
+                                >
+                                    <SimpleKeyValueList
+                                        item={e.event === '$snapshot' ? e : e.properties}
+                                        emptyMessage="No events seen yet."
+                                    />
+                                </AnimatedCollapsible>
+                            </div>
+                        )
+                    })}
                 </div>
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>

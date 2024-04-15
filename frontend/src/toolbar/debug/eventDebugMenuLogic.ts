@@ -53,6 +53,18 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
         ],
         snapshotCount: [(s) => [s.events], (events) => events.filter((e) => e.event === '$snapshot').length],
         eventCount: [(s) => [s.events], (events) => events.filter((e) => e.event !== '$snapshot').length],
+        filteredEvents: [
+            (s) => [s.showRecordingSnapshots, s.events],
+            (showRecordingSnapshots, events) => {
+                return events.filter((e) => {
+                    if (showRecordingSnapshots) {
+                        return true
+                    } else {
+                        return e.event !== '$snapshot'
+                    }
+                })
+            },
+        ],
     }),
     afterMount(({ values, actions }) => {
         values.posthog?.on('eventCaptured', (e) => {
