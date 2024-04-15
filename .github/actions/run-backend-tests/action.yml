@@ -173,7 +173,16 @@ runs:
           if: ${{ inputs.segment == 'HogQL' }}
           shell: bash
           run: | # async_migrations covered in ci-async-migrations.yml
-              pytest posthog/hogql/ posthog/hogql_queries/ -m "not async_migrations" \
+              pytest posthog/hogql/ posthog/hogql_queries/ --ignore=posthog/hogql_queries/insights/funnels/ -m "not async_migrations" \
+                  --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
+                  --durations=100 --durations-min=1.0 \
+                  $PYTEST_ARGS
+
+        - name: Run HogQL Funnels tests
+          if: ${{ inputs.segment == 'HogQL-Funnels' }}
+          shell: bash
+          run: | # async_migrations covered in ci-async-migrations.yml
+              pytest posthog/hogql_queries/insights/funnels/ -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
