@@ -51,10 +51,12 @@ export const EventDebugMenu = (): JSX.Element => {
                                 <AnimatedCollapsible
                                     collapsed={e.uuid === undefined ? true : isCollapsedEventRow(e.uuid)}
                                 >
-                                    <SimpleKeyValueList
-                                        item={e.event === '$snapshot' ? e : e.properties}
-                                        emptyMessage="No events seen yet."
-                                    />
+                                    <div className="mt-1 ml-1 pl-2 border-l-2">
+                                        <SimpleKeyValueList
+                                            item={e.event === '$snapshot' ? e : e.properties}
+                                            emptyMessage="No events seen yet."
+                                        />
+                                    </div>
                                 </AnimatedCollapsible>
                             </div>
                         )

@@ -51,8 +51,8 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
                 }
             },
         ],
-        snapshotCount: [(s) => [s.events], (events) => events.filter((e) => e.event === '$snapshot').length],
-        eventCount: [(s) => [s.events], (events) => events.filter((e) => e.event !== '$snapshot').length],
+        snapshotCount: [(s) => [s.events], (events) => events.filter((e) => e.event !== '$snapshot').length],
+        eventCount: [(s) => [s.events], (events) => events.filter((e) => e.event === '$snapshot').length],
         filteredEvents: [
             (s) => [s.showRecordingSnapshots, s.events],
             (showRecordingSnapshots, events) => {
