@@ -52,7 +52,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                 enableFormOnSubmit
                 className="flex flex-col overflow-hidden flex-1"
             >
-                <ToolbarMenu.Header border>
+                <ToolbarMenu.Header className="border-b">
                     <h1 className="p-1 font-bold text-sm mb-0">
                         {selectedActionId === 'new' ? 'New ' : 'Edit '}
                         action
