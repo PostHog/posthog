@@ -435,7 +435,7 @@ class FunnelCorrelation:
         return query, params
 
     def _get_aggregation_target_join_query(self) -> str:
-        if self._team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+        if self._team.person_on_events_mode == PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             aggregation_person_join = f"""
                 JOIN funnel_actors as actors
                     ON event.person_id = actors.actor_id
@@ -587,7 +587,7 @@ class FunnelCorrelation:
             elif entity.id is not None:
                 events.add(entity.id)
 
-        return sorted(list(events))
+        return sorted(events)
 
     def _run(self) -> Tuple[List[EventOddsRatio], bool]:
         """

@@ -36,19 +36,29 @@ Array [
     ],
   ],
   Array [
+    "normalizeEventStep",
+    Array [
+      true,
+    ],
+  ],
+  Array [
     "processPersonsStep",
     Array [
       Object {
         "distinct_id": "my_id",
         "event": "default event",
-        "ip": "127.0.0.1",
+        "ip": null,
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {},
+        "properties": Object {
+          "$ip": "127.0.0.1",
+        },
         "site_url": "http://localhost",
         "team_id": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
         "uuid": "uuid1",
       },
+      "2020-02-23T02:15:00.000Z",
+      true,
     ],
   ],
   Array [
@@ -57,14 +67,17 @@ Array [
       Object {
         "distinct_id": "my_id",
         "event": "default event",
-        "ip": "127.0.0.1",
+        "ip": null,
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {},
+        "properties": Object {
+          "$ip": "127.0.0.1",
+        },
         "site_url": "http://localhost",
         "team_id": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
         "uuid": "uuid1",
       },
+      true,
     ],
   ],
   Array [
@@ -81,7 +94,6 @@ Array [
         "timestamp": "2020-02-23T02:15:00.000Z",
       },
       Object {
-        "get": [Function],
         "person": Object {
           "created_at": "2020-02-23T02:15:00.000Z",
           "id": 123,
@@ -96,6 +108,7 @@ Array [
         },
         "personUpdateProperties": Object {},
       },
+      true,
     ],
   ],
 ]

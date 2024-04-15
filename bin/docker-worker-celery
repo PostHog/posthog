@@ -76,6 +76,8 @@ FLAGS+=("-n node@%h")
 # Restart worker process after it exceeds this much memory usage (to mitigate memory leaks)
 [[ -n "${CELERY_MAX_MEMORY_PER_CHILD}" ]]    && FLAGS+=" --max-memory-per-child $CELERY_MAX_MEMORY_PER_CHILD"
 
+[[ -n "${CELERY_WORKER_PREFETCH_MULTIPLIER}" ]] && FLAGS+=" --prefetch-multiplier $CELERY_WORKER_PREFETCH_MULTIPLIER"
+
 if [[ -z "${CELERY_WORKER_QUEUES}" ]]; then
   source ./bin/celery-queues.env
 fi

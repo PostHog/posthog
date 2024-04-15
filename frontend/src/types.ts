@@ -104,7 +104,6 @@ export enum AvailableFeature {
     SECURITY_ASSESSMENT = 'security_assessment',
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
-    SUPPORT_SLAS = 'support_slas',
     BOOLEAN_FLAGS = 'boolean_flags',
     FEATURE_FLAGS_DATA_RETENTION = 'feature_flags_data_retention',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
@@ -148,6 +147,7 @@ export enum AvailableFeature {
     CUSTOMM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
+    SUPPORT_RESPONSE_TIME = 'support_response_time',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -596,7 +596,6 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
-    FilePlayback = 'file-playback',
     Errors = 'errors',
 }
 
@@ -694,7 +693,6 @@ export interface ElementPropertyFilter extends BasePropertyFilter {
 
 export interface SessionPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Session
-    key: '$session_duration'
     operator: PropertyOperator
 }
 
@@ -1078,6 +1076,7 @@ export interface CohortCriteriaType {
     operator_value?: PropertyFilterValue
     time_value?: number | string | null
     time_interval?: TimeUnitType | null
+    explicit_datetime?: string | null
     total_periods?: number | null
     min_periods?: number | null
     seq_event_type?: TaxonomicFilterGroupType | null
@@ -1086,6 +1085,7 @@ export interface CohortCriteriaType {
     seq_time_interval?: TimeUnitType | null
     negation?: boolean
     value_property?: string | null // Transformed into 'value' for api calls
+    event_filters?: AnyPropertyFilter[] | null
 }
 
 export type EmptyCohortGroupType = Partial<CohortGroupType>
@@ -1446,6 +1446,7 @@ export interface BillingProductV2AddonType {
     usage_key?: string
     free_allocation?: number | null
     percentage_usage?: number
+    features: BillingV2FeatureType[]
 }
 export interface BillingV2Type {
     customer_id: string
@@ -1946,6 +1947,8 @@ export interface FilterType {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_hide_other_aggregation?: boolean | null
+    /** @asType integer */
+    breakdown_limit?: number | null
     aggregation_group_type_index?: number // Groups aggregation
 }
 
@@ -2705,6 +2708,7 @@ export interface PreflightStatus {
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
     object_storage: boolean
+    public_egress_ip_addresses?: string[]
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -3007,6 +3011,8 @@ export interface AppContext {
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
     year_in_hog_url?: string
+    /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
+    suggested_users_with_access?: UserBasicType[]
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3589,6 +3595,7 @@ export interface SimpleDataWarehouseTable {
     id: string
     name: string
     columns: DatabaseSchemaQueryResponseField[]
+    row_count: number
 }
 
 export type BatchExportDestinationS3 = {
@@ -3828,4 +3835,19 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
+}
+
+export interface SourceFieldConfig {
+    name: string
+    label: string
+    type: string
+    required: boolean
+    placeholder: string
+}
+
+export interface SourceConfig {
+    name: ExternalDataSourceType
+    caption: string | React.ReactNode
+    fields: SourceFieldConfig[]
+    disabledReason?: string | null
 }

@@ -1,5 +1,6 @@
 import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
@@ -19,7 +20,13 @@ import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SEVERITY_LEVEL_TO_NAME, supportLogic, SupportTicketKind, TARGET_AREA_TO_NAME } from './supportLogic'
+import {
+    SEVERITY_LEVEL_TO_NAME,
+    SUPPORT_TICKET_TEMPLATES,
+    supportLogic,
+    SupportTicketKind,
+    TARGET_AREA_TO_NAME,
+} from './supportLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
     {
@@ -51,6 +58,8 @@ export function SupportForm(): JSX.Element | null {
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
     const { user } = useValues(userLogic)
+    // only allow authentication issues for logged out users
+    const blockNonAuthIssues = ![null, 'login'].includes(supportLogic.values.sendSupportRequest.target_area) && !user
 
     const dropRef = useRef<HTMLDivElement>(null)
 
@@ -63,7 +72,32 @@ export function SupportForm(): JSX.Element | null {
         },
     })
 
+    const handleReportTypeChange = (kind: string = supportLogic.values.sendSupportRequest.kind ?? ''): void => {
+        const message = supportLogic.values.sendSupportRequest.message
+
+        // do not overwrite modified message
+        if (
+            !(
+                message === SUPPORT_TICKET_TEMPLATES.bug ||
+                message === SUPPORT_TICKET_TEMPLATES.feedback ||
+                message === SUPPORT_TICKET_TEMPLATES.support ||
+                !message
+            )
+        ) {
+            return
+        }
+
+        if (kind === 'bug') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.bug
+        } else if (kind === 'feedback') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
+        } else if (kind === 'support') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.support
+        }
+    }
+
     useEffect(() => {
+        handleReportTypeChange()
         if (sendSupportRequest.kind === 'bug') {
             setSendSupportRequestValue('severity_level', 'medium')
         } else {
@@ -101,7 +135,13 @@ export function SupportForm(): JSX.Element | null {
             >
                 {(props) => (
                     <div ref={dropRef} className="flex flex-col gap-2">
+                        {blockNonAuthIssues ? (
+                            <LemonBanner type="error">
+                                Please login to your account before opeing a ticket unrelated to authentication issues.
+                            </LemonBanner>
+                        ) : null}
                         <LemonTextArea
+                            disabled={blockNonAuthIssues}
                             placeholder="Type your message here"
                             data-attr="support-form-content-input"
                             {...props}

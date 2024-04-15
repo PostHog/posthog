@@ -45,6 +45,10 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
+    def validate_target_email(self, email: str):
+        local_part, domain = email.split("@")
+        return f"{local_part}@{domain.lower()}"
+
     def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
             organization_id=self.context["organization_id"],
@@ -95,6 +99,25 @@ class OrganizationInviteViewSet(
             .select_related("created_by")
             .order_by(self.ordering)
         )
+
+    def lowercase_email_domain(self, email: str):
+        # According to the email RFC https://www.rfc-editor.org/rfc/rfc1035, anything before the @ can be
+        # case-sensitive but the domain should not be. There have been a small number of customers who type in their emails
+        # with a capitalized domain. We shouldn't prevent them from inviting teammates because of this.
+        local_part, domain = email.split("@")
+        return f"{local_part}@{domain.lower()}"
+
+    def create(self, request: request.Request, **kwargs) -> response.Response:
+        data = cast(Any, request.data.copy())
+
+        serializer = OrganizationInviteSerializer(
+            data=data,
+            context={**self.get_serializer_context()},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
     def bulk(self, request: request.Request, **kwargs) -> response.Response:

@@ -25,13 +25,8 @@ export function Transformations(): JSX.Element {
     if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
         return <p>Pipeline 3000 not available yet</p>
     }
-    const {
-        loading,
-        sortedTransformations,
-        sortedEnabledTransformations,
-        canConfigurePlugins,
-        shouldShowProductIntroduction,
-    } = useValues(pipelineTransformationsLogic)
+    const { sortedEnabledTransformations, canConfigurePlugins, shouldShowProductIntroduction } =
+        useValues(pipelineTransformationsLogic)
     const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
     const shouldShowEmptyState = sortedEnabledTransformations.length === 0
@@ -49,64 +44,73 @@ export function Transformations(): JSX.Element {
                     isEmpty={true}
                 />
             )}
-            {!shouldShowEmptyState && (
+            {sortedEnabledTransformations.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
                 <>
-                    {sortedEnabledTransformations.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
-                        <>
-                            <ReorderModal />
-                            <div className="flex items-center gap-2">
-                                Processed sequentially.
-                                <LemonButton
-                                    onClick={openReorderModal}
-                                    noPadding
-                                    id="app-reorder"
-                                    disabledReason={
-                                        canConfigurePlugins
-                                            ? undefined
-                                            : 'You do not have permission to reorder plugins.'
-                                    }
-                                >
-                                    Change order
-                                </LemonButton>
-                            </div>
-                        </>
-                    )}
-                    <LemonTable
-                        dataSource={sortedTransformations}
-                        size="small"
-                        loading={loading}
-                        columns={[
-                            {
-                                title: 'Order',
-                                key: 'order',
-                                sticky: true,
-                                render: function RenderOrdering(_, transformation) {
-                                    if (!transformation.enabled) {
-                                        return null
-                                    }
-                                    // We can't use pluginConfig.order directly as it's not nicely set for everything,
-                                    // e.g. geoIP, disabled plugins, especially if we disable them via django admin
-                                    return sortedEnabledTransformations.findIndex((t) => t.id === transformation.id) + 1
-                                },
-                            },
-                            nameColumn() as LemonTableColumn<Transformation, any>,
-                            appColumn() as LemonTableColumn<Transformation, any>,
-                            updatedAtColumn() as LemonTableColumn<Transformation, any>,
-                            statusColumn() as LemonTableColumn<Transformation, any>,
-                            {
-                                width: 0,
-                                render: function Render(_, transformation) {
-                                    return (
-                                        <More
-                                            overlay={<TransformationsMoreOverlay transformation={transformation} />}
-                                        />
-                                    )
-                                },
-                            },
-                        ]}
-                    />
+                    <ReorderModal />
+                    <div className="flex items-center gap-2">
+                        Processed sequentially.
+                        <LemonButton
+                            onClick={openReorderModal}
+                            noPadding
+                            id="app-reorder"
+                            disabledReason={
+                                canConfigurePlugins ? undefined : 'You do not have permission to reorder plugins.'
+                            }
+                        >
+                            Change order
+                        </LemonButton>
+                    </div>
                 </>
             )}
+            <TransformationsTable />
+        </>
+    )
+}
+
+export function TransformationsTable({ inOverview = false }: { inOverview?: boolean }): JSX.Element {
+    const { loading, sortedTransformations, sortedEnabledTransformations } = useValues(pipelineTransformationsLogic)
+
+    return (
+        <>
+            <LemonTable
+                dataSource={inOverview ? sortedEnabledTransformations : sortedTransformations}
+                size="small"
+                loading={loading}
+                columns={[
+                    {
+                        title: 'Order',
+                        key: 'order',
+                        sticky: true,
+                        render: function RenderOrdering(_, transformation) {
+                            if (!transformation.enabled) {
+                                return null
+                            }
+                            // We can't use pluginConfig.order directly as it's not nicely set for everything,
+                            // e.g. geoIP, disabled plugins, especially if we disable them via django admin
+                            return sortedEnabledTransformations.findIndex((t) => t.id === transformation.id) + 1
+                        },
+                    },
+                    nameColumn() as LemonTableColumn<Transformation, any>,
+                    appColumn() as LemonTableColumn<Transformation, any>,
+                    updatedAtColumn() as LemonTableColumn<Transformation, any>,
+                    statusColumn() as LemonTableColumn<Transformation, any>,
+                    {
+                        width: 0,
+                        render: function Render(_, transformation) {
+                            return (
+                                <More
+                                    overlay={
+                                        <TransformationsMoreOverlay
+                                            transformation={transformation}
+                                            inOverview={inOverview}
+                                        />
+                                    }
+                                />
+                            )
+                        },
+                    },
+                ]}
+            />
         </>
     )
 }

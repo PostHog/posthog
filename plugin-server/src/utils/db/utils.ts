@@ -108,10 +108,10 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     const maybeSet: [string, any][] = propertiesForPerson
 
     if (maybeSet.length > 0) {
-        propertiesCopy.$set = { ...(properties.$set || {}), ...Object.fromEntries(maybeSet) }
+        propertiesCopy.$set = { ...Object.fromEntries(maybeSet), ...(properties.$set || {}) }
     }
     if (maybeSetOnce.length > 0) {
-        propertiesCopy.$set_once = { ...(properties.$set_once || {}), ...Object.fromEntries(maybeSetOnce) }
+        propertiesCopy.$set_once = { ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }
     }
     return propertiesCopy
 }

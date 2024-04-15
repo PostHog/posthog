@@ -245,7 +245,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # No emails should be sent
         self.assertEqual(len(mail.outbox), 0)
 
-    def test_invites_are_create_atomically(self):
+    def test_invites_are_created_atomically(self):
         count = OrganizationInvite.objects.count()
         payload = self.helper_generate_bulk_invite_payload(5)
         payload[4]["target_email"] = None

@@ -27,6 +27,7 @@ from posthog.models import (
     OrganizationMembership,
     Text,
 )
+from posthog.schema import DataTableNode, DataVisualizationNode, DateRange, HogQLFilters, HogQLQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -1122,6 +1123,56 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     0.0,
                 ],
             )
+
+    def test_dashboard_filters_applied_to_data_table_node(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "the dashboard", "filters": {"date_from": "-180d"}}
+        )
+        query = DataTableNode(
+            source=HogQLQuery(
+                query="SELECT count(1) FROM events", filters=HogQLFilters(dateRange=DateRange(date_from="-3d"))
+            ),
+        ).model_dump()
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"query": query, "name": "insight", "dashboards": [dashboard_id]}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"], query)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"]["source"]["filters"]["dateRange"]["date_from"], "-180d")
+
+    def test_dashboard_filters_applied_to_data_visualization_node(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "the dashboard", "filters": {"date_from": "-180d"}}
+        )
+        query = DataVisualizationNode(
+            source=HogQLQuery(
+                query="SELECT count(1) FROM events", filters=HogQLFilters(dateRange=DateRange(date_from="-3d"))
+            ),
+        ).model_dump()
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"query": query, "name": "insight", "dashboards": [dashboard_id]}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"], query)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"]["source"]["filters"]["dateRange"]["date_from"], "-180d")
 
     # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
@@ -2687,6 +2738,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response_json["result"][1]["count"], 1)
             self.assertEqual(response_json["timezone"], "UTC")
 
+    @skip("Compatibility issue CH 23.12 (see #21318)")
     def test_insight_funnels_hogql_aggregating_time_to_convert(self) -> None:
         with freeze_time("2012-01-15T04:01:34.000Z"):
             _create_person(team=self.team, distinct_ids=["1"], properties={"int_value": 1})

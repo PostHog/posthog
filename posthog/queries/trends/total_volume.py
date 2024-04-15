@@ -59,9 +59,9 @@ class TrendsTotalVolume:
         interval_func = get_interval_func_ch(filter.interval)
 
         person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        if team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+        if team.person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
-        elif team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+        elif team.person_on_events_mode == PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
 
         aggregate_operation, join_condition, math_params = process_math(
