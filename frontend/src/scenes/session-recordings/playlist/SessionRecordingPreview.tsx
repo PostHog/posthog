@@ -1,4 +1,4 @@
-import { IconBug, IconClock, IconCursorClick, IconKeyboard, IconMagicWand, IconPinFilled } from '@posthog/icons'
+import { IconBug, IconMagicWand, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -20,12 +20,10 @@ import { urls } from 'scenes/urls'
 
 import { DurationType, SessionRecordingType } from '~/types'
 
-import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
-    onPropertyClick?: (property: string, value?: string) => void
     isActive?: boolean
     onClick?: () => void
     pinned?: boolean
@@ -33,34 +31,19 @@ export interface SessionRecordingPreviewProps {
     sessionSummaryLoading?: boolean
 }
 
-function RecordingDuration({
-    iconClassNames,
-    recordingDuration,
-}: {
-    iconClassNames: string
-    recordingDuration: number | undefined
-}): JSX.Element {
+function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
     if (recordingDuration === undefined) {
-        return <div className="flex items-center flex-1 justify-end font-semibold">-</div>
+        return <div className="flex text-muted text-xs">-</div>
     }
 
     const formattedDuration = colonDelimitedDuration(recordingDuration)
     const [hours, minutes, seconds] = formattedDuration.split(':')
 
     return (
-        <div className="flex items-center flex-1 space-x-1 justify-end font-semibold">
-            <IconClock className={iconClassNames} />
-            <span>
-                <span className={clsx(hours === '00' && 'opacity-50 font-normal')}>{hours}:</span>
-                <span
-                    className={clsx({
-                        'opacity-50 font-normal': hours === '00' && minutes === '00',
-                    })}
-                >
-                    {minutes}:
-                </span>
-                {seconds}
-            </span>
+        <div className="flex text-muted text-xs">
+            {hours != '00' && <span>{hours}:</span>}
+            {minutes != '00' && <span>{minutes}:</span>}
+            {seconds}
         </div>
     )
 }
@@ -177,46 +160,10 @@ export function PropertyIcons({
     )
 }
 
-function ActivityIndicators({
-    recording,
-    ...props
-}: {
-    recording: SessionRecordingType
-    onPropertyClick?: (property: string, value?: string) => void
-    iconClassnames: string
-}): JSX.Element {
-    const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
-    const recordingProperties = recordingPropertiesById[recording.id]
-    const loading = !recordingProperties && recordingPropertiesLoading
-    const iconProperties = gatherIconProperties(recordingProperties, recording)
-
-    return (
-        <div className="flex iems-center gap-2 text-xs text-muted-alt">
-            <PropertyIcons recordingProperties={iconProperties} loading={loading} {...props} />
-
-            <span
-                title={`Mouse clicks: ${recording.click_count}`}
-                className="flex items-center gap-1  overflow-hidden shrink-0"
-            >
-                <IconCursorClick />
-                {recording.click_count}
-            </span>
-
-            <span
-                title={`Keyboard inputs: ${recording.keypress_count}`}
-                className="flex items-center gap-1  overflow-hidden shrink-0"
-            >
-                <IconKeyboard />
-                {recording.keypress_count}
-            </span>
-        </div>
-    )
-}
-
 function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     const firstPath = props.startUrl?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
     return (
-        <div className="flex items-center justify-between gap-4 w-2/3">
+        <div className="flex items-center justify-between gap-4 w-3/5">
             <span className="flex items-center gap-1 overflow-hidden text-muted text-xs">
                 <span title={`First URL: ${props.startUrl}`} className="truncate">
                     {firstPath}
@@ -257,7 +204,6 @@ export function SessionRecordingPreview({
     recording,
     isActive,
     onClick,
-    onPropertyClick,
     pinned,
     summariseFn,
     sessionSummaryLoading,
@@ -265,7 +211,7 @@ export function SessionRecordingPreview({
     const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
-    const iconClassnames = 'SessionRecordingPreview__property-icon text-base text-muted-alt'
+    const iconClassnames = 'text-base text-muted-alt'
 
     const [summaryPopoverIsVisible, setSummaryPopoverIsVisible] = useState<boolean>(false)
 
@@ -275,7 +221,10 @@ export function SessionRecordingPreview({
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
             <div
                 key={recording.id}
-                className={clsx('SessionRecordingPreview', isActive && 'SessionRecordingPreview--active')}
+                className={clsx(
+                    'SessionRecordingPreview flex gap-1 overflow-hidden cursor-pointer py-1.5 pl-2',
+                    isActive && 'SessionRecordingPreview--active'
+                )}
                 onClick={() => onClick?.()}
                 onMouseEnter={() => setSummaryButtonIsVisible(true)}
                 onMouseLeave={() => setSummaryButtonIsVisible(false)}
@@ -322,13 +271,23 @@ export function SessionRecordingPreview({
                                 {asDisplay(recording.person)}
                             </div>
                         </div>
+
                         <div className="flex-1" />
+
+                        <TZLabel
+                            className="overflow-hidden text-ellipsis text-xs text-muted"
+                            time={recording.start_time}
+                            showPopover={false}
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2">
+                        <FirstURL startUrl={recording.start_url} />
 
                         {orderBy === 'console_error_count' ? (
                             <ErrorCount iconClassNames={iconClassnames} errorCount={recording.console_error_count} />
                         ) : (
                             <RecordingDuration
-                                iconClassNames={iconClassnames}
                                 recordingDuration={durationToShow(
                                     recording,
                                     orderBy === 'start_time' ? durationTypeToShow : orderBy
@@ -336,25 +295,10 @@ export function SessionRecordingPreview({
                             />
                         )}
                     </div>
-
-                    <div className="flex items-center justify-between gap-2">
-                        <ActivityIndicators
-                            onPropertyClick={onPropertyClick}
-                            recording={recording}
-                            iconClassnames={iconClassnames}
-                        />
-                        <TZLabel
-                            className="overflow-hidden text-ellipsis text-xs"
-                            time={recording.start_time}
-                            placement="right"
-                        />
-                    </div>
-
-                    <FirstURL startUrl={recording.start_url} />
                 </div>
 
                 <div className="w-6 flex flex-col items-center mt-1">
-                    <ViewedIndicator viewed={recording.viewed} />
+                    <ViewedIndicator viewed={false} />
                     {pinned ? <PinnedIndicator /> : null}
                 </div>
             </div>

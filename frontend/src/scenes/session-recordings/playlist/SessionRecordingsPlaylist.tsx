@@ -27,7 +27,6 @@ import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
 import {
     DEFAULT_RECORDING_FILTERS,
-    defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
@@ -67,8 +66,8 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
 }
 
 function PinnedRecordingsList(): JSX.Element | null {
-    const { setSelectedRecordingId, setAdvancedFilters } = useActions(sessionRecordingsPlaylistLogic)
-    const { activeSessionRecordingId, filters, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
+    const { setSelectedRecordingId } = useActions(sessionRecordingsPlaylistLogic)
+    const { activeSessionRecordingId, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -89,9 +88,6 @@ function PinnedRecordingsList(): JSX.Element | null {
                     <SessionRecordingPreview
                         recording={rec}
                         onClick={() => setSelectedRecordingId(rec.id)}
-                        onPropertyClick={(property, value) =>
-                            setAdvancedFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
-                        }
                         isActive={activeSessionRecordingId === rec.id}
                         pinned={true}
                     />
@@ -136,10 +132,6 @@ function RecordingsLists(): JSX.Element {
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
-    }
-
-    const onPropertyClick = (property: string, value?: string): void => {
-        setAdvancedFilters(defaultPageviewPropertyEntityFilter(advancedFilters, property, value))
     }
 
     const onSummarizeClick = (recording: SessionRecordingType): void => {
@@ -269,7 +261,6 @@ function RecordingsLists(): JSX.Element {
                                           <SessionRecordingPreview
                                               recording={rec}
                                               onClick={() => onRecordingClick(rec)}
-                                              onPropertyClick={onPropertyClick}
                                               isActive={activeSessionRecordingId === rec.id}
                                               pinned={false}
                                               summariseFn={onSummarizeClick}

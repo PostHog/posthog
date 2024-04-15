@@ -25,7 +25,6 @@ export const WebRecording = Template.bind({})
 WebRecording.args = {
     iconClassnames: 'wat',
     loading: false,
-    onPropertyClick: () => {},
     recordingProperties: [
         { label: 'Mac OS X', value: 'Mac OS X', property: '$os', tooltipValue: 'Mac OS X' },
         { label: 'Chrome', value: 'Chrome', property: '$browser', tooltipValue: 'Chrome' },
@@ -43,7 +42,6 @@ export const AndroidRecording = Template.bind({})
 AndroidRecording.args = {
     iconClassnames: 'wat',
     loading: false,
-    onPropertyClick: () => {},
     recordingProperties: [
         { label: 'Android', value: 'Android', property: '$os_name', tooltipValue: 'Android' },
         { label: 'Awesome Fun App', value: 'Awesome Fun App', property: '$app_name', tooltipValue: 'Awesome Fun App' },
@@ -61,7 +59,6 @@ export const Loading = Template.bind({})
 Loading.args = {
     iconClassnames: 'wat',
     loading: true,
-    onPropertyClick: () => {},
     recordingProperties: [],
 }
 Loading.parameters = {
