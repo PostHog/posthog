@@ -8,6 +8,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -15,14 +16,16 @@ import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
 import {
@@ -129,6 +132,8 @@ function RecordingsLists(): JSX.Element {
         toggleShowOtherRecordings,
         summarizeSession,
     } = useActions(sessionRecordingsPlaylistLogic)
+    const { showRecordingListPreviews } = useValues(playerSettingsLogic)
+    const { setShowRecordingListPreviews } = useActions(playerSettingsLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
@@ -140,6 +145,16 @@ function RecordingsLists(): JSX.Element {
 
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const [isHovering, setIsHovering] = useState<boolean | null>(null)
+
+    useKeyboardHotkeys(
+        {
+            space: {
+                action: () => isHovering && setShowRecordingListPreviews(!showRecordingListPreviews),
+            },
+        },
+        [isHovering]
+    )
 
     const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
         // If we are scrolling down then check if we are at the bottom of the list
@@ -242,7 +257,11 @@ function RecordingsLists(): JSX.Element {
                 ) : null}
 
                 {pinnedRecordings.length || otherRecordings.length ? (
-                    <ul>
+                    <ul onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
+                        <div className="flex gap-1 items-center justify-center px-3 py-2 bg-bg-3000 border-b text-xs">
+                            <b>Hint:</b> Press <KeyboardShortcut space /> to preview recordings
+                        </div>
+
                         <PinnedRecordingsList />
 
                         {pinnedRecordings.length ? (

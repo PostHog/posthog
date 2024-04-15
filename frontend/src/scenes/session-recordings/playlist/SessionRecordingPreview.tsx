@@ -214,74 +214,79 @@ export function SessionRecordingPreview({
     sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
-    const { durationTypeToShow } = useValues(playerSettingsLogic)
+    const { durationTypeToShow, showRecordingListPreviews } = useValues(playerSettingsLogic)
 
     const iconClassnames = 'text-base text-muted-alt'
 
+    const innerContent = (
+        <div
+            key={recording.id}
+            className={clsx(
+                'SessionRecordingPreview flex gap-1 overflow-hidden cursor-pointer py-1.5 pl-2',
+                isActive && 'SessionRecordingPreview--active'
+            )}
+            onClick={() => onClick?.()}
+        >
+            <div className="grow overflow-hidden space-y-px">
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 shrink overflow-hidden">
+                        <div className="truncate font-medium text-link ph-no-capture">
+                            {asDisplay(recording.person)}
+                        </div>
+                    </div>
+
+                    <div className="flex-1" />
+
+                    <TZLabel
+                        className="overflow-hidden text-ellipsis text-xs text-muted"
+                        time={recording.start_time}
+                        placement="right"
+                        showPopover={false}
+                    />
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                    <FirstURL startUrl={recording.start_url} />
+
+                    {orderBy === 'console_error_count' ? (
+                        <ErrorCount iconClassNames={iconClassnames} errorCount={recording.console_error_count} />
+                    ) : (
+                        <RecordingDuration
+                            recordingDuration={durationToShow(
+                                recording,
+                                orderBy === 'start_time' ? durationTypeToShow : orderBy
+                            )}
+                        />
+                    )}
+                </div>
+            </div>
+
+            <div className="w-6 flex flex-col items-center mt-1">
+                <ViewedIndicator viewed={recording.viewed} />
+                {pinned ? <PinnedIndicator /> : null}
+            </div>
+        </div>
+    )
+
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
-            <LemonDropdown
-                placement="right-start"
-                trigger="hover"
-                overlay={
-                    <SessionRecordingPreviewPopover
-                        recording={recording}
-                        summariseFn={summariseFn}
-                        sessionSummaryLoading={sessionSummaryLoading}
-                    />
-                }
-            >
-                <div
-                    key={recording.id}
-                    className={clsx(
-                        'SessionRecordingPreview flex gap-1 overflow-hidden cursor-pointer py-1.5 pl-2',
-                        isActive && 'SessionRecordingPreview--active'
-                    )}
-                    onClick={() => onClick?.()}
+            {showRecordingListPreviews ? (
+                <LemonDropdown
+                    placement="right-start"
+                    trigger="hover"
+                    overlay={
+                        <SessionRecordingPreviewPopover
+                            recording={recording}
+                            summariseFn={summariseFn}
+                            sessionSummaryLoading={sessionSummaryLoading}
+                        />
+                    }
                 >
-                    <div className="grow overflow-hidden space-y-px">
-                        <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1 shrink overflow-hidden">
-                                <div className="truncate font-medium text-link ph-no-capture">
-                                    {asDisplay(recording.person)}
-                                </div>
-                            </div>
-
-                            <div className="flex-1" />
-
-                            <TZLabel
-                                className="overflow-hidden text-ellipsis text-xs text-muted"
-                                time={recording.start_time}
-                                placement="right"
-                                showPopover={false}
-                            />
-                        </div>
-
-                        <div className="flex items-center justify-between gap-2">
-                            <FirstURL startUrl={recording.start_url} />
-
-                            {orderBy === 'console_error_count' ? (
-                                <ErrorCount
-                                    iconClassNames={iconClassnames}
-                                    errorCount={recording.console_error_count}
-                                />
-                            ) : (
-                                <RecordingDuration
-                                    recordingDuration={durationToShow(
-                                        recording,
-                                        orderBy === 'start_time' ? durationTypeToShow : orderBy
-                                    )}
-                                />
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="w-6 flex flex-col items-center mt-1">
-                        <ViewedIndicator viewed={recording.viewed} />
-                        {pinned ? <PinnedIndicator /> : null}
-                    </div>
-                </div>
-            </LemonDropdown>
+                    {innerContent}
+                </LemonDropdown>
+            ) : (
+                innerContent
+            )}
         </DraggableToNotebook>
     )
 }

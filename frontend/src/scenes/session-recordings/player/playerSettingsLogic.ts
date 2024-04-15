@@ -185,6 +185,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
+        setShowRecordingListPreviews: (enabled: boolean) => ({ enabled }),
     }),
     reducers(() => ({
         showFilters: [
@@ -226,6 +227,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setSpeed: (_, { speed }) => speed,
+            },
+        ],
+        showRecordingListPreviews: [
+            false,
+            { persist: true },
+            {
+                setShowRecordingListPreviews: (_, { enabled }) => enabled,
             },
         ],
         skipInactivitySetting: [
