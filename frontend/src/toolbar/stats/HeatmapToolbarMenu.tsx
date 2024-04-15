@@ -17,7 +17,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
-import { useToolbarFeatureFlag } from '../posthog'
+import { useToolbarFeatureFlag } from '../toolbarPosthogJS'
 
 const ScrollDepthJSWarning = (): JSX.Element | null => {
     const { scrollDepthPosthogJsError } = useValues(heatmapLogic)

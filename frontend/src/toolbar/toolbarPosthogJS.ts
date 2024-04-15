@@ -13,11 +13,16 @@ export const toolbarPosthogJS = new PostHog(apiKey || DEFAULT_API_KEY, {
     enable: false, // must call .optIn() before any events are sent
     persistence: 'memory', // We don't want to persist anything, all events are in-memory
     persistence_name: apiKey + '_toolbar', // We don't need this but it ensures we don't accidentally mess with the standard persistence
+    preloadFeatureFlags: false,
 })
 
+toolbarPosthogJS.debug()
 if (runningOnPosthog && window.JS_POSTHOG_SELF_CAPTURE) {
     toolbarPosthogJS.debug()
 }
+
+window.toolbarPosthogJS = toolbarPosthogJS
+console.log(window.toolbarPosthogJS)
 
 export const useToolbarFeatureFlag = (flag: FeatureFlagKey, match?: string): boolean => {
     const [flagValue, setFlagValue] = useState<boolean | string | undefined>(toolbarPosthogJS.getFeatureFlag(flag))

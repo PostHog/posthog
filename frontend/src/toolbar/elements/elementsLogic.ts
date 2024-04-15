@@ -3,7 +3,7 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { toolbarPosthogJS } from '~/toolbar/posthog'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'

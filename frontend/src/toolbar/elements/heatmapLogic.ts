@@ -8,7 +8,7 @@ import { PaginatedResponse } from 'lib/api'
 import { dateFilterToText } from 'lib/utils'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
-import { toolbarPosthogJS } from '~/toolbar/posthog'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import {
