@@ -37,7 +37,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
-import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
+import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackSceneLogic'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
