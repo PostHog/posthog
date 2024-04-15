@@ -295,7 +295,6 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     )
 
     for event in events:
-        # TODO we're quota limiting $heatmap and $performance_event events on the replay bill
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
             if token in limited_tokens_recordings:
