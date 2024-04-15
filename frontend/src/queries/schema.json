@@ -2622,10 +2622,8 @@
                 "personsOnEventsMode": {
                     "enum": [
                         "disabled",
-                        "v1_enabled",
-                        "v1_mixed",
-                        "v2_enabled",
-                        "v3_enabled",
+                        "person_id_no_override_properties_on_events",
+                        "person_id_override_properties_on_events",
                         "person_id_override_properties_joined"
                     ],
                     "type": "string"
@@ -4933,7 +4931,6 @@
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "const": "$session_duration",
                     "type": "string"
                 },
                 "label": {
