@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
@@ -39,6 +40,7 @@ def execute_hogql_query(
     timings: Optional[HogQLTimings] = None,
     explain: Optional[bool] = False,
     pretty: Optional[bool] = True,
+    context: Optional[HogQLContext] = None,
 ) -> HogQLQueryResponse:
     if timings is None:
         timings = HogQLTimings()
@@ -82,13 +84,15 @@ def execute_hogql_query(
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
         with timings.measure("prepare_ast"):
-            hogql_query_context = HogQLContext(
+            hogql_query_context = dataclasses.replace(
+                (context or HogQLContext(team.pk)),
                 team_id=team.pk,
                 team=team,
                 enable_select_queries=True,
                 timings=timings,
                 modifiers=query_modifiers,
             )
+
             with timings.measure("clone"):
                 cloned_query = clone_expr(select_query, True)
             select_query_hogql = cast(
@@ -125,7 +129,8 @@ def execute_hogql_query(
 
     # Print the ClickHouse SQL query
     with timings.measure("print_ast"):
-        clickhouse_context = HogQLContext(
+        clickhouse_context = dataclasses.replace(
+            (context or HogQLContext(team.pk)),
             team_id=team.pk,
             team=team,
             enable_select_queries=True,

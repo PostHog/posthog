@@ -8,6 +8,8 @@ from posthog.auth import TemporaryTokenAuthentication
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.rate_limit import ClickHouseSustainedRateThrottle, ClickHouseBurstRateThrottle
@@ -26,9 +28,6 @@ DEFAULT_QUERY = """
                      where {predicates}
                 )
             group by `pointer_target_fixed`, relative_client_x, client_y
-            -- hogql enforces a limit (and only allows a max of 10000) but we don't really want one
-            -- see https://github.com/PostHog/posthog/blob/715a8b924e7c5dca7ae986bfdba6072b3999dbed/posthog/hogql/constants.py#L33
-            limit 10000000
             """
 
 SCROLL_DEPTH_QUERY = """
@@ -49,9 +48,6 @@ FROM (
     GROUP BY bucket
 )
 ORDER BY bucket
--- hogql enforces a limit (and only allows a max of 10000) but we don't really want one
--- see https://github.com/PostHog/posthog/blob/715a8b924e7c5dca7ae986bfdba6072b3999dbed/posthog/hogql/constants.py#L33
-limit 10000000
 """
 
 
@@ -148,9 +144,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
 
+        context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
         doohickies = execute_hogql_query(
-            query=stmt,
-            team=self.team,
+            query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context
         )
 
         if is_scrolldepth_query:

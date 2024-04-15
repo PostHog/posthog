@@ -16,9 +16,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_exact_url.1
@@ -38,9 +38,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_exact_url.2
@@ -60,9 +60,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_all_data_response
@@ -82,9 +82,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation
@@ -104,9 +104,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation.1
@@ -126,9 +126,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_empty_response
@@ -148,9 +148,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click
@@ -170,9 +170,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click.1
@@ -192,9 +192,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_date_from
@@ -214,9 +214,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_min_and_max_viewport
@@ -236,9 +236,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_min_viewport
@@ -258,9 +258,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_min_viewport.1
@@ -280,9 +280,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_min_viewport.2
@@ -302,9 +302,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_min_viewport.3
@@ -324,9 +324,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_relative_date_from
@@ -346,9 +346,9 @@
   GROUP BY pointer_target_fixed,
            relative_client_x,
            client_y
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_scrolldepth_counts
@@ -368,8 +368,8 @@
         WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'scrolldepth'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-06'))))
      GROUP BY bucket)
   ORDER BY bucket ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
   '''
 # ---
