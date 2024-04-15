@@ -13,13 +13,9 @@ function HeatmapElementView({ element }: { element: HeatmapElement }): JSX.Eleme
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
     const size = 36 // TODO: How to decide on radius
     const opacity = Math.max(0.2, Math.min(0.7, element.count / 1000)) // TODO: How to decide on opacity
-
-    // Remove as any once we have the scrollmanager stuff merged
-    const ph = posthog as any
-
     const { xPercentage, y, targetFixed } = element
 
-    const scrollYOffset = targetFixed ? 0 : ph.scrollManager.scrollY()
+    const scrollYOffset = targetFixed ? 0 : (posthog as any).scrollManager.scrollY()
 
     // Default mode - place it exactly where it should be
     const top = `${y - size * 0.5 - scrollYOffset}px`
