@@ -10,7 +10,8 @@ import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
 import { ToolbarMenu } from '../bar/ToolbarMenu'
 
 export const EventDebugMenu = (): JSX.Element => {
-    const { events, isCollapsedEventRow, expandedEvent, showRecordingSnapshots } = useValues(eventDebugMenuLogic)
+    const { events, isCollapsedEventRow, expandedEvent, showRecordingSnapshots, snapshotCount, eventCount } =
+        useValues(eventDebugMenuLogic)
     const { markExpanded, setShowRecordingSnapshots } = useActions(eventDebugMenuLogic)
 
     return (
@@ -18,12 +19,8 @@ export const EventDebugMenu = (): JSX.Element => {
             <ToolbarMenu.Header>
                 <div className="flex flex-col pb-2 space-y-1">
                     <div className="flex flex-row justify-around">
-                        <span className="text-xs">
-                            Seen {events.filter((e) => e.event !== '$snapshot').length} events.
-                        </span>
-                        <span className="text-xs">
-                            Seen {events.filter((e) => e.event === '$snapshot').length} recording snapshots.
-                        </span>
+                        <span className="text-xs">Seen {snapshotCount} events.</span>
+                        <span className="text-xs">Seen {eventCount} recording snapshots.</span>
                     </div>
                     <div className="flex justify-center">
                         <LemonSwitch

@@ -51,9 +51,11 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
                 }
             },
         ],
+        snapshotCount: [(s) => [s.events], (events) => events.filter((e) => e.event === '$snapshot').length],
+        eventCount: [(s) => [s.events], (events) => events.filter((e) => e.event !== '$snapshot').length],
     }),
     afterMount(({ values, actions }) => {
-        values.posthog?.debugEventEmitter.on('eventCaptured', (e) => {
+        values.posthog?.on('eventCaptured', (e) => {
             if (!e.uuid) {
                 e.uuid = uuid()
             }
