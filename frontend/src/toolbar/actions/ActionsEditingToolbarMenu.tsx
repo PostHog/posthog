@@ -9,7 +9,7 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { StepField } from '~/toolbar/actions/StepField'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
-import { posthog } from '~/toolbar/posthog'
+import { toolbarPosthogJS } from '~/toolbar/posthog'
 
 export const ActionsEditingToolbarMenu = (): JSX.Element => {
     const {
@@ -38,7 +38,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                 startingSelector={editingSelectorValue}
                 onChange={(selector) => {
                     if (selector && editingSelector !== null) {
-                        posthog.capture('toolbar_manual_selector_applied', {
+                        toolbarPosthogJS.capture('toolbar_manual_selector_applied', {
                             chosenSelector: selector,
                         })
                         setElementSelector(selector, editingSelector)
@@ -124,9 +124,12 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                     icon={<IconPencil />}
                                                     onClick={(e) => {
                                                         e.stopPropagation()
-                                                        posthog.capture('toolbar_manual_selector_modal_opened', {
-                                                            selector: step?.selector,
-                                                        })
+                                                        toolbarPosthogJS.capture(
+                                                            'toolbar_manual_selector_modal_opened',
+                                                            {
+                                                                selector: step?.selector,
+                                                            }
+                                                        )
                                                         editSelectorWithIndex(index)
                                                     }}
                                                 >

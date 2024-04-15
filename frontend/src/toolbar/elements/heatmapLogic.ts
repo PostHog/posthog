@@ -8,7 +8,7 @@ import { PaginatedResponse } from 'lib/api'
 import { dateFilterToText } from 'lib/utils'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
-import { posthog } from '~/toolbar/posthog'
+import { toolbarPosthogJS } from '~/toolbar/posthog'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import {
@@ -517,11 +517,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
     listeners(({ actions, values }) => ({
         enableHeatmap: () => {
             actions.loadAllEnabled()
-            posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
         disableHeatmap: () => {
             actions.resetElementStats()
-            posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
 
         loadAllEnabled: async ({ delayMs }, breakpoint) => {
