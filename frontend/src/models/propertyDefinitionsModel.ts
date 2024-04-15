@@ -1,5 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
@@ -250,10 +250,17 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     }
 
                     // and then fetch them
-                    const propertyDefinitions = await api.propertyDefinitions.list({
-                        properties: pending,
-                        ...queryParams,
-                    })
+                    let propertyDefinitions: CountedPaginatedResponse<PropertyDefinition>
+                    if (type === 'session') {
+                        propertyDefinitions = await api.sessions.propertyDefinitions({
+                            properties: pending,
+                        })
+                    } else {
+                        propertyDefinitions = await api.propertyDefinitions.list({
+                            properties: pending,
+                            ...queryParams,
+                        })
+                    }
 
                     for (const propertyDefinition of propertyDefinitions.results) {
                         newProperties[`${type}/${propertyDefinition.name}`] = propertyDefinition

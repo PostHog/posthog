@@ -3,13 +3,11 @@ import json
 from rest_framework import request, response, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql.database.schema.sessions import get_lazy_session_table_properties
-from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.queries.property_values import get_session_column_values_for_key
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -17,43 +15,14 @@ from posthog.rate_limit import (
 )
 from posthog.utils import convert_property_value, flatten
 
-QUERY_DEFAULT_EXPORT_LIMIT = 3_500
-
-
-class UncountedLimitOffsetPagination(LimitOffsetPagination):
-    """
-    the events api works with the default LimitOffsetPagination, but the
-    results don't have a count, so we need to override the pagination class
-    to remove the count from the response schema
-    """
-
-    def get_paginated_response_schema(self, schema):
-        return {
-            "type": "object",
-            "properties": {
-                "next": {
-                    "type": "string",
-                    "nullable": True,
-                    "format": "uri",
-                    "example": "http://api.example.org/accounts/?{offset_param}=400&{limit_param}=100".format(
-                        offset_param=self.offset_query_param, limit_param=self.limit_query_param
-                    ),
-                },
-                "results": schema,
-            },
-        }
-
 
 class SessionViewSet(
     TeamAndOrgViewSetMixin,
     viewsets.ViewSet,
 ):
-    # queryset = Session.objects.none() # not used
     scope_object = "query"
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
-    serializer_class = ClickhouseEventSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
-    pagination_class = UncountedLimitOffsetPagination
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
