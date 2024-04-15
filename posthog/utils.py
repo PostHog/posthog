@@ -6,6 +6,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+from operator import itemgetter
 import os
 import re
 import secrets
@@ -1335,3 +1336,18 @@ def label_for_team_id_to_track(team_id: int) -> str:
 
 def camel_to_snake_case(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def multisort(xs: list, specs: tuple[tuple[str, bool], ...]):
+    """
+    Takes a list and tuples of field and order to sort them on multiple passes. This
+    is useful to sort a list by multiple fields where some of them are ordered differently
+    than others.
+
+    Example: `multisort(list(student_objects), (('grade', True), ('age', False)))`
+
+    https://docs.python.org/3/howto/sorting.html#sort-stability-and-complex-sorts
+    """
+    for key, reverse in reversed(specs):
+        xs.sort(key=itemgetter(key), reverse=reverse)
+    return xs
