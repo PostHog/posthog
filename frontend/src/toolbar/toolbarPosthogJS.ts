@@ -16,7 +16,6 @@ export const toolbarPosthogJS = new PostHog(apiKey || DEFAULT_API_KEY, {
     preloadFeatureFlags: false,
 })
 
-toolbarPosthogJS.debug()
 if (runningOnPosthog && window.JS_POSTHOG_SELF_CAPTURE) {
     toolbarPosthogJS.debug()
 }
