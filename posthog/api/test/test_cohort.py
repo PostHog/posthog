@@ -696,6 +696,84 @@ email@example.org,
         self.assertEqual(2, len(response.json()["results"]))
 
     @patch("posthog.api.cohort.report_user_action")
+    def test_calculating_with_new_cohort_event_filters(self, patch_capture):
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            properties={"$filter_prop": "something"},
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            properties={"$filter_prop": "something2"},
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            properties={"$filter_prop": "something2"},
+            timestamp=datetime.now() - timedelta(days=12),
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                                "event_filters": [
+                                    {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"}
+                                ],
+                            },
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort_id = response.json()["id"]
+
+        while response.json()["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(1, len(response.json()["results"]))
+
+    @patch("posthog.api.cohort.report_user_action")
     def test_creating_update_and_calculating_with_new_cohort_query(self, patch_capture):
         _create_person(
             distinct_ids=["p1"],

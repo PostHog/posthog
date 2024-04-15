@@ -14,9 +14,9 @@ from posthog.hogql.constants import (
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
-    HOGQL_AGGREGATIONS,
-    HOGQL_POSTHOG_FUNCTIONS,
-    find_clickhouse_function,
+    find_hogql_aggregation,
+    find_hogql_posthog_function,
+    find_hogql_function,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
@@ -725,7 +725,7 @@ class _Printer(Visitor):
                     op=op,
                 )
             )
-        elif func_meta := HOGQL_AGGREGATIONS.get(node.name):
+        elif func_meta := find_hogql_aggregation(node.name):
             validate_function_args(
                 node.args,
                 func_meta.min_args,
@@ -747,7 +747,7 @@ class _Printer(Visitor):
 
             # check that we're not running inside another aggregate
             for stack_node in self.stack:
-                if stack_node != node and isinstance(stack_node, ast.Call) and stack_node.name in HOGQL_AGGREGATIONS:
+                if stack_node != node and isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
                     raise QueryError(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
@@ -759,7 +759,7 @@ class _Printer(Visitor):
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
             return f"{func_meta.clickhouse_name}{params_part}{args_part}"
 
-        elif func_meta := find_clickhouse_function(node.name):
+        elif func_meta := find_hogql_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if func_meta.min_params:
                 if node.params is None:
@@ -857,7 +857,7 @@ class _Printer(Visitor):
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
-        elif func_meta := HOGQL_POSTHOG_FUNCTIONS.get(node.name):
+        elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
 
