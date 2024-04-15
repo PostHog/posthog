@@ -89,7 +89,7 @@ social-auth-core==4.3.0
 sqlalchemy==2.0.23
 statshog==1.0.6
 structlog==23.2.0
-sqlparse==0.4.4
+sqlparse==0.5.0
 temporalio==1.4.0
 token-bucket==0.3.0
 toronado==0.1.0

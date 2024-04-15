@@ -235,7 +235,7 @@ sortedcontainers==2.4.0
     # via
     #   -c requirements.txt
     #   fakeredis
-sqlparse==0.4.4
+sqlparse==0.5.0
     # via
     #   -c requirements.txt
     #   django

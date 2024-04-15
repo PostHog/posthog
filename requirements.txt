@@ -449,9 +449,7 @@ protobuf==4.22.1
     #   proto-plus
     #   temporalio
 psycopg[binary]==3.1.13
-    # via
-    #   -r requirements.in
-    #   psycopg
+    # via -r requirements.in
 psycopg-binary==3.1.13
     # via psycopg
 psycopg2-binary==2.9.7
@@ -628,7 +626,7 @@ sortedcontainers==2.4.0
     #   trio
 sqlalchemy==2.0.23
     # via -r requirements.in
-sqlparse==0.4.4
+sqlparse==0.5.0
     # via
     #   -r requirements.in
     #   django
