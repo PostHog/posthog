@@ -463,11 +463,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         return acc
                     }
 
-                    const y =
-                        !element.targetFixed || heatmapFixedPositionMode !== 'fixed'
+                    const y = Math.round(
+                        element.targetFixed && heatmapFixedPositionMode === 'fixed'
                             ? element.y
                             : element.y - heatmapScrollY
-                    const x = element.xPercentage * windowWidth
+                    )
+                    const x = Math.round(element.xPercentage * windowWidth)
 
                     return [...acc, { x, y, value: element.count }]
                 }, [] as h337.DataPoint<'value', 'x', 'y'>[])
