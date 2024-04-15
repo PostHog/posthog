@@ -448,8 +448,12 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
-psycopg==3.1.13
-    # via -r requirements.in
+psycopg[binary]==3.1.13
+    # via
+    #   -r requirements.in
+    #   psycopg
+psycopg-binary==3.1.13
+    # via psycopg
 psycopg2-binary==2.9.7
     # via -r requirements.in
 ptyprocess==0.6.0
