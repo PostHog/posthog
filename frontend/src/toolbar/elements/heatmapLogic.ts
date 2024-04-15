@@ -43,6 +43,8 @@ export type HeatmapFilters = {
     aggregation?: HeatmapRequestType['aggregation']
 }
 
+export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'
+
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
@@ -71,6 +73,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         maybeLoadHeatmap: (delayMs: number = 0) => ({ delayMs }),
         fetchHeatmapApi: (params: HeatmapRequestType) => ({ params }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
+        setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -128,6 +131,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
             0,
             {
                 setHeatmapScrollY: (_, { scrollY }) => scrollY,
+            },
+        ],
+
+        heatmapFixedPositionMode: [
+            'fixed' as HeatmapFixedPositionMode,
+            {
+                setHeatmapFixedPositionMode: (_, { mode }) => mode,
             },
         ],
     }),
@@ -440,15 +450,27 @@ export const heatmapLogic = kea<heatmapLogicType>([
         ],
 
         heatmapJsData: [
-            (s) => [s.heatmapElements, s.heatmapScrollY, s.windowWidth],
-            (heatmapElements, heatmapScrollY, windowWidth): h337.HeatmapData<h337.DataPoint<'value', 'x', 'y'>> => {
+            (s) => [s.heatmapElements, s.heatmapScrollY, s.windowWidth, s.heatmapFixedPositionMode],
+            (
+                heatmapElements,
+                heatmapScrollY,
+                windowWidth,
+                heatmapFixedPositionMode
+            ): h337.HeatmapData<h337.DataPoint<'value', 'x', 'y'>> => {
                 // We want to account for all the fixed position elements, the scroll of the context and the browser width
+                const data = heatmapElements.reduce((acc, element) => {
+                    if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
+                        return acc
+                    }
 
-                const data = heatmapElements.map((element) => ({
-                    x: element.xPercentage * windowWidth,
-                    y: element.targetFixed ? element.y : element.y - heatmapScrollY,
-                    value: element.count,
-                }))
+                    const y =
+                        !element.targetFixed || heatmapFixedPositionMode !== 'fixed'
+                            ? element.y
+                            : element.y - heatmapScrollY
+                    const x = element.xPercentage * windowWidth
+
+                    return [...acc, { x, y, value: element.count }]
+                }, [] as h337.DataPoint<'value', 'x', 'y'>[])
 
                 // Max is the highest value in the data set we have
                 const max = data.reduce((max, { value }) => Math.max(max, value), 0)
@@ -457,7 +479,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                 return {
                     min: 0,
-                    max: max,
+                    max,
                     data,
                 }
             },

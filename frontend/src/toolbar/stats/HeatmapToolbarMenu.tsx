@@ -1,5 +1,5 @@
 import { IconMagicWand } from '@posthog/icons'
-import { LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { IconSync } from 'lib/lemon-ui/icons'
@@ -55,9 +55,16 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         rawHeatmapLoading,
         elementStatsLoading,
         clickmapsEnabled,
+        heatmapFixedPositionMode,
     } = useValues(heatmapLogic)
-    const { setCommonFilters, patchHeatmapFilters, loadMoreElementStats, setMatchLinksByHref, toggleClickmapsEnabled } =
-        useActions(heatmapLogic)
+    const {
+        setCommonFilters,
+        patchHeatmapFilters,
+        loadMoreElementStats,
+        setMatchLinksByHref,
+        toggleClickmapsEnabled,
+        setHeatmapFixedPositionMode,
+    } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     const dateItems = dateMapping
@@ -201,6 +208,40 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                             </code>
                                         </Tooltip>
                                     </div>
+
+                                    {heatmapFilters.type !== 'scrolldepth' ? (
+                                        <>
+                                            <LemonLabel>Fixed positioning calculation</LemonLabel>
+                                            <p>
+                                                PostHog JS will attempt to detect fixed elements such as headers or
+                                                modals and will therefore show those heatmap areas, ignoring the scroll
+                                                value.
+                                                <br />
+                                                You can choose to show these areas as fixed, include them with scrolled
+                                                data or hide them altogether.
+                                            </p>
+
+                                            <LemonSegmentedButton
+                                                onChange={setHeatmapFixedPositionMode}
+                                                value={heatmapFixedPositionMode}
+                                                options={[
+                                                    {
+                                                        value: 'fixed',
+                                                        label: 'Show fixed',
+                                                    },
+                                                    {
+                                                        value: 'relative',
+                                                        label: 'Show scrolled',
+                                                    },
+                                                    {
+                                                        value: 'hidden',
+                                                        label: 'Hide',
+                                                    },
+                                                ]}
+                                                size="small"
+                                            />
+                                        </>
+                                    ) : null}
                                 </div>
                             </>
                         )}

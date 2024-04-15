@@ -9,13 +9,13 @@ export function Heatmap(): JSX.Element | null {
     const h337Ref = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const h337ContainerRef = useRef<HTMLDivElement | null>()
 
-    const updateHeatmapData = (): void => {
+    const updateHeatmapData = useCallback((): void => {
         try {
             h337Ref.current?.setData(heatmapJsData)
         } catch (e) {
             console.error('error setting data', e)
         }
-    }
+    }, [heatmapJsData])
 
     const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
         h337ContainerRef.current = container
