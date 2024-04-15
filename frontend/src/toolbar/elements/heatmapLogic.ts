@@ -46,7 +46,7 @@ export type HeatmapFilters = {
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
-        values: [currentPageLogic, ['href', 'wildcardHref']],
+        values: [currentPageLogic, ['href', 'wildcardHref'], toolbarConfigLogic, ['posthog']],
         actions: [currentPageLogic, ['setHref', 'setWildcardHref']],
     }),
     actions({
@@ -70,6 +70,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         maybeLoadClickmap: (delayMs: number = 0) => ({ delayMs }),
         maybeLoadHeatmap: (delayMs: number = 0) => ({ delayMs }),
         fetchHeatmapApi: (params: HeatmapRequestType) => ({ params }),
+        setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -121,6 +122,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
             { persist: true },
             {
                 toggleClickmapsEnabled: (state, { enabled }) => (enabled === undefined ? !state : enabled),
+            },
+        ],
+        heatmapScrollY: [
+            0,
+            {
+                setHeatmapScrollY: (_, { scrollY }) => scrollY,
             },
         ],
     }),
@@ -431,28 +438,36 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 return !isSupported ? 'version' : isDisabled ? 'disabled' : null
             },
         ],
+
+        heatmapJsData: [
+            (s) => [s.heatmapElements, s.heatmapScrollY, s.windowWidth],
+            (heatmapElements, heatmapScrollY, windowWidth): h337.HeatmapData<h337.DataPoint<'value', 'x', 'y'>> => {
+                // We want to account for all the fixed position elements, the scroll of the context and the browser width
+
+                const data = heatmapElements.map((element) => ({
+                    x: element.xPercentage * windowWidth,
+                    y: element.targetFixed ? element.y : element.y - heatmapScrollY,
+                    value: element.count,
+                }))
+
+                // Max is the highest value in the data set we have
+                const max = data.reduce((max, { value }) => Math.max(max, value), 0)
+
+                return {
+                    min: 0,
+                    max: max,
+                    data,
+                    // max: scrollAdjustedHeatmapElements.reduce((max, { count }) => Math.max(max, count), 0),
+                    // data: scrollAdjustedHeatmapElements.map(({ xPercentage, y, count }) => ({
+                    //     x: xPercentage * (h337ContainerRef.current?.offsetWidth ?? window.innerWidth),
+                    //     y: y,
+                    //     value: count,
+                    //     // targetFixed,
+                    // })),
+                }
+            },
+        ],
     })),
-
-    afterMount(({ actions, values, cache }) => {
-        actions.loadAllEnabled()
-        cache.keyDownListener = (event: KeyboardEvent) => {
-            if (event.shiftKey && !values.shiftPressed) {
-                actions.setShiftPressed(true)
-            }
-        }
-        cache.keyUpListener = (event: KeyboardEvent) => {
-            if (!event.shiftKey && values.shiftPressed) {
-                actions.setShiftPressed(false)
-            }
-        }
-        window.addEventListener('keydown', cache.keyDownListener)
-        window.addEventListener('keyup', cache.keyUpListener)
-    }),
-
-    beforeUnmount(({ cache }) => {
-        window.removeEventListener('keydown', cache.keyDownListener)
-        window.removeEventListener('keyup', cache.keyUpListener)
-    }),
 
     subscriptions(({ actions }) => ({
         viewportRange: () => {
@@ -558,4 +573,33 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.maybeLoadHeatmap(200)
         },
     })),
+
+    afterMount(({ actions, values, cache }) => {
+        actions.loadAllEnabled()
+        cache.keyDownListener = (event: KeyboardEvent) => {
+            if (event.shiftKey && !values.shiftPressed) {
+                actions.setShiftPressed(true)
+            }
+        }
+        cache.keyUpListener = (event: KeyboardEvent) => {
+            if (!event.shiftKey && values.shiftPressed) {
+                actions.setShiftPressed(false)
+            }
+        }
+        window.addEventListener('keydown', cache.keyDownListener)
+        window.addEventListener('keyup', cache.keyUpListener)
+
+        cache.scrollCheckTimer = setInterval(() => {
+            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
+            if (values.heatmapScrollY !== scrollY) {
+                actions.setHeatmapScrollY(scrollY)
+            }
+        }, 100)
+    }),
+
+    beforeUnmount(({ cache }) => {
+        window.removeEventListener('keydown', cache.keyDownListener)
+        window.removeEventListener('keyup', cache.keyUpListener)
+        clearInterval(cache.scrollCheckTimer)
+    }),
 ])

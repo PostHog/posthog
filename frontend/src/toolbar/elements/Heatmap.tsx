@@ -1,25 +1,17 @@
-import h337 from 'heatmap.js'
+import h337, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
 export function Heatmap(): JSX.Element | null {
-    const { heatmapElements, heatmapEnabled, heatmapFilters } = useValues(heatmapLogic)
-    const h337Ref = useRef<any>()
+    const { heatmapJsData, heatmapEnabled, heatmapFilters } = useValues(heatmapLogic)
+    const h337Ref = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const h337ContainerRef = useRef<HTMLDivElement | null>()
 
     const updateHeatmapData = (): void => {
         try {
-            h337Ref.current?.setData({
-                max: heatmapElements.reduce((max, { count }) => Math.max(max, count), 0),
-                data: heatmapElements.map(({ xPercentage, y, count }) => ({
-                    x: xPercentage * (h337ContainerRef.current?.offsetWidth ?? window.innerWidth),
-                    y: y,
-                    value: count,
-                    // targetFixed,
-                })),
-            })
+            h337Ref.current?.setData(heatmapJsData)
         } catch (e) {
             console.error('error setting data', e)
         }
@@ -40,7 +32,7 @@ export function Heatmap(): JSX.Element | null {
 
     useEffect(() => {
         updateHeatmapData()
-    }, [heatmapElements])
+    }, [heatmapJsData])
 
     if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
         return null
