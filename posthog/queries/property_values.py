@@ -2,12 +2,18 @@ from typing import Optional
 
 from django.utils import timezone
 
+from posthog.hogql.database.schema.channel_type import POSSIBLE_CHANNEL_TYPES
 from posthog.models.event.sql import SELECT_PROP_VALUES_SQL_WITH_FILTER
 from posthog.models.person.sql import (
     SELECT_PERSON_PROP_VALUES_SQL,
     SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER,
 )
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.sessions.sql import (
+    SESSION_PROPERTY_TO_COLUMN_MAP,
+    SELECT_SESSION_PROP_VALUES_SQL,
+    SELECT_SESSION_PROP_VALUES_SQL_WITH_FILTER,
+)
 from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
 from posthog.utils import relative_date_parse
@@ -77,5 +83,31 @@ def get_person_property_values_for_key(key: str, team: Team, value: Optional[str
         SELECT_PERSON_PROP_VALUES_SQL.format(property_field=property_field),
         {"team_id": team.pk, "key": key},
         query_type="get_person_property_values",
+        team_id=team.pk,
+    )
+
+
+def get_session_column_values_for_key(key: str, team: Team, search_term: Optional[str] = None):
+    # the sessions table does not have a properties json object like the events and person tables
+
+    if key == "$channel_type":
+        return [[name] for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()]
+
+    column = SESSION_PROPERTY_TO_COLUMN_MAP.get(key)
+
+    if not column:
+        return []
+
+    if search_term:
+        return insight_sync_execute(
+            SELECT_SESSION_PROP_VALUES_SQL_WITH_FILTER.format(property_field=column),
+            {"team_id": team.pk, "key": key, "value": "%{}%".format(search_term)},
+            query_type="get_session_property_values_with_value",
+            team_id=team.pk,
+        )
+    return insight_sync_execute(
+        SELECT_SESSION_PROP_VALUES_SQL.format(property_field=column),
+        {"team_id": team.pk, "key": key},
+        query_type="get_session_property_values",
         team_id=team.pk,
     )

@@ -13,7 +13,11 @@ export const WebPropertyFilters = ({
 }): JSX.Element => {
     return (
         <PropertyFilters
-            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]}
+            taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.Sessions,
+            ]}
             onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))}
             propertyFilters={webAnalyticsFilters}
             pageKey="web-analytics"

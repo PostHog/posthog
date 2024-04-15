@@ -486,18 +486,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Notebooks',
                     },
                     {
-                        name: 'Sessions',
+                        name: 'Session Properties',
                         searchPlaceholder: 'sessions',
                         type: TaxonomicFilterGroupType.Sessions,
-                        options: [
-                            {
-                                name: 'Session duration',
-                                value: '$session_duration',
-                            },
-                        ],
+                        value: 'sessions',
                         getName: (option: any) => option.name,
-                        getValue: (option: any) => option.value,
+                        getValue: (option) => option.name,
                         getPopoverHeader: () => 'Session',
+                        endpoint: `api/projects/${teamId}/sessions/property_definitions`,
+                        getIcon: getPropertyDefinitionIcon,
                     },
                     {
                         name: 'HogQL',

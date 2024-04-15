@@ -124,7 +124,8 @@ function Example({ value }: { value?: string }): JSX.Element {
         type === TaxonomicFilterGroupType.EventFeatureFlags ||
         type === TaxonomicFilterGroupType.PersonProperties ||
         type === TaxonomicFilterGroupType.GroupsPrefix ||
-        type === TaxonomicFilterGroupType.Metadata
+        type === TaxonomicFilterGroupType.Metadata ||
+        type === TaxonomicFilterGroupType.Sessions
     ) {
         data = getCoreFilterDefinition(value, type)
     } else if (type === TaxonomicFilterGroupType.Elements) {

@@ -11,10 +11,12 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     DatabaseField,
     LazyTable,
+    FloatDatabaseField,
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr
 from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
 from posthog.hogql.errors import ResolutionError
+from posthog.models.property_definition import PropertyType
 
 if TYPE_CHECKING:
     pass
@@ -220,3 +222,30 @@ def join_events_table_to_sessions_table(
         )
     )
     return join_expr
+
+
+def get_lazy_session_table_properties(search: Optional[str]):
+    # some fields shouldn't appear as properties
+    hidden_fields = {"team_id", "distinct_id", "session_id", "id", "$event_count_map", "$urls"}
+
+    # some fields should have a specific property type which isn't derivable from the type of database field
+    property_type_overrides = {
+        "duration": PropertyType.Duration,
+    }
+
+    results = [
+        {
+            "id": field_name,
+            "name": field_name,
+            "is_numerical": isinstance(field_definition, IntegerDatabaseField)
+            or isinstance(field_definition, FloatDatabaseField),
+            "property_type": property_type_overrides.get(field_name, None) or PropertyType.Numeric
+            if isinstance(field_definition, IntegerDatabaseField) or isinstance(field_definition, FloatDatabaseField)
+            else PropertyType.String,
+            "is_seen_on_filtered_events": None,
+            "tags": [],
+        }
+        for field_name, field_definition in LAZY_SESSIONS_FIELDS.items()
+        if (not search or search.lower() in field_name.lower()) and field_name not in hidden_fields
+    ]
+    return results
