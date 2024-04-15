@@ -28,7 +28,7 @@ from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
 from posthog.utils import generate_cache_key, get_safe_cache
 
-EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
+EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 60  # 1 hour
 
 
 def _calculate_experiment_results(experiment: Experiment, refresh: bool = False):

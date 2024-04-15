@@ -5,16 +5,22 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { useRef } from 'react'
+import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
-import { sessionRecordingFilePlaybackLogic } from './sessionRecordingFilePlaybackLogic'
+import { sessionRecordingFilePlaybackSceneLogic } from './sessionRecordingFilePlaybackSceneLogic'
 
-export function SessionRecordingFilePlayback(): JSX.Element {
-    const { loadFromFile, resetSessionRecording } = useActions(sessionRecordingFilePlaybackLogic)
-    const { sessionRecording, sessionRecordingLoading, playerKey } = useValues(sessionRecordingFilePlaybackLogic)
+export const scene: SceneExport = {
+    component: SessionRecordingFilePlaybackScene,
+    logic: sessionRecordingFilePlaybackSceneLogic,
+}
+
+export function SessionRecordingFilePlaybackScene(): JSX.Element {
+    const { loadFromFile, resetSessionRecording } = useActions(sessionRecordingFilePlaybackSceneLogic)
+    const { sessionRecording, sessionRecordingLoading, playerKey } = useValues(sessionRecordingFilePlaybackSceneLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const filePlaybackEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)
 

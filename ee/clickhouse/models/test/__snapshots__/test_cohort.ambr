@@ -84,7 +84,8 @@
        (SELECT pdi.person_id AS person_id,
                countIf(timestamp > now() - INTERVAL 2 year
                        AND timestamp < now()
-                       AND event = '$pageview') > 0 AS performed_event_condition_15_level_level_0_level_0_level_0_0
+                       AND event = '$pageview'
+                       AND 1=1) > 0 AS performed_event_condition_15_level_level_0_level_0_level_0_0
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -149,7 +150,8 @@
                    (SELECT pdi.person_id AS person_id,
                            countIf(timestamp > now() - INTERVAL 2 year
                                    AND timestamp < now()
-                                   AND event = '$pageview') > 0 AS performed_event_condition_17_level_level_0_level_0_level_0_0
+                                   AND event = '$pageview'
+                                   AND 1=1) > 0 AS performed_event_condition_17_level_level_0_level_0_level_0_0
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -238,7 +240,8 @@
        (SELECT pdi.person_id AS person_id,
                countIf(timestamp > now() - INTERVAL 2 year
                        AND timestamp < now()
-                       AND event = '$pageview') > 0 AS performed_event_condition_19_level_level_0_level_0_level_0_0,
+                       AND event = '$pageview'
+                       AND 1=1) > 0 AS performed_event_condition_19_level_level_0_level_0_level_0_0,
                minIf(timestamp, event = 'signup') >= now() - INTERVAL 15 day
         AND minIf(timestamp, event = 'signup') < now() as first_time_condition_19_level_level_0_level_1_level_0_level_0_level_0_0
         FROM events e
