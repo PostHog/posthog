@@ -1949,7 +1949,7 @@
 # ---
 # name: TestExperimentAuxiliaryEndpoints.test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure.1
   '''
-  /* user_id:12 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:115 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
