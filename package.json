@@ -126,6 +126,7 @@
         "fflate": "^0.7.4",
         "fs-extra": "^10.0.0",
         "fuse.js": "^6.6.2",
+        "heatmap.js": "^2.0.5",
         "husky": "^7.0.4",
         "image-blob-reduce": "^4.1.0",
         "kea": "^3.1.5",
@@ -307,7 +308,8 @@
             "playwright": "1.41.2"
         },
         "patchedDependencies": {
-            "rrweb@2.0.0-alpha.12": "patches/rrweb@2.0.0-alpha.12.patch"
+            "rrweb@2.0.0-alpha.12": "patches/rrweb@2.0.0-alpha.12.patch",
+            "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch"
         }
     },
     "lint-staged": {

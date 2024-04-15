@@ -8,6 +8,9 @@ overrides:
   playwright: 1.41.2
 
 patchedDependencies:
+  heatmap.js@2.0.5:
+    hash: gydrxrztd4ruyhouu6tu7zh43e
+    path: patches/heatmap.js@2.0.5.patch
   rrweb@2.0.0-alpha.12:
     hash: t3xxecww6aodjl4qopwv6jdxmq
     path: patches/rrweb@2.0.0-alpha.12.patch
@@ -196,6 +199,9 @@ dependencies:
   fuse.js:
     specifier: ^6.6.2
     version: 6.6.2
+  heatmap.js:
+    specifier: ^2.0.5
+    version: 2.0.5(patch_hash=gydrxrztd4ruyhouu6tu7zh43e)
   husky:
     specifier: ^7.0.4
     version: 7.0.4
@@ -13271,6 +13277,11 @@ packages:
   /headers-polyfill@3.2.5:
     resolution: {integrity: sha512-tUCGvt191vNSQgttSyJoibR+VO+I6+iCHIUdhzEMJKE+EAL8BwCN7fUOZlY4ofOelNHsK+gEjxB/B+9N3EWtdA==}
     dev: true
+
+  /heatmap.js@2.0.5(patch_hash=gydrxrztd4ruyhouu6tu7zh43e):
+    resolution: {integrity: sha512-CG2gYFP5Cv9IQCXEg3ZRxnJDyAilhWnQlAuHYGuWVzv6mFtQelS1bR9iN80IyDmFECbFPbg6I0LR5uAFHgCthw==}
+    dev: false
+    patched: true
 
   /helpertypes@0.0.19:
     resolution: {integrity: sha512-J00e55zffgi3yVnUp0UdbMztNkr2PnizEkOe9URNohnrNhW5X0QpegkuLpOmFQInpi93Nb8MCjQRHAiCDF42NQ==}
