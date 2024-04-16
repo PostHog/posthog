@@ -24,6 +24,7 @@ export function Timestamp(): JSX.Element {
 
     return (
         <LemonButton
+            data-attr="recording-timestamp"
             onClick={() =>
                 setTimestampFormat(timestampFormat === 'relative' ? TimestampFormat.Absolute : TimestampFormat.Relative)
             }
