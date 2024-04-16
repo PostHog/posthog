@@ -20,25 +20,6 @@ import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDa
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
 
-export const createExportedSessionRecording = (
-    logic: BuiltLogic<sessionRecordingDataLogicType>,
-    // DEBUG signal only, to be removed before release
-    exportUntransformedMobileSnapshotData: boolean
-): ExportedSessionRecordingFileV2 => {
-    const { sessionPlayerMetaData, sessionPlayerSnapshotData } = logic.values
-
-    return {
-        version: '2023-04-28',
-        data: {
-            id: sessionPlayerMetaData?.id ?? '',
-            person: sessionPlayerMetaData?.person,
-            snapshots: exportUntransformedMobileSnapshotData
-                ? sessionPlayerSnapshotData?.untransformed_snapshots || []
-                : sessionPlayerSnapshotData?.snapshots || [],
-        },
-    }
-}
-
 export const parseExportedSessionRecording = (fileData: string): ExportedSessionRecordingFileV2 => {
     const data = JSON.parse(fileData) as ExportedSessionRecordingFileV1 | ExportedSessionRecordingFileV2
 
@@ -163,9 +144,13 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
                 await parseEncodedSnapshots(values.sessionRecording.snapshots, values.sessionRecording.id)
             )
 
-            dataLogic.actions.loadRecordingSnapshotsSuccess({
-                snapshots,
+            // Simulate a loaded source and sources so that nothing extra gets loaded
+            dataLogic.actions.loadSnapshotsForSourceSuccess({
+                snapshots: snapshots,
+                untransformed_snapshots: snapshots,
+                source: { source: 'file' },
             })
+            dataLogic.actions.loadSnapshotSourcesSuccess([{ source: 'file' }])
 
             dataLogic.actions.loadRecordingMetaSuccess({
                 id: values.sessionRecording.id,

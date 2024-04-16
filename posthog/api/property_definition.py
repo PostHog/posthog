@@ -216,7 +216,7 @@ class QueryContext:
             event_name_join_filter=event_name_join_filter,
             event_name_filter=event_name_filter,
             event_property_join_type="INNER JOIN" if filter_by_event_names else "LEFT JOIN",
-            params={**self.params, "event_names": event_names or []},
+            params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
     def with_search(self, search_query: str, search_kwargs: Dict) -> "QueryContext":

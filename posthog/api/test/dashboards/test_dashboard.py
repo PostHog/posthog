@@ -1232,7 +1232,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "tiles": [
                 {
                     "type": "INSIGHT",
-                    "query": {"kind": "a datatable"},
+                    "query": {
+                        "kind": "DataTableNode",
+                        "columns": ["person", "id", "created_at", "person.$delete"],
+                        "source": {
+                            "kind": "EventsQuery",
+                            "select": ["*"],
+                        },
+                    },
                     "filters": {"date_from": None},
                     "layouts": {},
                 }
@@ -1277,8 +1284,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "next_allowed_client_refresh": None,
                     "order": None,
-                    "query": {"kind": "a datatable"},
-                    "result": None,
+                    "query": {
+                        "kind": "DataTableNode",
+                        "columns": ["person", "id", "created_at", "person.$delete"],
+                        "source": {
+                            "kind": "EventsQuery",
+                            "select": ["*"],
+                        },
+                    },
+                    "result": [],
                     "saved": False,
                     "short_id": ANY,
                     "tags": [],
