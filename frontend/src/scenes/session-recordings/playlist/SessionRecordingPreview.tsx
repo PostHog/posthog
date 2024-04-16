@@ -128,7 +128,9 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
                 recordingProperties.map(({ property, value, label }) => (
                     <div className="flex items-center" key={property}>
                         <PropertyIcon className={iconClassNames} property={property} value={value} noTooltip={true} />
-                        <span>{label || value}</span>
+                        <span className={!value ? 'text-muted' : undefined}>
+                            {!value ? 'Not captured' : label || value}
+                        </span>
                     </div>
                 ))
             )}
@@ -255,6 +257,7 @@ export function SessionRecordingPreview({
                             sessionSummaryLoading={sessionSummaryLoading}
                         />
                     }
+                    closeOnClickInside={false}
                 >
                     {innerContent}
                 </LemonDropdown>
