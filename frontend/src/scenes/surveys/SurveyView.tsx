@@ -51,6 +51,8 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     useEffect(() => {
         if (survey.start_date) {
             setTabKey('results')
+        } else {
+            setTabKey('overview')
         }
     }, [survey.start_date])
 
