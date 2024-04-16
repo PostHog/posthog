@@ -972,7 +972,7 @@ def parse_exception_for_error_message(err: Exception):
             reason = "timeout"
         elif "no more connections" in str(err):
             reason = "no_more_connections"
-        if "Failed to fetch conditions" in str(err):
+        elif "Failed to fetch conditions" in str(err):
             reason = "flag_condition_retry"
         elif "Failed to fetch group" in str(err):
             reason = "group_mapping_retry"
