@@ -91,25 +91,6 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         />
                     </LemonLabel>
                     <LemonLabel>
-                        POE Overrides Version:
-                        <LemonSelect
-                            options={[
-                                { value: true, label: 'New' },
-                                { value: false, label: 'Old' },
-                            ]}
-                            onChange={(value) =>
-                                setQuery({
-                                    ...query,
-                                    modifiers: { ...query.modifiers, usePersonDistinctIdOverrides: value },
-                                } as HogQLQuery)
-                            }
-                            value={
-                                query.modifiers?.usePersonDistinctIdOverrides ??
-                                response?.modifiers?.usePersonDistinctIdOverrides
-                            }
-                        />
-                    </LemonLabel>
-                    <LemonLabel>
                         Persons ArgMax:
                         <LemonSelect
                             options={[

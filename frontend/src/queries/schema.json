@@ -2627,9 +2627,6 @@
                         "person_id_override_properties_joined"
                     ],
                     "type": "string"
-                },
-                "usePersonDistinctIdOverrides": {
-                    "type": "boolean"
                 }
             },
             "type": "object"

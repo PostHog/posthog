@@ -147,7 +147,7 @@ def _use_person_properties_from_events(database: Database) -> None:
     database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
 
-def _use_person_id_from_person_overrides(database: Database, use_distinct_id_overrides: bool | None = None) -> None:
+def _use_person_id_from_person_overrides(database: Database, use_distinct_id_overrides: bool = False) -> None:
     database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
     if use_distinct_id_overrides:
         database.events.fields["override"] = LazyJoin(
@@ -203,12 +203,12 @@ def create_hogql_database(
         _use_person_properties_from_events(database)
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
-        _use_person_id_from_person_overrides(database, modifiers.usePersonDistinctIdOverrides)
+        _use_person_id_from_person_overrides(database)
         _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
 
     elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_joined:
-        _use_person_id_from_person_overrides(database, modifiers.usePersonDistinctIdOverrides)
+        _use_person_id_from_person_overrides(database)
         database.events.fields["person"] = LazyJoin(
             from_field=["person_id"],
             join_table=PersonsTable(),

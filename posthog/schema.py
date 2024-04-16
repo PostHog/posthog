@@ -437,7 +437,6 @@ class HogQLQueryModifiers(BaseModel):
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
-    usePersonDistinctIdOverrides: Optional[bool] = None
 
 
 class Compare(str, Enum):
