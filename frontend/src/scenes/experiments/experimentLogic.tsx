@@ -1107,6 +1107,44 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             },
         ],
+        recommendedSampleSize: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => experiment?.parameters?.recommended_sample_size || 100,
+        ],
+        funnelResultsPersonsTotal: [
+            (s) => [s.experimentResults, s.experimentInsightType],
+            (experimentResults: ExperimentResults['result'], experimentInsightType: InsightType): number => {
+                if (experimentInsightType !== InsightType.FUNNELS || !experimentResults?.insight) {
+                    return 0
+                }
+
+                let sum = 0
+                experimentResults.insight.forEach((variantResult) => {
+                    if (variantResult[0]?.count) {
+                        sum += variantResult[0].count
+                    }
+                })
+                return sum
+            },
+        ],
+        actualRunningTime: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => {
+                if (!experiment.start_date) {
+                    return 0
+                }
+
+                if (experiment.end_date) {
+                    return dayjs(experiment.end_date).diff(experiment.start_date, 'day')
+                }
+
+                return dayjs().diff(experiment.start_date, 'day')
+            },
+        ],
+        recommendedRunningTime: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => experiment?.parameters?.recommended_running_time || 1,
+        ],
     }),
     forms(({ actions, values }) => ({
         experiment: {
