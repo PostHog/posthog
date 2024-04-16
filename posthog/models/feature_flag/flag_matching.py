@@ -7,7 +7,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 from prometheus_client import Counter
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, OperationalError
+from django.db import DatabaseError, IntegrityError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models import Q, Func, F, CharField
@@ -329,7 +329,7 @@ class FeatureFlagMatcher:
                     )
                 condition_match = all(match_property(property, target_properties) for property in properties)
             else:
-                match_if_entity_doesnt_exist = check_pure_is_not_set_operator_condition(condition)
+                match_if_entity_doesnt_exist = check_pure_is_not_operator_condition(condition)
                 condition_match = self._condition_matches(
                     feature_flag,
                     condition_index,
@@ -425,7 +425,7 @@ class FeatureFlagMatcher:
 
                 person_fields: List[str] = []
 
-                for existence_condition_key in self.has_pure_is_not_set_conditions:
+                for existence_condition_key in self.has_pure_is_not_conditions:
                     if existence_condition_key == PERSON_KEY:
                         person_exists = person_query.exists()
                         all_conditions[f"{ENTITY_EXISTS_PREFIX}{PERSON_KEY}"] = person_exists
@@ -659,11 +659,11 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
     @cached_property
-    def has_pure_is_not_set_conditions(self) -> set[Literal["person"] | GroupTypeIndex]:
+    def has_pure_is_not_conditions(self) -> set[Literal["person"] | GroupTypeIndex]:
         entity_to_condition_check: set[Literal["person"] | GroupTypeIndex] = set()
         for feature_flag in self.feature_flags:
             for condition in feature_flag.conditions:
-                if check_pure_is_not_set_operator_condition(condition):
+                if check_pure_is_not_operator_condition(condition):
                     if feature_flag.aggregation_group_type_index is not None:
                         entity_to_condition_check.add(feature_flag.aggregation_group_type_index)
                     else:
@@ -967,12 +967,11 @@ def handle_feature_flag_exception(err: Exception, log_message: str = "", set_hea
 
 def parse_exception_for_error_message(err: Exception):
     reason = "unknown"
-    if isinstance(err, OperationalError):
+    if isinstance(err, DatabaseError):
         if "statement timeout" in str(err):
             reason = "timeout"
         elif "no more connections" in str(err):
             reason = "no_more_connections"
-    elif isinstance(err, DatabaseError):
         if "Failed to fetch conditions" in str(err):
             reason = "flag_condition_retry"
         elif "Failed to fetch group" in str(err):
@@ -1037,8 +1036,8 @@ def add_local_person_and_group_properties(distinct_id, groups, person_properties
     return all_person_properties, all_group_properties
 
 
-def check_pure_is_not_set_operator_condition(condition: dict) -> bool:
+def check_pure_is_not_operator_condition(condition: dict) -> bool:
     properties = condition.get("properties", [])
-    if properties and all(prop.get("operator") == "is_not_set" for prop in properties):
+    if properties and all(prop.get("operator") in ("is_not_set", "is_not") for prop in properties):
         return True
     return False
