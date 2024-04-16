@@ -648,7 +648,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     showExport: true,
                     showReload: true,
                     showEventFilter: false,
-                    showPropertyFilter: false,
+                    showPropertyFilter: true,
                     showTimings: false,
                 }
             },

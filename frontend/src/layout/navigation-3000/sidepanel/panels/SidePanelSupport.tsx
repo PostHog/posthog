@@ -14,9 +14,10 @@ import {
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -145,6 +146,9 @@ export const SidePanelSupport = (): JSX.Element => {
     const { hasAvailableFeature } = useValues(userLogic)
     const { openEmailForm, closeEmailForm } = useActions(supportLogic)
     const { isEmailFormOpen } = useValues(supportLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { user } = useValues(userLogic)
+    const region = preflight?.region
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
     const { title } = useValues(theLogic)
@@ -182,22 +186,48 @@ export const SidePanelSupport = (): JSX.Element => {
                         </ul>
                     </Section>
 
-                    <Section title="Ask the community">
-                        <p>
-                            Questions about features, how to's, or use cases? There are thousands of discussions in our
-                            community forums.
-                        </p>
-                        <LemonButton
-                            type="primary"
-                            fullWidth
-                            center
-                            to="https://posthog.com/questions"
-                            targetBlank
-                            className="mt-2"
-                        >
-                            Ask a question
-                        </LemonButton>
-                    </Section>
+                    {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
+                        <>
+                            <Section title="Contact us">
+                                <p>Can't find what you need in the docs?</p>
+                                <LemonButton
+                                    type="primary"
+                                    fullWidth
+                                    center
+                                    onClick={() => openEmailForm()}
+                                    targetBlank
+                                    className="mt-2"
+                                >
+                                    Email an engineer
+                                </LemonButton>
+                            </Section>
+                            {isEmailFormOpen ? <SupportFormBlock onCancel={() => closeEmailForm()} /> : null}
+                            <Section title="Ask the community">
+                                <p>
+                                    Questions about features, how to's, or use cases? There are thousands of discussions
+                                    in our community forums.{' '}
+                                    <Link to="https://posthog.com/questions">Ask a question</Link>
+                                </p>
+                            </Section>
+                        </>
+                    ) : (
+                        <Section title="Ask the community">
+                            <p>
+                                Questions about features, how to's, or use cases? There are thousands of discussions in
+                                our community forums.
+                            </p>
+                            <LemonButton
+                                type="primary"
+                                fullWidth
+                                center
+                                to="https://posthog.com/questions"
+                                targetBlank
+                                className="mt-2"
+                            >
+                                Ask a question
+                            </LemonButton>
+                        </Section>
+                    )}
 
                     <Section title="Share feedback">
                         <ul>
@@ -205,7 +235,9 @@ export const SidePanelSupport = (): JSX.Element => {
                                 <LemonButton
                                     type="secondary"
                                     status="alt"
-                                    to="https://github.com/posthog/posthog/issues"
+                                    to={`https://github.com/PostHog/posthog/issues/new?&labels=bug&template=bug_report.yml&debug-info=${encodeURIComponent(
+                                        getPublicSupportSnippet(region, user)
+                                    )}`}
                                     icon={<IconBug />}
                                     targetBlank
                                 >
@@ -238,7 +270,9 @@ export const SidePanelSupport = (): JSX.Element => {
                                 <LemonButton
                                     type="secondary"
                                     status="alt"
-                                    to="https://github.com/posthog/posthog/issues"
+                                    to={`https://github.com/PostHog/posthog/issues/new?&labels=enhancement&template=feature_request.yml&debug-info=${encodeURIComponent(
+                                        getPublicSupportSnippet(region, user)
+                                    )}`}
                                     icon={<IconFeatures />}
                                     targetBlank
                                 >
@@ -248,18 +282,7 @@ export const SidePanelSupport = (): JSX.Element => {
                         </ul>
                     </Section>
 
-                    {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
-                        <Section title="More options">
-                            {isEmailFormOpen ? (
-                                <SupportFormBlock onCancel={() => closeEmailForm()} />
-                            ) : (
-                                <p>
-                                    Can't find what you need in the docs?{' '}
-                                    <Link onClick={() => openEmailForm()}>Email an engineer</Link>
-                                </p>
-                            )}
-                        </Section>
-                    ) : (
+                    {!hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
                         <Section title="Contact support">
                             <p>
                                 Due to our large userbase, we're unable to offer email support to organizations on the
@@ -303,7 +326,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </li>
                             </ol>
                         </Section>
-                    )}
+                    ) : null}
                 </div>
             </div>
         </>

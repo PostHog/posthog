@@ -78,6 +78,7 @@ module.exports = {
             'error',
             {
                 ignoreRestSiblings: true,
+                destructuredArrayIgnorePattern: '^_$',
             },
         ],
         '@typescript-eslint/prefer-ts-expect-error': 'error',

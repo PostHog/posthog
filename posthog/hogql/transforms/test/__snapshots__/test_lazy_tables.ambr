@@ -92,6 +92,44 @@
   LIMIT 10
   '''
 # ---
+# name: TestLazyJoins.test_resolve_lazy_table_indirect_duplicate_references
+  '''
+  
+  SELECT ifNull(nullIf(events__override.override_person_id, %(hogql_val_1)s), events.person_id) AS person_id, events__person.properties AS properties 
+  FROM events INNER JOIN (
+  SELECT argMax(person.properties, person.version) AS properties, person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id), events__person.id) LEFT OUTER JOIN (
+  SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id, person_overrides.old_person_id AS old_person_id 
+  FROM person_overrides 
+  WHERE equals(person_overrides.team_id, 420) 
+  GROUP BY person_overrides.old_person_id) AS events__override ON equals(events.person_id, events__override.old_person_id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
+# name: TestLazyJoins.test_resolve_lazy_table_indirectly_referenced
+  '''
+  
+  SELECT events__person.id AS id 
+  FROM events LEFT OUTER JOIN (
+  SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id, person_overrides.old_person_id AS old_person_id 
+  FROM person_overrides 
+  WHERE equals(person_overrides.team_id, 420) 
+  GROUP BY person_overrides.old_person_id) AS events__override ON equals(events.person_id, events__override.old_person_id) INNER JOIN (
+  SELECT person.id AS id 
+  FROM person 
+  WHERE equals(person.team_id, 420) 
+  GROUP BY person.id 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id), events__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10000
+  '''
+# ---
 # name: TestLazyJoins.test_resolve_lazy_tables
   '''
   

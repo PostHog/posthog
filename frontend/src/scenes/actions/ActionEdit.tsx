@@ -11,8 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { compactNumber, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -28,7 +27,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
         action: loadedAction,
     }
     const logic = actionEditLogic(logicProps)
-    const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
+    const { action, actionLoading } = useValues(logic)
     const { submitAction, deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { tags } = useValues(tagsModel)
@@ -149,21 +148,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                         </>
                     }
                 />
-                {id && (
-                    <div className="input-set">
-                        <div>
-                            <span className="flex items-center gap-2 text-muted mb-2">
-                                {actionCount !== null && actionCount > -1 && (
-                                    <span>
-                                        This action matches <b>{compactNumber(actionCount)}</b> events in the last 3
-                                        months
-                                    </span>
-                                )}
-                                {actionCountLoading && <Spinner />}
-                            </span>
-                        </div>
-                    </div>
-                )}
 
                 <div>
                     <h2 className="subtitle">Match groups</h2>

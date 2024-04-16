@@ -80,6 +80,11 @@ export interface TabularSecondaryMetricResults {
     results?: SecondaryMetricResult[]
 }
 
+export interface ExperimentResultCalculationError {
+    detail: string
+    statusCode: number
+}
+
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => props.experimentId || 'new'),
@@ -127,7 +132,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
-        setExperimentResultCalculationError: (error: string) => ({ error }),
+        setExperimentResultCalculationError: (error: ExperimentResultCalculationError) => ({ error }),
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
@@ -241,7 +246,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         experimentResultCalculationError: [
-            null as string | null,
+            null as ExperimentResultCalculationError | null,
             {
                 setExperimentResultCalculationError: (_, { error }) => error,
             },
@@ -630,7 +635,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             last_refresh: response.last_refresh,
                         }
                     } catch (error: any) {
-                        actions.setExperimentResultCalculationError(error.detail)
+                        actions.setExperimentResultCalculationError({ detail: error.detail, statusCode: error.status })
                         return null
                     }
                 },

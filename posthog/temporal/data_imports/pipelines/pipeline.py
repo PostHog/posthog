@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import Dict, Literal
 from uuid import UUID
 
 import dlt
@@ -75,21 +75,20 @@ class DataImportPipeline:
 
         return self.inputs.schemas
 
-    def _run(self) -> int:
+    def _run(self) -> Dict[str, int]:
         pipeline = self._create_pipeline()
         pipeline.run(self.source, loader_file_format=self.loader_file_format)
 
         row_counts = pipeline.last_trace.last_normalize_info.row_counts
         # Remove any DLT tables from the counts
         filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
-        total_rows_synced = sum((pair[1] for pair in filtered_rows))
 
-        return total_rows_synced
+        return dict(filtered_rows)
 
-    async def run(self) -> int:
+    async def run(self) -> Dict[str, int]:
         schemas = self._get_schemas()
         if not schemas:
-            return 0
+            return {}
 
         try:
             return await asyncio.to_thread(self._run)

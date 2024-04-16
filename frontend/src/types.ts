@@ -596,7 +596,6 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
-    FilePlayback = 'file-playback',
     Errors = 'errors',
 }
 
@@ -694,7 +693,6 @@ export interface ElementPropertyFilter extends BasePropertyFilter {
 
 export interface SessionPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Session
-    key: '$session_duration'
     operator: PropertyOperator
 }
 
@@ -1078,6 +1076,7 @@ export interface CohortCriteriaType {
     operator_value?: PropertyFilterValue
     time_value?: number | string | null
     time_interval?: TimeUnitType | null
+    explicit_datetime?: string | null
     total_periods?: number | null
     min_periods?: number | null
     seq_event_type?: TaxonomicFilterGroupType | null
@@ -1086,6 +1085,7 @@ export interface CohortCriteriaType {
     seq_time_interval?: TimeUnitType | null
     negation?: boolean
     value_property?: string | null // Transformed into 'value' for api calls
+    event_filters?: AnyPropertyFilter[] | null
 }
 
 export type EmptyCohortGroupType = Partial<CohortGroupType>
@@ -3595,6 +3595,7 @@ export interface SimpleDataWarehouseTable {
     id: string
     name: string
     columns: DatabaseSchemaQueryResponseField[]
+    row_count: number
 }
 
 export type BatchExportDestinationS3 = {
@@ -3834,4 +3835,19 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
+}
+
+export interface SourceFieldConfig {
+    name: string
+    label: string
+    type: string
+    required: boolean
+    placeholder: string
+}
+
+export interface SourceConfig {
+    name: ExternalDataSourceType
+    caption: string | React.ReactNode
+    fields: SourceFieldConfig[]
+    disabledReason?: string | null
 }

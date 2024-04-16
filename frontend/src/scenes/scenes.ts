@@ -136,6 +136,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
     },
+    [Scene.ReplayFilePlayback]: {
+        projectBased: true,
+        name: 'File playback',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
     [Scene.Person]: {
         projectBased: true,
         name: 'Person',
@@ -245,7 +251,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Apps]: {
         projectBased: true,
-        name: 'Pipeline',
+        name: 'Apps',
         activityScope: ActivityScope.PLUGIN,
         defaultDocsPath: '/docs/cdp',
     },
@@ -257,7 +263,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.AppMetrics]: {
         projectBased: true,
-        name: 'Pipeline',
+        name: 'Apps',
         activityScope: ActivityScope.PLUGIN,
         defaultDocsPath: '/docs/cdp',
     },
@@ -436,6 +442,7 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
+    '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
@@ -494,6 +501,7 @@ export const routes: Record<string, Scene> = {
         acc[urls.replay(tab)] = Scene.Replay
         return acc
     }, {} as Record<string, Scene>),
+    [urls.replayFilePlayback()]: Scene.ReplayFilePlayback,
     [urls.replaySingle(':id')]: Scene.ReplaySingle,
     [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
     [urls.personByDistinctId('*', false)]: Scene.Person,

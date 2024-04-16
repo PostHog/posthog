@@ -318,6 +318,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([row["name"] for row in response.json()["results"]], ["event property"])
 
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=latest")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["another", "person property"])
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=late")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["another", "person property"])
+
     def test_group_property_filter(self):
         PropertyDefinition.objects.create(
             team=self.team,
