@@ -85,7 +85,11 @@ class TestQueryRunner(BaseTest):
         self.assertEqual(json, '{"some_attr":"bla"}')
 
     def test_cache_key(self):
+        # Delete any previous team with pk 42
+        Team.objects.filter(pk=42).delete()
+
         TestQueryRunner = self.setup_test_query_runner_class()
+
         # set the pk directly as it affects the hash in the _cache_key call
         team = Team.objects.create(pk=42, organization=self.organization)
 
@@ -95,6 +99,9 @@ class TestQueryRunner(BaseTest):
         self.assertEqual(cache_key, "cache_b6f14c97c218e0b9c9a8258f7460fd5b")
 
     def test_cache_key_runner_subclass(self):
+        # Delete any previous team with pk 42
+        Team.objects.filter(pk=42).delete()
+
         TestQueryRunner = self.setup_test_query_runner_class()
 
         class TestSubclassQueryRunner(TestQueryRunner):
@@ -109,6 +116,9 @@ class TestQueryRunner(BaseTest):
         self.assertEqual(cache_key, "cache_ec1c2f9715cf9c424b1284b94b1205e6")
 
     def test_cache_key_different_timezone(self):
+        # Delete any previous team with pk 42
+        Team.objects.filter(pk=42).delete()
+
         TestQueryRunner = self.setup_test_query_runner_class()
         team = Team.objects.create(pk=42, organization=self.organization)
         team.timezone = "Europe/Vienna"
