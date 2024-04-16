@@ -7,6 +7,7 @@ from django.http import HttpResponse
 from posthog.heatmaps.sql import INSERT_SINGLE_HEATMAP_EVENT
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
+from posthog.models import Organization, Team
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, snapshot_clickhouse_queries
 
@@ -46,6 +47,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._create_heatmap_event("session_1", "click")
         self._create_heatmap_event("session_2", "click")
 
+        self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 2)
+
+    def test_cannot_query_across_teams(self) -> None:
+        self._create_heatmap_event("session_1", "click")
+        self._create_heatmap_event("session_2", "click")
+
+        org = Organization.objects.create(name="Separate Org")
+        other_team = Team.objects.create(organization=org, name="other orgs team")
+        self._create_heatmap_event("session_1", "click", team_id=other_team.pk)
+
+        # second team's click is not counted
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 2)
 
     @snapshot_clickhouse_queries
@@ -227,7 +239,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         y: int = 20,
         current_url: str | None = None,
         distinct_id: str = "user_distinct_id",
+        team_id: int | None = None,
     ) -> None:
+        if team_id is None:
+            team_id = self.team.pk
+
         p = ClickhouseProducer()
         # because this is in a test it will write directly using SQL not really with Kafka
         p.produce(
@@ -235,7 +251,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             sql=INSERT_SINGLE_HEATMAP_EVENT,
             data={
                 "session_id": session_id,
-                "team_id": self.team.pk,
+                "team_id": team_id,
                 "distinct_id": distinct_id,
                 "timestamp": format_clickhouse_timestamp(date_from),
                 "x": 10 / 16,

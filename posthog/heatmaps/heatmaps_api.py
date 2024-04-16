@@ -114,7 +114,6 @@ class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
 
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
-    filter_rewrite_rules = {"team_id": "group__team_id"}
 
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
