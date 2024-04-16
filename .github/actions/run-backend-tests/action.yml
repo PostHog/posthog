@@ -185,3 +185,8 @@ runs:
               pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
+
+        - name: Show docker compose logs on failure
+          if: failure()
+          shell: bash
+          run: docker compose -f docker-compose.dev.yml logs

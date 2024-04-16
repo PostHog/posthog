@@ -12,7 +12,7 @@ import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
 
-export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog'
+export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger'
 
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),

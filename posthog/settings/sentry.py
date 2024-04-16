@@ -9,7 +9,6 @@ from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
-from sentry_sdk.integrations.clickhouse_driver import ClickhouseDriverIntegration
 from posthog.git import get_git_commit_full
 
 from posthog.settings import get_from_env
@@ -136,6 +135,8 @@ def traces_sampler(sampling_context: dict) -> float:
 
 def sentry_init() -> None:
     if not TEST and os.getenv("SENTRY_DSN"):
+        sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
+
         # Setting this on enables more visibility, at the risk of capturing personal information we should not:
         #   - standard sentry "client IP" field, through send_default_pii
         #   - django access logs (info level)
@@ -144,6 +145,7 @@ def sentry_init() -> None:
         send_pii = get_from_env("SENTRY_SEND_PII", type_cast=bool, default=False)
 
         sentry_logging_level = logging.INFO if send_pii else logging.ERROR
+        sentry_logging = LoggingIntegration(level=sentry_logging_level, event_level=None)
         profiles_sample_rate = get_from_env("SENTRY_PROFILES_SAMPLE_RATE", type_cast=float, default=0.0)
 
         release = get_git_commit_full()
@@ -156,11 +158,9 @@ def sentry_init() -> None:
                 DjangoIntegration(),
                 CeleryIntegration(),
                 RedisIntegration(),
-                ClickhouseDriverIntegration(),
-                LoggingIntegration(level=sentry_logging_level, event_level=None),
+                sentry_logging,
             ],
-            max_request_body_size="always" if send_pii else "never",
-            max_value_length=8192,  # Increased from the default of 1024 to capture SQL statements in full
+            request_bodies="always" if send_pii else "never",
             sample_rate=1.0,
             # Configures the sample rate for error events, in the range of 0.0 to 1.0 (default).
             # If set to 0.1 only 10% of error events will be sent. Events are picked randomly.

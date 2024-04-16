@@ -49,13 +49,15 @@ export function Destinations(): JSX.Element {
     )
 }
 
-function DestinationsTable(): JSX.Element {
+export function DestinationsTable({ inOverview = false }: { inOverview?: boolean }): JSX.Element {
     const { loading, destinations } = useValues(pipelineDestinationsLogic)
+
+    const data = inOverview ? destinations.filter((destination) => destination.enabled) : destinations
 
     return (
         <>
             <LemonTable
-                dataSource={destinations}
+                dataSource={data}
                 size="small"
                 loading={loading}
                 columns={[
@@ -121,7 +123,13 @@ function DestinationsTable(): JSX.Element {
                     {
                         width: 0,
                         render: function Render(_, destination) {
-                            return <More overlay={<DestinationMoreOverlay destination={destination} />} />
+                            return (
+                                <More
+                                    overlay={
+                                        <DestinationMoreOverlay destination={destination} inOverview={inOverview} />
+                                    }
+                                />
+                            )
                         },
                     },
                 ]}
@@ -143,40 +151,42 @@ export const DestinationMoreOverlay = ({
     return (
         <LemonMenuOverlay
             items={[
+                {
+                    label: destination.enabled ? 'Pause destination' : 'Unpause destination',
+                    onClick: () => toggleEnabled(destination, !destination.enabled),
+                    disabledReason: !canConfigurePlugins
+                        ? 'You do not have permission to enable/disable destinations.'
+                        : !canEnableNewDestinations && !destination.enabled
+                        ? 'Data pipelines add-on is required for enabling new destinations'
+                        : undefined,
+                },
+                ...pipelineNodeMenuCommonItems(destination),
                 ...(!inOverview
                     ? [
                           {
-                              label: destination.enabled ? 'Pause destination' : 'Unpause destination',
-                              onClick: () => toggleEnabled(destination, !destination.enabled),
-                              disabledReason: !canConfigurePlugins
-                                  ? 'You do not have permission to enable/disable destinations.'
-                                  : !canEnableNewDestinations && !destination.enabled
-                                  ? 'Data pipelines add-on is required for enabling new destinations'
-                                  : undefined,
+                              label: 'Delete destination',
+                              onClick: () => {
+                                  if (destination.backend === PipelineBackend.Plugin) {
+                                      void deleteWithUndo({
+                                          endpoint: `plugin_config`, // TODO: Batch exports too
+                                          object: {
+                                              id: destination.id,
+                                              name: destination.name,
+                                          },
+                                          callback: loadPluginConfigs,
+                                      })
+                                  } else {
+                                      lemonToast.warning(
+                                          'Deleting batch export destinations is not yet supported here.'
+                                      )
+                                  }
+                              },
+                              disabledReason: canConfigurePlugins
+                                  ? undefined
+                                  : 'You do not have permission to delete destinations.',
                           },
                       ]
                     : []),
-                ...pipelineNodeMenuCommonItems(destination),
-                {
-                    label: 'Delete destination',
-                    onClick: () => {
-                        if (destination.backend === PipelineBackend.Plugin) {
-                            void deleteWithUndo({
-                                endpoint: `plugin_config`, // TODO: Batch exports too
-                                object: {
-                                    id: destination.id,
-                                    name: destination.name,
-                                },
-                                callback: loadPluginConfigs,
-                            })
-                        } else {
-                            lemonToast.warning('Deleting batch export destinations is not yet supported here.')
-                        }
-                    },
-                    disabledReason: canConfigurePlugins
-                        ? undefined
-                        : 'You do not have permission to delete destinations.',
-                },
             ]}
         />
     )

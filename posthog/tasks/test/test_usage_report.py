@@ -312,6 +312,15 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_2_team_3,
             )
+            _create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$propertyless_event",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+                person_mode="propertyless",
+            )
 
             flush_persons_and_events()
 
@@ -367,11 +376,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 55,
-                    "event_count_in_period": 22,
-                    # TODO: enhanced_persons: modify this test so that there are fewer of these events than the base
+                    "event_count_lifetime": 56,
+                    "event_count_in_period": 23,
                     "enhanced_persons_event_count_in_period": 22,
-                    "event_count_in_month": 42,
+                    "event_count_in_month": 43,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
                     "recording_count_total": 16,
@@ -411,10 +419,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_lifetime": 44,
-                            "event_count_in_period": 12,
+                            "event_count_lifetime": 45,
+                            "event_count_in_period": 13,
                             "enhanced_persons_event_count_in_period": 12,
-                            "event_count_in_month": 32,
+                            "event_count_in_month": 33,
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
