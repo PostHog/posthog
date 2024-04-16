@@ -20,6 +20,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -110,6 +111,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentCompleted',
                 'reportExperimentArchived',
                 'reportExperimentReset',
+                'reportExperimentExposureCohortCreated',
             ],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
@@ -594,7 +596,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         createExposureCohortSuccess: ({ exposureCohort }) => {
-            if (exposureCohort) {
+            if (exposureCohort && exposureCohort.id !== 'new') {
+                cohortsModel.actions.cohortCreated(exposureCohort)
+                actions.reportExperimentExposureCohortCreated(values.experiment, exposureCohort)
+                actions.setExperiment({ exposure_cohort: exposureCohort.id })
                 lemonToast.success('Exposure cohort created successfully', {
                     button: {
                         label: 'View cohort',
