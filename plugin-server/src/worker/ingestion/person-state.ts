@@ -90,7 +90,7 @@ export class PersonState {
         private teamId: number,
         private distinctId: string,
         private timestamp: DateTime,
-        private processPerson: boolean, // $process_person flag from the event
+        private processPerson: boolean, // $process_person_profile flag from the event
         private db: DB,
         private personOverrideWriter?: DeferredPersonOverrideWriter,
         uuid: UUIDT | undefined = undefined
