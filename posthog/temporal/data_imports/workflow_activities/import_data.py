@@ -124,10 +124,11 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
     elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
         from posthog.temporal.data_imports.pipelines.zendesk.helpers import zendesk_support
 
-        credentials = ZendeskCredentialsToken()
-        credentials.token = model.pipeline.job_inputs.get("zendesk_api_key")
-        credentials.subdomain = model.pipeline.job_inputs.get("zendesk_subdomain")
-        credentials.email = model.pipeline.job_inputs.get("zendesk_email_address")
+        credentials = ZendeskCredentialsToken(
+            token=model.pipeline.job_inputs.get("zendesk_api_key"),
+            subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
+            email=model.pipeline.job_inputs.get("zendesk_email_address"),
+        )
 
         data_support = zendesk_support(credentials=credentials, endpoints=tuple(endpoints), team_id=inputs.team_id)
         # Uncomment to support zendesk chat and talk
