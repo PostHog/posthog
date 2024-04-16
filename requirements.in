@@ -39,6 +39,7 @@ drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
 drf-spectacular==0.27.1
 google-cloud-bigquery==3.11.4
+geoip2==4.6.0
 gunicorn==20.1.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
 kafka-python==2.0.2
@@ -58,11 +59,11 @@ pyarrow==15.0.0
 pydantic==2.5.3
 pyjwt==2.4.0
 python-dateutil>=2.8.2
+python3-saml==1.12.0
 pytz==2023.3
 redis==4.5.4
 retry==0.9.2
 requests~=2.31.0
-geoip2==4.6.0
 s3fs==2023.10.0
 stripe==7.4.0
 selenium==4.1.5
