@@ -353,6 +353,8 @@ export function ActionBanner(): JSX.Element {
         getHighestProbabilityVariant,
     } = useValues(experimentLogic)
 
+    const { archiveExperiment } = useActions(experimentLogic)
+
     if (!experiment || experimentLoading || experimentResultsLoading) {
         return <></>
     }
@@ -478,7 +480,11 @@ export function ActionBanner(): JSX.Element {
                 You have stopped this experiment, and it is no longer collecting data. Because your results are not
                 significant, we don't recommend drawing any conclusions from them. You can reset the experiment
                 (deleting the data collected so far) and restart the experiment at any point again. If this experiment
-                is no longer relevant, you can archive it.
+                is no longer relevant, you can{' '}
+                <Link className="font-semibold" onClick={() => archiveExperiment()}>
+                    archive it
+                </Link>
+                .
             </LemonBanner>
         )
     }
