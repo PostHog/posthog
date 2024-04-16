@@ -21,6 +21,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
@@ -79,7 +80,6 @@ interface GatheredProperty {
     property: string
     value: string | undefined
     label: string | undefined
-    tooltipValue: string
 }
 
 const browserIconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
@@ -99,38 +99,24 @@ export function gatherIconProperties(
 
     return iconPropertyKeys.flatMap((property) => {
         let value = iconProperties?.[property]
-        let label = value
+        const label = value
         if (property === '$device_type') {
             value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
         }
 
-        let tooltipValue = value
-        if (property === '$geoip_country_code') {
-            tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
-            label = [iconProperties?.['$geoip_city_name'], iconProperties?.['$geoip_subdivision_1_code']]
-                .filter(Boolean)
-                .join(', ')
-        }
-        return { property, value, tooltipValue, label }
+        return { property, value, label }
     })
 }
 
 export interface PropertyIconsProps {
     recordingProperties: GatheredProperty[]
     loading?: boolean
-    onPropertyClick?: (property: string, value?: string) => void
     iconClassNames?: string
     showTooltip?: boolean
     showLabel?: (key: string) => boolean
 }
 
-export function PropertyIcons({
-    recordingProperties,
-    loading,
-    onPropertyClick,
-    iconClassNames,
-    showTooltip = true,
-}: PropertyIconsProps): JSX.Element {
+export function PropertyIcons({ recordingProperties, loading, iconClassNames }: PropertyIconsProps): JSX.Element {
     return (
         <div className="grid grid-cols-2 gap-x-12 gap-y-1 ph-no-capture">
             {loading ? (
@@ -139,27 +125,9 @@ export function PropertyIcons({
                     <LemonSkeleton className="w-2/3 h-4" />
                 </div>
             ) : (
-                recordingProperties.map(({ property, value, tooltipValue, label }) => (
+                recordingProperties.map(({ property, value, label }) => (
                     <div className="flex items-center" key={property}>
-                        <PropertyIcon
-                            onClick={(e) => {
-                                if (e.altKey) {
-                                    e.stopPropagation()
-                                    onPropertyClick?.(property, value)
-                                }
-                            }}
-                            className={iconClassNames}
-                            property={property}
-                            value={value}
-                            noTooltip={!showTooltip}
-                            tooltipTitle={() => (
-                                <div className="text-center">
-                                    <code>Alt + Click</code> to filter for
-                                    <br />
-                                    <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
-                                </div>
-                            )}
-                        />
+                        <PropertyIcon className={iconClassNames} property={property} value={value} noTooltip={true} />
                         <span>{label || value}</span>
                     </div>
                 ))
@@ -219,6 +187,9 @@ export function SessionRecordingPreview({
     const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
     const { durationTypeToShow, showRecordingListPreviews } = useValues(playerSettingsLogic)
 
+    const nodeLogic = useNotebookNode()
+    const inNotebook = !!nodeLogic
+
     const iconClassnames = 'text-base text-muted-alt'
 
     const innerContent = (
@@ -273,7 +244,7 @@ export function SessionRecordingPreview({
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
-            {showRecordingListPreviews ? (
+            {showRecordingListPreviews && !inNotebook ? (
                 <LemonDropdown
                     placement="right-start"
                     trigger="hover"
