@@ -418,7 +418,7 @@ export function ActionBanner(): JSX.Element {
         if (
             experimentInsightType === InsightType.FUNNELS &&
             funnelResultsPersonsTotal > Math.min(recommendedSampleSize) + 50 &&
-            winProbability < 0.91
+            winProbability < 0.93
         ) {
             return (
                 <LemonBanner type="info" className="mt-4">
@@ -432,7 +432,7 @@ export function ActionBanner(): JSX.Element {
         if (
             experimentInsightType === InsightType.TRENDS &&
             actualRunningTime > Math.min(recommendedRunningTime) + 2 &&
-            winProbability < 0.91
+            winProbability < 0.93
         ) {
             return (
                 <LemonBanner type="info" className="mt-4">
