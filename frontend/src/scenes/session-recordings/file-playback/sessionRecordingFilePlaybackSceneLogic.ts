@@ -9,15 +9,15 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ReplayTabs } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import {
     deduplicateSnapshots,
     parseEncodedSnapshots,
     sessionRecordingDataLogic,
 } from '../player/sessionRecordingDataLogic'
-import { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
-import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
+import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
+import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
 
 export const parseExportedSessionRecording = (fileData: string): ExportedSessionRecordingFileV2 => {
@@ -84,8 +84,8 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRe
     throw new Error('Timeout reached: dataLogic is still null after 2 seconds')
 }
 
-export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybackLogicType>([
-    path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackLogic']),
+export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePlaybackSceneLogicType>([
+    path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackSceneLogic']),
     connect({
         actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
         values: [featureFlagLogic, ['featureFlags']],
@@ -177,12 +177,13 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             (): Breadcrumb[] => [
                 {
                     key: Scene.Replay,
-                    name: 'Session replay',
+                    name: 'Replay',
                     path: urls.replay(),
                 },
                 {
-                    key: ReplayTabs.FilePlayback,
-                    name: 'Import',
+                    key: Scene.ReplayFilePlayback,
+                    name: 'File playback',
+                    path: urls.replayFilePlayback(),
                 },
             ],
         ],

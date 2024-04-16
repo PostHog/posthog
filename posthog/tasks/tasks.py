@@ -32,7 +32,7 @@ def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES.value, acks_late=True)
 def process_query_task(
     team_id: int,
     user_id: int,

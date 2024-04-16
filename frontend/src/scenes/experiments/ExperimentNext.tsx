@@ -2,15 +2,17 @@ import './Experiment.scss'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { NotFound } from 'lib/components/NotFound'
 
+import { LoadingState } from './Experiment'
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic } from './experimentLogic'
 import {
-    ExperimentLoader,
     ExperimentLoadingAnimation,
     NoResultsEmptyState,
     PageHeaderCustom,
+    ResultsHeader,
 } from './ExperimentView/components'
 import { DistributionTable } from './ExperimentView/DistributionTable'
 import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './ExperimentView/Goal'
@@ -32,7 +34,7 @@ export function ExperimentView(): JSX.Element {
             <PageHeaderCustom />
             <div className="space-y-8 experiment-view">
                 {experimentLoading ? (
-                    <ExperimentLoader />
+                    <LoadingState />
                 ) : (
                     <>
                         <Info />
@@ -54,16 +56,21 @@ export function ExperimentView(): JSX.Element {
                                     </div>
                                 </div>
                                 <Results />
-                                <ExperimentGoalModal experimentId={experimentId} />
-                                <ExperimentExposureModal experimentId={experimentId} />
                             </>
                         ) : (
                             <>
                                 <Goal />
                                 <ExperimentImplementationDetails experiment={experiment} />
-                                {experiment.start_date && <NoResultsEmptyState />}
+                                {experiment.start_date && (
+                                    <div>
+                                        <ResultsHeader />
+                                        <NoResultsEmptyState />
+                                    </div>
+                                )}
                             </>
                         )}
+                        <ExperimentGoalModal experimentId={experimentId} />
+                        <ExperimentExposureModal experimentId={experimentId} />
                         <SecondaryMetricsTable
                             experimentId={experiment.id}
                             onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
@@ -80,7 +87,11 @@ export function ExperimentView(): JSX.Element {
 }
 
 export function ExperimentNext(): JSX.Element {
-    const { experimentId, editingExistingExperiment } = useValues(experimentLogic)
+    const { experimentId, editingExistingExperiment, experimentMissing } = useValues(experimentLogic)
+
+    if (experimentMissing) {
+        return <NotFound object="experiment" />
+    }
 
     return experimentId === 'new' || editingExistingExperiment ? <ExperimentForm /> : <ExperimentView />
 }

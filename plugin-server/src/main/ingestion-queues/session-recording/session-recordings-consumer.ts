@@ -36,9 +36,8 @@ import {
     bufferFileDir,
     getPartitionsForTopic,
     now,
-    parseKafkaMessage,
+    parseKafkaBatch,
     queryWatermarkOffsets,
-    reduceRecordingMessages,
 } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -101,12 +100,6 @@ const histogramKafkaBatchSizeKb = new Histogram({
     name: 'recording_blob_ingestion_kafka_batch_size_kb',
     help: 'The size in kb of the batches we are receiving from Kafka',
     buckets: BUCKETS_KB_WRITTEN,
-})
-
-const counterKafkaMessageReceived = new Counter({
-    name: 'recording_blob_ingestion_kafka_message_received',
-    help: 'The number of messages we have received from Kafka',
-    labelNames: ['partition'],
 })
 
 const counterCommitSkippedDueToPotentiallyBlockingSession = new Counter({
@@ -339,47 +332,30 @@ export class SessionRecordingIngester {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                let recordingMessages: IncomingRecordingMessage[] = []
+                let recordingMessages: IncomingRecordingMessage[]
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
-                        const parsedMessages: IncomingRecordingMessage[] = []
-                        for (const message of messages) {
-                            const { partition, offset, timestamp } = message
-
-                            this.partitionMetrics[partition] = this.partitionMetrics[partition] || {}
-                            const metrics = this.partitionMetrics[partition]
-
-                            // If we don't have a last known commit then set it to the offset before as that must be the last commit
-                            metrics.lastMessageOffset = offset
-                            // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-                            metrics.lastMessageTimestamp = timestamp || metrics.lastMessageTimestamp
-
-                            counterKafkaMessageReceived.inc({ partition })
-
-                            const recordingMessage = await parseKafkaMessage(
-                                message,
-                                (token) =>
-                                    this.teamsRefresher.get().then((teams) => ({
-                                        teamId: teams[token]?.teamId || null,
-                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                    })),
-                                this.sharedClusterProducerWrapper
-                            )
-
-                            if (recordingMessage) {
-                                parsedMessages.push(recordingMessage)
+                        const { sessions, partitionStats } = await parseKafkaBatch(
+                            messages,
+                            (token) =>
+                                this.teamsRefresher.get().then((teams) => ({
+                                    teamId: teams[token]?.teamId || null,
+                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                })),
+                            this.sharedClusterProducerWrapper
+                        )
+                        recordingMessages = sessions
+                        for (const partitionStat of partitionStats) {
+                            const metrics = this.partitionMetrics[partitionStat.partition] ?? {}
+                            metrics.lastMessageOffset = partitionStat.offset
+                            if (partitionStat.timestamp) {
+                                // Could be empty on Kafka versions before KIP-32
+                                metrics.lastMessageTimestamp = partitionStat.timestamp
                             }
+                            this.partitionMetrics[partitionStat.partition] = metrics
                         }
-
-                        recordingMessages = reduceRecordingMessages(parsedMessages)
-
-                        // TODO: Track metric for how many messages we reduced
-                        status.info('🔁', `blob_ingester_consumer - reduced batch`, {
-                            originalSize: messages.length,
-                            reducedSize: recordingMessages.length,
-                        })
                     },
                 })
                 heartbeat()
@@ -595,20 +571,22 @@ export class SessionRecordingIngester {
         for (let partition = 0; partition < this.totalNumPartitions; partition++) {
             if (assignedPartitions.includes(partition)) {
                 const metrics = this.partitionMetrics[partition] || {}
-                if (metrics.lastMessageTimestamp) {
-                    gaugeLagMilliseconds
-                        .labels({
-                            partition: partition.toString(),
-                        })
-                        .set(now() - metrics.lastMessageTimestamp)
-                }
-
                 const highOffset = offsetsByPartition[partition]
 
                 if (highOffset && metrics.lastMessageOffset) {
-                    metrics.offsetLag = highOffset - metrics.lastMessageOffset
+                    // High watermark is reported as highest message offset plus one
+                    metrics.offsetLag = Math.max(0, highOffset - 1 - metrics.lastMessageOffset)
                     // NOTE: This is an important metric used by the autoscaler
-                    gaugeLag.set({ partition }, Math.max(0, metrics.offsetLag))
+                    gaugeLag.set({ partition }, metrics.offsetLag)
+                }
+
+                if (metrics.offsetLag === 0) {
+                    // Consumer caught up, let's not report lag.
+                    // Code path active on overflow when sessions end and the partition is empty.
+                    gaugeLagMilliseconds.labels({ partition }).set(0)
+                } else if (metrics.lastMessageTimestamp) {
+                    // Not caught up, compute the processing lag based on the latest message we read.
+                    gaugeLagMilliseconds.labels({ partition }).set(now() - metrics.lastMessageTimestamp)
                 }
             } else {
                 delete this.partitionMetrics[partition]

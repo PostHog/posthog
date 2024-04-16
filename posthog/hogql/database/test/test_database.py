@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.database.models import FieldTraverser, LazyJoin, StringDatabaseField, ExpressionField, Table
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import print_ast
@@ -176,7 +176,7 @@ class TestDatabase(BaseTest):
         )
 
         sql = "select some_field.key from events"
-        with pytest.raises(HogQLException):
+        with pytest.raises(ExposedHogQLError):
             print_ast(parse_select(sql), context, dialect="clickhouse")
 
     def test_database_warehouse_joins_other_team(self):
@@ -200,7 +200,7 @@ class TestDatabase(BaseTest):
         )
 
         sql = "select some_field.key from events"
-        with pytest.raises(HogQLException):
+        with pytest.raises(ExposedHogQLError):
             print_ast(parse_select(sql), context, dialect="clickhouse")
 
     def test_database_warehouse_joins_bad_key_expression(self):

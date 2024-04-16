@@ -914,9 +914,6 @@ const api = {
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
-        async getCount(actionId: ActionType['id']): Promise<number> {
-            return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
         },
@@ -1912,10 +1909,10 @@ const api = {
     },
 
     externalDataSources: {
-        async list(): Promise<PaginatedResponse<ExternalDataStripeSource>> {
-            return await new ApiRequest().externalDataSources().get()
+        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
+            return await new ApiRequest().externalDataSources().get(options)
         },
-        async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<ExternalDataSourceCreatePayload> {
+        async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
         },
         async delete(sourceId: ExternalDataStripeSource['id']): Promise<void> {
@@ -1926,17 +1923,21 @@ const api = {
         },
         async database_schema(
             source_type: ExternalDataSourceType,
-            host?: string,
-            port?: string,
-            dbname?: string,
-            user?: string,
-            password?: string,
-            schema?: string
+            payload: Record<string, any>
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
                 .externalDataSources()
                 .withAction('database_schema')
-                .create({ data: { source_type, host, port, dbname, user, password, schema } })
+                .create({ data: { source_type, ...payload } })
+        },
+        async source_prefix(
+            source_type: ExternalDataSourceType,
+            prefix: string
+        ): Promise<ExternalDataSourceSyncSchema[]> {
+            return await new ApiRequest()
+                .externalDataSources()
+                .withAction('source_prefix')
+                .create({ data: { source_type, prefix } })
         },
     },
 

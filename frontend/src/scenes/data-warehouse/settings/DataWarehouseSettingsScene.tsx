@@ -63,6 +63,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
             <LemonTable
                 dataSource={dataWarehouseSources?.results ?? []}
                 loading={dataWarehouseSourcesLoading}
+                disableTableWhileLoading={false}
                 columns={[
                     {
                         title: 'Source Type',
@@ -244,6 +245,13 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                                 <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
                             </>
                         ) : null
+                    },
+                },
+                {
+                    title: 'Rows Synced',
+                    key: 'rows_synced',
+                    render: function Render(_, schema) {
+                        return schema.table?.row_count ?? ''
                     },
                 },
             ]}

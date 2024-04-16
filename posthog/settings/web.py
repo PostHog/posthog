@@ -90,7 +90,6 @@ MIDDLEWARE = [
     "posthog.health.healthcheck_middleware",
     "posthog.middleware.ShortCircuitMiddleware",
     "posthog.middleware.AllowIPMiddleware",
-    "google.cloud.sqlcommenter.django.middleware.SqlCommenter",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -349,3 +348,6 @@ SALT_KEY = os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz")
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
+
+# Used only to display in the UI to inform users of allowlist options
+PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""))
