@@ -308,26 +308,26 @@ class InCohortResolver(TraversingVisitor):
                 raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
             if isinstance(arg.value, str):
-                cohorts = Cohort.objects.filter(name=arg.value, team_id=self.context.team_id).values_list(
+                cohorts2 = Cohort.objects.filter(name=arg.value, team_id=self.context.team_id).values_list(
                     "id", "is_static", "version"
                 )
-                if len(cohorts) == 1:
+                if len(cohorts2) == 1:
                     self.context.add_notice(
                         start=arg.start,
                         end=arg.end,
-                        message=f"Searching for cohort by name. Replace with numeric ID {cohorts[0][0]} to protect against renaming.",
-                        fix=str(cohorts[0][0]),
+                        message=f"Searching for cohort by name. Replace with numeric ID {cohorts2[0][0]} to protect against renaming.",
+                        fix=str(cohorts2[0][0]),
                     )
                     self._add_join_for_cohort(
-                        cohort_id=cohorts[0][0],
-                        is_static=cohorts[0][1],
-                        version=cohorts[0][2],
+                        cohort_id=cohorts2[0][0],
+                        is_static=cohorts2[0][1],
+                        version=cohorts2[0][2],
                         compare=node,
                         select=self.stack[-1],
                         negative=node.op == ast.CompareOperationOp.NotInCohort,
                     )
                     return
-                elif len(cohorts) > 1:
+                elif len(cohorts2) > 1:
                     raise QueryError(f"Found multiple cohorts with name '{arg.value}'", node=arg)
                 raise QueryError(f"Could not find a cohort with the name '{arg.value}'", node=arg)
         else:
