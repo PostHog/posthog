@@ -70,6 +70,7 @@ export function PlayerController(): JSX.Element {
                     </div>
                     <div className="flex pl-2">
                         <LemonButton
+                            data-attr="skip-inactivity"
                             size="small"
                             onClick={() => {
                                 setSkipInactivitySetting(!skipInactivitySetting)
