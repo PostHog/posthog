@@ -36,7 +36,7 @@ export function Seekbar(): JSX.Element {
     }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
     return (
-        <div className="flex flex-col w-full items-end h-8 mx-2 mt-2" data-attr="rrweb-controller">
+        <div className="flex flex-col items-end h-8 mx-4 mt-2" data-attr="rrweb-controller">
             <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />
 
             <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>

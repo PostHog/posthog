@@ -7,7 +7,7 @@ import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { playerSettingsLogic } from '../playerSettingsLogic'
+import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
 export function Timestamp(): JSX.Element {
@@ -23,7 +23,12 @@ export function Timestamp(): JSX.Element {
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 
     return (
-        <LemonButton onClick={() => setTimestampFormat(timestampFormat === 'relative' ? 'absolute' : 'relative')}>
+        <LemonButton
+            onClick={() =>
+                setTimestampFormat(timestampFormat === 'relative' ? TimestampFormat.Absolute : TimestampFormat.Relative)
+            }
+            active
+        >
             {timestampFormat === 'relative' ? (
                 <span>
                     {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
@@ -69,7 +74,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 </div>
             }
         >
-            <LemonButton size="small" onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}>
+            <LemonButton size="small" onClick={() => (direction === 'forward' ? seekForward : seekBackward())}>
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>
                     <IconSkipBackward
