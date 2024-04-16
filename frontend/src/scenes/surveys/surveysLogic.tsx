@@ -11,22 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 
-import { NEW_SURVEY, NewSurvey } from './constants'
 import type { surveysLogicType } from './surveysLogicType'
-
-export function duplicateExistingSurvey(survey: Partial<Survey>): NewSurvey {
-    const copiedNewSurvey = Object.keys(NEW_SURVEY).reduce((acc, key) => {
-        acc[key] = survey[key]
-        return acc
-    }, {}) as NewSurvey
-
-    return {
-        ...copiedNewSurvey,
-        id: NEW_SURVEY.id,
-        name: `${survey.name} (copy)`,
-        archived: false,
-    }
-}
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {

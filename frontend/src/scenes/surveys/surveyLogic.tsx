@@ -26,7 +26,7 @@ import {
 
 import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
-import { duplicateExistingSurvey, surveysLogic } from './surveysLogic'
+import { surveysLogic } from './surveysLogic'
 import { sanitizeHTML } from './utils'
 
 export enum SurveyEditSection {
@@ -86,6 +86,22 @@ export interface QuestionResultsReady {
 }
 
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
+
+function duplicateExistingSurvey(survey: Survey | NewSurvey): NewSurvey {
+    const copiedNewSurvey = Object.keys(NEW_SURVEY).reduce((acc, key) => {
+        acc[key] = survey[key]
+        return acc
+    }, {}) as NewSurvey
+
+    return {
+        ...copiedNewSurvey,
+        id: NEW_SURVEY.id,
+        name: `${survey.name} (copy)`,
+        archived: false,
+        targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
+        linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
+    }
+}
 
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
@@ -163,7 +179,19 @@ export const surveyLogic = kea<surveyLogicType>([
             duplicateSurvey: async () => {
                 const { survey } = values
                 const payload = duplicateExistingSurvey(survey)
-                return await api.surveys.create(sanitizeQuestions(payload))
+                const createdSurvey = await api.surveys.create(sanitizeQuestions(payload))
+
+                lemonToast.success('Survey duplicated.', {
+                    toastId: `survey-duplicated-${createdSurvey.id}`,
+                    button: {
+                        label: 'View Survey',
+                        action: () => {
+                            router.actions.push(urls.survey(createdSurvey.id))
+                        },
+                    },
+                })
+
+                return survey
             },
             launchSurvey: async () => {
                 const startDate = dayjs()
@@ -418,10 +446,8 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.reportSurveyEdited(survey)
             actions.loadSurveys()
         },
-        duplicateSurveySuccess: ({ survey }) => {
-            lemonToast.success(<>Survey {survey.name} is a duplicate copy, and can be edited now</>)
+        duplicateSurveySuccess: () => {
             actions.loadSurveys()
-            router.actions.replace(urls.survey(survey.id))
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
