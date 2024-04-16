@@ -994,7 +994,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below
     session_properties: {
-        duration: {
+        $session_duration: {
             label: 'Session duration',
             description: (
                 <span>
@@ -1022,7 +1022,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $exit_url: {
-            label: 'Entry URL',
+            label: 'Exit URL',
             description: <span>The last URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
@@ -1086,14 +1086,14 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
                     : 'Data from the first event in this session.',
-            examples: value.examples,
+            examples: 'examples' in value ? value.examples : undefined,
         }
     }
 }
 
 // We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.$session_duration =
-    CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties.duration
+    CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties.$session_duration
 
 export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)
 
