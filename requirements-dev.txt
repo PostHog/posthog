@@ -76,7 +76,9 @@ django-stubs-ext==0.7.0
 djangorestframework-stubs==1.4.0
     # via -r requirements-dev.in
 dnspython==2.2.1
-    # via email-validator
+    # via
+    #   -c requirements.txt
+    #   email-validator
 docopt==0.6.2
     # via pytest-watch
 email-validator==2.0.0.post2
