@@ -125,9 +125,9 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
         from posthog.temporal.data_imports.pipelines.zendesk.helpers import zendesk_support
 
         credentials = ZendeskCredentialsToken(
-            token=model.pipeline.job_inputs.get("zendesk_api_key"),
-            subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
-            email=model.pipeline.job_inputs.get("zendesk_email_address"),
+            model.pipeline.job_inputs.get("zendesk_subdomain"),
+            model.pipeline.job_inputs.get("zendesk_email_address"),
+            model.pipeline.job_inputs.get("zendesk_api_key"),
         )
 
         data_support = zendesk_support(credentials=credentials, endpoints=tuple(endpoints), team_id=inputs.team_id)
