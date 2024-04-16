@@ -406,7 +406,7 @@ class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         cohort_serializer = CohortSerializer(
             data={
                 "is_static": False,
-                "name": f'Users exposed in experiment "{experiment.name}"',
+                "name": f'Users exposed to experiment "{experiment.name}"',
                 "is_calculating": True,
                 "filters": {
                     "properties": {
