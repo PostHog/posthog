@@ -56,6 +56,60 @@ from posthog.utils import get_machine_id, get_previous_day
 logger = structlog.get_logger(__name__)
 
 
+def _setup_replay_data(team_id: int) -> None:
+    # recordings in period  - 5 sessions with 5 snapshots each
+    for i in range(1, 6):
+        session_id = str(i)
+        timestamp = now() - relativedelta(hours=12)
+        produce_replay_summary(
+            team_id=team_id,
+            session_id=session_id,
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
+
+    # recordings out of period  - 5 sessions with 5 snapshots each
+    for i in range(1, 11):
+        for _ in range(0, 5):
+            id1 = str(i + 10)
+            timestamp1 = now() - relativedelta(hours=48)
+            produce_replay_summary(
+                team_id=team_id,
+                session_id=id1,
+                distinct_id=str(uuid4()),
+                first_timestamp=timestamp1,
+                last_timestamp=timestamp1,
+            )
+    # ensure there is a recording that starts before the period and ends during the period
+    # report is going to be for "yesterday" relative to the test so...
+    start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
+    session_that_will_not_match = "session-that-will-not-match-because-it-starts-before-the-period"
+    timestamp2 = start_of_day - relativedelta(hours=1)
+    produce_replay_summary(
+        team_id=team_id,
+        session_id=session_that_will_not_match,
+        distinct_id=str(uuid4()),
+        first_timestamp=timestamp2,
+        last_timestamp=timestamp2,
+    )
+    produce_replay_summary(
+        team_id=team_id,
+        session_id=session_that_will_not_match,
+        distinct_id=str(uuid4()),
+        first_timestamp=start_of_day,
+        last_timestamp=start_of_day,
+    )
+    timestamp3 = start_of_day + relativedelta(hours=1)
+    produce_replay_summary(
+        team_id=team_id,
+        session_id=session_that_will_not_match,
+        distinct_id=str(uuid4()),
+        first_timestamp=timestamp3,
+        last_timestamp=timestamp3,
+    )
+
+
 @freeze_time("2022-01-10T00:01:00Z")
 class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
@@ -232,59 +286,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     team=self.org_1_team_2,
                 )
 
-            # recordings in period  - 5 sessions with 5 snapshots each
-            for i in range(1, 6):
-                for _ in range(0, 5):
-                    session_id = str(i)
-                    timestamp = now() - relativedelta(hours=12)
-                    produce_replay_summary(
-                        team_id=self.org_1_team_2.id,
-                        session_id=session_id,
-                        distinct_id=distinct_id,
-                        first_timestamp=timestamp,
-                        last_timestamp=timestamp,
-                    )
+            _setup_replay_data(team_id=self.org_1_team_2.id)
 
-            # recordings out of period  - 5 sessions with 5 snapshots each
-            for i in range(1, 11):
-                for _ in range(0, 5):
-                    id1 = str(i + 10)
-                    timestamp1 = now() - relativedelta(hours=48)
-                    produce_replay_summary(
-                        team_id=self.org_1_team_2.id,
-                        session_id=id1,
-                        distinct_id=distinct_id,
-                        first_timestamp=timestamp1,
-                        last_timestamp=timestamp1,
-                    )
-
-            # ensure there is a recording that starts before the period and ends during the period
-            # report is going to be for "yesterday" relative to the test so...
-            start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
-            session_that_will_not_match = "session-that-will-not-match-because-it-starts-before-the-period"
-            timestamp2 = start_of_day - relativedelta(hours=1)
-            produce_replay_summary(
-                team_id=self.org_1_team_2.id,
-                session_id=session_that_will_not_match,
-                distinct_id=distinct_id,
-                first_timestamp=timestamp2,
-                last_timestamp=timestamp2,
-            )
-            produce_replay_summary(
-                team_id=self.org_1_team_2.id,
-                session_id=session_that_will_not_match,
-                distinct_id=distinct_id,
-                first_timestamp=start_of_day,
-                last_timestamp=start_of_day,
-            )
-            timestamp3 = start_of_day + relativedelta(hours=1)
-            produce_replay_summary(
-                team_id=self.org_1_team_2.id,
-                session_id=session_that_will_not_match,
-                distinct_id=distinct_id,
-                first_timestamp=timestamp3,
-                last_timestamp=timestamp3,
-            )
             _create_event(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
@@ -656,6 +659,21 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
         assert mock_posthog.capture.call_count == 2
         mock_posthog.capture.assert_has_calls(calls, any_order=True)
+
+
+class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    def test_usage_report_replay(self) -> None:
+        _setup_replay_data(self.team.pk)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        report = _get_team_report(all_reports, self.team)
+
+        assert all_reports["teams_with_recording_count_total"] == {self.team.pk: 16}
+        assert report.recording_count_in_period == 5
+        assert report.recording_count_total == 16
 
 
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
