@@ -7,8 +7,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.hogql.database.schema.sessions import get_lazy_session_table_properties
-from posthog.queries.property_values import get_session_column_values_for_key
+from posthog.hogql.database.schema.sessions import get_lazy_session_table_properties, get_lazy_session_table_values
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -34,7 +33,7 @@ class SessionViewSet(
         if not key:
             raise ValidationError(detail=f"Key not provided")
 
-        result = get_session_column_values_for_key(key, team, search_term=search_term)
+        result = get_lazy_session_table_values(key, search_term=search_term, team=team)
 
         flattened = []
         for value in result:

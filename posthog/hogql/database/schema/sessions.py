@@ -1,4 +1,4 @@
-from typing import cast, Any, TYPE_CHECKING
+from typing import cast, Any, Optional, TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -13,13 +13,18 @@ from posthog.hogql.database.models import (
     LazyTable,
     FloatDatabaseField,
 )
-from posthog.hogql.database.schema.channel_type import create_channel_type_expr
+from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
 from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
 from posthog.hogql.errors import ResolutionError
 from posthog.models.property_definition import PropertyType
+from posthog.models.sessions.sql import (
+    SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
+    SELECT_SESSION_PROP_STRING_VALUES_SQL,
+)
+from posthog.queries.insight import insight_sync_execute
 
 if TYPE_CHECKING:
-    pass
+    from posthog.models.team import Team
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="session_id"),
@@ -249,3 +254,61 @@ def get_lazy_session_table_properties(search: Optional[str]):
         if (not search or search.lower() in field_name.lower()) and field_name not in hidden_fields
     ]
     return results
+
+
+SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
+    "$initial_referring_domain": "finalizeAggregation(initial_referring_domain)",
+    "$initial_utm_source": "finalizeAggregation(initial_utm_source)",
+    "$initial_utm_campaign": "finalizeAggregation(initial_utm_campaign)",
+    "$initial_utm_medium": "finalizeAggregation(initial_utm_medium)",
+    "$initial_utm_term": "finalizeAggregation(initial_utm_term)",
+    "$initial_utm_content": "finalizeAggregation(initial_utm_content)",
+    "$initial_gclid": "finalizeAggregation(initial_gclid)",
+    "$initial_gad_source": "finalizeAggregation(initial_gad_source)",
+    "$initial_gclsrc": "finalizeAggregation(initial_gclsrc)",
+    "$initial_dclid": "finalizeAggregation(initial_dclid)",
+    "$initial_gbraid": "finalizeAggregation(initial_gbraid)",
+    "$initial_wbraid": "finalizeAggregation(initial_wbraid)",
+    "$initial_fbclid": "finalizeAggregation(initial_fbclid)",
+    "$initial_msclkid": "finalizeAggregation(initial_msclkid)",
+    "$initial_twclid": "finalizeAggregation(initial_twclid)",
+    "$initial_li_fat_id": "finalizeAggregation(initial_li_fat_id)",
+    "$initial_mc_cid": "finalizeAggregation(initial_mc_cid)",
+    "$initial_igshid": "finalizeAggregation(initial_igshid)",
+    "$initial_ttclid": "finalizeAggregation(initial_ttclid)",
+    "$entry_url": "finalizeAggregation(entry_url)",
+    "$exit_url": "finalizeAggregation(exit_url)",
+}
+
+
+def get_lazy_session_table_values(key: str, search_term: Optional[str], team: "Team"):
+    # the sessions table does not have a properties json object like the events and person tables
+
+    if key == "$channel_type":
+        return [[name] for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()]
+
+    expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP.get(key)
+
+    if not expr:
+        return []
+
+    field_definition = LAZY_SESSIONS_FIELDS.get(key)
+    if not field_definition:
+        return []
+
+    if isinstance(field_definition, StringDatabaseField):
+        if search_term:
+            return insight_sync_execute(
+                SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER.format(property_expr=expr),
+                {"team_id": team.pk, "key": key, "value": "%{}%".format(search_term)},
+                query_type="get_session_property_values_with_value",
+                team_id=team.pk,
+            )
+        return insight_sync_execute(
+            SELECT_SESSION_PROP_STRING_VALUES_SQL.format(property_expr=expr),
+            {"team_id": team.pk, "key": key},
+            query_type="get_session_property_values",
+            team_id=team.pk,
+        )
+
+    return []

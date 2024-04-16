@@ -261,19 +261,19 @@ GROUP BY session_id, team_id
 """
 )
 
-SELECT_SESSION_PROP_VALUES_SQL = """
+SELECT_SESSION_PROP_STRING_VALUES_SQL = """
 SELECT
     value,
     count(value)
 FROM (
     SELECT
-        {property_field} as value
+        {property_expr} as value
     FROM
         sessions
     WHERE
         team_id = %(team_id)s AND
-        {property_field} IS NOT NULL AND
-        {property_field} != ''
+        {property_expr} IS NOT NULL AND
+        {property_expr} != ''
     ORDER BY session_id DESC
     LIMIT 100000
 )
@@ -282,18 +282,18 @@ ORDER BY count(value) DESC
 LIMIT 20
 """
 
-SELECT_SESSION_PROP_VALUES_SQL_WITH_FILTER = """
+SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER = """
 SELECT
     value,
     count(value)
 FROM (
     SELECT
-        {property_field} as value
+        {property_expr} as value
     FROM
         sessions
     WHERE
         team_id = %(team_id)s AND
-        {property_field} ILIKE %(value)s
+        {property_expr} ILIKE %(value)s
     ORDER BY session_id DESC
     LIMIT 100000
 )
@@ -301,26 +301,3 @@ GROUP BY value
 ORDER BY count(value) DESC
 LIMIT 20
 """
-
-
-SESSION_PROPERTY_TO_COLUMN_MAP = {
-    "$initial_referring_domain": "initial_referring_domain",
-    "$initial_utm_source": "initial_utm_source",
-    "$initial_utm_campaign": "initial_utm_campaign",
-    "$initial_utm_medium": "initial_utm_medium",
-    "$initial_utm_term": "initial_utm_term",
-    "$initial_utm_content": "initial_utm_content",
-    "$initial_gclid": "initial_gclid",
-    "$initial_gad_source": "initial_gad_source",
-    "$initial_gclsrc": "initial_gclsrc",
-    "$initial_dclid": "initial_dclid",
-    "$initial_gbraid": "initial_gbraid",
-    "$initial_wbraid": "initial_wbraid",
-    "$initial_fbclid": "initial_fbclid",
-    "$initial_msclkid": "initial_msclkid",
-    "$initial_twclid": "initial_twclid",
-    "$initial_li_fat_id": "initial_li_fat_id",
-    "$initial_mc_cid": "initial_mc_cid",
-    "$initial_igshid": "initial_igshid",
-    "$initial_ttclid": "initial_ttclid",
-}
