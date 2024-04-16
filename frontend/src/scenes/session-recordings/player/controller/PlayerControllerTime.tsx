@@ -30,7 +30,7 @@ export function Timestamp(): JSX.Element {
             }
             active
         >
-            {timestampFormat === 'relative' ? (
+            {timestampFormat === TimestampFormat.Relative ? (
                 <>
                     {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
                     {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
