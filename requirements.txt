@@ -370,6 +370,8 @@ pathvalidate==3.2.0
     # via dlt
 pendulum==2.1.2
     # via dlt
+phonenumberslite==8.13.6
+    # via -r requirements.in
 pillow==10.2.0
     # via -r requirements.in
 platformdirs==3.11.0
