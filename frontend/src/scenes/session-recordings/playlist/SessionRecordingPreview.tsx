@@ -134,7 +134,10 @@ export function PropertyIcons({
     return (
         <div className="grid grid-cols-2 gap-x-12 gap-y-1 ph-no-capture">
             {loading ? (
-                <LemonSkeleton className="w-18 h-4 my-1" />
+                <div className="space-y-1">
+                    <LemonSkeleton className="h-4" />
+                    <LemonSkeleton className="w-2/3 h-4" />
+                </div>
             ) : (
                 recordingProperties.map(({ property, value, tooltipValue, label }) => (
                     <div className="flex items-center" key={property}>
@@ -309,45 +312,53 @@ function SessionRecordingPreviewPopover({
 
     return (
         <div className="max-w-80">
-            <div className="gap-1 px-2">
+            <div className="px-2">
                 <h3>Session data</h3>
 
-                <PropertyIcons recordingProperties={iconProperties} iconClassNames={iconClassNames} loading={loading} />
-
-                <div className="flex items-center">
-                    <IconLink className={iconClassNames} />
-                    <Link to={recording.start_url} target="_blank" className="truncate">
-                        {recording.start_url}
-                    </Link>
-                </div>
-
-                <div className="flex items-center">
-                    <IconCalendar className={iconClassNames} />
-                    <TZLabel
-                        time={recording.start_time}
-                        formatDate="MMMM DD, YYYY"
-                        formatTime="h:mm A"
-                        showPopover={false}
+                <div className="flex flex-col gap-1">
+                    <PropertyIcons
+                        recordingProperties={iconProperties}
+                        iconClassNames={iconClassNames}
+                        loading={loading}
                     />
+
+                    <div className="flex items-center">
+                        <IconLink className={iconClassNames} />
+                        <Link to={recording.start_url} target="_blank" className="truncate">
+                            {recording.start_url}
+                        </Link>
+                    </div>
+
+                    <div className="flex items-center">
+                        <IconCalendar className={iconClassNames} />
+                        <TZLabel
+                            time={recording.start_time}
+                            formatDate="MMMM DD, YYYY"
+                            formatTime="h:mm A"
+                            showPopover={false}
+                        />
+                    </div>
                 </div>
             </div>
 
             <LemonDivider className="" />
 
-            <div className="gap-1 px-2">
+            <div className="px-2">
                 <h3>Activity</h3>
 
-                <div className="flex items-center">
-                    <IconCursorClick className={iconClassNames} />
-                    <span>{recording.click_count} clicks</span>
-                </div>
-                <div className="flex items-center">
-                    <IconKeyboard className={iconClassNames} />
-                    <span>{recording.keypress_count} key presses</span>
-                </div>
-                <div className="flex items-center">
-                    <IconTerminal className={iconClassNames} />
-                    <span>{recording.console_error_count} console errors</span>
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center">
+                        <IconCursorClick className={iconClassNames} />
+                        <span>{recording.click_count} clicks</span>
+                    </div>
+                    <div className="flex items-center">
+                        <IconKeyboard className={iconClassNames} />
+                        <span>{recording.keypress_count} key presses</span>
+                    </div>
+                    <div className="flex items-center">
+                        <IconTerminal className={iconClassNames} />
+                        <span>{recording.console_error_count} console errors</span>
+                    </div>
                 </div>
             </div>
 
