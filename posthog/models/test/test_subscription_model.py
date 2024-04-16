@@ -71,6 +71,21 @@ class TestSubscription(BaseTest):
         subscription.save()
         assert old_date == subscription.next_delivery_date
 
+    @freeze_time("2022-01-01 09:55:00")
+    def test_set_next_delivery_date(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            title="Daily Subscription",
+            target_type="email",
+            target_value="tests@posthog.com",
+            frequency="daily",
+            start_date=datetime(2022, 1, 1, 10, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+        )
+
+        subscription.set_next_delivery_date(subscription.next_delivery_date)
+
+        assert subscription.next_delivery_date == datetime(2022, 1, 2, 10, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
+
     def test_generating_token(self):
         subscription = self._create_insight_subscription(
             target_value="test1@posthog.com,test2@posthog.com,test3@posthog.com"

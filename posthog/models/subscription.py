@@ -124,7 +124,9 @@ class Subscription(models.Model):
         )
 
     def set_next_delivery_date(self, from_dt=None):
-        self.next_delivery_date = self.rrule.after(dt=from_dt or timezone.now(), inc=False)
+        # We never want next_delivery_date to be in the past
+        now = timezone.now()
+        self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
