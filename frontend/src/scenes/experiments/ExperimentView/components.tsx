@@ -418,7 +418,7 @@ export function ActionBanner(): JSX.Element {
         // Win probability only slightly over 0.9 and the recommended sample/time just met -> proceed with caution
         if (
             experimentInsightType === InsightType.FUNNELS &&
-            funnelResultsPersonsTotal > recommendedSampleSize + 50 &&
+            funnelResultsPersonsTotal < recommendedSampleSize + 50 &&
             winProbability < 0.93
         ) {
             return (
@@ -432,7 +432,7 @@ export function ActionBanner(): JSX.Element {
 
         if (
             experimentInsightType === InsightType.TRENDS &&
-            actualRunningTime > recommendedRunningTime + 2 &&
+            actualRunningTime < recommendedRunningTime + 2 &&
             winProbability < 0.93
         ) {
             return (
