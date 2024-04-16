@@ -42,12 +42,21 @@ def select_from_cohort_people_table(requested_fields: Dict[str, List[str | int]]
     return ast.SelectQuery(
         select=fields,
         select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
-        where=ast.CompareOperation(
-            op=ast.CompareOperationOp.In,
-            left=ast.Tuple(
-                exprs=[ast.Field(chain=[table_name, "cohort_id"]), ast.Field(chain=[table_name, "version"])]
-            ),
-            right=ast.Constant(value=cohort_tuples),
+        where=ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Tuple(
+                        exprs=[ast.Field(chain=[table_name, "cohort_id"]), ast.Field(chain=[table_name, "version"])]
+                    ),
+                    right=ast.Constant(value=cohort_tuples),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=[table_name, "sign"]),
+                    right=ast.Constant(value=0),
+                ),
+            ]
         ),
     )
 
