@@ -201,9 +201,7 @@ def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard])
             dashboard_filters = dashboard.filters if dashboard else None
 
             if dashboard_filters:
-                from posthog.hogql_queries.apply_dashboard_filters import (
-                    apply_dashboard_filters,
-                )
+                from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
 
                 q = apply_dashboard_filters(insight.query, dashboard_filters, insight.team)
             else:
