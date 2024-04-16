@@ -35,6 +35,7 @@ export type LemonInputSelectProps = Pick<
     onBlur?: () => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
+    popoverClassName?: string
 }
 
 export function LemonInputSelect({
@@ -50,6 +51,7 @@ export function LemonInputSelect({
     disableFiltering = false,
     allowCustomValues = false,
     autoFocus = false,
+    popoverClassName,
     ...props
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
@@ -269,6 +271,7 @@ export function LemonInputSelect({
                 popoverFocusRef.current = true
                 e.stopPropagation()
             }}
+            className={popoverClassName}
             overlay={
                 <div className="space-y-px overflow-y-auto">
                     {visibleOptions.length ? (
