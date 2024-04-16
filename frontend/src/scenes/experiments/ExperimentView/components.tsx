@@ -1,7 +1,7 @@
 import '../Experiment.scss'
 
 import { IconCheckbox } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -334,4 +334,160 @@ export function PageHeaderCustom(): JSX.Element {
             }
         />
     )
+}
+
+export function ActionBanner(): JSX.Element {
+    const {
+        experiment,
+        experimentInsightType,
+        experimentResults,
+        experimentLoading,
+        experimentResultsLoading,
+        isExperimentRunning,
+        areResultsSignificant,
+        isExperimentStopped,
+        funnelResultsPersonsTotal,
+        recommendedSampleSize,
+        actualRunningTime,
+        recommendedRunningTime,
+        getHighestProbabilityVariant,
+    } = useValues(experimentLogic)
+
+    const { archiveExperiment } = useActions(experimentLogic)
+
+    if (!experiment || experimentLoading || experimentResultsLoading) {
+        return <></>
+    }
+
+    // Draft
+    if (!isExperimentRunning) {
+        return (
+            <LemonBanner type="info" className="mt-4">
+                Your experiment is in draft mode. You can edit your variants, adjust release conditions, and{' '}
+                <Link className="font-semibold" to="https://posthog.com/docs/experiments/testing-and-launching">
+                    test your feature flag
+                </Link>
+                . Once everything works as expected, you can launch your experiment. From that point, any new experiment
+                events will be counted towards the results.
+            </LemonBanner>
+        )
+    }
+
+    // Running, results present, not significant
+    if (isExperimentRunning && experimentResults && !isExperimentStopped && !areResultsSignificant) {
+        // Results insignificant, but a large enough sample/running time has been achieved
+        // Further collection unlikely to change the result -> recommmend cutting the losses
+        if (
+            experimentInsightType === InsightType.FUNNELS &&
+            funnelResultsPersonsTotal > Math.max(recommendedSampleSize, 500) &&
+            dayjs().diff(experiment.start_date, 'day') > 2 // at least 2 days running
+        ) {
+            return (
+                <LemonBanner type="warning" className="mt-4">
+                    You've reached a robust sample size for your experiment, but the results are still inconclusive.
+                    Continuing the experiment is unlikely to yield significant findings. It may be time to stop this
+                    experiment.
+                </LemonBanner>
+            )
+        }
+        if (experimentInsightType === InsightType.TRENDS && actualRunningTime > Math.max(recommendedRunningTime, 7)) {
+            return (
+                <LemonBanner type="warning" className="mt-4">
+                    Your experiment has been running long enough, but the results are still inconclusive. Continuing the
+                    experiment is unlikely to yield significant findings. It may be time to stop this experiment.
+                </LemonBanner>
+            )
+        }
+
+        return (
+            <LemonBanner type="info" className="mt-4">
+                Your experiment is live and is collecting data, but hasn't yet reached the statistical significance
+                needed to make reliable decisions. It's important to wait for more data to avoid premature conclusions.
+            </LemonBanner>
+        )
+    }
+
+    // Running, results significant
+    if (isExperimentRunning && !isExperimentStopped && areResultsSignificant && experimentResults) {
+        const { probability } = experimentResults
+        const winningVariant = getHighestProbabilityVariant(experimentResults)
+        if (!winningVariant) {
+            return <></>
+        }
+
+        const winProbability = probability[winningVariant]
+
+        // Win probability only slightly over 0.9 and the recommended sample/time just met -> proceed with caution
+        if (
+            experimentInsightType === InsightType.FUNNELS &&
+            funnelResultsPersonsTotal > recommendedSampleSize + 50 &&
+            winProbability < 0.93
+        ) {
+            return (
+                <LemonBanner type="info" className="mt-4">
+                    You've achieved significant results, however, the sample size just meets the minimum requirements,
+                    and the win probability is only marginally above 90%. To ensure more reliable outcomes, consider
+                    running the experiment a bit longer.
+                </LemonBanner>
+            )
+        }
+
+        if (
+            experimentInsightType === InsightType.TRENDS &&
+            actualRunningTime > recommendedRunningTime + 2 &&
+            winProbability < 0.93
+        ) {
+            return (
+                <LemonBanner type="info" className="mt-4">
+                    You've achieved significant results, however, the running time just meets the minimum requirements,
+                    and the win probability is only marginally above 90%. To ensure more reliable outcomes, consider
+                    running the experiment a bit longer.
+                </LemonBanner>
+            )
+        }
+
+        return (
+            <LemonBanner type="success" className="mt-4">
+                Good news! Your experiment has gathered enough data to reach statistical significance, providing
+                reliable results for decision making. Before taking any action, review relevant secondary metrics for
+                any unintended side effects. Once you're done, you can stop the experiment.
+            </LemonBanner>
+        )
+    }
+
+    // Stopped, results significant
+    if (isExperimentStopped && areResultsSignificant) {
+        return (
+            <LemonBanner type="success" className="mt-4">
+                You have stopped this experiment, and it is no longer collecting data. With significant results in hand,
+                you can now roll out the winning variant to all your users by adjusting the{' '}
+                <Link
+                    target="_blank"
+                    className="font-semibold"
+                    to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
+                >
+                    {experiment.feature_flag?.key}
+                </Link>{' '}
+                feature flag.
+            </LemonBanner>
+        )
+    }
+
+    // Stopped, results not significant
+    if (isExperimentStopped && experimentResults && !areResultsSignificant) {
+        return (
+            <LemonBanner type="info" className="mt-4">
+                You have stopped this experiment, and it is no longer collecting data. Because your results are not
+                significant, we don't recommend drawing any conclusions from them. You can reset the experiment
+                (deleting the data collected so far) and restart the experiment at any point again. If this experiment
+                is no longer relevant, you can{' '}
+                <Link className="font-semibold" onClick={() => archiveExperiment()}>
+                    archive it
+                </Link>
+                .
+            </LemonBanner>
+        )
+    }
+
+    return <></>
 }
