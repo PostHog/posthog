@@ -130,6 +130,8 @@ class Subscription(models.Model):
         # Only if the schedule has changed do we update the next delivery date
         if not self.id or str(self._rrule) != str(self.rrule):
             self.set_next_delivery_date()
+            if "update_fields" in kwargs:
+                kwargs["update_fields"].append("next_delivery_date")
         super(Subscription, self).save(*args, **kwargs)
 
     @property
