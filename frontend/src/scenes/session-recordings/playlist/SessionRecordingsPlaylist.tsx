@@ -132,8 +132,8 @@ function RecordingsLists(): JSX.Element {
         toggleShowOtherRecordings,
         summarizeSession,
     } = useActions(sessionRecordingsPlaylistLogic)
-    const { showRecordingListPreviews } = useValues(playerSettingsLogic)
-    const { setShowRecordingListPreviews } = useActions(playerSettingsLogic)
+    const { showRecordingListProperties } = useValues(playerSettingsLogic)
+    const { setShowRecordingListProperties } = useActions(playerSettingsLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
@@ -150,7 +150,7 @@ function RecordingsLists(): JSX.Element {
     useKeyboardHotkeys(
         {
             space: {
-                action: () => isHovering && setShowRecordingListPreviews(!showRecordingListPreviews),
+                action: () => isHovering && setShowRecordingListProperties(!showRecordingListProperties),
             },
         },
         [isHovering]

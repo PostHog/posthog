@@ -185,7 +185,7 @@ export function SessionRecordingPreview({
     sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
-    const { durationTypeToShow, showRecordingListPreviews } = useValues(playerSettingsLogic)
+    const { durationTypeToShow, showRecordingListProperties } = useValues(playerSettingsLogic)
 
     const nodeLogic = useNotebookNode()
     const inNotebook = !!nodeLogic
@@ -244,7 +244,7 @@ export function SessionRecordingPreview({
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
-            {showRecordingListPreviews && !inNotebook ? (
+            {showRecordingListProperties && !inNotebook ? (
                 <LemonDropdown
                     placement="right-start"
                     trigger="hover"
