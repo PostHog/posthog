@@ -137,7 +137,6 @@ decorator==5.1.1
     # via retry
 defusedxml==0.6.0
     # via
-    #   -r requirements.in
     #   python3-openid
     #   social-auth-core
 distro==1.9.0
@@ -215,8 +214,6 @@ djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
 dlt==0.4.7
-    # via -r requirements.in
-dnspython==2.2.1
     # via -r requirements.in
 drf-exceptions-hog==0.4.0
     # via -r requirements.in
@@ -297,7 +294,6 @@ humanize==4.9.0
     # via dlt
 idna==2.8
     # via
-    #   -r requirements.in
     #   anyio
     #   httpx
     #   requests
@@ -416,11 +412,7 @@ pathvalidate==3.2.0
     # via dlt
 pendulum==2.1.2
     # via dlt
-pexpect==4.7.0
-    # via -r requirements.in
 phonenumberslite==8.13.6
-    # via -r requirements.in
-pickleshare==0.7.5
     # via -r requirements.in
 pillow==10.2.0
     # via -r requirements.in
@@ -452,8 +444,6 @@ psycopg-binary==3.1.13
     # via psycopg
 psycopg2-binary==2.9.7
     # via -r requirements.in
-ptyprocess==0.6.0
-    # via pexpect
 py==1.11.0
     # via retry
 pyarrow==15.0.0
