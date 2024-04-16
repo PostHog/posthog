@@ -21,6 +21,19 @@ import type { propertyDefinitionsModelType } from './propertyDefinitionsModelTyp
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
 
+// List of property definitions that are calculated on the backend. These
+// are valid properties that do not exist on events.
+const localProperties: PropertyDefinitionStorage = {
+    'event/$session_duration': {
+        id: '$session_duration',
+        name: '$session_duration',
+        description: 'Duration of the session',
+        is_numerical: true,
+        is_seen_on_filtered_events: false,
+        property_type: PropertyType.Duration,
+    },
+}
+
 export type FormatPropertyValueForDisplayFunction = (
     propertyName?: BreakdownKeyType,
     valueToFormat?: PropertyFilterValue,
@@ -144,7 +157,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     }),
     reducers({
         propertyDefinitionStorage: [
-            {} as PropertyDefinitionStorage,
+            { ...localProperties } as PropertyDefinitionStorage,
             {
                 updatePropertyDefinitions: (state, { propertyDefinitions }) => {
                     return {
