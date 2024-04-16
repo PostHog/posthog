@@ -1753,7 +1753,7 @@
          "posthog_experiment"."updated_at",
          "posthog_experiment"."archived"
   FROM "posthog_experiment"
-  WHERE "posthog_experiment"."exposure_cohort_id" = 2 /*controller='project_feature_flags-create-static-cohort-for-flag',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/create_static_cohort_for_flag/%3F%24'*/
+  WHERE "posthog_experiment"."exposure_cohort_id" = 2
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.15
