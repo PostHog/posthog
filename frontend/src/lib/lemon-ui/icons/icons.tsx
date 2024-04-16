@@ -1360,3 +1360,16 @@ export function IconAdsClick(props: LemonIconProps): JSX.Element {
         </LemonIconBase>
     )
 }
+
+export function IconSquare(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 256 256" {...props}>
+            <path
+                fill="currentColor"
+                stroke="currentColor"
+                strokeWidth={6}
+                d="M208,220H48a12.01367,12.01367,0,0,1-12-12V48A12.01359,12.01359,0,0,1,48,36H208a12.01359,12.01359,0,0,1,12,12V208A12.01367,12.01367,0,0,1,208,220ZM48,44a4.00458,4.00458,0,0,0-4,4V208a4.00458,4.00458,0,0,0,4,4H208a4.00458,4.00458,0,0,0,4-4V48a4.00458,4.00458,0,0,0-4-4Z"
+            />
+        </LemonIconBase>
+    )
+}

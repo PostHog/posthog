@@ -688,7 +688,7 @@ def get_feature_flag_hash_key_overrides(
             .filter(distinct_id__in=distinct_ids, team_id=team_id)
             .values_list("person_id", "distinct_id")
         )
-        person_id_to_distinct_id = {person_id: distinct_id for person_id, distinct_id in person_and_distinct_ids}
+        person_id_to_distinct_id = dict(person_and_distinct_ids)
     else:
         person_id_to_distinct_id = person_id_to_distinct_id_mapping
 

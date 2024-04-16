@@ -46,6 +46,8 @@ from django.conf import settings
 import asyncio
 import psycopg
 
+from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
+
 BUCKET_NAME = "test-external-data-jobs"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
@@ -185,6 +187,43 @@ async def test_create_external_job_activity_schemas_exist(activity_environment, 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()
     assert len(schemas) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_external_job_activity_update_schemas(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+
+    await sync_to_async(ExternalDataSchema.objects.create)(
+        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    await sync_to_async(ExternalDataSchema.objects.create)(
+        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][1],
+        team_id=team.id,
+        source_id=new_source.pk,
+    )
+
+    inputs = CreateExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
+
+    run_id, schemas = await activity_environment.run(create_external_data_job_model, inputs)
+
+    runs = ExternalDataJob.objects.filter(id=run_id)
+    assert await sync_to_async(runs.exists)()
+
+    all_schemas = await sync_to_async(get_all_schemas_for_source_id)(new_source.pk, team.id)
+
+    assert len(all_schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[ExternalDataSource.Type.STRIPE])
 
 
 @pytest.mark.django_db(transaction=True)
@@ -523,6 +562,7 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
                     "test-4": {"name": "test-4", "resource": "test-4", "columns": {"id": {"data_type": "text"}}},
                     "test-5": {"name": "test-5", "resource": "test-5", "columns": {"id": {"data_type": "text"}}},
                 },
+                table_row_counts={},
             ),
         )
 
@@ -607,6 +647,7 @@ async def test_validate_schema_and_update_table_activity_with_existing(activity_
                     "test-4": {"name": "test-4", "resource": "test-4", "columns": {"id": {"data_type": "text"}}},
                     "test-5": {"name": "test-5", "resource": "test-5", "columns": {"id": {"data_type": "text"}}},
                 },
+                table_row_counts={},
             ),
         )
 
@@ -679,6 +720,7 @@ async def test_validate_schema_and_update_table_activity_half_run(activity_envir
                         "columns": {"id": {"data_type": "text"}},
                     },
                 },
+                table_row_counts={},
             ),
         )
 
@@ -738,6 +780,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
                     "test-4": {"name": "test-4", "resource": "test-4", "columns": {"id": {"data_type": "text"}}},
                     "test-5": {"name": "test-5", "resource": "test-5", "columns": {"id": {"data_type": "text"}}},
                 },
+                table_row_counts={},
             ),
         )
 
@@ -830,7 +873,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         )
 
     async def mock_async_func(inputs):
-        pass
+        return {}
 
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}

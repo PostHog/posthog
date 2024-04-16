@@ -1327,7 +1327,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "alpha-feature")
 
         dashboard = instance.usage_dashboard
-        tiles = sorted([tile for tile in dashboard.tiles.all()], key=lambda x: x.insight.name)
+        tiles = sorted(dashboard.tiles.all(), key=lambda x: x.insight.name)
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -1421,7 +1421,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         instance.refresh_from_db()
 
         dashboard = instance.usage_dashboard
-        tiles = sorted([tile for tile in dashboard.tiles.all()], key=lambda x: x.insight.name)
+        tiles = sorted(dashboard.tiles.all(), key=lambda x: x.insight.name)
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(

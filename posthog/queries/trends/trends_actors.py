@@ -104,7 +104,7 @@ class TrendsActors(ActorBaseQuery):
             team=self._team,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups
-            and self._team.person_on_events_mode != PersonOnEventsMode.V1_ENABLED,
+            and self._team.person_on_events_mode != PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
             extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
             person_on_events_mode=self._team.person_on_events_mode,

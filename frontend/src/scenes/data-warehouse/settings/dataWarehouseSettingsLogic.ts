@@ -97,6 +97,13 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 actions.loadSources(null)
             }, REFRESH_INTERVAL)
         },
+        loadSourcesFailure: () => {
+            clearTimeout(cache.refreshTimeout)
+
+            cache.refreshTimeout = setTimeout(() => {
+                actions.loadSources(null)
+            }, REFRESH_INTERVAL)
+        },
         deleteSource: async ({ source }) => {
             await api.externalDataSources.delete(source.id)
             actions.loadSources(null)

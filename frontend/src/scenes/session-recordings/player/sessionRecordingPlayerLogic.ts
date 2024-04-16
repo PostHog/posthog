@@ -37,7 +37,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
-import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
+import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackSceneLogic'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
@@ -724,6 +724,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
+            cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
 
             // Check if we're seeking to a new segment
@@ -904,7 +905,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const playingElements = mediaElements.filter(isMediaElementPlaying)
 
             playingElements.forEach((el) => el.pause())
-            cache.pausedMediaElements = playingElements
+            cache.pausedMediaElements = values.endReached ? [] : playingElements
         },
         restartIframePlayback: () => {
             cache.pausedMediaElements.forEach((el: HTMLMediaElement) => el.play())

@@ -260,7 +260,6 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                                 })
                                 .filter(Boolean) as AnyPropertyFilter[]
                         } else {
-                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
                             const [_, propertyName, propertyValue] = correlation.event.event.split('::')
 
                             properties = [
