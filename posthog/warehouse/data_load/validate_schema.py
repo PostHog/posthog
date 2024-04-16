@@ -196,13 +196,3 @@ async def validate_schema_and_update_table(
             schema_model.table = table_created
             schema_model.last_synced_at = job.created_at
             await asave_external_data_schema(schema_model)
-
-    if last_successful_job:
-        try:
-            last_successful_job.delete_data_in_bucket()
-        except Exception as e:
-            logger.exception(
-                f"Data Warehouse: Could not delete deprecated data source {last_successful_job.pk}",
-                exc_info=e,
-            )
-            pass

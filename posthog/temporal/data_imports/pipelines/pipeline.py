@@ -29,13 +29,14 @@ class DataImportPipeline:
     def __init__(self, inputs: PipelineInputs, source: DltSource, logger: FilteringBoundLogger):
         self.inputs = inputs
         self.logger = logger
-        self.source = source
+        # Assuming each page is 100 items for now so bound each run at 100_000 items
+        self.source = source.add_limit(100000)
 
     def _get_pipeline_name(self):
-        return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.run_id}"
+        return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.source_id}"
 
     def _get_pipelines_dir(self):
-        return f"{os.getcwd()}/.dlt/{self.inputs.team_id}/{self.inputs.run_id}/{self.inputs.job_type}"
+        return f"{os.getcwd()}/.dlt/{self.inputs.team_id}/{self.inputs.source_id}/{self.inputs.job_type}"
 
     def _get_destination(self):
         if TEST:
