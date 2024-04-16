@@ -134,79 +134,102 @@ class TestFunnelExperiments(unittest.TestCase):
 
 class TestTrendExperiments(unittest.TestCase):
     def test_validate_event_variants_no_events(self):
-        expected_code = "no-events"
-        with self.assertRaises(ValidationError) as context:
-            validate_trend_event_variants([], ["test", "control"])
+        trend_results = []
 
-        self.assertEqual(expected_code, context.exception.detail[0].code)
-
-    def test_validate_event_variants_missing_variants(self):
-        insight_results = [
+        expected_errors = json.dumps(
             {
-                "action": {
-                    "id": "step-b-0",
-                    "type": "events",
-                    "order": 0,
-                    "name": "step-b-0",
-                },
-                "label": "test",
-                "breakdown_value": "test",
+                ExperimentNoResultsErrorKeys.NO_EVENTS: True,
+                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
-        ]
+        )
 
-        expected_code = "missing-flag-variants::control"
         with self.assertRaises(ValidationError) as context:
-            validate_trend_event_variants(insight_results, ["test", "control"])
+            validate_trend_event_variants(trend_results, ["test", "control"])
 
-        self.assertEqual(expected_code, context.exception.detail[0].code)
+        self.assertEqual(context.exception.detail[0], expected_errors)
 
-    def test_validate_event_variants_missing_control(self):
-        insight_results = [
+    def test_validate_event_variants_no_control(self):
+        trend_results = [
             {
                 "action": {
-                    "id": "step-b-0",
+                    "id": "trend-event",
                     "type": "events",
                     "order": 0,
-                    "name": "step-b-0",
+                    "name": "trend-event",
                 },
                 "label": "test_1",
                 "breakdown_value": "test_1",
             }
         ]
 
-        # Only 1 test variant is required to return results
-        expected_code = "missing-flag-variants::control"
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
+                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
+            }
+        )
+
         with self.assertRaises(ValidationError) as context:
-            validate_trend_event_variants(insight_results, ["control", "test_1", "test_2"])
+            validate_trend_event_variants(trend_results, ["control", "test_1", "test_2"])
 
-        self.assertEqual(expected_code, context.exception.detail[0].code)
+        self.assertEqual(context.exception.detail[0], expected_errors)
 
-    def test_validate_event_variants_ignore_old_variant(self):
-        insight_results = [
+    def test_validate_event_variants_no_test(self):
+        trend_results = [
             {
                 "action": {
-                    "id": "step-b-0",
+                    "id": "trend-event",
                     "type": "events",
                     "order": 0,
-                    "name": "step-b-0",
+                    "name": "trend-event",
                 },
-                "label": "test",
-                "breakdown_value": "test",
-            },
-            {
-                "action": {
-                    "id": "step-b-0",
-                    "type": "events",
-                    "order": 0,
-                    "name": "step-b-0",
-                },
-                "label": "test",
-                "breakdown_value": "old-variant",
-            },
+                "label": "control",
+                "breakdown_value": "control",
+            }
         ]
 
-        expected_code = "missing-flag-variants::control"
-        with self.assertRaises(ValidationError) as context:
-            validate_trend_event_variants(insight_results, ["test", "control"])
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
+                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+            }
+        )
 
-        self.assertEqual(expected_code, context.exception.detail[0].code)
+        with self.assertRaises(ValidationError) as context:
+            validate_trend_event_variants(trend_results, ["control", "test_1", "test_2"])
+
+        self.assertEqual(context.exception.detail[0], expected_errors)
+
+    def test_validate_event_variants_no_flag_info(self):
+        trend_results = [
+            {
+                "action": {
+                    "id": "trend-event",
+                    "type": "events",
+                    "order": 0,
+                    "name": "trend-event",
+                },
+                "label": "",
+                "breakdown_value": "",
+            }
+        ]
+
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
+                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+            }
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            validate_trend_event_variants(trend_results, ["control", "test_1", "test_2"])
+
+        self.assertEqual(context.exception.detail[0], expected_errors)
