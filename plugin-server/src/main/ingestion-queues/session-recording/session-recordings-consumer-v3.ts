@@ -65,6 +65,8 @@ export interface TeamIDWithConfig {
 }
 
 /**
+ * @deprecated Delete reduceRecordingMessages and associated tests when deleting this.
+ *
  * The SessionRecordingIngesterV3
  * relies on EFS network storage to avoid the need to delay kafka commits and instead uses the disk
  * as the persistent volume for both blob data and the metadata around ingestion.

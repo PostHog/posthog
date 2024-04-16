@@ -15,6 +15,7 @@ import {
     selectors,
 } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -37,7 +38,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
-import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
@@ -102,10 +102,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sessionRecordingDataLogic(props),
             [
                 'snapshotsLoaded',
+                'snapshotsLoading',
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
-                'sessionPlayerSnapshotDataLoading',
                 'sessionPlayerMetaDataLoading',
+                'createExportJSON',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
@@ -120,9 +121,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sessionRecordingDataLogic(props),
             [
                 'maybeLoadRecordingMeta',
-                'loadRecordingSnapshots',
-                'loadRecordingSnapshotsSuccess',
-                'loadRecordingSnapshotsFailure',
+                'loadSnapshots',
+                'loadSnapshotsForSourceFailure',
+                'loadSnapshotSourcesFailure',
                 'loadRecordingMetaSuccess',
                 'maybePersistRecording',
             ],
@@ -168,7 +169,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         initializePlayerFromStart: true,
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
-        updateFromMetadata: true,
+        syncSnapshotsWithPlayer: true,
         exportRecordingToFile: (exportUntransformedMobileData?: boolean) => ({ exportUntransformedMobileData }),
         deleteRecording: true,
         openExplorer: true,
@@ -359,7 +360,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 s.isScrubbing,
                 s.isSkippingInactivity,
                 s.snapshotsLoaded,
-                s.sessionPlayerSnapshotDataLoading,
+                s.snapshotsLoading,
             ],
             (
                 playingState,
@@ -620,13 +621,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setCurrentSegment(initialSegment)
             }
         },
-        updateFromMetadata: async (_, breakpoint) => {
+        syncSnapshotsWithPlayer: async (_, breakpoint) => {
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
             const eventsToAdd = []
 
             if (values.currentSegment?.windowId !== undefined) {
                 // TODO: Probably need to check for de-dupes here....
+                // TODO: We do some sorting and rearranging in the data logic... We may need to handle that here, replacing the
+                // whole events stream....
                 eventsToAdd.push(
                     ...(values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []).slice(
                         currentEvents.length
@@ -649,27 +652,28 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         loadRecordingMetaSuccess: () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
-            actions.updateFromMetadata()
+            actions.syncSnapshotsWithPlayer()
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
             }
         },
 
-        loadRecordingSnapshotsSuccess: () => {
-            // As the connected data logic may be preloaded we call a shared function here and on mount
-            actions.updateFromMetadata()
+        loadSnapshotsForSourceFailure: () => {
+            if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
+                console.error('PostHog Recording Playback Error: No snapshots loaded')
+                actions.setErrorPlayerState(true)
+            }
         },
-
-        loadRecordingSnapshotsFailure: () => {
+        loadSnapshotSourcesFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
                 actions.setErrorPlayerState(true)
             }
         },
         setPlay: () => {
-            if (!values.snapshotsLoaded && !values.sessionPlayerSnapshotDataLoading) {
-                actions.loadRecordingSnapshots()
+            if (!values.snapshotsLoaded) {
+                actions.loadSnapshots()
             }
             actions.stopAnimation()
             actions.restartIframePlayback()
@@ -724,6 +728,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
+            cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
 
             // Check if we're seeking to a new segment
@@ -735,7 +740,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (!values.snapshotsLoaded) {
                 // We haven't started properly loading yet so nothing to do
-            } else if (!values.sessionPlayerSnapshotDataLoading && segment?.kind === 'buffer') {
+            } else if (!values.snapshotsLoading && segment?.kind === 'buffer') {
                 // If not currently loading anything and part of the recording hasn't loaded, set error state
                 values.player?.replayer?.pause()
                 actions.endBuffer()
@@ -904,7 +909,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const playingElements = mediaElements.filter(isMediaElementPlaying)
 
             playingElements.forEach((el) => el.pause())
-            cache.pausedMediaElements = playingElements
+            cache.pausedMediaElements = values.endReached ? [] : playingElements
         },
         restartIframePlayback: () => {
             cache.pausedMediaElements.forEach((el: HTMLMediaElement) => el.play())
@@ -936,10 +941,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = createExportedSessionRecording(
-                    sessionRecordingDataLogic(props),
-                    !!exportUntransformedMobileData
-                )
+                const payload = values.createExportJSON(!!exportUntransformedMobileData)
 
                 const recordingFile = new File(
                     [JSON.stringify(payload, null, 2)],
@@ -997,6 +999,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             } else if (document.fullscreenElement === props.playerRef?.current) {
                 await document.exitFullscreen()
+            }
+        },
+    })),
+
+    subscriptions(({ actions }) => ({
+        sessionPlayerData: (next, prev) => {
+            const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
+
+            // TODO: Detect if the order of the current window has changed (this would require re-initializing the player)
+
+            if (hasSnapshotChanges) {
+                actions.syncSnapshotsWithPlayer()
             }
         },
     })),

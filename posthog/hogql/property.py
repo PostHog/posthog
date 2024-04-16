@@ -12,7 +12,7 @@ from posthog.constants import (
 )
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.functions import HOGQL_AGGREGATIONS
+from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.errors import NotImplementedError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -59,7 +59,7 @@ class AggregationFinder(TraversingVisitor):
         pass
 
     def visit_call(self, node: ast.Call):
-        if node.name in HOGQL_AGGREGATIONS:
+        if find_hogql_aggregation(node.name):
             self.has_aggregation = True
         else:
             for arg in node.args:

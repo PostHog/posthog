@@ -409,7 +409,6 @@ export function HedgehogBuddy({
         return actor.setupKeyboardListeners()
     }, [])
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_, setTimerLoop] = useState(0)
     const [popoverVisible, setPopoverVisible] = useState(false)
 

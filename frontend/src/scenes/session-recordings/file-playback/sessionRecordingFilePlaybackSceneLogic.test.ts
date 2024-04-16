@@ -2,10 +2,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { sessionRecordingFilePlaybackLogic } from './sessionRecordingFilePlaybackLogic'
+import { sessionRecordingFilePlaybackSceneLogic } from './sessionRecordingFilePlaybackSceneLogic'
 
 describe('sessionRecordingFilePlaybackLogic', () => {
-    let logic: ReturnType<typeof sessionRecordingFilePlaybackLogic.build>
+    let logic: ReturnType<typeof sessionRecordingFilePlaybackSceneLogic.build>
 
     beforeEach(() => {
         initKeaTests()
@@ -13,7 +13,7 @@ describe('sessionRecordingFilePlaybackLogic', () => {
 
     describe('file-playback logic', () => {
         beforeEach(() => {
-            logic = sessionRecordingFilePlaybackLogic()
+            logic = sessionRecordingFilePlaybackSceneLogic()
             logic.mount()
         })
 

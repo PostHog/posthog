@@ -190,6 +190,16 @@ class TestSessionTimestampInliner(ClickhouseTestMixin, APIBaseTest):
         expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= minus(today(), 2))")
         assert expected == actual
 
+    def test_less_function(self):
+        actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE less(min_timestamp, today())")))
+        expected = f("((raw_sessions.min_timestamp - toIntervalDay(3)) <= today())")
+        assert expected == actual
+
+    def test_less_function_second_arg(self):
+        actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE less(today(), min_timestamp)")))
+        expected = f("((raw_sessions.min_timestamp + toIntervalDay(3)) >= today())")
+        assert expected == actual
+
     def test_real_example(self):
         actual = f(
             self.inliner.get_inner_where(

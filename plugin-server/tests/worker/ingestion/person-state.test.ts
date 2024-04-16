@@ -173,8 +173,8 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
         })
 
-        it('creates person if they are new and $process_person=false', async () => {
-            // Note that eventually $process_person=false will be optimized so that the person is
+        it('creates person if they are new and $process_person_profile=false', async () => {
+            // Note that eventually $process_person_profile=false will be optimized so that the person is
             // *not* created here.
             const event_uuid = new UUIDT().toString()
             const processPerson = false
@@ -183,7 +183,7 @@ describe('PersonState.update()', () => {
                     event: '$pageview',
                     distinct_id: 'new-user',
                     uuid: event_uuid,
-                    properties: { $process_person: false, $set: { a: 1 }, $set_once: { b: 2 } },
+                    properties: { $process_person_profile: false, $set: { a: 1 }, $set_once: { b: 2 } },
                 },
                 hub,
                 processPerson
@@ -216,7 +216,7 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining(['new-user']))
         })
 
-        it('does not attach existing person properties to $process_person=false events', async () => {
+        it('does not attach existing person properties to $process_person_profile=false events', async () => {
             const originalEventUuid = new UUIDT().toString()
             const person = await personState({
                 event: '$pageview',
@@ -256,7 +256,7 @@ describe('PersonState.update()', () => {
             }).update()
             expect(personVerifyProps.properties).toEqual({ $creator_event_uuid: originalEventUuid, c: 420 })
 
-            // But they don't when $process_person=false
+            // But they don't when $process_person_profile=false
             const processPersonFalseResult = await personState(
                 {
                     event: '$pageview',
