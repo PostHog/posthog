@@ -17,7 +17,7 @@ from posthog.utils import convert_property_value, flatten
 
 class SessionViewSet(
     TeamAndOrgViewSetMixin,
-    viewsets.ViewSet,
+    viewsets.GenericViewSet,
 ):
     scope_object = "query"
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
