@@ -337,11 +337,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionRecordingSnapshotSource[] | null,
             {
                 loadSnapshotSources: async () => {
-                    const params = {
-                        version: values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK] ? '3' : '2',
-                    }
-
-                    const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
+                    const response = await api.recordings.listSnapshots(props.sessionRecordingId, { version: 2 })
                     return response.sources ?? []
                 },
             },
@@ -353,7 +349,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const params = {
                         source: source.source,
                         blob_key: source.blob_key,
-                        version: values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK] ? '3' : '2',
+                        version: '2',
                     }
 
                     const snapshotLoadingStartTime = performance.now()
