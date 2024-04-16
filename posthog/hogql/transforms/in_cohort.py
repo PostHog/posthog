@@ -362,8 +362,10 @@ class InCohortResolver(TraversingVisitor):
             else:
                 sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
             subquery = parse_expr(
-                sql, {"cohort_id": ast.Constant(value=cohort_id)}, start=None
-            )  # clear the source start position
+                sql,
+                {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
+                start=None,  # clear the source start position
+            )
 
             new_join = ast.JoinExpr(
                 alias=f"in_cohort__{cohort_id}",
