@@ -30,7 +30,7 @@ class DataImportPipeline:
         self.inputs = inputs
         self.logger = logger
         # Assuming each page is 100 items for now so bound each run at 100_000 items
-        self.source = source.add_limit(100000)
+        self.source = source.add_limit(1)
 
     def _get_pipeline_name(self):
         return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.source_id}"
@@ -78,13 +78,20 @@ class DataImportPipeline:
 
     def _run(self) -> Dict[str, int]:
         pipeline = self._create_pipeline()
-        pipeline.run(self.source, loader_file_format=self.loader_file_format)
 
-        row_counts = pipeline.last_trace.last_normalize_info.row_counts
-        # Remove any DLT tables from the counts
-        filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
+        counts = 1
+        total_count = {}
 
-        return dict(filtered_rows)
+        while counts:
+            pipeline.run(self.source, loader_file_format=self.loader_file_format)
+
+            row_counts = pipeline.last_trace.last_normalize_info.row_counts
+            # Remove any DLT tables from the counts
+            filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
+            counts = dict(filtered_rows)
+            total_counts = {k: total_count.get(k, 0) + v for k, v in counts.items()}
+
+        return total_counts
 
     async def run(self) -> Dict[str, int]:
         schemas = self._get_schemas()

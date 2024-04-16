@@ -10,6 +10,7 @@ from pendulum import DateTime
 from asgiref.sync import sync_to_async
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.data_imports.pipelines.helpers import check_limit
+from posthog.temporal.data_imports.pipelines.stripe.settings import INCREMENTAL_ENDPOINTS
 from posthog.warehouse.models import ExternalDataJob
 
 stripe.api_version = "2022-11-15"
@@ -80,9 +81,11 @@ async def stripe_pagination(
     logger.info(f"Stripe: getting {endpoint}")
 
     # TODO: add source id
-    _starting_after_state = dlt.current.resource_state(endpoint).setdefault("starting_after", {"last_value": None})
-
-    _starting_after = _starting_after_state.get("last_value", None)
+    if endpoint in INCREMENTAL_ENDPOINTS:
+        _starting_after_state = dlt.current.resource_state(endpoint).setdefault("starting_after", {"last_value": None})
+        _starting_after = _starting_after_state.get("last_value", None)
+    else:
+        _starting_after = starting_after
 
     while True:
         if starting_after is not None:
@@ -101,7 +104,9 @@ async def stripe_pagination(
 
         if len(response["data"]) > 0:
             _starting_after = response["data"][-1]["id"]
-            _starting_after_state["last_value"] = _starting_after
+
+            if endpoint in INCREMENTAL_ENDPOINTS:
+                _starting_after_state["last_value"] = _starting_after
         yield response["data"]
 
         count, status = await check_limit(
