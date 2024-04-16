@@ -12,6 +12,7 @@ from posthog.hogql.database.models import (
     DatabaseField,
     LazyTable,
     FloatDatabaseField,
+    BooleanDatabaseField,
 )
 from posthog.hogql.database.schema.channel_type import create_channel_type_expr, POSSIBLE_CHANNEL_TYPES
 from posthog.hogql.database.schema.util.session_where_clause_extractor import SessionMinTimestampWhereClauseExtractor
@@ -235,8 +236,19 @@ def get_lazy_session_table_properties(search: Optional[str]):
 
     # some fields should have a specific property type which isn't derivable from the type of database field
     property_type_overrides = {
-        "duration": PropertyType.Duration,
+        "$session_duration": PropertyType.Duration,
     }
+
+    def get_property_type(field_name: str, field_definition: FieldOrTable):
+        if field_name in property_type_overrides:
+            return property_type_overrides[field_name]
+        if isinstance(field_definition, IntegerDatabaseField) or isinstance(field_definition, FloatDatabaseField):
+            return PropertyType.Numeric
+        if isinstance(field_definition, DateTimeDatabaseField):
+            return PropertyType.Datetime
+        if isinstance(field_definition, BooleanDatabaseField):
+            return PropertyType.Boolean
+        return PropertyType.String
 
     results = [
         {
@@ -244,9 +256,7 @@ def get_lazy_session_table_properties(search: Optional[str]):
             "name": field_name,
             "is_numerical": isinstance(field_definition, IntegerDatabaseField)
             or isinstance(field_definition, FloatDatabaseField),
-            "property_type": property_type_overrides.get(field_name, None) or PropertyType.Numeric
-            if isinstance(field_definition, IntegerDatabaseField) or isinstance(field_definition, FloatDatabaseField)
-            else PropertyType.String,
+            "property_type": get_property_type(field_name, field_definition),
             "is_seen_on_filtered_events": None,
             "tags": [],
         }
