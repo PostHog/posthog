@@ -39,6 +39,7 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         assert response.columns == ["person_id", "cohort_id", "$another_prop"]
+        assert response.results is not None
         assert len(response.results) == 2
         assert response.results[0][2] == "something1"
         assert response.results[1][2] == "something2"
