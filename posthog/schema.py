@@ -818,7 +818,7 @@ class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Literal["$session_duration"] = "$session_duration"
+    key: str
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["session"] = "session"

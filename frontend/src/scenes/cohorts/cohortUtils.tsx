@@ -1,5 +1,6 @@
 import equal from 'fast-deep-equal'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
@@ -15,6 +16,7 @@ import {
     ActionType,
     AnyCohortCriteriaType,
     AnyCohortGroupType,
+    AnyPropertyFilter,
     BehavioralCohortType,
     BehavioralEventType,
     BehavioralLifecycleType,
@@ -22,6 +24,7 @@ import {
     CohortCriteriaType,
     CohortType,
     FilterLogicalOperator,
+    PropertyFilterType,
     PropertyOperator,
     TimeUnitType,
 } from '~/types'
@@ -272,6 +275,15 @@ export function validateGroup(
                 requiredFields = requiredFields.filter((f) => f.fieldKey !== 'value_property')
             }
 
+            // Handle EventFilters separately, since these are optional
+            requiredFields = requiredFields.filter((f) => f.fieldKey !== 'event_filters')
+            const eventFilterError =
+                c?.event_filters &&
+                c.event_filters.length > 0 &&
+                c.event_filters.some((prop) => prop?.type !== PropertyFilterType.HogQL && isEmptyProperty(prop))
+                    ? CohortClientErrors.EmptyEventFilters
+                    : undefined
+
             const criteriaErrors = Object.fromEntries(
                 requiredFields.map(({ fieldKey, type }) => [
                     fieldKey,
@@ -284,13 +296,15 @@ export function validateGroup(
                         : CRITERIA_VALIDATIONS?.[type](c[fieldKey]),
                 ])
             )
-            const consolidatedErrors = Object.values(criteriaErrors)
+
+            const allErrors = { ...criteriaErrors, event_filters: eventFilterError }
+            const consolidatedErrors = Object.values(allErrors)
                 .filter((e) => !!e)
                 .join(' ')
 
             return {
-                ...(areObjectValuesEmpty(criteriaErrors) ? {} : { id: consolidatedErrors }),
-                ...criteriaErrors,
+                ...(areObjectValuesEmpty(allErrors) ? {} : { id: consolidatedErrors }),
+                ...allErrors,
             }
         }),
     }
@@ -361,7 +375,7 @@ export function determineFilterType(
 export function resolveCohortFieldValue(
     criteria: AnyCohortCriteriaType,
     fieldKey: string
-): string | number | boolean | null | undefined {
+): string | number | boolean | null | undefined | AnyPropertyFilter[] {
     // Resolve correct behavioral filter type
     if (fieldKey === 'value') {
         return criteriaToBehavioralFilterType(criteria)
@@ -452,6 +466,7 @@ export function criteriaToHumanSentence(
     }
 
     data.fields.forEach(({ type, fieldKey, defaultValue, hide }) => {
+        // TODO: This needs to be much nicer for all cohort criteria options
         if (!hide) {
             if (type === FilterType.Text) {
                 words.push(defaultValue)
@@ -461,6 +476,8 @@ export function criteriaToHumanSentence(
                     words.push(<pre>{cohortsById?.[value]?.name ?? `Cohort ${value}`}</pre>)
                 } else if (type === FilterType.EventsAndActions && typeof value === 'number') {
                     words.push(<pre>{actionsById?.[value]?.name ?? `Action ${value}`}</pre>)
+                } else if (type === FilterType.EventFilters && (criteria.event_filters?.length || 0) > 0) {
+                    words.push(<pre>with filters</pre>)
                 } else {
                     words.push(<pre>{value}</pre>)
                 }

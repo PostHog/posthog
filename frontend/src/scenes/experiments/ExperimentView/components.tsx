@@ -1,6 +1,6 @@
 import '../Experiment.scss'
 
-import { IconPlus } from '@posthog/icons'
+import { IconCheckbox } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -8,7 +8,7 @@ import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { IconAreaChart, IconSquare } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { ExperimentResults, FilterType, InsightShortId } from '~/types'
+import { ExperimentResults, FilterType, InsightShortId, InsightType } from '~/types'
 
 import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
@@ -107,7 +107,7 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
         <LemonButton
             className="ml-auto -translate-y-2"
             size="small"
-            type="secondary"
+            type="primary"
             icon={icon}
             to={urls.insightNew(
                 undefined,
@@ -127,34 +127,103 @@ export function ExploreButton({ icon = <IconAreaChart /> }: { icon?: JSX.Element
                 })
             )}
         >
-            Explore
+            Explore results
         </LemonButton>
     )
 }
+
+export function ResultsHeader(): JSX.Element {
+    return (
+        <div className="flex">
+            <div className="w-1/2">
+                <div className="inline-flex items-center space-x-2 mb-2">
+                    <h2 className="m-0 font-semibold text-lg">Results</h2>
+                    <ResultsTag />
+                </div>
+            </div>
+
+            <div className="w-1/2 flex flex-col justify-end">
+                <div className="ml-auto">
+                    <ExploreButton />
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export function NoResultsEmptyState(): JSX.Element {
-    const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
+    const { experimentResultsLoading, experimentResultCalculationError, experimentInsightType } =
+        useValues(experimentLogic)
+
+    function ChecklistItem({ failureReason, checked }: { failureReason: string; checked: boolean }): JSX.Element {
+        const failureReasonToText = {
+            'no-events': 'Events have been received',
+            'no-flag-info': 'Feature flag information is present on the events',
+            'no-control-variant': 'Events with the control variant received',
+            'no-test-variant': 'Events with at least one test variant received',
+        }
+
+        return (
+            <div className="flex items-center space-x-1">
+                {checked ? (
+                    <IconCheckbox className={`w-6 ${checked ? 'text-success' : ''}`} />
+                ) : (
+                    <IconSquare color="var(--muted)" fontSize="24" />
+                )}
+                <span>{failureReasonToText[failureReason]}</span>
+            </div>
+        )
+    }
 
     if (experimentResultsLoading) {
         return <></>
     }
 
+    // TODO: use for Trends too once the Trends API is adjusted
+    // Validation errors return 400 and are rendered as a checklist
+    if (experimentInsightType === InsightType.FUNNELS && experimentResultCalculationError?.statusCode === 400) {
+        const checklistItems = []
+        for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError.detail))) {
+            checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
+        }
+
+        return (
+            <div>
+                <div className="border rounded bg-bg-light py-2">
+                    <div className="flex space-x-2">
+                        <div className="w-1/2 my-auto px-6 space-y-4 items-center">
+                            <div className="flex items-center">
+                                <div className="font-semibold leading-tight text-base text-current">
+                                    Experiment results not yet available
+                                </div>
+                            </div>
+                            <div className="text-muted">
+                                Results will be calculated once we've received the necessary minimum events. The
+                                checklist on the right shows what's still needed.
+                            </div>
+                        </div>
+                        <LemonDivider vertical />
+                        <div className="w-1/2 flex py-4 px-6 items-center">
+                            <div className="space-y-2">{checklistItems}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    // Non-400 errors are rendered as plain text
     return (
         <div>
-            <h2 className="font-semibold text-lg">Results</h2>
-            <div className="border rounded bg-bg-light pt-6 pb-8 text-muted">
-                <div className="flex flex-col items-center mx-auto">
+            <div className="border rounded bg-bg-light pt-6 pb-8">
+                <div className="flex flex-col items-center mx-auto text-muted">
                     <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                     <h2 className="text-xl font-semibold leading-tight">There are no experiment results yet</h2>
                     {!!experimentResultCalculationError && (
-                        <div className="text-sm text-center text-balance">{experimentResultCalculationError}</div>
+                        <div className="text-sm text-center text-balance">
+                            {experimentResultCalculationError.detail}
+                        </div>
                     )}
-                    <div className="text-sm text-center text-balance">
-                        Wait a bit longer for your users to be exposed to the experiment. Double check your feature flag
-                        implementation if you're still not seeing results.
-                    </div>
-                    <div className="mt-6 text-center">
-                        <ExploreButton icon={<IconPlus />} />
-                    </div>
                 </div>
             </div>
         </div>
