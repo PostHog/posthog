@@ -45,6 +45,9 @@ def execute_hogql_query(
     if timings is None:
         timings = HogQLTimings()
 
+    if context is None:
+        context = HogQLContext(team_id=team.pk)
+
     query_modifiers = create_default_modifiers_for_team(team, modifiers)
 
     with timings.measure("query"):
@@ -85,7 +88,8 @@ def execute_hogql_query(
     with timings.measure("hogql"):
         with timings.measure("prepare_ast"):
             hogql_query_context = dataclasses.replace(
-                (context or HogQLContext(team.pk)),
+                context,
+                # set the team.pk here so someone can't pass a context for a different team 🤷‍️
                 team_id=team.pk,
                 team=team,
                 enable_select_queries=True,
@@ -130,13 +134,15 @@ def execute_hogql_query(
     # Print the ClickHouse SQL query
     with timings.measure("print_ast"):
         clickhouse_context = dataclasses.replace(
-            (context or HogQLContext(team.pk)),
+            context,
+            # set the team.pk here so someone can't pass a context for a different team 🤷‍️
             team_id=team.pk,
             team=team,
             enable_select_queries=True,
             timings=timings,
             modifiers=query_modifiers,
         )
+
         clickhouse_sql = print_ast(
             select_query,
             context=clickhouse_context,

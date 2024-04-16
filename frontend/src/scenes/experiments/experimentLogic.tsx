@@ -80,6 +80,11 @@ export interface TabularSecondaryMetricResults {
     results?: SecondaryMetricResult[]
 }
 
+export interface ExperimentResultCalculationError {
+    detail: string
+    statusCode: number
+}
+
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => props.experimentId || 'new'),
@@ -127,7 +132,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
-        setExperimentResultCalculationError: (error: string) => ({ error }),
+        setExperimentResultCalculationError: (error: ExperimentResultCalculationError) => ({ error }),
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
@@ -241,7 +246,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         experimentResultCalculationError: [
-            null as string | null,
+            null as ExperimentResultCalculationError | null,
             {
                 setExperimentResultCalculationError: (_, { error }) => error,
             },
@@ -630,7 +635,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             last_refresh: response.last_refresh,
                         }
                     } catch (error: any) {
-                        actions.setExperimentResultCalculationError(error.detail)
+                        actions.setExperimentResultCalculationError({ detail: error.detail, statusCode: error.status })
                         return null
                     }
                 },
@@ -1101,6 +1106,44 @@ export const experimentLogic = kea<experimentLogicType>([
                     return b.conversionRate - a.conversionRate
                 })
             },
+        ],
+        recommendedSampleSize: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => experiment?.parameters?.recommended_sample_size || 100,
+        ],
+        funnelResultsPersonsTotal: [
+            (s) => [s.experimentResults, s.experimentInsightType],
+            (experimentResults: ExperimentResults['result'], experimentInsightType: InsightType): number => {
+                if (experimentInsightType !== InsightType.FUNNELS || !experimentResults?.insight) {
+                    return 0
+                }
+
+                let sum = 0
+                experimentResults.insight.forEach((variantResult) => {
+                    if (variantResult[0]?.count) {
+                        sum += variantResult[0].count
+                    }
+                })
+                return sum
+            },
+        ],
+        actualRunningTime: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => {
+                if (!experiment.start_date) {
+                    return 0
+                }
+
+                if (experiment.end_date) {
+                    return dayjs(experiment.end_date).diff(experiment.start_date, 'day')
+                }
+
+                return dayjs().diff(experiment.start_date, 'day')
+            },
+        ],
+        recommendedRunningTime: [
+            (s) => [s.experiment],
+            (experiment: Experiment): number => experiment?.parameters?.recommended_running_time || 1,
         ],
     }),
     forms(({ actions, values }) => ({
