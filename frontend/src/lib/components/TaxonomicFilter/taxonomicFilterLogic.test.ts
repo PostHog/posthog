@@ -110,17 +110,21 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic).toDispatchActionsInAnyOrder([
             'infiniteListResultsReceived',
             'infiniteListResultsReceived',
+            'infiniteListResultsReceived',
+            'infiniteListResultsReceived',
+            'infiniteListResultsReceived',
+            'infiniteListResultsReceived',
         ])
 
         await expectLogic(logic, () => {
-            logic.actions.setSearchQuery('event')
+            logic.actions.setSearchQuery('search term')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
             .toMatchValues({
-                searchQuery: 'event',
+                searchQuery: 'search term',
                 activeTab: TaxonomicFilterGroupType.Events,
                 infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 4,
+                    [TaxonomicFilterGroupType.Events]: 1,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
                     [TaxonomicFilterGroupType.Sessions]: 0,
@@ -174,7 +178,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 157,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.Sessions]: 1,
+                    [TaxonomicFilterGroupType.Sessions]: 2,
                 },
             })
 

@@ -51,7 +51,7 @@ export const mockEventDefinitions: EventDefinition[] = [
     'test event',
     '$click',
     '$autocapture',
-    'search',
+    'search term',
     'other event',
     ...Array(150),
 ].map((name, index) => ({
