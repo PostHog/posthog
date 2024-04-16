@@ -262,6 +262,14 @@ class ExperimentSignificanceCode(str, Enum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class ExperimentNoResultsErrorKeys(str, Enum):
+    NO_EVENTS = "no-events"
+    NO_FLAG_INFO = "no-flag-info"
+    NO_CONTROL_VARIANT = "no-control-variant"
+    NO_TEST_VARIANT = "no-test-variant"
+    NO_RESULTS = "no-results"
+
+
 class PropertyOperatorType(str, Enum):
     AND = "AND"
     OR = "OR"

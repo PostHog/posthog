@@ -8,7 +8,12 @@ import { LoadingState } from './Experiment'
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic } from './experimentLogic'
-import { ExperimentLoadingAnimation, NoResultsEmptyState, PageHeaderCustom } from './ExperimentView/components'
+import {
+    ExperimentLoadingAnimation,
+    NoResultsEmptyState,
+    PageHeaderCustom,
+    ResultsHeader,
+} from './ExperimentView/components'
 import { DistributionTable } from './ExperimentView/DistributionTable'
 import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './ExperimentView/Goal'
 import { Info } from './ExperimentView/Info'
@@ -56,7 +61,12 @@ export function ExperimentView(): JSX.Element {
                             <>
                                 <Goal />
                                 <ExperimentImplementationDetails experiment={experiment} />
-                                {experiment.start_date && <NoResultsEmptyState />}
+                                {experiment.start_date && (
+                                    <div>
+                                        <ResultsHeader />
+                                        <NoResultsEmptyState />
+                                    </div>
+                                )}
                             </>
                         )}
                         <ExperimentGoalModal experimentId={experimentId} />
