@@ -12,6 +12,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
+import posthog from 'posthog-js'
 import { Fragment, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -153,6 +154,7 @@ export function PropertyIcons({
                                 onClick={(e) => {
                                     if (e.altKey) {
                                         e.stopPropagation()
+                                        posthog.capture('alt click property filter added', { property })
                                         onPropertyClick?.(property, value)
                                     }
                                 }}

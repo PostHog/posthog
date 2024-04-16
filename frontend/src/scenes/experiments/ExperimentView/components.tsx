@@ -1,6 +1,6 @@
 import '../Experiment.scss'
 
-import { IconCheckbox } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -8,7 +8,7 @@ import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { IconAreaChart, IconSquare } from 'lib/lemon-ui/icons'
+import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
@@ -152,8 +152,7 @@ export function ResultsHeader(): JSX.Element {
 }
 
 export function NoResultsEmptyState(): JSX.Element {
-    const { experimentResultsLoading, experimentResultCalculationError, experimentInsightType } =
-        useValues(experimentLogic)
+    const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
 
     function ChecklistItem({ failureReason, checked }: { failureReason: string; checked: boolean }): JSX.Element {
         const failureReasonToText = {
@@ -164,13 +163,13 @@ export function NoResultsEmptyState(): JSX.Element {
         }
 
         return (
-            <div className="flex items-center space-x-1">
+            <div className="flex items-center space-x-2">
                 {checked ? (
-                    <IconCheckbox className={`w-6 ${checked ? 'text-success' : ''}`} />
+                    <IconCheck className="text-success" fontSize={16} />
                 ) : (
-                    <IconSquare color="var(--muted)" fontSize="24" />
+                    <IconX className="text-danger" fontSize={16} />
                 )}
-                <span>{failureReasonToText[failureReason]}</span>
+                <span className={checked ? 'text-muted' : ''}>{failureReasonToText[failureReason]}</span>
             </div>
         )
     }
@@ -179,9 +178,8 @@ export function NoResultsEmptyState(): JSX.Element {
         return <></>
     }
 
-    // TODO: use for Trends too once the Trends API is adjusted
     // Validation errors return 400 and are rendered as a checklist
-    if (experimentInsightType === InsightType.FUNNELS && experimentResultCalculationError?.statusCode === 400) {
+    if (experimentResultCalculationError?.statusCode === 400) {
         const checklistItems = []
         for (const [failureReason, value] of Object.entries(JSON.parse(experimentResultCalculationError.detail))) {
             checklistItems.push(<ChecklistItem key={failureReason} failureReason={failureReason} checked={!value} />)
