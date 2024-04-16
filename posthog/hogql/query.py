@@ -1,6 +1,7 @@
 from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
@@ -193,7 +194,7 @@ def execute_hogql_query(
     return HogQLQueryResponse(
         query=query,
         hogql=hogql,
-        clickhouse=clickhouse_sql,
+        clickhouse=substitute_params(clickhouse_sql, clickhouse_context.values),
         error=error,
         timings=timings.to_list(),
         results=results,
