@@ -17,7 +17,6 @@ celery-redbeat==2.1.1
 clickhouse-driver==0.2.4
 clickhouse-pool==0.5.3
 cryptography==37.0.2
-defusedxml==0.6.0
 dj-database-url==0.5.0
 Django~=4.2.11
 django-axes==5.9.0
@@ -45,7 +44,6 @@ gevent==23.9.1
 geoip2==4.6.0
 google-cloud-bigquery==3.11.4
 gunicorn==20.1.0
-idna==2.8
 importlib-metadata==6.8.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
 kafka-python==2.0.2
@@ -59,8 +57,6 @@ openpyxl==3.1.2
 orjson==3.9.10
 pandas==2.2.0
 parso==0.8.1
-pexpect==4.7.0
-pickleshare==0.7.5
 Pillow==10.2.0
 posthoganalytics==3.5.0
 prance==23.06.21.0
