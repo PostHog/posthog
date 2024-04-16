@@ -53,7 +53,9 @@ def select_from_cohort_people_table(requested_fields: Dict[str, List[str | int]]
                 exprs=[ast.Field(chain=[table_name, "cohort_id"]), ast.Field(chain=[table_name, "version"])]
             ),
             right=ast.Constant(value=cohort_tuples),
-        ),
+        )
+        if len(cohort_tuples) > 0
+        else ast.Constant(value=False),
     )
 
 
