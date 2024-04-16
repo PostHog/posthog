@@ -11,7 +11,7 @@ import {
     IconToggle,
     IconTrends,
 } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
@@ -27,6 +27,7 @@ import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { SIDE_PANEL_TABS } from '../SidePanel'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
+import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 const PRODUCTS = [
     {
@@ -142,13 +143,14 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 }
 
 export const SidePanelSupport = (): JSX.Element => {
-    const { closeSidePanel } = useActions(sidePanelStateLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { openEmailForm, closeEmailForm } = useActions(supportLogic)
     const { isEmailFormOpen } = useValues(supportLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const region = preflight?.region
+    const { status } = useValues(sidePanelStatusLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
     const { title } = useValues(theLogic)
@@ -185,6 +187,26 @@ export const SidePanelSupport = (): JSX.Element => {
                             ))}
                         </ul>
                     </Section>
+
+                    {status !== 'operational' ? (
+                        <Section title="">
+                            <LemonBanner type={status.includes('outage') ? 'error' : 'warning'}>
+                                <div>
+                                    <span>We are experiencing {status.includes('outage') ? 'major' : ''} issues.</span>
+                                    <LemonButton
+                                        type="secondary"
+                                        fullWidth
+                                        center
+                                        targetBlank
+                                        onClick={() => openSidePanel(SidePanelTab.Status)}
+                                        className="mt-2 bg-[white]"
+                                    >
+                                        View system status
+                                    </LemonButton>
+                                </div>
+                            </LemonBanner>
+                        </Section>
+                    ) : null}
 
                     {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
                         <>
