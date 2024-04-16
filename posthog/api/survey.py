@@ -303,22 +303,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(counts)
 
-    # Unused -> Remove if not needed
-    @action(methods=["POST"], detail=True)
-    def duplicate_survey(self, request: request.Request, **kwargs):
-        survey = self.get_object()
-        serializer = SurveySerializerCreateUpdateOnly(survey, context={"team_id": self.team_id, "request": request})
-
-        data = serializer.data
-        data.pop("id", None)
-        data["name"] = f"{data['name']} (copy)"
-        data["archived"] = False
-
-        new_survey = serializer.create(validated_data=data)
-        new_data = SurveySerializerCreateUpdateOnly(new_survey).data
-
-        return Response(data=new_data)
-
 
 class SurveyAPISerializer(serializers.ModelSerializer):
     """
