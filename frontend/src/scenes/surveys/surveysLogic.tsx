@@ -68,11 +68,6 @@ export const surveysLogic = kea<surveysLogicType>([
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
                 return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
             },
-            duplicateSurvey: async (id) => {
-                const surveyToDuplicate = await api.surveys.get(id)
-                const newSurvey = await api.surveys.create(duplicateExistingSurvey(surveyToDuplicate))
-                return [...values.surveys, newSurvey]
-            },
         },
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
@@ -113,10 +108,6 @@ export const surveysLogic = kea<surveysLogicType>([
             actions.loadResponsesCount()
         },
         loadSurveysSuccess: () => {
-            actions.loadCurrentTeam()
-        },
-        duplicateSurveySuccess: () => {
-            lemonToast.success('Survey duplicated')
             actions.loadCurrentTeam()
         },
     })),
