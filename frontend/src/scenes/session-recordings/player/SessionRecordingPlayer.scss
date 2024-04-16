@@ -62,14 +62,10 @@
     }
 
     .SessionRecordingPlayer__inspector {
-        position: absolute;
-        top: 0;
-        right: 0;
-        bottom: 0;
+        position: relative;
         z-index: 10;
         flex-shrink: 0;
         min-width: var(--inspector-min-width);
-        max-width: 95%;
 
         &--collapsed {
             --inspector-min-width: 2.5rem;
@@ -88,11 +84,6 @@
         .SessionRecordingPlayer__main {
             padding-right: 0;
         }
-
-        .SessionRecordingPlayer__inspector {
-            position: relative;
-            max-width: 75%;
-        }
     }
 
     &--inspector-hidden {
@@ -103,6 +94,10 @@
         .SessionRecordingPlayer__inspector {
             display: none;
         }
+    }
+
+    &--vertical {
+        flex-direction: column;
     }
 }
 

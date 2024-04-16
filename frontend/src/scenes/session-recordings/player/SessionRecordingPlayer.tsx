@@ -159,6 +159,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         )
     }
 
+    const alignedVertically = true
+
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
             <div
@@ -170,6 +172,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     'SessionRecordingPlayer--inspector-focus': inspectorExpanded || isWidescreen,
                     'SessionRecordingPlayer--inspector-hidden': noInspector || size === 'tiny',
                     'SessionRecordingPlayer--buffering': isBuffering,
+                    'SessionRecordingPlayer--vertical': alignedVertically,
                 })}
                 onClick={incrementClickCount}
             >
@@ -197,8 +200,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                             </div>
                             {!noInspector && (
                                 <PlayerInspector
-                                    inspectorExpanded={inspectorExpanded}
+                                    inspectorExpanded={true}
                                     setInspectorExpanded={setInspectorExpanded}
+                                    alignedVertically={alignedVertically}
                                 />
                             )}
                         </>

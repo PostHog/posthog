@@ -14,7 +14,7 @@ export type ResizerEvent = {
 export type ResizerLogicProps = {
     logicKey: string
     persistent?: boolean
-    placement: 'left' | 'right'
+    placement: 'top' | 'left' | 'right'
     containerRef: React.RefObject<HTMLDivElement>
     onResize?: (event: ResizerEvent) => void
     /** At what width, should this rather be considered a "close" event */

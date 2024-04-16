@@ -1,15 +1,13 @@
 .Resizer {
-    --resizer-width: 8px;
+    --resizer-size: 8px;
 
     position: absolute;
-    top: 0;
-    bottom: 0;
+    inset: var(--top) var(--right) var(--bottom) var(--left);
     z-index: var(
         --z-notifications-popover
     ); // A bit above navbar for a nicer slider experience when the sidebar is closed
 
-    width: var(--resizer-width);
-    cursor: col-resize;
+    cursor: var(--cursor);
     user-select: none; // Fixes inadvertent selection of scene text when resizing
 
     .Resizer[aria-hidden='true'] & {
@@ -18,16 +16,14 @@
 
     .Resizer__handle {
         position: absolute;
-        top: 0;
-        bottom: 0;
-        left: calc(var(--resizer-width) / 2);
+        inset: var(--top) var(--right) var(--bottom) var(--left);
+        left: calc(var(--resizer-size) / 2);
         width: 1px;
 
         &::before,
         &::after {
             position: absolute;
-            top: 0;
-            bottom: 0;
+            inset: var(--top) var(--right) var(--bottom) var(--left);
             box-sizing: content-box;
             width: 1px;
             content: '';
@@ -45,14 +41,37 @@
         }
     }
 
+    &--left,
+    &--right {
+        --top: 0;
+        --bottom: 0;
+        --cursor: col-resize;
+
+        width: var(--resizer-size);
+    }
+
     &--left {
         left: 0;
-        transform: translateX(calc(var(--resizer-width) / 2 * -1));
+        transform: translateX(calc(var(--resizer-size) / 2 * -1));
     }
 
     &--right {
         right: 0;
-        transform: translateX(calc(var(--resizer-width) / 2 * 1));
+        transform: translateX(calc(var(--resizer-size) / 2 * 1));
+    }
+
+    &--top,
+    &--bottom {
+        --left: 0;
+        --right: 0;
+        --cursor: row-resize;
+
+        height: var(--resizer-size);
+    }
+
+    &--top {
+        left: 0;
+        transform: translateY(calc(var(--resizer-size) / 2 * -1));
     }
 
     &:hover .Resizer__handle::after,
