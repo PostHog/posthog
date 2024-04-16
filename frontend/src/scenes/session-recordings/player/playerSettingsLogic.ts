@@ -235,7 +235,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         timestampFormat: [
-            TimestampFormat.Relative,
+            TimestampFormat.Relative as TimestampFormat,
             { persist: true },
             {
                 setTimestampFormat: (_, { format }) => format,
