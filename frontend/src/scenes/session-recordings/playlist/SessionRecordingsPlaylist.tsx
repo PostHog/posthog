@@ -149,8 +149,9 @@ function RecordingsLists(): JSX.Element {
 
     useKeyboardHotkeys(
         {
-            space: {
-                action: () => isHovering && setShowRecordingListProperties(!showRecordingListProperties),
+            p: {
+                action: () => setShowRecordingListProperties(!showRecordingListProperties),
+                disabled: !isHovering,
             },
         },
         [isHovering]
@@ -259,7 +260,7 @@ function RecordingsLists(): JSX.Element {
                 {pinnedRecordings.length || otherRecordings.length ? (
                     <ul onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
                         <div className="flex gap-1 items-center justify-center px-3 py-2 bg-bg-3000 border-b text-xs">
-                            <b>Hint:</b> Press <KeyboardShortcut space /> to preview recordings
+                            <b>Hint:</b> Hover list and press <KeyboardShortcut p /> to preview
                         </div>
 
                         <PinnedRecordingsList />
