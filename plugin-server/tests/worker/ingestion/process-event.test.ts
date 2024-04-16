@@ -142,7 +142,7 @@ describe('EventsProcessor#createEvent()', () => {
         )
     })
 
-    it('when $process_person=false, emits event with without person properties or groups', async () => {
+    it('when $process_person_profile=false, emits event with without person properties or groups', async () => {
         const processPerson = false
         await eventsProcessor.createEvent(
             { ...preIngestionEvent, properties: { $group_0: 'group_key' } },

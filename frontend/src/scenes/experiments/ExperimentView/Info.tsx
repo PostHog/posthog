@@ -14,7 +14,7 @@ import { ProgressStatus } from '~/types'
 import { StatusTag } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-import { ResultsTag } from './components'
+import { ActionBanner, ResultsTag } from './components'
 
 export function Info(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
@@ -102,6 +102,7 @@ export function Info(): JSX.Element {
                     compactButtons
                 />
             </div>
+            <ActionBanner />
         </div>
     )
 }
