@@ -377,7 +377,8 @@ export function ActionBanner(): JSX.Element {
         // Further collection unlikely to change the result -> recommmend cutting the losses
         if (
             experimentInsightType === InsightType.FUNNELS &&
-            funnelResultsPersonsTotal > Math.min(recommendedSampleSize, 500)
+            funnelResultsPersonsTotal > Math.max(recommendedSampleSize, 500) &&
+            dayjs().diff(experiment.start_date, 'day') > 2 // at least 2 days running
         ) {
             return (
                 <LemonBanner type="warning" className="mt-4">
@@ -387,7 +388,7 @@ export function ActionBanner(): JSX.Element {
                 </LemonBanner>
             )
         }
-        if (experimentInsightType === InsightType.TRENDS && actualRunningTime > Math.min(recommendedRunningTime, 7)) {
+        if (experimentInsightType === InsightType.TRENDS && actualRunningTime > Math.max(recommendedRunningTime, 7)) {
             return (
                 <LemonBanner type="warning" className="mt-4">
                     Your experiment has been running long enough, but the results are still inconclusive. Continuing the
