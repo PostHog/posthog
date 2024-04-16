@@ -76,7 +76,7 @@ def traces_sampler(sampling_context: dict) -> float:
         force_sample = bool(sampling_context.get("wsgi_environ", {}).get("HTTP_FORCE_SAMPLE"))
         if os.environ.get("SERVER_GATEWAY_INTERFACE") == "ASGI":
             path = sampling_context.get("asgi_scope", {}).get("path")
-            headers = bool(sampling_context.get("asgi_scope", {}).get("headers"))
+            headers = sampling_context.get("asgi_scope", {}).get("headers", [])
             for name, value in headers:
                 if name.lower().replace(b'_',b'-') == "force-sample":
                     force_sample = bool(value)
