@@ -51,8 +51,9 @@ function RecordingDuration({ recordingDuration }: { recordingDuration: number | 
     return (
         <div className="flex text-muted text-xs">
             {hours != '00' && <span>{hours}:</span>}
-            {minutes != '00' && <span>{minutes}:</span>}
-            {seconds}
+            <span>
+                {minutes}:{seconds}
+            </span>
         </div>
     )
 }
@@ -164,12 +165,12 @@ function PinnedIndicator(): JSX.Element | null {
     )
 }
 
-function ViewedIndicator({ viewed }: { viewed: boolean }): JSX.Element | null {
-    return !viewed ? (
+function ViewedIndicator(): JSX.Element {
+    return (
         <Tooltip title="Indicates the recording has not been watched yet">
-            <div className="w-2 h-2 m-1 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
+            <div className="w-2 h-2 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
         </Tooltip>
-    ) : null
+    )
 }
 
 function durationToShow(recording: SessionRecordingType, durationType: DurationType | undefined): number | undefined {
@@ -200,7 +201,7 @@ export function SessionRecordingPreview({
         <div
             key={recording.id}
             className={clsx(
-                'SessionRecordingPreview flex gap-1 overflow-hidden cursor-pointer py-1.5 pl-2',
+                'SessionRecordingPreview flex overflow-hidden cursor-pointer py-1.5 pl-2',
                 isActive && 'SessionRecordingPreview--active'
             )}
             onClick={() => onClick?.()}
@@ -239,8 +240,8 @@ export function SessionRecordingPreview({
                 </div>
             </div>
 
-            <div className="w-6 flex flex-col items-center mt-1">
-                <ViewedIndicator viewed={recording.viewed} />
+            <div className="min-w-6 flex flex-col items-center mt-2">
+                {!recording.viewed ? <ViewedIndicator /> : null}
                 {pinned ? <PinnedIndicator /> : null}
             </div>
         </div>
