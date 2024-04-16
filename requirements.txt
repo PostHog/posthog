@@ -14,6 +14,7 @@ aiohttp==3.9.3
     # via
     #   -r requirements.in
     #   aiobotocore
+    #   geoip2
     #   s3fs
 aioitertools==0.11.0
     # via aiobotocore
@@ -231,6 +232,8 @@ fsspec==2023.10.0
     #   s3fs
 future==0.18.3
     # via lzstring
+geoip2==4.6.0
+    # via -r requirements.in
 gitdb==4.0.11
     # via gitpython
 gitpython==3.1.40
@@ -321,6 +324,8 @@ lzstring==1.0.4
     # via -r requirements.in
 makefun==1.15.2
     # via dlt
+maxminddb==2.6.1
+    # via geoip2
 mimesis==5.2.1
     # via -r requirements.in
 monotonic==1.5
@@ -483,6 +488,7 @@ requests==2.31.0
     # via
     #   -r requirements.in
     #   dlt
+    #   geoip2
     #   google-api-core
     #   google-cloud-bigquery
     #   infi-clickhouse-orm
@@ -631,6 +637,7 @@ urllib3[secure,socks]==1.26.18
     # via
     #   botocore
     #   django-revproxy
+    #   geoip2
     #   google-auth
     #   requests
     #   selenium
