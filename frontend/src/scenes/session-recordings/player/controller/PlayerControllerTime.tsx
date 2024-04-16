@@ -30,12 +30,17 @@ export function Timestamp(): JSX.Element {
             active
         >
             {timestampFormat === 'relative' ? (
-                <span>
+                <>
                     {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
                     {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
-                </span>
+                </>
             ) : (
-                <span>{dayjs(currentTimestamp).format('DD/MM/YYYY, HH:mm:ss')}</span>
+                <>
+                    {currentTimestamp
+                        ? dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss')
+                        : '--/--/----, 00:00:00'}{' '}
+                    UTC
+                </>
             )}
         </LemonButton>
     )
