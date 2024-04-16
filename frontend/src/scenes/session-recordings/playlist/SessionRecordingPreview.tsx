@@ -97,15 +97,17 @@ export function gatherIconProperties(
     const deviceType = iconProperties['$device_type'] || iconProperties['$initial_device_type']
     const iconPropertyKeys = deviceType === 'Mobile' ? mobileIconPropertyKeys : browserIconPropertyKeys
 
-    return iconPropertyKeys.flatMap((property) => {
-        let value = iconProperties?.[property]
-        const label = value
-        if (property === '$device_type') {
-            value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
-        }
+    return iconPropertyKeys
+        .flatMap((property) => {
+            let value = iconProperties?.[property]
+            const label = value
+            if (property === '$device_type') {
+                value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
+            }
 
-        return { property, value, label }
-    })
+            return { property, value, label }
+        })
+        .filter((property) => !!property.value)
 }
 
 export interface PropertyIconsProps {
