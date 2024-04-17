@@ -16,7 +16,6 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
-    snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
     FuzzyInt,
 )
@@ -1416,7 +1415,6 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
-    @snapshot_clickhouse_insert_cohortpeople_queries
     def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(self):
         cohort_extra = Cohort.objects.create(
             team=self.team,
