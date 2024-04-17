@@ -37,6 +37,7 @@ export function extractHeatmapDataStep(
             })
         })
     } catch (e) {
+        console.error('Error extracting heatmap data:', e, event)
         // TODO: Report error properly
     }
 
@@ -100,11 +101,11 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
                         type: string
                     }): RawClickhouseHeatmapEvent => ({
                         type: hme.type,
-                        x: Math.ceil(hme.x / SCALE_FACTOR),
-                        y: Math.ceil(hme.y / SCALE_FACTOR),
+                        x: Math.round(hme.x / SCALE_FACTOR),
+                        y: Math.round(hme.y / SCALE_FACTOR),
                         pointer_target_fixed: hme.target_fixed,
-                        viewport_height: Math.ceil($viewport_height / SCALE_FACTOR),
-                        viewport_width: Math.ceil($viewport_width / SCALE_FACTOR),
+                        viewport_height: Math.round($viewport_height / SCALE_FACTOR),
+                        viewport_width: Math.round($viewport_width / SCALE_FACTOR),
                         current_url: url,
                         session_id: $session_id,
                         scale_factor: SCALE_FACTOR,
