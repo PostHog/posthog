@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
-from posthog.api.services.query import RecalculationMode
+from posthog.api.services.query import ExecutionMode
 import structlog
 from sentry_sdk import capture_exception
 
@@ -116,7 +116,7 @@ def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bo
     response = process_query(
         insight.team,
         insight.query,
-        recalculation_mode=RecalculationMode.REQUEST if refresh_requested else RecalculationMode.NEVER,
+        execution_mode=ExecutionMode.CALCULATION_REQUESTED if refresh_requested else ExecutionMode.CACHE_ONLY,
     )
 
     if "results" not in response:

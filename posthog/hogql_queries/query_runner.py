@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from enum import Enum, auto
+from enum import IntEnum
 from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast, TypeGuard
 
 from django.conf import settings
@@ -58,13 +58,13 @@ QUERY_CACHE_HIT_COUNTER = Counter(
 DataT = TypeVar("DataT")
 
 
-class RecalculationMode(Enum):
-    REQUEST = auto()
-    """Always recalculate, except if a VERY recent result is present in cache."""
-    IF_STALE = auto()
-    """Use cache, unless the results are stale or missing."""
-    NEVER = auto()
-    """Only use cache."""
+class ExecutionMode(IntEnum):
+    CALCULATION_REQUESTED = 2
+    """Always recalculate, except if very recent results are present in cache."""
+    CALCULATION_ONLY_IF_STALE = 1
+    """Use cache, unless the results are missing or stale."""
+    CACHE_ONLY = 0
+    """Do not initiate calculation."""
 
 
 class QueryResponse(BaseModel, Generic[DataT]):
@@ -318,12 +318,12 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def run(
-        self, recalculation_mode: RecalculationMode = RecalculationMode.IF_STALE
+        self, execution_mode: ExecutionMode = ExecutionMode.CALCULATION_ONLY_IF_STALE
     ) -> CachedQueryResponse | CacheMissResponse:
         cache_key = f"{self._cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
 
-        if recalculation_mode != RecalculationMode.REQUEST:
+        if execution_mode != ExecutionMode.CALCULATION_REQUESTED:
             cached_response = get_safe_cache(cache_key)
             if cached_response:
                 if not self._is_stale(cached_response):
@@ -334,7 +334,7 @@ class QueryRunner(ABC):
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
-            if recalculation_mode == RecalculationMode.NEVER:
+            if execution_mode == ExecutionMode.CACHE_ONLY:
                 return CacheMissResponse(cache_key=cache_key)
 
         fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
