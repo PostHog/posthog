@@ -1,14 +1,45 @@
+@mixin resizer-orientation($property, $first, $second) {
+    #{$property}: var(--resizer-width);
+    #{$first}: 0;
+    #{$second}: 0;
+
+    .Resizer__handle {
+        #{$first}: 0;
+        #{$second}: 0;
+        #{$property}: 1px;
+
+        &::before,
+        &::after {
+            #{$first}: 0;
+            #{$second}: 0;
+            #{$property}: 1px;
+        }
+    }
+}
+
 .Resizer {
-    --resizer-size: 8px;
+    --resizer-width: 8px;
 
     position: absolute;
-    inset: var(--top) var(--right) var(--bottom) var(--left);
     z-index: var(
         --z-notifications-popover
     ); // A bit above navbar for a nicer slider experience when the sidebar is closed
 
-    cursor: var(--cursor);
     user-select: none; // Fixes inadvertent selection of scene text when resizing
+
+    &--left,
+    &--right {
+        cursor: col-resize;
+
+        @include resizer-orientation(width, top, bottom);
+    }
+
+    &--top,
+    &--bottom {
+        cursor: row-resize;
+
+        @include resizer-orientation(height, left, right);
+    }
 
     .Resizer[aria-hidden='true'] & {
         cursor: e-resize;
@@ -16,16 +47,12 @@
 
     .Resizer__handle {
         position: absolute;
-        inset: var(--top) var(--right) var(--bottom) var(--left);
-        left: calc(var(--resizer-size) / 2);
-        width: 1px;
+        left: calc(var(--resizer-width) / 2);
 
         &::before,
         &::after {
             position: absolute;
-            inset: var(--top) var(--right) var(--bottom) var(--left);
             box-sizing: content-box;
-            width: 1px;
             content: '';
         }
 
@@ -41,37 +68,14 @@
         }
     }
 
-    &--left,
-    &--right {
-        --top: 0;
-        --bottom: 0;
-        --cursor: col-resize;
-
-        width: var(--resizer-size);
-    }
-
     &--left {
         left: 0;
-        transform: translateX(calc(var(--resizer-size) / 2 * -1));
+        transform: translateX(calc(var(--resizer-width) / 2 * -1));
     }
 
     &--right {
         right: 0;
-        transform: translateX(calc(var(--resizer-size) / 2 * 1));
-    }
-
-    &--top,
-    &--bottom {
-        --left: 0;
-        --right: 0;
-        --cursor: row-resize;
-
-        height: var(--resizer-size);
-    }
-
-    &--top {
-        left: 0;
-        transform: translateY(calc(var(--resizer-size) / 2 * -1));
+        transform: translateX(calc(var(--resizer-width) / 2 * 1));
     }
 
     &:hover .Resizer__handle::after,

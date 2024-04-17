@@ -28,7 +28,7 @@ export function PlayerInspector({
         onToggleClosed: (shouldBeClosed) => setInspectorExpanded(!shouldBeClosed),
     }
 
-    const { desiredWidth } = useValues(resizerLogic(resizerLogicProps))
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     return (
         <div
@@ -40,11 +40,8 @@ export function PlayerInspector({
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 alignedVertically
-                    ? {
-                          height: inspectorExpanded ? desiredWidth ?? 'var(--inspector-width)' : undefined,
-                          width: '100%',
-                      }
-                    : { width: inspectorExpanded ? desiredWidth ?? 'var(--inspector-width)' : undefined }
+                    ? { height: inspectorExpanded ? desiredSize ?? 'var(--inspector-width)' : undefined }
+                    : { width: inspectorExpanded ? desiredSize ?? 'var(--inspector-width)' : undefined }
             }
         >
             <Resizer
