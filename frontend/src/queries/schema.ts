@@ -66,7 +66,6 @@ export enum NodeKind {
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
-    // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',

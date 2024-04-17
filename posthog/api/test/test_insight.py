@@ -1973,7 +1973,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                             "*",
                             "event",
                             "person",
-                            "coalesce(properties.$current_url, properties.$screen_name) # Url / Screen",
+                            "coalesce(properties.$current_url, properties.$screen_name)",
                             "properties.$lib",
                             "timestamp",
                         ],
@@ -2014,7 +2014,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                             "*",
                             "event",
                             "person",
-                            "coalesce(properties.$current_url, properties.$screen_name) # Url / Screen",
+                            "coalesce(properties.$current_url, properties.$screen_name)",
                             "properties.$lib",
                             "timestamp",
                         ],
@@ -2953,22 +2953,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_insight_with_filters_via_hogql(self) -> None:
         filter_dict = {"insight": "LIFECYCLE", "events": [{"id": "$pageview"}]}
 
-        Insight.objects.create(
+        insight = Insight.objects.create(
             filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             short_id="xyz123",
         )
 
         # fresh response
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=xyz123")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
         # cached response
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=xyz123")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])

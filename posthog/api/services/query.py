@@ -59,6 +59,7 @@ QUERY_WITH_RUNNER_NO_CACHE = HogQLQuery | EventsQuery | ActorsQuery | SessionsTi
 def process_query(
     team: Team,
     query_json: dict,
+    *,
     limit_context: Optional[LimitContext] = None,
     refresh_requested: Optional[bool] = False,
 ) -> dict:
@@ -75,6 +76,7 @@ def process_query(
 def process_query_model(
     team: Team,
     query: BaseModel,  # mypy has problems with unions and isinstance
+    *,
     limit_context: Optional[LimitContext] = None,
     refresh_requested: Optional[bool] = False,
 ) -> dict:
