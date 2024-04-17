@@ -517,12 +517,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     @lru_cache(maxsize=1)
     def insight_result(self, insight: Insight) -> InsightResult:
+        from posthog.caching.calculate_results import calculate_for_query_based_insight
+
         dashboard = self.context.get("dashboard", None)
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
 
         if insight.query:
-            from posthog.caching.calculate_results import calculate_for_query_based_insight
-
             try:
                 return calculate_for_query_based_insight(
                     insight, dashboard=dashboard, refresh_requested=refresh_requested_by_client(self.context["request"])

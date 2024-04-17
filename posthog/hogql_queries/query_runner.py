@@ -390,10 +390,13 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
-        if "properties" in self.query.model_fields and "dateRange" in self.query.model_fields:
+        if hasattr(self.query, "properties") and hasattr(self.query, "dateRange"):
             query_update = {}
             if dashboard_filter.properties:
-                query_update["properties"] = (self.query.properties or []) + dashboard_filter.properties
+                if self.query.properties:
+                    query_update["properties"] = self.quyry.properties + dashboard_filter.properties
+                else:
+                    query_update["properties"] = dashboard_filter.properties
             if dashboard_filter.date_from or dashboard_filter.date_to:
                 date_range_update = {}
                 if dashboard_filter.date_from:

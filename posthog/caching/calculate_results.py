@@ -117,9 +117,12 @@ def calculate_for_query_based_insight(
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
+    effective_query = insight.get_effective_query(dashboard=dashboard)
+    assert effective_query is not None
+
     response = process_query(
         insight.team,
-        insight.get_effective_query(dashboard=dashboard),
+        effective_query,
         execution_mode=ExecutionMode.CALCULATION_REQUESTED if refresh_requested else ExecutionMode.CACHE_ONLY,
     )
 
