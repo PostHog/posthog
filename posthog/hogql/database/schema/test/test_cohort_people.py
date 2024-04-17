@@ -19,6 +19,11 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something2"},
         )
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$some_prop": "not something", "$another_prop": "something3"},
+        )
         cohort1 = Cohort.objects.create(
             team=self.team,
             groups=[
@@ -31,6 +36,8 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
             name="cohort1",
         )
         cohort1.calculate_people_ch(pending_version=0)
+        cohort1.calculate_people_ch(pending_version=2)
+        cohort1.calculate_people_ch(pending_version=4)
 
         response = execute_hogql_query(
             parse_select(
