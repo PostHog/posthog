@@ -71,8 +71,6 @@ def property_to_expr(
     team: Team,
     scope: Literal["event", "person", "session"] = "event",
 ) -> ast.Expr:
-    if scope == "session":
-        raise NotImplementedError("session scope is not implemented yet")
     if isinstance(property, dict):
         try:
             property = Property(**property)
