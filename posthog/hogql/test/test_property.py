@@ -663,5 +663,5 @@ class TestProperty(BaseTest):
                 {"type": "session", "key": "$session_duration", "value": 10, "operator": "exact"},
                 scope="event",
             ),
-            self._parse_expr("session.duration = 10"),
+            self._parse_expr("session.$session_duration = 10"),
         )
