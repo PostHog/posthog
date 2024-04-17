@@ -62,7 +62,7 @@ def process_query(
     *,
     limit_context: Optional[LimitContext] = None,
     recalculation_mode: RecalculationMode = RecalculationMode.IF_STALE,
-) -> Optional[dict]:
+) -> dict:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
     return process_query_model(
@@ -79,7 +79,7 @@ def process_query_model(
     *,
     limit_context: Optional[LimitContext] = None,
     recalculation_mode: RecalculationMode = RecalculationMode.IF_STALE,
-) -> Optional[dict]:
+) -> dict:
     result: dict | BaseModel
 
     if isinstance(query, QUERY_WITH_RUNNER):  # type: ignore

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum, auto
-from typing import Any, Generic, List, Literal, Optional, Type, Dict, TypeVar, Union, Tuple, cast, TypeGuard, overload
+from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast, TypeGuard
 
 from django.conf import settings
 from django.core.cache import cache
@@ -91,6 +91,13 @@ class CachedQueryResponse(QueryResponse):
     next_allowed_client_refresh: str
     cache_key: str
     timezone: str
+
+
+class CacheMissResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
 
 
 RunnableQueryNode = Union[
@@ -310,17 +317,9 @@ class QueryRunner(ABC):
         # Due to the way schema.py is generated, we don't have a good inheritance story here.
         raise NotImplementedError()
 
-    @overload
-    def run(self, recalculation_mode: RecalculationMode.NEVER) -> Optional[CachedQueryResponse]:
-        ...
-
-    @overload
     def run(
-        self, recalculation_mode: Literal[RecalculationMode.REQUEST, RecalculationMode.IF_STALE]
-    ) -> CachedQueryResponse:
-        ...
-
-    def run(self, recalculation_mode: RecalculationMode) -> Optional[CachedQueryResponse]:
+        self, recalculation_mode: RecalculationMode = RecalculationMode.IF_STALE
+    ) -> CachedQueryResponse | CacheMissResponse:
         cache_key = f"{self._cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
 
@@ -336,7 +335,7 @@ class QueryRunner(ABC):
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
             if recalculation_mode == RecalculationMode.NEVER:
-                return None
+                return CacheMissResponse(cache_key=cache_key)
 
         fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
         fresh_response_dict["is_cached"] = False

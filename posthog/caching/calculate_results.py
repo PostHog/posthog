@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, overload
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from posthog.api.services.query import RecalculationMode
 import structlog
@@ -107,19 +107,9 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 
-@overload
 def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> "InsightResult":
-    ...
-
-
-@overload
-def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> Optional["InsightResult"]:
-    ...
-
-
-def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> Optional["InsightResult"]:
     from posthog.api.services.query import process_query
-    from posthog.caching.fetch_from_cache import InsightResult
+    from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk)
 
@@ -129,10 +119,12 @@ def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bo
         recalculation_mode=RecalculationMode.REQUEST if refresh_requested else RecalculationMode.NEVER,
     )
 
-    if not response:
-        return None
+    if "results" not in response:
+        # Translating `CacheMissResponse` to legacy insights shape
+        return NothingInCacheResult(cache_key=response.get("cache_key"))
 
     return InsightResult(
+        # Translating `QueryResponse` to legacy insights shape
         # Only `results` is guaranteed even for non-insight queries, such as `EventsQueryResponse`
         result=response["results"],
         last_refresh=response.get("last_refresh"),

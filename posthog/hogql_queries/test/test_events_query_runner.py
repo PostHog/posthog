@@ -11,6 +11,7 @@ from posthog.schema import (
     EventsQuery,
     EventPropertyFilter,
     PropertyOperator,
+    QueryResponse,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -84,7 +85,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             runner = EventsQueryRunner(query=query, team=self.team)
-            return runner.run().results
+            results = runner.run().results
+            assert isinstance(results, QueryResponse)
+            return results
 
     def test_is_not_set_boolean(self):
         # see https://github.com/PostHog/posthog/issues/18030
