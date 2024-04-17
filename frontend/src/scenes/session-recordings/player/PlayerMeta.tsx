@@ -2,7 +2,7 @@ import './PlayerMeta.scss'
 
 import { IconEllipsis, IconTrash } from '@posthog/icons'
 import { IconDownload, IconMagic, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonMenu, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonMenu, LemonMenuItems, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -281,7 +281,7 @@ const MenuActions = (): JSX.Element => {
         })
     }
 
-    const items = [
+    const items: LemonMenuItems = [
         {
             label: 'Export to file',
             onClick: exportRecordingToFile,
