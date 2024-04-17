@@ -120,10 +120,10 @@ def unpause_external_data_schedule(external_data_source: ExternalDataSource):
     unpause_schedule(temporal, schedule_id=str(external_data_source.id))
 
 
-def delete_external_data_schedule(external_data_source: ExternalDataSource):
+def delete_external_data_schedule(schedule_id: str):
     temporal = sync_connect()
     try:
-        delete_schedule(temporal, schedule_id=str(external_data_source.id))
+        delete_schedule(temporal, schedule_id=schedule_id)
     except temporalio.service.RPCError as e:
         # Swallow error if schedule does not exist already
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:

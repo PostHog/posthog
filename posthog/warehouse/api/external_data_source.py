@@ -361,7 +361,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 pass
 
-        delete_external_data_schedule(instance)
+        for schema in ExternalDataSchema.objects.filter(
+            team_id=self.team_id, source_id=instance.id, should_sync=True
+        ).all():
+            delete_external_data_schedule(str(schema.id))
+
+        delete_external_data_schedule(str(instance.id))
         return super().destroy(request, *args, **kwargs)
 
     @action(methods=["POST"], detail=True)
@@ -383,11 +388,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for schema in ExternalDataSchema.objects.filter(
                     team_id=self.team_id, source_id=instance.id, should_sync=True
                 ).all():
-                    trigger_external_data_workflow(schema)
+                    try:
+                        trigger_external_data_workflow(schema)
+                    except temporalio.service.RPCError as e:
+                        # schedule doesn't exist
+                        if e.message == "sql: no rows in result set":
+                            sync_external_data_job_workflow(schema, create=True)
 
-            # schedule doesn't exist
-            if e.message == "sql: no rows in result set":
-                sync_external_data_job_workflow(instance, create=True)
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
             raise
