@@ -1172,7 +1172,7 @@ class EventPropertyFilter(BaseModel):
     )
     key: str
     label: Optional[str] = None
-    operator: Optional[PropertyOperator] = "exact"
+    operator: Optional[PropertyOperator] = PropertyOperator("exact")
     type: Literal["event"] = Field(default="event", description="Event properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
