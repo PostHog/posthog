@@ -507,7 +507,7 @@
           AND timestamp >= '2020-12-24 12:00:00'
           AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND (has(['bla'], "mat_pp_email"))
+            AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '')))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
