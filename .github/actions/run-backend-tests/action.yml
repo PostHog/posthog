@@ -164,7 +164,6 @@ runs:
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
-              # if above test fails, echo failure to output
               if [ $? -ne 0 ]
                 then
                   echo 'actual_test_failure=true' >> $GITHUB_ENV
@@ -183,7 +182,6 @@ runs:
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
-              # if above test fails, echo failure to output
               if [ $? -ne 0 ]
                 then
                   echo 'actual_test_failure=true' >> $GITHUB_ENV
