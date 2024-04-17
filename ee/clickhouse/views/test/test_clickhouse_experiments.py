@@ -1129,7 +1129,7 @@ class TestExperimentCRUD(APILicensedTest):
                         },
                     ]
                 },
-                "aggregation_group_type_index": None,
+                "aggregation_group_type_index": 1,
             },
         )
 
