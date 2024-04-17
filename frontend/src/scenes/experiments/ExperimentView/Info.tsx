@@ -30,7 +30,7 @@ export function Info(): JSX.Element {
         <div>
             <div className="flex">
                 <div className="w-1/2 inline-flex space-x-8">
-                    <div className="block">
+                    <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
                     </div>

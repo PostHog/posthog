@@ -20,7 +20,7 @@ export function ExperimentDates(): JSX.Element {
             return <></>
         }
         return (
-            <div className="block">
+            <div className="block" data-attr="experiment-creation-date">
                 <div className="text-xs font-semibold uppercase tracking-wide">Creation date</div>
                 <TZLabel time={created_at} />
             </div>
@@ -28,7 +28,7 @@ export function ExperimentDates(): JSX.Element {
     }
     return (
         <>
-            <div className="block">
+            <div className="block" data-attr="experiment-start-date">
                 <div
                     className={clsx(
                         'text-xs font-semibold uppercase tracking-wide',
@@ -53,12 +53,14 @@ export function ExperimentDates(): JSX.Element {
                                 return dateMarker.toDate() > new Date()
                             }}
                             allowClear={false}
+                            data-attr="experiment-start-date-picker"
                         />
                     ) : (
                         <>
                             <TZLabel time={start_date} />
                             <LemonButton
                                 title="Move start date"
+                                data-attr="move-experiment-start-date"
                                 icon={<IconPencil />}
                                 size="small"
                                 onClick={() => setIsStartDatePickerOpen(true)}
@@ -70,7 +72,7 @@ export function ExperimentDates(): JSX.Element {
                 </div>
             </div>
             {end_date && (
-                <div className="block">
+                <div className="block" data-attr="experiment-end-date">
                     <div className="text-xs font-semibold uppercase tracking-wide">End date</div>
                     {/* Flex class here is for the end date to have same appearance as the start date. */}
                     <div className="flex">

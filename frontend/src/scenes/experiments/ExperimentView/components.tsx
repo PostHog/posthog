@@ -216,7 +216,11 @@ export function PageHeaderCustom(): JSX.Element {
                             <LemonButton type="secondary" className="mr-2" onClick={() => setEditExperiment(true)}>
                                 Edit
                             </LemonButton>
-                            <LemonButton type="primary" onClick={() => launchExperiment()}>
+                            <LemonButton
+                                type="primary"
+                                data-attr="launch-experiment"
+                                onClick={() => launchExperiment()}
+                            >
                                 Launch
                             </LemonButton>
                         </div>
@@ -248,7 +252,12 @@ export function PageHeaderCustom(): JSX.Element {
                             </>
                             <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
                             {!experiment.end_date && (
-                                <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                <LemonButton
+                                    type="secondary"
+                                    data-attr="stop-experiment"
+                                    status="danger"
+                                    onClick={() => endExperiment()}
+                                >
                                     Stop
                                 </LemonButton>
                             )}
