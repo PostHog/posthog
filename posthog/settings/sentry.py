@@ -78,7 +78,7 @@ def traces_sampler(sampling_context: dict) -> float:
             path = sampling_context.get("asgi_scope", {}).get("path")
             headers = sampling_context.get("asgi_scope", {}).get("headers", [])
             for name, value in headers:
-                if name.lower().replace(b'_',b'-') == "force-sample":
+                if name.lower().replace(b"_", b"-") == "force-sample":
                     force_sample = bool(value)
 
         # HTTP header to force sampling set
