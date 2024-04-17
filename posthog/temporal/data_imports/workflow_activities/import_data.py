@@ -124,7 +124,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
     elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
         from posthog.temporal.data_imports.pipelines.zendesk.helpers import zendesk_support
 
-        credentials = ZendeskCredentialsToken()  # type: ignore
+        # NOTE: this line errors on CI mypy but not locally. Putting arguments within the function causes the opposite error
+        credentials = ZendeskCredentialsToken()
         credentials.token = model.pipeline.job_inputs.get("zendesk_api_key")
         credentials.subdomain = model.pipeline.job_inputs.get("zendesk_subdomain")
         credentials.email = model.pipeline.job_inputs.get("zendesk_email_address")
