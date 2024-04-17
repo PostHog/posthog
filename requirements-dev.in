@@ -49,3 +49,5 @@ responses==0.23.1
 syrupy~=4.6.0
 flaky==3.7.0
 aioresponses==0.7.6
+prance==23.06.21.0
+openapi-spec-validator==0.7.1 # Needed for prance as a validation backend

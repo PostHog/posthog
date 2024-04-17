@@ -89,8 +89,6 @@ cffi==1.14.5
     # via
     #   cryptography
     #   snowflake-connector-python
-chardet==5.1.0
-    # via prance
 charset-normalizer==2.1.0
     # via
     #   requests
@@ -371,7 +369,6 @@ packaging==23.1
     #   aiokafka
     #   dlt
     #   google-cloud-bigquery
-    #   prance
     #   snowflake-connector-python
     #   webdriver-manager
 pandas==2.2.0
@@ -389,8 +386,6 @@ platformdirs==3.11.0
 ply==3.11
     # via jsonpath-ng
 posthoganalytics==3.5.0
-    # via -r requirements.in
-prance==23.6.21.0
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
@@ -500,7 +495,6 @@ requests==2.31.0
     #   google-cloud-bigquery
     #   infi-clickhouse-orm
     #   posthoganalytics
-    #   prance
     #   requests-oauthlib
     #   snowflake-connector-python
     #   social-auth-core
@@ -519,10 +513,6 @@ rpds-py==0.16.2
     #   referencing
 rsa==4.9
     # via google-auth
-ruamel-yaml==0.17.21
-    # via prance
-ruamel-yaml-clib==0.2.7
-    # via ruamel-yaml
 s3fs==2023.10.0
     # via -r requirements.in
 s3transfer==0.6.0
@@ -548,7 +538,6 @@ six==1.16.0
     #   google-auth
     #   isodate
     #   posthoganalytics
-    #   prance
     #   python-dateutil
 slack-sdk==3.17.1
     # via -r requirements.in

@@ -33,6 +33,8 @@ attrs==23.2.0
     # via
     #   -c requirements.txt
     #   aiohttp
+    #   jsonschema
+    #   referencing
 black==22.8.0
     # via
     #   -r requirements-dev.in
@@ -47,6 +49,8 @@ certifi==2019.11.28
     # via
     #   -c requirements.txt
     #   requests
+chardet==5.2.0
+    # via prance
 charset-normalizer==2.1.0
     # via
     #   -c requirements.txt
@@ -126,6 +130,20 @@ jinja2==3.1.3
     # via
     #   coreschema
     #   datamodel-code-generator
+jsonschema==4.20.0
+    # via
+    #   -c requirements.txt
+    #   openapi-schema-validator
+    #   openapi-spec-validator
+jsonschema-path==0.3.2
+    # via openapi-spec-validator
+jsonschema-specifications==2023.12.1
+    # via
+    #   -c requirements.txt
+    #   jsonschema
+    #   openapi-schema-validator
+lazy-object-proxy==1.10.0
+    # via openapi-spec-validator
 lupa==1.14.1
     # via fakeredis
 markupsafe==2.1.5
@@ -149,15 +167,22 @@ mypy-extensions==1.0.0
     #   -r requirements-dev.in
     #   black
     #   mypy
+openapi-schema-validator==0.6.2
+    # via openapi-spec-validator
+openapi-spec-validator==0.7.1
+    # via -r requirements-dev.in
 packaging==23.1
     # via
     #   -c requirements.txt
     #   -r requirements-dev.in
     #   build
     #   datamodel-code-generator
+    #   prance
     #   pytest
 parameterized==0.9.0
     # via -r requirements-dev.in
+pathable==0.4.3
+    # via jsonschema-path
 pathspec==0.9.0
     # via black
 pip-tools==7.3.0
@@ -170,6 +195,8 @@ pluggy==0.13.1
     # via pytest
 pprintpp==0.4.0
     # via pytest-icdiff
+prance==23.6.21.0
+    # via -r requirements-dev.in
 pydantic[email]==2.5.3
     # via
     #   -c requirements.txt
@@ -218,25 +245,47 @@ pyyaml==6.0.1
     # via
     #   -c requirements.txt
     #   datamodel-code-generator
+    #   jsonschema-path
     #   responses
 redis==4.5.4
     # via
     #   -c requirements.txt
     #   fakeredis
+referencing==0.31.1
+    # via
+    #   -c requirements.txt
+    #   jsonschema
+    #   jsonschema-path
+    #   jsonschema-specifications
 requests==2.31.0
     # via
     #   -c requirements.txt
     #   coreapi
     #   djangorestframework-stubs
+    #   jsonschema-path
+    #   prance
     #   responses
 responses==0.23.1
     # via -r requirements-dev.in
+rfc3339-validator==0.1.4
+    # via openapi-schema-validator
+rpds-py==0.16.2
+    # via
+    #   -c requirements.txt
+    #   jsonschema
+    #   referencing
+ruamel-yaml==0.18.6
+    # via prance
+ruamel-yaml-clib==0.2.8
+    # via ruamel-yaml
 ruff==0.1.2
     # via -r requirements-dev.in
 six==1.16.0
     # via
     #   -c requirements.txt
+    #   prance
     #   python-dateutil
+    #   rfc3339-validator
 sortedcontainers==2.4.0
     # via
     #   -c requirements.txt
