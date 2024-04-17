@@ -6145,5 +6145,5 @@
     "api/test/test_team.py::TestProjectEnterpriseAPI::test_fetch_nonexistent_team": 0.2079002829999581,
     "api/test/test_team.py::TestProjectEnterpriseAPI::test_fetch_private_team_as_org_member": 0.20642009900001312,
     "api/test/test_team.py::TestProjectEnterpriseAPI::test_fetch_private_team_as_org_member_and_project_admin": 0.214095111000006,
-    "api/test/test_team.py::TestProjectEnterpriseAPI::test_fetch_private_team_as_org_member_and_project_member": 1.317745307999985,
+    "api/test/test_team.py::TestProjectEnterpriseAPI::test_fetch_private_team_as_org_member_and_project_member": 1.317745307999985
 }
