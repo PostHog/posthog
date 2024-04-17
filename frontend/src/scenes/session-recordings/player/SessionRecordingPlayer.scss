@@ -1,7 +1,7 @@
 @import '../../../styles/mixins';
 
 .SessionRecordingPlayer {
-    --inspector-min-width: 24rem;
+    --inspector-min-width: 30rem;
 
     position: relative;
     display: flex;
@@ -29,7 +29,6 @@
 
     .SessionRecordingPlayer__main {
         flex: 1;
-        padding-right: 2.5rem;
     }
 
     &--fullscreen {
@@ -62,14 +61,10 @@
     }
 
     .SessionRecordingPlayer__inspector {
-        position: absolute;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 10;
+        position: relative;
         flex-shrink: 0;
         min-width: var(--inspector-min-width);
-        max-width: 95%;
+        max-width: 50%;
 
         &--collapsed {
             --inspector-min-width: 2.5rem;
@@ -90,7 +85,6 @@
         }
 
         .SessionRecordingPlayer__inspector {
-            position: relative;
             max-width: 75%;
         }
     }
