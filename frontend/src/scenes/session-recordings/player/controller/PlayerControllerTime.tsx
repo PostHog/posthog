@@ -1,4 +1,3 @@
-import { TZLabel } from '@posthog/apps-common'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -8,12 +7,15 @@ import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
 export function Timestamp(): JSX.Element {
     const { logicProps, currentPlayerTime, currentTimestamp, sessionPlayerData } =
         useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
+    const { timestampFormat } = useValues(playerSettingsLogic)
+    const { setTimestampFormat } = useActions(playerSettingsLogic)
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
     const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
@@ -21,12 +23,27 @@ export function Timestamp(): JSX.Element {
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 
     return (
-        <div className="whitespace-nowrap mr-4">
-            <TZLabel time={dayjs(currentTimestamp)} showSeconds>
-                <span>{colonDelimitedDuration(startTimeSeconds, fixedUnits)}</span>
-            </TZLabel>{' '}
-            / {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
-        </div>
+        <LemonButton
+            data-attr="recording-timestamp"
+            onClick={() =>
+                setTimestampFormat(timestampFormat === 'relative' ? TimestampFormat.Absolute : TimestampFormat.Relative)
+            }
+            active
+        >
+            {timestampFormat === TimestampFormat.Relative ? (
+                <>
+                    {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
+                    {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
+                </>
+            ) : (
+                <>
+                    {currentTimestamp
+                        ? dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss')
+                        : '--/--/----, 00:00:00'}{' '}
+                    UTC
+                </>
+            )}
+        </LemonButton>
     )
 }
 
@@ -63,7 +80,11 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 </div>
             }
         >
-            <LemonButton size="small" onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}>
+            <LemonButton
+                data-attr={`seek-skip-${direction}`}
+                size="small"
+                onClick={() => (direction === 'forward' ? seekForward : seekBackward())}
+            >
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>
                     <IconSkipBackward

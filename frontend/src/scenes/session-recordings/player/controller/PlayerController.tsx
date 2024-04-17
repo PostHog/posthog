@@ -1,8 +1,9 @@
 import { IconPlay } from '@posthog/icons'
+import { LemonMenu } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconFullScreen, IconPause, IconSkipInactivity } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     PLAYBACK_SPEEDS,
@@ -13,7 +14,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SessionPlayerState } from '~/types'
 
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { SeekSkip } from './PlayerControllerTime'
+import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
 export function PlayerController(): JSX.Element {
@@ -28,68 +29,61 @@ export function PlayerController(): JSX.Element {
     return (
         <div className="bg-bg-light flex flex-col select-none">
             <Seekbar />
-            <div className="flex justify-between items-center h-8 gap-2 m-2">
-                <div className="flex-1" />
-                <div className="flex items-center gap-1">
-                    <SeekSkip direction="backward" />
-
-                    <LemonButton
-                        size="small"
-                        onClick={togglePlayPause}
-                        tooltip={
-                            <>
-                                {showPause ? 'Pause' : 'Play'}
-                                <KeyboardShortcut space />
-                            </>
-                        }
-                    >
-                        {showPause ? <IconPause className="text-2xl" /> : <IconPlay className="text-2xl" />}
-                    </LemonButton>
-                    <SeekSkip direction="forward" />
-                </div>
-                <div className="flex items-center gap-1 flex-1 justify-end">
-                    <Tooltip title="Playback speed">
-                        <LemonButtonWithDropdown
-                            data-attr="session-recording-speed-select"
-                            dropdown={{
-                                overlay: (
-                                    <div className="space-y-px">
-                                        {PLAYBACK_SPEEDS.map((speedToggle) => (
-                                            <LemonButton
-                                                fullWidth
-                                                active={speed === speedToggle}
-                                                key={speedToggle}
-                                                onClick={() => {
-                                                    setSpeed(speedToggle)
-                                                }}
-                                            >
-                                                {speedToggle}x
-                                            </LemonButton>
-                                        ))}
-                                    </div>
-                                ),
-                                closeOnClickInside: true,
-                            }}
-                            sideIcon={null}
-                            size="small"
-                        >
-                            {speed}x
-                        </LemonButtonWithDropdown>
-                    </Tooltip>
-
-                    <Tooltip title={`Skip inactivity (${skipInactivitySetting ? 'on' : 'off'})`}>
+            <div className="flex justify-between h-8 gap-2 m-2 mt-1">
+                <div className="flex divide-x gap-2">
+                    <Timestamp />
+                    <div className="flex pl-2 gap-1">
                         <LemonButton
+                            size="small"
+                            onClick={togglePlayPause}
+                            tooltip={
+                                <>
+                                    {showPause ? 'Pause' : 'Play'}
+                                    <KeyboardShortcut space />
+                                </>
+                            }
+                        >
+                            {showPause ? <IconPause className="text-2xl" /> : <IconPlay className="text-2xl" />}
+                        </LemonButton>
+                        <SeekSkip direction="backward" />
+                        <SeekSkip direction="forward" />
+                        <LemonMenu
+                            data-attr="session-recording-speed-select"
+                            items={PLAYBACK_SPEEDS.map((speedToggle) => ({
+                                label: `${speedToggle}x`,
+                                onClick: () => setSpeed(speedToggle),
+                            }))}
+                        >
+                            <LemonButton size="small" tooltip="Playback speed" sideIcon={null}>
+                                {speed}x
+                            </LemonButton>
+                        </LemonMenu>
+                    </div>
+                    <div className="flex pl-2">
+                        <LemonButton
+                            data-attr="skip-inactivity"
                             size="small"
                             onClick={() => {
                                 setSkipInactivitySetting(!skipInactivitySetting)
                             }}
+                            icon={
+                                <IconSkipInactivity
+                                    className={clsx(
+                                        'text-2xl',
+                                        skipInactivitySetting ? 'text-primary-3000' : 'text-primary-alt'
+                                    )}
+                                    enabled={skipInactivitySetting}
+                                />
+                            }
                         >
-                            <IconSkipInactivity
-                                className={clsx('text-2xl', skipInactivitySetting ? 'text-link' : 'text-primary-alt')}
-                                enabled={skipInactivitySetting}
-                            />
+                            <span className={skipInactivitySetting ? 'text-primary-3000' : 'text-primary-alt'}>
+                                {skipInactivitySetting ? 'Skipping inactivity' : 'Skip inactivity'}
+                            </span>
                         </LemonButton>
-                    </Tooltip>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-1">
                     <Tooltip title={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}>
                         <LemonButton
                             size="small"

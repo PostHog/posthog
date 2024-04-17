@@ -90,11 +90,11 @@ class TestModifiers(BaseTest):
                     "events.event AS event",
                     "events__person.id AS id",
                     "events__person.properties AS properties",
-                    "toTimeZone(events__person.created_at, %(hogql_val_1)s) AS created_at",
+                    "toTimeZone(events__person.created_at, %(hogql_val_0)s) AS created_at",
                 ],
                 [
-                    "events__person ON equals(ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id), events__person.id)",
-                    "events__override ON equals(events.person_id, events__override.old_person_id)",
+                    "events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)",
+                    "events__override ON equals(events.distinct_id, events__override.distinct_id)",
                 ],
             ),
         ]
