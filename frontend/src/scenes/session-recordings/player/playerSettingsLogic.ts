@@ -15,6 +15,11 @@ export type SharedListMiniFilter = {
     enabled?: boolean
 }
 
+export enum TimestampFormat {
+    Absolute = 'absolute',
+    Relative = 'relative',
+}
+
 const MiniFilters: SharedListMiniFilter[] = [
     {
         tab: SessionRecordingPlayerTab.ALL,
@@ -185,6 +190,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
+        setTimestampFormat: (format: TimestampFormat) => ({ format }),
     }),
     reducers(() => ({
         showFilters: [
@@ -226,6 +232,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setSpeed: (_, { speed }) => speed,
+            },
+        ],
+        timestampFormat: [
+            TimestampFormat.Relative as TimestampFormat,
+            { persist: true },
+            {
+                setTimestampFormat: (_, { format }) => format,
             },
         ],
         skipInactivitySetting: [

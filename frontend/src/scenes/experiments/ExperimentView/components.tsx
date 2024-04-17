@@ -1,7 +1,7 @@
 import '../Experiment.scss'
 
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -41,10 +41,20 @@ export function VariantTag({ variantKey }: { variantKey: string }): JSX.Element 
 }
 
 export function ResultsTag(): JSX.Element {
-    const { areResultsSignificant } = useValues(experimentLogic)
+    const { areResultsSignificant, significanceDetails } = useValues(experimentLogic)
     const result: { color: LemonTagType; label: string } = areResultsSignificant
         ? { color: 'success', label: 'Significant' }
         : { color: 'primary', label: 'Not significant' }
+
+    if (significanceDetails) {
+        return (
+            <Tooltip title={significanceDetails}>
+                <LemonTag className="cursor-pointer" type={result.color}>
+                    <b className="uppercase">{result.label}</b>
+                </LemonTag>
+            </Tooltip>
+        )
+    }
 
     return (
         <LemonTag type={result.color}>
