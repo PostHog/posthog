@@ -29,11 +29,6 @@ inputs:
 runs:
     using: 'composite'
     steps:
-        # Env var setup
-        - name: Initialize actual_test_failure
-          shell: bash
-          run: echo "actual_test_failure=not_set" >> $GITHUB_ENV
-
         # Pre-tests
 
         - name: Stop/Start stack with Docker Compose
@@ -150,6 +145,7 @@ runs:
 
         # Tests
         - name: Run FOSS tests
+          id: run-foss-tests
           if: ${{ inputs.segment == 'FOSS' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
@@ -164,16 +160,9 @@ runs:
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
-              if [ $? -ne 0 ]
-                then
-                  echo 'actual_test_failure=true' >> $GITHUB_ENV
-                  echo 'actual_test_failure=true'
-                else
-                  echo 'actual_test_failure=false' >> $GITHUB_ENV
-                  echo 'actual_test_failure=false'
-              fi
 
         - name: Run EE tests
+          id: run-ee-tests
           if: ${{ inputs.segment == 'EE' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
@@ -184,14 +173,9 @@ runs:
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
-              if [ $? -ne 0 ]
-                then
-                  echo 'actual_test_failure=true' >> $GITHUB_ENV
-                else
-                  echo 'actual_test_failure=false' >> $GITHUB_ENV
-              fi
 
         - name: Run /decide read replica tests
+          id: run-decide-read-replica-tests
           if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
           env:
               POSTHOG_DB_NAME: posthog
@@ -204,16 +188,10 @@ runs:
               pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
-              if [ $? -ne 0 ]
-                then
-                  echo 'actual_test_failure=true' >> $GITHUB_ENV
-                else
-                  echo 'actual_test_failure=false' >> $GITHUB_ENV
-                fi
 
         # Post tests
         - name: Show docker compose logs on failure
-          if: failure() && (env.actual_test_failure == 'false' || env.actual_test_failure == 'not_set')
+          if: failure() && (steps.run-foss-tests.outcome != 'failure' || steps.run-ee-tests.outcome != 'failure' || steps.run-decide-read-replica-tests.outcome != 'failure')
           shell: bash
           run: |
               echo "Test failure detected, showing docker compose logs."
