@@ -1229,23 +1229,6 @@ export function IconFullScreen(props: LemonIconProps): JSX.Element {
     )
 }
 
-export function IconSkipInactivity({ enabled, ...props }: LemonIconProps & { enabled?: boolean }): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path
-                d="M10.025 17.5L5.75 13.225L4.5 17L1.5 7L11.5 10L7.725 11.25L12 15.525L10.025 17.5Z"
-                fill="currentColor"
-            />
-            <path
-                d="M14 12.375L22.25 12.375M14 15.625L17.5 15.625M14 8.875L17.5 8.875"
-                stroke="currentColor"
-                strokeOpacity={enabled ? '1' : '0.3'}
-                strokeWidth="1.25"
-            />
-        </LemonIconBase>
-    )
-}
-
 export function IconPlayCircle(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>

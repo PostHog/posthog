@@ -1,10 +1,10 @@
-import { IconDownload, IconMagic, IconPlay, IconSearch } from '@posthog/icons'
-import { LemonMenu } from '@posthog/lemon-ui'
+import { IconDownload, IconMagic, IconPlay, IconPlayFilled, IconSearch } from '@posthog/icons'
+import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconFullScreen, IconPause, IconSkipInactivity } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconPause } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -68,27 +68,19 @@ export function PlayerController(): JSX.Element {
                             </LemonButton>
                         </LemonMenu>
                     </div>
-                    <div className="flex pl-2">
-                        <LemonButton
+                    <div className="flex pl-2 items-center gap-2 font-medium">
+                        <LemonSwitch
                             data-attr="skip-inactivity"
-                            size="small"
-                            onClick={() => {
-                                setSkipInactivitySetting(!skipInactivitySetting)
-                            }}
-                            icon={
-                                <IconSkipInactivity
-                                    className={clsx(
-                                        'text-2xl',
-                                        skipInactivitySetting ? 'text-primary-3000' : 'text-primary-alt'
-                                    )}
-                                    enabled={skipInactivitySetting}
+                            onChange={() => setSkipInactivitySetting(!skipInactivitySetting)}
+                            checked={skipInactivitySetting}
+                            tooltip={skipInactivitySetting ? 'Skipping inactivity' : undefined}
+                            handleContent={
+                                <IconPlayFilled
+                                    className={clsx('p-0.5', skipInactivitySetting && 'text-primary-3000')}
                                 />
                             }
-                        >
-                            <span className={skipInactivitySetting ? 'text-primary-3000' : 'text-primary-alt'}>
-                                {skipInactivitySetting ? 'Skipping inactivity' : 'Skip inactivity'}
-                            </span>
-                        </LemonButton>
+                        />
+                        {!skipInactivitySetting && <span>Skip inactivity</span>}
                     </div>
                 </div>
 
