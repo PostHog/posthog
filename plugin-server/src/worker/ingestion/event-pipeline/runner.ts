@@ -217,7 +217,7 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        const [preparedEvent2, heatmapKafkaAcks] = await this.runStep(
+        const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = await this.runStep(
             extractHeatmapDataStep,
             [this, preparedEvent],
             event.team_id
@@ -229,7 +229,7 @@ export class EventPipelineRunner {
 
         const [rawClickhouseEvent, eventAck] = await this.runStep(
             createEventStep,
-            [this, preparedEvent2, person, processPerson],
+            [this, preparedEventWithoutHeatmaps, person, processPerson],
             event.team_id
         )
 
