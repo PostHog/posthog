@@ -56,8 +56,8 @@ from posthog.utils import get_machine_id, get_previous_day
 logger = structlog.get_logger(__name__)
 
 
-def _setup_replay_data(team_id: int) -> None:
-    # recordings in period  - 5 sessions with 5 snapshots each
+def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
+    # recordings in period  - 5 sessions
     for i in range(1, 6):
         session_id = str(i)
         timestamp = now() - relativedelta(hours=12)
@@ -69,18 +69,39 @@ def _setup_replay_data(team_id: int) -> None:
             last_timestamp=timestamp,
         )
 
-    # recordings out of period  - 5 sessions with 5 snapshots each
+    if include_mobile_replay:
+        timestamp = now() - relativedelta(hours=12)
+        produce_replay_summary(
+            team_id=team_id,
+            session_id="a-single-mobile-recording",
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+            snapshot_source="mobile",
+        )
+
+    # recordings out of period  - 11 sessions
     for i in range(1, 11):
-        for _ in range(0, 5):
-            id1 = str(i + 10)
-            timestamp1 = now() - relativedelta(hours=48)
+        id1 = str(i + 10)
+        timestamp1 = now() - relativedelta(hours=48)
+        produce_replay_summary(
+            team_id=team_id,
+            session_id=id1,
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp1,
+            last_timestamp=timestamp1,
+        )
+        # we maybe also include a single mobile recording out of period
+        if i == 1 and include_mobile_replay:
             produce_replay_summary(
                 team_id=team_id,
-                session_id=id1,
+                session_id=f"{id1}-mobile",
                 distinct_id=str(uuid4()),
                 first_timestamp=timestamp1,
                 last_timestamp=timestamp1,
+                snapshot_source="mobile",
             )
+
     # ensure there is a recording that starts before the period and ends during the period
     # report is going to be for "yesterday" relative to the test so...
     start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
@@ -286,7 +307,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     team=self.org_1_team_2,
                 )
 
-            _setup_replay_data(team_id=self.org_1_team_2.id)
+            _setup_replay_data(team_id=self.org_1_team_2.id, include_mobile_replay=False)
 
             _create_event(
                 distinct_id=distinct_id,
@@ -386,6 +407,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
                     "recording_count_total": 16,
+                    "mobile_recording_count_in_period": 0,
+                    "mobile_recording_count_total": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -429,6 +452,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
+                            "mobile_recording_count_in_period": 0,
+                            "mobile_recording_count_total": 0,
                             "group_types_total": 2,
                             "dashboard_count": 2,
                             "dashboard_template_count": 0,
@@ -466,6 +491,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 5,
                             "recording_count_total": 16,
+                            "mobile_recording_count_in_period": 0,
+                            "mobile_recording_count_total": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -526,6 +553,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_count_with_groups_in_period": 0,
                     "recording_count_in_period": 0,
                     "recording_count_total": 0,
+                    "mobile_recording_count_in_period": 0,
+                    "mobile_recording_count_total": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
@@ -569,6 +598,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
+                            "mobile_recording_count_in_period": 0,
+                            "mobile_recording_count_total": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -661,11 +692,12 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         mock_posthog.capture.assert_has_calls(calls, any_order=True)
 
 
+@freeze_time("2022-01-09T00:01:00Z")
 class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     def test_usage_report_replay(self) -> None:
-        _setup_replay_data(self.team.pk)
+        _setup_replay_data(self.team.pk, include_mobile_replay=False)
 
-        period = get_previous_day(at=now() + relativedelta(days=1))
+        period = get_previous_day()
         period_start, period_end = period
 
         all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
@@ -674,6 +706,22 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert all_reports["teams_with_recording_count_total"] == {self.team.pk: 16}
         assert report.recording_count_in_period == 5
         assert report.recording_count_total == 16
+
+    def test_usage_report_replay_with_mobile(self) -> None:
+        _setup_replay_data(self.team.pk, include_mobile_replay=True)
+
+        period = get_previous_day()
+        period_start, period_end = period
+
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        report = _get_team_report(all_reports, self.team)
+
+        assert all_reports["teams_with_recording_count_total"] == {self.team.pk: 16}
+        assert report.recording_count_in_period == 5
+        assert report.recording_count_total == 16
+
+        assert report.mobile_recording_count_in_period == 1
+        assert report.mobile_recording_count_total == 2
 
 
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
