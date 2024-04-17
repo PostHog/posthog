@@ -68,6 +68,15 @@ describe('Experiments', () => {
     })
 
     const createExperimentInNewUi = () => {
+        cy.intercept('**/decide/*', (req) =>
+            req.reply(
+                decideResponse({
+                    'new-experiments-ui': true,
+                })
+            )
+        )
+        cy.visit('/experiments')
+
         // Name, flag key, description
         cy.get('[data-attr=create-experiment]').first().click()
         cy.get('[data-attr=experiment-name]').click().type(`${experimentName}`).should('have.value', experimentName)
@@ -98,15 +107,6 @@ describe('Experiments', () => {
     }
 
     it('create, launch and stop experiment with new ui', () => {
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'new-experiments-ui': true,
-                })
-            )
-        )
-        cy.visit('/experiments')
-
         createExperimentInNewUi()
         cy.get('[data-attr="experiment-status"]').contains('draft').should('be.visible')
 
@@ -124,15 +124,6 @@ describe('Experiments', () => {
     })
 
     it('move start date', () => {
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'new-experiments-ui': true,
-                })
-            )
-        )
-        cy.visit('/experiments')
-
         createExperimentInNewUi()
 
         cy.get('[data-attr="launch-experiment"]').first().click()
