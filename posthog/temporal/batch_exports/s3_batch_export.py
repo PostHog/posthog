@@ -645,6 +645,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
 
         finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
+            batch_export_id=inputs.batch_export_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )

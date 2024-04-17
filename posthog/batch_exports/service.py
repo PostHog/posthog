@@ -465,6 +465,21 @@ def update_batch_export_run(
     return model.get()
 
 
+def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
+    """Count failed batch export runs in the 'last_n' runs."""
+    count_of_failures = (
+        BatchExportRun.objects.filter(
+            id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
+            .order_by("-last_updated_at")
+            .values("id")[:last_n]
+        )
+        .filter(status=BatchExportRun.Status.FAILED)
+        .count()
+    )
+
+    return count_of_failures
+
+
 def sync_batch_export(batch_export: BatchExport, created: bool):
     workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
     state = ScheduleState(
