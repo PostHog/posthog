@@ -74,11 +74,11 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                                 },
                                 {
                                     value: 'person_id_override_properties_on_events',
-                                    label: 'Properties: Events, Person ID: Overrides',
+                                    label: 'Properties: Events, Person ID: Overrides (v2)',
                                 },
                                 {
                                     value: 'person_id_override_properties_joined',
-                                    label: 'Properties: Person, Person ID: Overrides',
+                                    label: 'Properties: Person, Person ID: Overrides (v3)',
                                 },
                             ]}
                             onChange={(value) =>

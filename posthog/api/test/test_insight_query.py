@@ -25,7 +25,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "*",
                         "event",
                         "person",
-                        "coalesce(properties.$current_url, properties.$screen_name)",
+                        "coalesce(properties.$current_url, properties.$screen_name) # Url / Screen",
                         "properties.$lib",
                         "timestamp",
                     ],
@@ -55,7 +55,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "*",
                             "event",
                             "person",
-                            "coalesce(properties.$current_url, properties.$screen_name)",
+                            "coalesce(properties.$current_url, properties.$screen_name) # Url / Screen",
                             "properties.$lib",
                             "timestamp",
                         ],
@@ -82,8 +82,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "kind": "DataTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
-                        "kind": "EventsQuery",
-                        "select": ["*"],
+                        "kind": "PersonsNode",
+                        "properties": [
+                            {
+                                "type": "person",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                     },
                 },
             },
@@ -98,8 +105,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "kind": "DataTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
-                        "kind": "EventsQuery",
-                        "select": ["*"],
+                        "kind": "PersonsNode",
+                        "properties": [
+                            {
+                                "type": "person",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                     },
                 },
             },
@@ -164,6 +178,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "name": "$pageview",
                             "custom_name": "Views",
                             "event": "$pageview",
+                            "properties": [
+                                {
+                                    "type": "event",
+                                    "key": "$browser",
+                                    "operator": "exact",
+                                    "value": "Chrome",
+                                },
+                                {"type": "cohort", "key": "id", "value": 2},
+                            ],
                             "limit": 100,
                         }
                     ],
@@ -189,8 +212,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "query": {
                     "kind": "DataTableNode",
                     "source": {
-                        "kind": "EventsQuery",
-                        "select": ["*"],
+                        "kind": "PersonsNode",
+                        "properties": [
+                            {
+                                "type": "person",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                     },
                 },
             },
@@ -206,8 +236,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "kind": "DataTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
-                        "kind": "EventsQuery",
-                        "select": ["*"],
+                        "kind": "PersonsNode",
+                        "properties": [
+                            {
+                                "type": "person",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                     },
                 },
             },
@@ -229,8 +266,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "kind": "DataTableNode",
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
-                        "kind": "EventsQuery",
-                        "select": ["*"],
+                        "kind": "PersonsNode",
+                        "properties": [
+                            {
+                                "type": "person",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                     },
                 },
             },
