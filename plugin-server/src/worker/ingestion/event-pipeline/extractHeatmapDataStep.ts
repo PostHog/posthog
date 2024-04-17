@@ -1,69 +1,121 @@
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from 'types'
+import { URL } from 'url'
 import { castTimestampOrNow } from 'utils/utils'
 
 import { EventPipelineRunner } from './runner'
 
-function isPositiveNumber(candidate: unknown): candidate is number {
-    return typeof candidate === 'number' && candidate >= 0
+// This represents the scale factor for the heatmap data. Essentially how much we are reducing the resolution by.
+const SCALE_FACTOR = 16
+
+type HeatmapDataItem = {
+    x: number
+    y: number
+    target_fixed: boolean
+    type: string
 }
+
+type HeatmapData = Record<string, HeatmapDataItem[]>
 
 export function extractHeatmapDataStep(
     runner: EventPipelineRunner,
     event: PreIngestionEvent
 ): Promise<[PreIngestionEvent, Promise<void>[]]> {
-    const { eventUuid, teamId, timestamp, properties } = event
-    const { $viewport_height, $viewport_width, $session_id, $heatmap_data, distinct_id } = properties || {}
+    const { eventUuid } = event
 
-    delete event.properties['$heatmap_data']
+    let acks: Promise<void>[] = []
 
-    if (!$heatmap_data || !isPositiveNumber($viewport_height) || !isPositiveNumber($viewport_width) || !$session_id) {
-        return Promise.resolve([event, []])
+    try {
+        const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
+
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+        acks = heatmapEvents.map((rawEvent) => {
+            return runner.hub.kafkaProducer.produce({
+                topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                key: eventUuid,
+                value: Buffer.from(JSON.stringify(rawEvent)),
+                waitForAck: true,
+            })
+        })
+    } catch (e) {
+        // TODO: Report error properly
     }
 
-    const scale_factor = 16
+    // We don't want to ingest this data to the events table
+    delete event.properties['$heatmap_data']
+
+    return Promise.resolve([event, acks])
+}
+
+function replacePathInUrl(url: string, newPath: string): string {
+    const parsedUrl = new URL(url)
+    parsedUrl.pathname = newPath
+    return parsedUrl.toString()
+}
+
+function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseHeatmapEvent[] {
+    const { teamId, timestamp, properties } = event
+    const {
+        $viewport_height,
+        $viewport_width,
+        $session_id,
+        distinct_id,
+        $prev_pageview_pathname,
+        $prev_pageview_max_scroll,
+        $current_url,
+        $heatmap_data,
+    } = properties || {}
+
+    let heatmapData = $heatmap_data as HeatmapData | null
+
+    if ($prev_pageview_pathname && $current_url) {
+        // We are going to add the scroll depth info derived from the previous pageview to the current pageview's heatmap data
+        if (!heatmapData) {
+            heatmapData = {}
+        }
+
+        const previousUrl = replacePathInUrl($current_url, $prev_pageview_pathname)
+        heatmapData[previousUrl] = heatmapData[previousUrl] || []
+        heatmapData[previousUrl].push({
+            x: 0,
+            y: $prev_pageview_max_scroll,
+            target_fixed: false,
+            type: 'scrolldepth',
+        })
+    }
 
     let heatmapEvents: RawClickhouseHeatmapEvent[] = []
 
-    try {
-        Object.entries($heatmap_data).forEach(([url, items]) => {
-            if (Array.isArray(items)) {
-                heatmapEvents = heatmapEvents.concat(
-                    (items as any[]).map(
-                        (hme: {
-                            x: number
-                            y: number
-                            target_fixed: boolean
-                            type: string
-                        }): RawClickhouseHeatmapEvent => ({
-                            type: hme.type,
-                            x: Math.ceil(hme.x / scale_factor),
-                            y: Math.ceil(hme.y / scale_factor),
-                            pointer_target_fixed: hme.target_fixed,
-                            viewport_height: Math.ceil($viewport_height / scale_factor),
-                            viewport_width: Math.ceil($viewport_width / scale_factor),
-                            current_url: url,
-                            session_id: $session_id,
-                            scale_factor,
-                            timestamp: castTimestampOrNow(timestamp ?? null, TimestampFormat.ClickHouse),
-                            team_id: teamId,
-                            distinct_id: distinct_id,
-                        })
-                    )
-                )
-            }
-        })
-    } catch (e) {
-        // TODO: Log error but don't exit
+    if (!heatmapData) {
+        return []
     }
 
-    const acks = heatmapEvents.map((rawEvent) => {
-        return runner.hub.kafkaProducer.produce({
-            topic: runner.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            key: eventUuid,
-            value: Buffer.from(JSON.stringify(rawEvent)),
-            waitForAck: true,
-        })
+    Object.entries(heatmapData).forEach(([url, items]) => {
+        if (Array.isArray(items)) {
+            heatmapEvents = heatmapEvents.concat(
+                (items as any[]).map(
+                    (hme: {
+                        x: number
+                        y: number
+                        target_fixed: boolean
+                        type: string
+                    }): RawClickhouseHeatmapEvent => ({
+                        type: hme.type,
+                        x: Math.ceil(hme.x / SCALE_FACTOR),
+                        y: Math.ceil(hme.y / SCALE_FACTOR),
+                        pointer_target_fixed: hme.target_fixed,
+                        viewport_height: Math.ceil($viewport_height / SCALE_FACTOR),
+                        viewport_width: Math.ceil($viewport_width / SCALE_FACTOR),
+                        current_url: url,
+                        session_id: $session_id,
+                        scale_factor: SCALE_FACTOR,
+                        timestamp: castTimestampOrNow(timestamp ?? null, TimestampFormat.ClickHouse),
+                        team_id: teamId,
+                        distinct_id: distinct_id,
+                    })
+                )
+            )
+        }
     })
 
-    return Promise.resolve([event, acks])
+    return heatmapEvents
 }
