@@ -194,7 +194,7 @@ export function CohortEventFiltersField({
     const valueExists = ((value as AnyPropertyFilter[]) || []).length > 0
 
     useEffect(() => {
-        // :TRICKY: We check paremt has CohortCriteriaRow__Criteria__Field class and add basis-full class if value exists
+        // :TRICKY: We check parent has CohortCriteriaRow__Criteria__Field class and add basis-full class if value exists
         // We need to do this because of how this list is generated, and we need to add a line-break programatically
         // when the PropertyFilters take up too much space.
         // Since the list of children is declared in the parent component, we can't add a class to the parent directly, without
