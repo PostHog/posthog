@@ -28,10 +28,10 @@ jobs:
                   concurrency: 1
                   group: 1
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-                  python-version: ['3.10.10']
-                  clickhouse-server-image: ['clickhouse/clickhouse-server:23.12.5.81-alpine']
-                  segment: ['FOSS', 'EE']
-                  person-on-events: [false]
+                  python-version: '3.10.10'
+                  clickhouse-server-image: 'clickhouse/clickhouse-server:23.12.5.81-alpine'
+                  segment: 'FOSS'
+                  person-on-events: false
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@v4
