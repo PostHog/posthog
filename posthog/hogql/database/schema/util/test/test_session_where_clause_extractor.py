@@ -228,12 +228,22 @@ class TestSessionTimestampInliner(ClickhouseTestMixin, APIBaseTest):
         actual = f(
             self.inliner.get_inner_where(
                 parse(
-                    "SELECT * FROM sesions WHERE event = '$pageview' AND (TRUE AND (TRUE AND TRUE AND (timestamp >= '2024-03-12' AND TRUE)))"
+                    "SELECT * FROM sessions WHERE event = '$pageview' AND (TRUE AND (TRUE AND TRUE AND (timestamp >= '2024-03-12' AND TRUE)))"
                 )
             )
         )
         expected = f("(raw_sessions.min_timestamp + toIntervalDay(3)) >= '2024-03-12'")
         assert expected == actual
+
+    def test_select_query(self):
+        actual = f(
+            self.inliner.get_inner_where(
+                parse(
+                    "SELECT * FROM sessions WHERE timestamp = (SELECT max(timestamp) FROM events WHERE event = '$pageview')"
+                )
+            )
+        )
+        assert actual is None
 
 
 class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
