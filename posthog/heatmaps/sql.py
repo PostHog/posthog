@@ -139,10 +139,6 @@ WRITABLE_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(
         data_table=HEATMAPS_DATA_TABLE(),
-        # I don't think there's a great natural sharding key here
-        # we'll be querying for team data by url and date,
-        # so I _think_ this offers a reasonable spread of write load
-        # without needing to query too many shards
         sharding_key="cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))",
     ),
 )
@@ -153,10 +149,6 @@ DISTRIBUTED_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(
         data_table=HEATMAPS_DATA_TABLE(),
-        # I don't think there's a great natural sharding key here
-        # we'll be querying for team data by url and date,
-        # so I _think_ this offers a reasonable spread of write load
-        # without needing to query too many shards
         sharding_key="cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))",
     ),
 )
