@@ -123,7 +123,7 @@ describe('Experiments', () => {
         cy.get('[data-attr="experiment-end-date"]').contains('a few seconds ago').should('be.visible')
     })
 
-    it.only('move start date', () => {
+    it('move start date', () => {
         cy.intercept('**/decide/*', (req) =>
             req.reply(
                 decideResponse({
