@@ -1960,7 +1960,7 @@
     (SELECT behavior_query.person_id AS id
      FROM
        (SELECT pdi.person_id AS person_id,
-               countIf(timestamp > '2024-04-12 17:00:59'
+               countIf(timestamp > 'explicit_timestamp'
                        AND timestamp < now()
                        AND ((event = 'insight viewed'
                              AND (has(['RETENTION'], replaceRegexpAll(JSONExtractRaw(properties, 'insight'), '^"|"$', ''))
