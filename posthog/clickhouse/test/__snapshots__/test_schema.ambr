@@ -695,7 +695,7 @@
       current_url VARCHAR,
       type LowCardinality(String),
       _timestamp DateTime
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', current_url, '-', toString(toDate(timestamp)))))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
   
   '''
 # ---
