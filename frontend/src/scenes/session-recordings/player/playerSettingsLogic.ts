@@ -185,7 +185,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSearchQuery: (search: string) => ({ search }),
-        setSyncScroll: (enabled: boolean) => ({ enabled }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
@@ -337,14 +336,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             '',
             {
                 setSearchQuery: (_, { search }) => search || '',
-            },
-        ],
-
-        syncScroll: [
-            true,
-            { persist: true },
-            {
-                setSyncScroll: (_, { enabled }) => enabled,
             },
         ],
     })),

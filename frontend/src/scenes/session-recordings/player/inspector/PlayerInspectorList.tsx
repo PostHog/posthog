@@ -15,7 +15,6 @@ import { userLogic } from 'scenes/userLogic'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
 
-import { playerSettingsLogic } from '../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
 import { playerInspectorLogic } from './playerInspectorLogic'
@@ -114,10 +113,9 @@ export function PlayerInspectorList(): JSX.Element {
     const { logicProps, snapshotsLoaded, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
-    const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollingPaused, tab } =
+    const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollPaused, tab } =
         useValues(inspectorLogic)
     const { setSyncScrollPaused } = useActions(inspectorLogic)
-    const { syncScroll } = useValues(playerSettingsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const performanceAvailable: boolean = hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
@@ -161,12 +159,12 @@ export function PlayerInspectorList(): JSX.Element {
                 .getElementById('PlayerInspectorListMarker')
                 ?.setAttribute('style', `transform: translateY(${offset}px)`)
 
-            if (!syncScrollingPaused && syncScroll) {
+            if (!syncScrollPaused) {
                 scrolledByJsFlag.current = true
                 listRef.current.scrollToRow(playbackIndicatorIndex)
             }
         }
-    }, [playbackIndicatorIndex, syncScroll])
+    }, [playbackIndicatorIndex])
 
     const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
         return (
@@ -226,6 +224,22 @@ export function PlayerInspectorList(): JSX.Element {
                             />
                         )}
                     </AutoSizer>
+                    {syncScrollPaused && (
+                        <div className="absolute bottom-2 left-1/2 translate-x-[-50%] bg-side">
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    if (listRef.current) {
+                                        listRef.current.scrollToRow(playbackIndicatorIndex)
+                                    }
+                                    // Tricky: Need to dely to make sure the row scrolled has finished
+                                    setTimeout(() => setSyncScrollPaused(false), 100)
+                                }}
+                            >
+                                Sync scrolling
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
             ) : tabsState[tab] === 'loading' ? (
                 <div className="p-2">
