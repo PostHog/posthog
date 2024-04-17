@@ -194,10 +194,6 @@ runs:
           if: failure() && (steps.run-foss-tests.outcome != 'failure' && steps.run-ee-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure')
           shell: bash
           run: |
-              echo "Previous steps outcome: "
-              echo "FOSS tests: ${{ steps.run-foss-tests.outcome }}"
-              echo "EE tests: ${{ steps.run-ee-tests.outcome }}"
-              echo "Decide read replica tests: ${{ steps.run-decide-read-replica-tests.outcome }}"
               docker compose -f docker-compose.dev.yml logs
 
         - name: Upload updated timing data as artifacts
