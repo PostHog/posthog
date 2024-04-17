@@ -66,8 +66,11 @@ LAZY_SESSIONS_FIELDS: Dict[str, FieldOrTable] = {
     "$event_count_map": DatabaseField(name="$event_count_map"),
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
-    "$session_duration": IntegerDatabaseField(name="duration"),
     "$channel_type": StringDatabaseField(name="$channel_type"),
+    "$session_duration": IntegerDatabaseField(name="$session_duration"),
+    "duration": IntegerDatabaseField(
+        name="duration"
+    ),  # alias of $session_duration, deprecated but included for backwards compatibility
 }
 
 
@@ -161,6 +164,7 @@ def select_from_sessions_table(
             gad_source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
         ),
     }
+    aggregate_fields["duration"] = aggregate_fields["$session_duration"]
 
     select_fields: List[ast.Expr] = []
     group_by_fields: List[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
