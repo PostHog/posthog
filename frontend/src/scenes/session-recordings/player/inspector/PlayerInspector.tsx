@@ -11,11 +11,9 @@ import { PlayerInspectorPreview } from './PlayerInspectorPreview'
 export function PlayerInspector({
     inspectorExpanded,
     setInspectorExpanded,
-    alignedVertically,
 }: {
     inspectorExpanded: boolean
     setInspectorExpanded: (focus: boolean) => void
-    alignedVertically: boolean
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
 
@@ -38,18 +36,11 @@ export function PlayerInspector({
             )}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
-            style={
-                alignedVertically
-                    ? { height: inspectorExpanded ? desiredSize ?? 'var(--inspector-width)' : undefined }
-                    : { width: inspectorExpanded ? desiredSize ?? 'var(--inspector-width)' : undefined }
-            }
+            style={{
+                width: inspectorExpanded ? desiredSize ?? 'var(--inspector-width)' : undefined,
+            }}
         >
-            <Resizer
-                logicKey="player-inspector"
-                placement={alignedVertically ? 'top' : 'left'}
-                containerRef={ref}
-                closeThreshold={100}
-            />
+            <Resizer logicKey="player-inspector" placement="left" containerRef={ref} closeThreshold={100} />
             {inspectorExpanded ? (
                 <>
                     <PlayerInspectorControls onClose={() => setInspectorExpanded(false)} />

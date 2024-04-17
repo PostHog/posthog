@@ -1,24 +1,25 @@
-@mixin resizer-orientation($property, $first, $second) {
-    #{$property}: var(--resizer-width);
-    #{$first}: 0;
-    #{$second}: 0;
+@mixin orientation-mapping($width, $top, $bottom, $left) {
+    #{$width}: var(--resizer-thickness);
+    #{$top}: 0;
+    #{$bottom}: 0;
 
     .Resizer__handle {
-        #{$first}: 0;
-        #{$second}: 0;
-        #{$property}: 1px;
+        #{$top}: 0;
+        #{$bottom}: 0;
+        #{$width}: 1px;
+        #{$left}: calc(var(--resizer-thickness) / 2);
 
         &::before,
         &::after {
-            #{$first}: 0;
-            #{$second}: 0;
-            #{$property}: 1px;
+            #{$top}: 0;
+            #{$bottom}: 0;
+            #{$width}: 1px;
         }
     }
 }
 
 .Resizer {
-    --resizer-width: 8px;
+    --resizer-thickness: 8px;
 
     position: absolute;
     z-index: var(
@@ -29,16 +30,20 @@
 
     &--left,
     &--right {
+        --scale: scaleX(3);
+
         cursor: col-resize;
 
-        @include resizer-orientation(width, top, bottom);
+        @include orientation-mapping(width, top, bottom, left);
     }
 
     &--top,
     &--bottom {
+        --scale: scaleY(3);
+
         cursor: row-resize;
 
-        @include resizer-orientation(height, left, right);
+        @include orientation-mapping(height, left, right, top);
     }
 
     .Resizer[aria-hidden='true'] & {
@@ -47,7 +52,6 @@
 
     .Resizer__handle {
         position: absolute;
-        left: calc(var(--resizer-width) / 2);
 
         &::before,
         &::after {
@@ -70,12 +74,22 @@
 
     &--left {
         left: 0;
-        transform: translateX(calc(var(--resizer-width) / 2 * -1));
+        transform: translateX(calc(var(--resizer-thickness) / 2 * -1));
     }
 
     &--right {
         right: 0;
-        transform: translateX(calc(var(--resizer-width) / 2 * 1));
+        transform: translateX(calc(var(--resizer-thickness) / 2 * 1));
+    }
+
+    &--top {
+        top: 0;
+        transform: translateY(calc(var(--resizer-thickness) / 2 * -1));
+    }
+
+    &--bottom {
+        bottom: 0;
+        transform: translateY(calc(var(--resizer-thickness) / 2 * 1));
     }
 
     &:hover .Resizer__handle::after,
@@ -85,6 +99,6 @@
 
     &--resizing .Resizer__handle::before,
     &--resizing .Resizer__handle::after {
-        transform: scaleX(3);
+        transform: var(--scale);
     }
 }

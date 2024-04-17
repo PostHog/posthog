@@ -4,9 +4,6 @@ import posthog from 'posthog-js'
 import type { resizerLogicType } from './resizerLogicType'
 
 export type ResizerEvent = {
-    originXOrY: number
-    finished: boolean
-    originSize: number
     desiredSize: number
 }
 
@@ -15,7 +12,6 @@ export type ResizerLogicProps = {
     persistent?: boolean
     placement: 'left' | 'right' | 'top' | 'bottom'
     containerRef: React.RefObject<HTMLDivElement>
-    onResize?: (event: ResizerEvent) => void
     /** At what size, should this rather be considered a "close" event */
     closeThreshold?: number
     /** Fired when the "closeThreshold" is crossed */
@@ -97,7 +93,7 @@ export const resizerLogic = kea<resizerLogicType>([
             removeAllListeners(cache)
             cache.originXOrY = startXOrY
 
-            const calculateEvent = (e: MouseEvent, finished: boolean): ResizerEvent => {
+            const calculateEvent = (e: MouseEvent): ResizerEvent => {
                 // desired width is based on the change relative to the original bounds
                 // The resizer could be on the left or the right, so we need to account for this
                 const eventSize = values.isVertical ? e.pageX : e.pageY
@@ -106,17 +102,11 @@ export const resizerLogic = kea<resizerLogicType>([
                     ? originContainerBoundsSize - difference
                     : originContainerBoundsSize + difference
 
-                return {
-                    originXOrY: cache.originXOrY,
-                    originSize: originContainerBoundsSize,
-                    desiredSize,
-                    finished,
-                }
+                return { desiredSize }
             }
 
             cache.onMouseMove = (e: MouseEvent): void => {
-                const event = calculateEvent(e, false)
-                props.onResize?.(event)
+                const event = calculateEvent(e)
                 actions.setResizingSize(event.desiredSize)
                 isDoubleClick = false
 
@@ -130,7 +120,7 @@ export const resizerLogic = kea<resizerLogicType>([
             }
             cache.onMouseUp = (e: MouseEvent): void => {
                 if (e.button === 0) {
-                    const event = calculateEvent(e, false)
+                    const event = calculateEvent(e)
 
                     if (isDoubleClick) {
                         // Double click - reset to original width
@@ -143,8 +133,6 @@ export const resizerLogic = kea<resizerLogicType>([
                             // We only want to persist the value if it is open
                             actions.setDesiredSize(event.desiredSize)
                         }
-
-                        props.onResize?.(event)
 
                         posthog.capture('element resized', {
                             key: props.logicKey,

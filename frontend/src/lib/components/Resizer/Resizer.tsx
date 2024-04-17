@@ -38,7 +38,7 @@ export function Resizer(props: ResizerProps): JSX.Element {
             onMouseDown={(e) => {
                 if (e.button === 0) {
                     setIsSelected(true)
-                    beginResize(isVertical ? e.pageY : e.pageX)
+                    beginResize(isVertical ? e.pageX : e.pageY)
                 }
             }}
         >
