@@ -256,7 +256,6 @@ posthog/hogql/transforms/in_cohort.py:0: error: Incompatible default for argumen
 posthog/hogql/transforms/in_cohort.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/in_cohort.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 posthog/hogql/transforms/in_cohort.py:0: error: Argument "is_static" to "_add_join_for_cohort" of "InCohortResolver" has incompatible type "bool | None"; expected "bool"  [arg-type]
-posthog/hogql/transforms/in_cohort.py:0: error: Incompatible types in assignment (expression has type "ValuesQuerySet[Cohort, tuple[int, bool | None]]", variable has type "ValuesQuerySet[Cohort, tuple[int, bool | None, str | None]]")  [assignment]
 posthog/hogql/transforms/in_cohort.py:0: error: Argument "is_static" to "_add_join_for_cohort" of "InCohortResolver" has incompatible type "bool | None"; expected "bool"  [arg-type]
 posthog/hogql/transforms/in_cohort.py:0: error: Argument "table" to "JoinExpr" has incompatible type "Expr"; expected "SelectQuery | SelectUnionQuery | Field | None"  [arg-type]
 posthog/hogql/transforms/in_cohort.py:0: error: List item 0 has incompatible type "SelectQueryType | None"; expected "SelectQueryType"  [list-item]
