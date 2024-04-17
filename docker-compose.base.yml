@@ -169,8 +169,11 @@ services:
         volumes:
             - ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
         depends_on:
-            - db
-            - elasticsearch
+            db:
+                condition: service_healthy
+            elasticsearch:
+                condition: service_started
+
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
