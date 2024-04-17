@@ -7,9 +7,10 @@ import { range } from 'd3'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { Resizer } from 'lib/components/Resizer/Resizer'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconWithCount } from 'lib/lemon-ui/icons'
+import { IconChevronLeft, IconChevronRight, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -121,6 +122,7 @@ function RecordingsLists(): JSX.Element {
         recordingsCount,
         sessionSummaryLoading,
         sessionBeingSummarized,
+        isRecordingsListCollapsed,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -132,6 +134,7 @@ function RecordingsLists(): JSX.Element {
         resetFilters,
         toggleShowOtherRecordings,
         summarizeSession,
+        toggleRecordingsListCollapsed,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -176,8 +179,12 @@ function RecordingsLists(): JSX.Element {
 
     const notebookNode = useNotebookNode()
 
-    return (
-        <div className={clsx('flex flex-col w-full bg-bg-light overflow-hidden border-r h-full')}>
+    return isRecordingsListCollapsed ? (
+        <div className="flex items-start h-full bg-bg-light border-r p-1">
+            <LemonButton size="small" icon={<IconChevronRight />} onClick={() => toggleRecordingsListCollapsed()} />
+        </div>
+    ) : (
+        <div className="flex flex-col w-full bg-bg-light overflow-hidden border-r h-full">
             <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
                 <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
                     <span className="px-2 py-1 flex flex-1 gap-2">
@@ -227,6 +234,11 @@ function RecordingsLists(): JSX.Element {
                         active={showSettings}
                         icon={<IconGear />}
                         onClick={() => setShowSettings(!showSettings)}
+                    />
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronLeft />}
+                        onClick={() => toggleRecordingsListCollapsed()}
                     />
                     <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                 </div>
@@ -344,9 +356,16 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         ...props,
         autoPlay: props.autoPlay ?? true,
     }
+    const playlistRecordingsListRef = useRef<HTMLDivElement>(null)
     const logic = sessionRecordingsPlaylistLogic(logicProps)
-    const { activeSessionRecording, activeSessionRecordingId, matchingEventsMatchType, pinnedRecordings } =
-        useValues(logic)
+    const {
+        activeSessionRecording,
+        activeSessionRecordingId,
+        matchingEventsMatchType,
+        pinnedRecordings,
+        isRecordingsListCollapsed,
+    } = useValues(logic)
+    const { toggleRecordingsListCollapsed } = useActions(logic)
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
@@ -366,8 +385,22 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                         'SessionRecordingsPlaylist--embedded': notebookNode,
                     })}
                 >
-                    <div className={clsx('SessionRecordingsPlaylist__list space-y-4')}>
+                    <div
+                        ref={playlistRecordingsListRef}
+                        className={clsx(
+                            'SessionRecordingsPlaylist__list',
+                            isRecordingsListCollapsed && 'SessionRecordingsPlaylist__list--collapsed'
+                        )}
+                    >
                         <RecordingsLists />
+                        <Resizer
+                            logicKey="player-recordings-list"
+                            placement="right"
+                            containerRef={playlistRecordingsListRef}
+                            closeThreshold={100}
+                            onToggleClosed={(shouldBeClosed) => toggleRecordingsListCollapsed(shouldBeClosed)}
+                            onDoubleClick={() => toggleRecordingsListCollapsed()}
+                        />
                     </div>
                     <div className="SessionRecordingsPlaylist__player">
                         {activeSessionRecordingId ? (
