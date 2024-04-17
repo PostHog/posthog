@@ -24,7 +24,7 @@ class ZendeskCredentialsEmailPass(ZendeskCredentialsBase):
     """
 
     email: str = ""
-    password: TSecretValue = ""
+    password: TSecretValue
 
 
 @configspec
@@ -33,7 +33,7 @@ class ZendeskCredentialsOAuth(ZendeskCredentialsBase):
     This class is used to store credentials for OAuth Token Authentication
     """
 
-    oauth_token: TSecretValue = ""
+    oauth_token: TSecretValue
 
 
 @configspec
@@ -43,7 +43,7 @@ class ZendeskCredentialsToken(ZendeskCredentialsBase):
     """
 
     email: str = ""
-    token: TSecretValue = ""
+    token: TSecretValue
 
 
 TZendeskCredentials = Union[ZendeskCredentialsEmailPass, ZendeskCredentialsToken, ZendeskCredentialsOAuth]
