@@ -29,6 +29,10 @@ inputs:
 runs:
     using: 'composite'
     steps:
+        # Env var setup
+        - name: Initialize actual_test_failure
+          run: echo "actual_test_failure=not_set" >> $GITHUB_ENV
+
         # Pre-tests
 
         - name: Stop/Start stack with Docker Compose
@@ -159,6 +163,13 @@ runs:
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
+              # if above test fails, echo failure to output
+              if [ $? -ne 0 ]
+                then
+                  echo 'actual_test_failure=true' >> $GITHUB_ENV
+                else
+                  echo 'actual_test_failure=false' >> $GITHUB_ENV
+              fi
 
         - name: Run EE tests
           if: ${{ inputs.segment == 'EE' }}
@@ -171,6 +182,13 @@ runs:
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
+              # if above test fails, echo failure to output
+              if [ $? -ne 0 ]
+                then
+                  echo 'actual_test_failure=true' >> $GITHUB_ENV
+                else
+                  echo 'actual_test_failure=false' >> $GITHUB_ENV
+              fi
 
         - name: Run /decide read replica tests
           if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
@@ -185,8 +203,15 @@ runs:
               pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
+              # if above test fails, echo failure to output
+              if [ $? -ne 0 ]
+                then
+                  echo 'actual_test_failure=true' >> $GITHUB_ENV
+                else
+                  echo 'actual_test_failure=false' >> $GITHUB_ENV
+                fi
 
         - name: Show docker compose logs on failure
-          if: failure()
+          if: failure() && (env.actual_test_failure == 'false' || env.actual_test_failure == 'not_set')
           shell: bash
           run: docker compose -f docker-compose.dev.yml logs

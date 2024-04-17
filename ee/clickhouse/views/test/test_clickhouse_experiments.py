@@ -1256,7 +1256,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         cohort = response.json()["cohort"]
-        self.assertEqual(cohort["name"], 'Users exposed in experiment "Test Experiment"')
+        self.assertEqual(cohort["name"], 'Users exposed toxx experiment "Test Experiment"')
         self.assertEqual(cohort["experiment_set"], [created_experiment])
 
         cohort_id = cohort["id"]
@@ -1374,7 +1374,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         cohort = response.json()["cohort"]
-        self.assertEqual(cohort["name"], 'Users exposed in experiment "Test Experiment"')
+        self.assertEqual(cohort["name"], 'Users exposed to experiment "Test Experiment"')
         self.assertEqual(cohort["experiment_set"], [created_experiment])
         self.assertEqual(
             cohort["filters"],
@@ -1566,7 +1566,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         cohort = response.json()["cohort"]
-        self.assertEqual(cohort["name"], 'Users exposed in experiment "Test Experiment"')
+        self.assertEqual(cohort["name"], 'Users exposed to experiment "Test Experiment"')
         self.assertEqual(cohort["experiment_set"], [created_experiment])
         self.assertEqual(
             cohort["filters"],
