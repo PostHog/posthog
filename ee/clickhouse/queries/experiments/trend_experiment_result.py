@@ -1,3 +1,4 @@
+import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from functools import lru_cache
@@ -20,6 +21,7 @@ from posthog.constants import (
     TRENDS_LINEAR,
     UNIQUE_USERS,
     ExperimentSignificanceCode,
+    ExperimentNoResultsErrorKeys,
 )
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
@@ -467,34 +469,36 @@ def calculate_p_value(control_variant: Variant, test_variants: List[Variant]) ->
     )
 
 
-def validate_event_variants(insight_results, variants):
-    if not insight_results or not insight_results[0]:
-        raise ValidationError("No experiment events have been ingested yet.", code="no-events")
+def validate_event_variants(trend_results, variants):
+    errors = {
+        ExperimentNoResultsErrorKeys.NO_EVENTS: True,
+        ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+    }
 
-    missing_variants = []
+    if not trend_results or not trend_results[0]:
+        raise ValidationError(code="no-results", detail=json.dumps(errors))
+
+    errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
 
     # Check if "control" is present
-    control_found = False
-    for event in insight_results:
+    for event in trend_results:
         event_variant = event.get("breakdown_value")
         if event_variant == "control":
-            control_found = True
+            errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
+            errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
             break
-    if not control_found:
-        missing_variants.append("control")
 
     # Check if at least one of the test variants is present
     test_variants = [variant for variant in variants if variant != "control"]
-    test_variant_found = False
-    for event in insight_results:
+    for event in trend_results:
         event_variant = event.get("breakdown_value")
         if event_variant in test_variants:
-            test_variant_found = True
+            errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
+            errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
             break
-    if not test_variant_found:
-        missing_variants.extend(test_variants)
 
-    if not len(missing_variants) == 0:
-        missing_variants_str = ", ".join(missing_variants)
-        message = f"No experiment events have been ingested yet for the following variants: {missing_variants_str}"
-        raise ValidationError(message, code=f"missing-flag-variants::{missing_variants_str}")
+    has_errors = any(errors.values())
+    if has_errors:
+        raise ValidationError(detail=json.dumps(errors))

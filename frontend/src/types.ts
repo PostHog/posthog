@@ -802,6 +802,7 @@ export type EncodedRecordingSnapshot = {
 export const SnapshotSourceType = {
     blob: 'blob',
     realtime: 'realtime',
+    file: 'file',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
@@ -811,7 +812,12 @@ export interface SessionRecordingSnapshotSource {
     start_timestamp?: string
     end_timestamp?: string
     blob_key?: string
-    loaded: boolean
+}
+
+export interface SessionRecordingSnapshotSourceResponse {
+    source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    snapshots?: RecordingSnapshot[]
+    untransformed_snapshots?: RecordingSnapshot[]
 }
 
 export interface SessionRecordingSnapshotResponse {
@@ -1115,6 +1121,7 @@ export interface CohortType {
     filters: {
         properties: CohortCriteriaGroupFilter
     }
+    experiment_set?: number[]
 }
 
 export interface InsightHistory {
@@ -2546,7 +2553,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
-    experiment_set: string[] | null
+    experiment_set: number[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
@@ -2865,6 +2872,7 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
+    exposure_cohort?: number
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number

@@ -1913,3 +1913,108 @@
   ORDER BY breakdown_value
   '''
 # ---
+# name: TestExperimentAuxiliaryEndpoints.test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure
+  '''
+  /* cohort_calculation: */
+  INSERT INTO cohortpeople
+  SELECT id,
+         2 as cohort_id,
+         2 as team_id,
+         1 AS sign,
+         1 AS version
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((has(['http://example.com'], replaceRegexpAll(JSONExtractRaw(properties, '$pageview'), '^"|"$', '')))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND ((has(['http://example.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$pageview'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) as person
+  UNION ALL
+  SELECT person_id,
+         cohort_id,
+         team_id,
+         -1,
+         version
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < 1
+    AND sign = 1
+  '''
+# ---
+# name: TestExperimentAuxiliaryEndpoints.test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure.1
+  '''
+  /* user_id:115 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  INSERT INTO cohortpeople
+  SELECT id,
+         2 as cohort_id,
+         2 as team_id,
+         1 AS sign,
+         1 AS version
+  FROM
+    (SELECT behavior_query.person_id AS id
+     FROM
+       (SELECT pdi.person_id AS person_id,
+               countIf(timestamp > 'explicit_timestamp'
+                       AND timestamp < now()
+                       AND ((event = 'insight viewed'
+                             AND (has(['RETENTION'], replaceRegexpAll(JSONExtractRaw(properties, 'insight'), '^"|"$', ''))
+                                  AND distinct_id IN
+                                    (SELECT distinct_id
+                                     FROM
+                                       (SELECT distinct_id, argMax(person_id, version) as person_id
+                                        FROM person_distinct_id2
+                                        WHERE team_id = 2
+                                        GROUP BY distinct_id
+                                        HAVING argMax(is_deleted, version) = 0)
+                                     WHERE person_id IN
+                                         (SELECT id
+                                          FROM person
+                                          WHERE team_id = 2
+                                            AND id IN
+                                              (SELECT id
+                                               FROM person
+                                               WHERE team_id = 2
+                                                 AND ((has(['http://example.com'], replaceRegexpAll(JSONExtractRaw(properties, '$pageview'), '^"|"$', '')))) )
+                                          GROUP BY id
+                                          HAVING max(is_deleted) = 0
+                                          AND ((has(['http://example.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$pageview'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) )))
+                            OR (event = 'insight viewed'
+                                AND (toFloat64OrNull(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, 'filters_count'), '^"|"$', ''), ' ', ''), '^"|"$', '')) > '1'))
+                            OR (match(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/123')
+                                AND event = '$autocapture'))
+                       AND (has(['bonk'], replaceRegexpAll(JSONExtractRaw(properties, 'bonk'), '^"|"$', ''))
+                            AND ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), tuple('x', 'y')), 0))) > 0 AS performed_event_condition_22_level_level_0_level_0_0
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event IN ['insight viewed', 'insight viewed', '$autocapture']
+          AND timestamp <= now()
+          AND timestamp >= now() - INTERVAL 6 day
+        GROUP BY person_id) behavior_query
+     WHERE 1 = 1
+       AND (((performed_event_condition_22_level_level_0_level_0_0))) ) as person
+  UNION ALL
+  SELECT person_id,
+         cohort_id,
+         team_id,
+         -1,
+         version
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < 1
+    AND sign = 1
+  '''
+# ---

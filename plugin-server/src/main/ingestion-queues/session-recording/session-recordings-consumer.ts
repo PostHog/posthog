@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { Redis } from 'ioredis'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
 import {
@@ -111,6 +111,12 @@ const histogramActiveSessionsWhenCommitIsBlocked = new Histogram({
     name: 'recording_blob_ingestion_active_sessions_when_commit_is_blocked',
     help: 'The number of active sessions on a partition when we skip committing due to a potentially blocking session',
     buckets: [0, 1, 2, 3, 4, 5, 10, 20, 50, 100, 1000, 10000, Infinity],
+})
+
+export const sessionInfoSummary = new Summary({
+    name: 'recording_blob_ingestion_session_info_bytes',
+    help: 'Size of aggregated session information being processed',
+    percentiles: [0.1, 0.25, 0.5, 0.9, 0.99],
 })
 
 type PartitionMetrics = {
@@ -312,6 +318,8 @@ export class SessionRecordingIngester {
                 this.debugPartition === partition
             )
         }
+
+        sessionInfoSummary.observe(event.metadata.rawSize)
 
         await Promise.allSettled([
             this.sessions[key]?.add(event),

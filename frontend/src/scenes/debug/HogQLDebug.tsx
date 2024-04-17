@@ -74,11 +74,11 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                                 },
                                 {
                                     value: 'person_id_override_properties_on_events',
-                                    label: 'Properties: Events, Person ID: Overrides',
+                                    label: 'Properties: Events, Person ID: Overrides (v2)',
                                 },
                                 {
                                     value: 'person_id_override_properties_joined',
-                                    label: 'Properties: Person, Person ID: Overrides',
+                                    label: 'Properties: Person, Person ID: Overrides (v3)',
                                 },
                             ]}
                             onChange={(value) =>
@@ -111,7 +111,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         <LemonSelect
                             options={[
                                 { value: 'auto', label: 'auto' },
-                                { value: 'leftjoin', label: 'join' },
+                                { value: 'leftjoin', label: 'leftjoin' },
                                 { value: 'subquery', label: 'subquery' },
                                 { value: 'leftjoin_conjoined', label: 'leftjoin conjoined' },
                             ]}
