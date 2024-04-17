@@ -11,7 +11,7 @@ from posthog.hogql.database.database import create_hogql_database, serialize_dat
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.query_runner import RecalculationMode, get_query_runner
 from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
@@ -61,15 +61,15 @@ def process_query(
     query_json: dict,
     *,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: Optional[bool] = False,
-) -> dict:
+    recalculation_mode: RecalculationMode = RecalculationMode.IF_STALE,
+) -> Optional[dict]:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
     return process_query_model(
         team,
         model.root,
         limit_context=limit_context,
-        refresh_requested=refresh_requested,
+        recalculation_mode=recalculation_mode,
     )
 
 
@@ -78,13 +78,13 @@ def process_query_model(
     query: BaseModel,  # mypy has problems with unions and isinstance
     *,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: Optional[bool] = False,
-) -> dict:
+    recalculation_mode: RecalculationMode = RecalculationMode.IF_STALE,
+) -> Optional[dict]:
     result: dict | BaseModel
 
     if isinstance(query, QUERY_WITH_RUNNER):  # type: ignore
         query_runner = get_query_runner(query, team, limit_context=limit_context)
-        result = query_runner.run(refresh_requested=refresh_requested)
+        result = query_runner.run(recalculation_mode=recalculation_mode)
     elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
         query_runner = get_query_runner(query, team, limit_context=limit_context)
         result = query_runner.calculate()

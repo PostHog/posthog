@@ -1,5 +1,6 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, overload
 
+from posthog.api.services.query import RecalculationMode
 import structlog
 from sentry_sdk import capture_exception
 
@@ -106,13 +107,30 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 
+@overload
 def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> "InsightResult":
+    ...
+
+
+@overload
+def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> Optional["InsightResult"]:
+    ...
+
+
+def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> Optional["InsightResult"]:
     from posthog.api.services.query import process_query
     from posthog.caching.fetch_from_cache import InsightResult
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk)
 
-    response = process_query(insight.team, insight.query, refresh_requested=refresh_requested)
+    response = process_query(
+        insight.team,
+        insight.query,
+        recalculation_mode=RecalculationMode.REQUEST if refresh_requested else RecalculationMode.NEVER,
+    )
+
+    if not response:
+        return None
 
     return InsightResult(
         # Only `results` is guaranteed even for non-insight queries, such as `EventsQueryResponse`

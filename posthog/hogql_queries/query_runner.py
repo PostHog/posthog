@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast, TypeGuard
+from enum import Enum, auto
+from typing import Any, Generic, List, Literal, Optional, Type, Dict, TypeVar, Union, Tuple, cast, TypeGuard, overload
 
 from django.conf import settings
 from django.core.cache import cache
@@ -55,6 +56,15 @@ QUERY_CACHE_HIT_COUNTER = Counter(
 )
 
 DataT = TypeVar("DataT")
+
+
+class RecalculationMode(Enum):
+    REQUEST = auto()
+    """Always recalculate, except if a VERY recent result is present in cache."""
+    IF_STALE = auto()
+    """Use cache, unless the results are stale or missing."""
+    NEVER = auto()
+    """Only use cache."""
 
 
 class QueryResponse(BaseModel, Generic[DataT]):
@@ -300,11 +310,21 @@ class QueryRunner(ABC):
         # Due to the way schema.py is generated, we don't have a good inheritance story here.
         raise NotImplementedError()
 
-    def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
+    @overload
+    def run(self, recalculation_mode: RecalculationMode.NEVER) -> Optional[CachedQueryResponse]:
+        ...
+
+    @overload
+    def run(
+        self, recalculation_mode: Literal[RecalculationMode.REQUEST, RecalculationMode.IF_STALE]
+    ) -> CachedQueryResponse:
+        ...
+
+    def run(self, recalculation_mode: RecalculationMode) -> Optional[CachedQueryResponse]:
         cache_key = f"{self._cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
 
-        if not refresh_requested:
+        if recalculation_mode != RecalculationMode.REQUEST:
             cached_response = get_safe_cache(cache_key)
             if cached_response:
                 if not self._is_stale(cached_response):
@@ -315,6 +335,8 @@ class QueryRunner(ABC):
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
+            if recalculation_mode == RecalculationMode.NEVER:
+                return None
 
         fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
         fresh_response_dict["is_cached"] = False
