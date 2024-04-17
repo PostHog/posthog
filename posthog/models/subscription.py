@@ -125,7 +125,7 @@ class Subscription(models.Model):
 
     def set_next_delivery_date(self, from_dt=None):
         # We never want next_delivery_date to be in the past
-        now = timezone.now()
+        now = timezone.now() + timedelta(minutes=15)  # Buffer of 15 minutes since we might run a bit early
         self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
 
     def save(self, *args, **kwargs) -> None:
