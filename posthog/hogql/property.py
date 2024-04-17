@@ -159,6 +159,10 @@ def property_to_expr(
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "data_warehouse":
             chain = []
+        elif property.type == "session" and scope == "event":
+            chain = ["session"]
+        elif property.type == "session" and scope == "session":
+            chain = ["sessions"]
         else:
             chain = ["properties"]
 
