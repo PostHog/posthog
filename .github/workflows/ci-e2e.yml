@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
     changes:
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run E2E checks
@@ -55,11 +55,10 @@ jobs:
     chunks:
         needs: changes
         name: Cypress preparation
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         outputs:
             chunks: ${{ steps.chunk.outputs.chunks }}
-
         steps:
             - name: Check out
               uses: actions/checkout@v3
@@ -70,7 +69,7 @@ jobs:
 
     container:
         name: Build and cache container image
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 60
         needs: [changes]
         permissions:
@@ -94,7 +93,7 @@ jobs:
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 60
         needs: [chunks, changes, container]
         permissions:
@@ -279,7 +278,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         needs: [cypress]
         if: needs.changes.outputs.shouldTriggerCypress == 'true'
         steps:
