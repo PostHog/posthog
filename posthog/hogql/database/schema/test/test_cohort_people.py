@@ -21,7 +21,7 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
         )
         Person.objects.create(
             team_id=self.team.pk,
-            distinct_ids=["2"],
+            distinct_ids=["3"],
             properties={"$some_prop": "not something", "$another_prop": "something3"},
         )
         cohort1 = Cohort.objects.create(
