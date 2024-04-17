@@ -341,6 +341,8 @@ export const supportLogic = kea<supportLogicType>([
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
+            } else if (window.location.href.includes('/billing')) {
+                area = 'billing'
             }
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({

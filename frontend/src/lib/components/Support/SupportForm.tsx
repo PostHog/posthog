@@ -19,6 +19,8 @@ import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { AvailableFeature } from '~/types'
+
 import {
     SEVERITY_LEVEL_TO_NAME,
     SUPPORT_TICKET_TEMPLATES,
@@ -56,7 +58,7 @@ export function SupportForm(): JSX.Element | null {
     const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
-    const { user } = useValues(userLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
     // only allow authentication issues for logged out users
 
     const dropRef = useRef<HTMLDivElement>(null)
@@ -129,6 +131,8 @@ export function SupportForm(): JSX.Element | null {
                     disabledReason={
                         !user
                             ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
+                            : !hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
+                            ? 'You can only create billing related issues while viewing the billing page.'
                             : null
                     }
                     fullWidth

@@ -214,7 +214,8 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
+                            {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ||
+                            window.location.href.includes('/billing') ? (
                                 <>
                                     <Section title="Contact us">
                                         <p>Can't find what you need in the docs?</p>
@@ -309,7 +310,10 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </ul>
                             </Section>
 
-                            {!hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ? (
+                            {!(
+                                hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ||
+                                window.location.href.includes('/billing')
+                            ) ? (
                                 <Section title="Contact support">
                                     <p>
                                         Due to our large userbase, we're unable to offer email support to organizations
