@@ -391,9 +391,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     try:
                         trigger_external_data_workflow(schema)
                     except temporalio.service.RPCError as e:
-                        # schedule doesn't exist
+                        # if schema schedule doesn't exist
                         if e.message == "sql: no rows in result set":
                             sync_external_data_job_workflow(schema, create=True)
+
+            # source schedule doesn't exist
+            if e.message == "sql: no rows in result set":
+                sync_external_data_job_workflow(instance, create=True)
 
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
