@@ -1,7 +1,7 @@
-import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from 'types'
 import { URL } from 'url'
-import { castTimestampOrNow } from 'utils/utils'
 
+import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
+import { castTimestampOrNow } from '../../../utils/utils'
 import { EventPipelineRunner } from './runner'
 
 // This represents the scale factor for the heatmap data. Essentially how much we are reducing the resolution by.
