@@ -517,7 +517,6 @@ def get_teams_with_recording_count_in_period(
             FROM session_replay_events
             WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
             GROUP BY session_id
-            -- exclude mobile recordings here
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
         )
         WHERE session_id NOT IN (
@@ -551,7 +550,6 @@ def get_teams_with_recording_count_total(snapshot_source: Literal["mobile", "web
             SELECT any(team_id) as team_id, session_id
             FROM session_replay_events
             GROUP BY session_id
-            -- exclude mobile recordings here
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
         )
         GROUP BY team_id
