@@ -162,7 +162,7 @@ runs:
                   || 'hogvm posthog'
               }} -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 \
+                  --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
               if [ $? -ne 0 ]
                 then
@@ -180,7 +180,7 @@ runs:
           run: | # async_migrations covered in ci-async-migrations.yml
               pytest ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 \
+                  --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
               if [ $? -ne 0 ]
                 then
@@ -210,6 +210,13 @@ runs:
                   echo 'actual_test_failure=false' >> $GITHUB_ENV
                 fi
 
+        # Post tests
+        - name: Upload updated timing data as artifacts
+          uses: actions/upload-artifact@v4
+          if: ${{ inputs.person-on-events != 'true'}}
+          with:
+              name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
+              path: .test_durations
         - name: Show docker compose logs on failure
           if: failure() && (env.actual_test_failure == 'false' || env.actual_test_failure == 'not_set')
           shell: bash
