@@ -406,12 +406,14 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
 
     if batch_export_run.status in (BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE):
         logger.error("Batch export failed with error: %s", batch_export_run.latest_error)
-        from posthog.tasks.email import send_batch_export_run_failure
 
-        try:
-            await send_batch_export_run_failure(inputs.id)
-        except Exception:
-            logger.exception("Failure email notification could not be sent")
+        if batch_export_run.status == BatchExportRun.Status.FAILED:
+            from posthog.tasks.email import send_batch_export_run_failure
+
+            try:
+                await send_batch_export_run_failure(inputs.id)
+            except Exception:
+                logger.exception("Failure email notification could not be sent")
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
         logger.warning("BatchExport was cancelled.")
