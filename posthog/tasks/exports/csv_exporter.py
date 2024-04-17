@@ -241,6 +241,8 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
 
 def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any, None, None]:
     query = resource.get("source")
+    assert query is not None
+
     while True:
         try:
             query_response = process_query(
