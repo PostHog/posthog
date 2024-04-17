@@ -20,6 +20,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="externaldataschema",
             name="status",
-            field=models.CharField(max_length=400, null=True),
+            field=models.CharField(max_length=400, null=True, blank=True),
         ),
     ]
