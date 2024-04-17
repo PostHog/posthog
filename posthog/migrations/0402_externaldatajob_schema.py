@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0400_datawarehousetable_row_count"),
+        ("posthog", "0401_experiment_exposure_cohort"),
     ]
 
     operations = [

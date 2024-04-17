@@ -4,11 +4,9 @@
   
   SELECT cohort_people__new_person.id AS id 
   FROM (
-  SELECT cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id, cohortpeople.person_id AS cohort_people___person_id 
+  SELECT DISTINCT cohortpeople.person_id AS cohort_people___person_id, cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id 
   FROM cohortpeople 
-  WHERE equals(cohortpeople.team_id, 420) 
-  GROUP BY person_id, cohort_id, cohort_people___person_id 
-  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS cohort_people LEFT JOIN (
+  WHERE and(equals(cohortpeople.team_id, 420), false)) AS cohort_people LEFT JOIN (
   SELECT persons.id AS id, id AS cohort_people__new_person___id 
   FROM (
   SELECT person.id AS id 
@@ -42,11 +40,9 @@
   
   SELECT cohort_people__new_person.id AS id 
   FROM (
-  SELECT cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id, cohortpeople.person_id AS cohort_people___person_id 
+  SELECT DISTINCT cohortpeople.person_id AS cohort_people___person_id, cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id 
   FROM cohortpeople 
-  WHERE equals(cohortpeople.team_id, 420) 
-  GROUP BY person_id, cohort_id, cohort_people___person_id 
-  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS cohort_people LEFT JOIN (
+  WHERE and(equals(cohortpeople.team_id, 420), false)) AS cohort_people LEFT JOIN (
   SELECT persons.id AS id, persons.properties___email AS cohort_people__new_person___properties___email 
   FROM (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, person.id AS id 
