@@ -321,8 +321,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         might_have_realtime = True
         newest_timestamp = None
 
-        use_v3_storage = request.GET.get("version", None) == "3"
-
         event_properties = {
             "team_id": self.team.pk,
             "request_source": source,
@@ -362,13 +360,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     might_have_realtime = False
             else:
                 blob_prefix = recording.build_blob_ingestion_storage_path()
-
-                if use_v3_storage and settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER:
-                    blob_prefix = blob_prefix.replace(
-                        settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER,
-                        settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER,
-                    )
-
                 blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
@@ -414,19 +405,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response_data["sources"] = sources
 
         elif source == "realtime":
-            if request.GET.get("version", None) == "3" and settings.RECORDINGS_INGESTER_URL:
-                with requests.get(
-                    url=f"{settings.RECORDINGS_INGESTER_URL}/api/projects/{self.team.pk}/session_recordings/{str(recording.session_id)}/snapshots",
-                    stream=True,
-                ) as r:
-                    if r.status_code == 404:
-                        return Response({"snapshots": []})
-
-                    response = HttpResponse(content=r.raw, content_type="application/json")
-                    response["Content-Disposition"] = "inline"
-                    return response
-            else:
-                snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
+            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
 
             event_properties["source"] = "realtime"
             event_properties["snapshots_length"] = len(snapshots)
@@ -451,9 +430,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     file_key = convert_original_version_lts_recording(recording)
             else:
                 blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-                if use_v3_storage and settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER:
-                    blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER
-
                 file_key = f"{blob_prefix}/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:

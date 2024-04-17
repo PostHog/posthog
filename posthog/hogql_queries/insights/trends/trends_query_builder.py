@@ -1,5 +1,6 @@
 from typing import List, Optional, cast
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
@@ -33,6 +34,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     series: EventsNode | ActionsNode | DataWarehouseNode
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
+    limit_context: LimitContext
 
     def __init__(
         self,
@@ -42,6 +44,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         series: EventsNode | ActionsNode | DataWarehouseNode,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
+        limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.query = trends_query
         self.team = team
@@ -49,6 +52,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.series = series
         self.timings = timings
         self.modifiers = modifiers
+        self.limit_context = limit_context
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         breakdown = self._breakdown(is_actors_query=False)
@@ -605,6 +609,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 breakdown_values_override=breakdown_values_override,
             ),
             breakdown_values_override=[breakdown_values_override] if breakdown_values_override is not None else None,
+            limit_context=self.limit_context,
         )
 
     @cached_property

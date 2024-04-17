@@ -20,8 +20,6 @@ from posthog.constants import (
     BREAKDOWN_NORMALIZE_URL,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
-    BREAKDOWN_VALUES_LIMIT,
-    BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES,
     BREAKDOWNS,
     CLIENT_QUERY_ID,
     COMPARE,
@@ -51,6 +49,7 @@ from posthog.constants import (
     BreakdownAttributionType,
     BREAKDOWN_HIDE_OTHER_AGGREGATION,
 )
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import (

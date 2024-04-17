@@ -282,7 +282,10 @@ export function PageHeaderCustom(): JSX.Element {
         setEditExperiment,
         loadExperimentResults,
         loadSecondaryMetricResults,
+        createExposureCohort,
     } = useActions(experimentLogic)
+
+    const exposureCohortId = experiment?.exposure_cohort
 
     return (
         <PageHeader
@@ -304,6 +307,15 @@ export function PageHeaderCustom(): JSX.Element {
                                 <More
                                     overlay={
                                         <>
+                                            <LemonButton
+                                                onClick={() => (exposureCohortId ? undefined : createExposureCohort())}
+                                                fullWidth
+                                                data-attr={`${exposureCohortId ? 'view' : 'create'}-exposure-cohort`}
+                                                to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
+                                                targetBlank={!!exposureCohortId}
+                                            >
+                                                {exposureCohortId ? 'View' : 'Create'} exposure cohort
+                                            </LemonButton>
                                             <LemonButton
                                                 onClick={() => loadExperimentResults(true)}
                                                 fullWidth
