@@ -76,5 +76,6 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
         )
         # never calculated, version empty
         assert response.columns == ["person_id", "cohort_id", "$another_prop"]
+        assert response.results is not None
         assert len(response.results) == 0
         assert cohort1.version is None
