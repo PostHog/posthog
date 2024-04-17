@@ -622,7 +622,7 @@ class TestProperty(BaseTest):
             )
         self.assertEqual(
             str(e.exception),
-            "The 'event' property filter only works in 'event' scope, not in 'person' scope",
+            "The 'event' property filter does not work in 'person' scope",
         )
 
     def test_entity_to_expr_actions_type_with_id(self):
