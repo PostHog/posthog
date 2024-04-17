@@ -151,6 +151,7 @@ services:
         volumes:
             - /var/lib/elasticsearch/data
     temporal:
+        restart: on-failure
         environment:
             - DB=postgresql
             - DB_PORT=5432
