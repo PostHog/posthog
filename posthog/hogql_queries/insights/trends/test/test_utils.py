@@ -13,12 +13,14 @@ def test_properties_chain_person():
 
 def test_properties_chain_session():
     p1 = get_properties_chain(breakdown_type=BreakdownType.session, breakdown_field="anything", group_type_index=None)
-    assert p1 == ["session", "$session_duration"]
+    assert p1 == ["session", "anything"]
 
-    p2 = get_properties_chain(breakdown_type=BreakdownType.session, breakdown_field="", group_type_index=None)
-    assert p2 == ["session", "$session_duration"]
+    p2 = get_properties_chain(breakdown_type=BreakdownType.session, breakdown_field="anything", group_type_index=1)
+    assert p2 == ["session", "anything"]
 
-    p3 = get_properties_chain(breakdown_type=BreakdownType.session, breakdown_field="", group_type_index=1)
+    p3 = get_properties_chain(
+        breakdown_type=BreakdownType.session, breakdown_field="$session_duration", group_type_index=None
+    )
     assert p3 == ["session", "$session_duration"]
 
 
