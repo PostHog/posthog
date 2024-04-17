@@ -100,6 +100,7 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): NewSurvey {
         archived: false,
         targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
+        start_date: null,
     }
 }
 
@@ -191,6 +192,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     },
                 })
 
+                actions.reportSurveyCreated(createdSurvey)
                 return survey
             },
             launchSurvey: async () => {
