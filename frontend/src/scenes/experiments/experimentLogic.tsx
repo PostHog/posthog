@@ -20,6 +20,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -28,6 +29,7 @@ import { isFunnelsQuery } from '~/queries/utils'
 import {
     ActionFilter as ActionFilterType,
     Breadcrumb,
+    CohortType,
     CountPerActorMathType,
     Experiment,
     ExperimentResults,
@@ -109,6 +111,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentCompleted',
                 'reportExperimentArchived',
                 'reportExperimentReset',
+                'reportExperimentExposureCohortCreated',
             ],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
@@ -592,6 +595,19 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setCurrentFormStep(currentFormStep + 1)
             }
         },
+        createExposureCohortSuccess: ({ exposureCohort }) => {
+            if (exposureCohort && exposureCohort.id !== 'new') {
+                cohortsModel.actions.cohortCreated(exposureCohort)
+                actions.reportExperimentExposureCohortCreated(values.experiment, exposureCohort)
+                actions.setExperiment({ exposure_cohort: exposureCohort.id })
+                lemonToast.success('Exposure cohort created successfully', {
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(exposureCohort.id)),
+                    },
+                })
+            }
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -671,6 +687,17 @@ export const experimentLogic = kea<experimentLogicType>([
                             }
                         })
                     )
+                },
+            },
+        ],
+        exposureCohort: [
+            null as CohortType | null,
+            {
+                createExposureCohort: async () => {
+                    if (props.experimentId && props.experimentId !== 'new') {
+                        return (await api.experiments.createExposureCohort(props.experimentId)).cohort
+                    }
+                    return null
                 },
             },
         ],
@@ -773,6 +800,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experimentResults?.significant || false
             },
         ],
+        // TODO: remove with the old UI
         significanceBannerDetails: [
             (s) => [s.experimentResults],
             (experimentResults): string | ReactElement => {
@@ -806,6 +834,32 @@ export const experimentLogic = kea<experimentLogicType>([
                             .
                         </>
                     )
+                }
+
+                if (experimentResults?.significance_code === SignificanceCode.LowWinProbability) {
+                    return 'This is because the win probability of all test variants combined is less than 90%.'
+                }
+
+                if (experimentResults?.significance_code === SignificanceCode.NotEnoughExposure) {
+                    return 'This is because we need at least 100 people per variant to declare significance.'
+                }
+
+                return ''
+            },
+        ],
+        significanceDetails: [
+            (s) => [s.experimentResults],
+            (experimentResults): string => {
+                if (experimentResults?.significance_code === SignificanceCode.HighLoss) {
+                    return `This is because the expected loss in conversion is greater than 1% (current value is ${(
+                        (experimentResults?.expected_loss || 0) * 100
+                    )?.toFixed(2)}%).`
+                }
+
+                if (experimentResults?.significance_code === SignificanceCode.HighPValue) {
+                    return `This is because the p value is greater than 0.05 (current value is ${
+                        experimentResults?.p_value?.toFixed(3) || 1
+                    }).`
                 }
 
                 if (experimentResults?.significance_code === SignificanceCode.LowWinProbability) {

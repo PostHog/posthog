@@ -480,6 +480,10 @@ class ApiRequest {
         return this.experiments(teamId).addPathComponent(experimentId)
     }
 
+    public experimentCreateExposureCohort(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.experimentsDetail(experimentId, teamId).addPathComponent('create_exposure_cohort_for_experiment')
+    }
+
     // # Roles
     public roles(): ApiRequest {
         return this.organizations().current().addPathComponent('roles')
@@ -1308,6 +1312,9 @@ const api = {
     experiments: {
         async get(id: number): Promise<Experiment> {
             return new ApiRequest().experimentsDetail(id).get()
+        },
+        async createExposureCohort(id: number): Promise<{ cohort: CohortType }> {
+            return await new ApiRequest().experimentCreateExposureCohort(id).create()
         },
     },
 

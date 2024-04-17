@@ -286,12 +286,12 @@ describe('EventPipelineRunner', () => {
     })
 })
 
-describe('EventPipelineRunner $process_person=false', () => {
-    it('drops events that are not allowed when $process_person=false', async () => {
+describe('EventPipelineRunner $process_person_profile=false', () => {
+    it('drops events that are not allowed when $process_person_profile=false', async () => {
         for (const eventName of ['$identify', '$create_alias', '$merge_dangerously', '$groupidentify']) {
             const event = {
                 ...pipelineEvent,
-                properties: { $process_person: false },
+                properties: { $process_person_profile: false },
                 event: eventName,
                 team_id: 9,
             }
@@ -311,7 +311,7 @@ describe('EventPipelineRunner $process_person=false', () => {
                 JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].kafkaMessage.messages[0].value)
             ).toMatchObject({
                 team_id: 9,
-                type: 'invalid_event_when_process_person_is_false',
+                type: 'invalid_event_when_process_person_profile_is_false',
                 details: JSON.stringify({ eventUuid: 'uuid1', event: eventName, distinctId: 'my_id' }),
             })
         }

@@ -429,7 +429,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         ],
 
         scrollDepthPosthogJsError: [
-            () => [toolbarConfigLogic.selectors.posthog],
+            (s) => [s.posthog],
             (posthog): 'version' | 'disabled' | null => {
                 const posthogVersion = posthog?._calculate_event_properties('test', {})?.['$lib_version'] ?? '0.0.0'
                 const majorMinorVersion = posthogVersion.split('.')
@@ -608,7 +608,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         window.addEventListener('keyup', cache.keyUpListener)
 
         cache.scrollCheckTimer = setInterval(() => {
-            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
+            const scrollY = (values.posthog as any)?.scrollManager?.scrollY() ?? 0
             if (values.heatmapScrollY !== scrollY) {
                 actions.setHeatmapScrollY(scrollY)
             }

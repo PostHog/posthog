@@ -190,6 +190,7 @@ export function ExperimentExposureModal({ experimentId }: { experimentId: Experi
                     <MetricSelector
                         dashboardItemId={EXPERIMENT_EXPOSURE_INSIGHT_ID}
                         setPreviewInsight={setExperimentExposureInsight}
+                        forceTrendExposureMetric
                     />
                 </Field>
             </Form>
