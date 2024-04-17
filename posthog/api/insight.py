@@ -506,7 +506,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
-        representation["query"] = instance.dashboard_query(dashboard=dashboard)
+        representation["query"] = instance.get_effective_query(dashboard=dashboard)
 
         if "insight" not in representation["filters"] and not representation["query"]:
             representation["filters"]["insight"] = "TRENDS"
@@ -517,12 +517,15 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
     @lru_cache(maxsize=1)
     def insight_result(self, insight: Insight) -> InsightResult:
-        from posthog.caching.calculate_results import calculate_for_query_based_insight
+        dashboard = self.context.get("dashboard", None)
+        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
 
         if insight.query:
+            from posthog.caching.calculate_results import calculate_for_query_based_insight
+
             try:
                 return calculate_for_query_based_insight(
-                    insight, refresh_requested=refresh_requested_by_client(self.context["request"])
+                    insight, dashboard=dashboard, refresh_requested=refresh_requested_by_client(self.context["request"])
                 )
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))
@@ -536,15 +539,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             insight.query = filter_to_query(insight.filters).model_dump()
             try:
                 return calculate_for_query_based_insight(
-                    insight, refresh_requested=refresh_requested_by_client(self.context["request"])
+                    insight, dashboard=dashboard, refresh_requested=refresh_requested_by_client(self.context["request"])
                 )
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))
             finally:
                 insight.query = None
-
-        dashboard = self.context.get("dashboard", None)
-        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
 
         is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(

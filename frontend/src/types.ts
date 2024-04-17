@@ -665,6 +665,7 @@ interface BasePropertyFilter {
 /** Sync with plugin-server/src/types.ts */
 export interface EventPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Event
+    /** @default 'exact' */
     operator: PropertyOperator
 }
 

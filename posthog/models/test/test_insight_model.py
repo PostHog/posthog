@@ -245,7 +245,7 @@ class TestInsightModel(BaseTest):
             )
             dashboard = Dashboard.objects.create(team=self.team, filters=dashboard_filters)
 
-            data = query_insight.dashboard_query(dashboard)
+            data = query_insight.get_effective_query(dashboard=dashboard)
             assert data
             actual = data["source"]["filters"]
             assert expected_filters == actual

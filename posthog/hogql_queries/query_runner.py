@@ -18,6 +18,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
+    DateRange,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
@@ -389,4 +390,20 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
-        raise NotImplementedError()
+        if "properties" in self.query.model_fields and "dateRange" in self.query.model_fields:
+            query_update = {}
+            if dashboard_filter.properties:
+                query_update["properties"] = (self.query.properties or []) + dashboard_filter.properties
+            if dashboard_filter.date_from or dashboard_filter.date_to:
+                date_range_update = {}
+                if dashboard_filter.date_from:
+                    date_range_update["date_from"] = dashboard_filter.date_from
+                if dashboard_filter.date_to:
+                    date_range_update["date_to"] = dashboard_filter.date_to
+                if self.query.dateRange:
+                    query_update["dateRange"] = self.query.dateRange.model_copy(update=date_range_update)
+                else:
+                    query_update["dateRange"] = DateRange(**date_range_update)
+            return self.query.model_copy(update=query_update)  # Shallow copy!
+
+        raise NotImplementedError(f"{self.query.__class__.__name__} does not support dashboard filters out of the box")

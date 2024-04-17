@@ -55,7 +55,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     insight = target if isinstance(target, Insight) else target.insight
     dashboard = target.dashboard if isinstance(target, DashboardTile) else None
 
-    if insight is None or (not insight.filters and insight.query is None):
+    if insight is None or not insight.filters:
         return None
 
     return generate_insight_cache_key(insight, dashboard)
@@ -107,15 +107,19 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 
-def calculate_for_query_based_insight(insight: Insight, *, refresh_requested: bool) -> "InsightResult":
+def calculate_for_query_based_insight(
+    insight: Insight, *, dashboard: Optional[Dashboard] = None, refresh_requested: bool
+) -> "InsightResult":
     from posthog.api.services.query import process_query
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk)
+    if dashboard:
+        tag_queries(dashboard_id=dashboard.pk)
 
     response = process_query(
         insight.team,
-        insight.query,
+        insight.get_effective_query(dashboard=dashboard),
         execution_mode=ExecutionMode.CALCULATION_REQUESTED if refresh_requested else ExecutionMode.CACHE_ONLY,
     )
 

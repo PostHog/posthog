@@ -1173,7 +1173,8 @@
                     "type": "string"
                 },
                 "operator": {
-                    "$ref": "#/definitions/PropertyOperator"
+                    "$ref": "#/definitions/PropertyOperator",
+                    "default": "exact"
                 },
                 "type": {
                     "const": "event",
