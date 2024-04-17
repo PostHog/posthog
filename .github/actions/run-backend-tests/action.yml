@@ -194,12 +194,4 @@ runs:
           if: failure() && (steps.run-foss-tests.outcome != 'failure' || steps.run-ee-tests.outcome != 'failure' || steps.run-decide-read-replica-tests.outcome != 'failure')
           shell: bash
           run: |
-              echo "Test failure detected, showing docker compose logs."
-              echo "Env vars: ${{ toJson(env) }}"
               docker compose -f docker-compose.dev.yml logs
-        - name: Upload updated timing data as artifacts
-          uses: actions/upload-artifact@v4
-          if: ${{ inputs.person-on-events != 'true'}}
-          with:
-              name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
-              path: .test_durations
