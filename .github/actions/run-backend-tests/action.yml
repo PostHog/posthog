@@ -145,7 +145,6 @@ runs:
 
         # Tests
         - name: Run FOSS tests
-          id: run-foss-tests
           if: ${{ inputs.segment == 'FOSS' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
@@ -158,11 +157,10 @@ runs:
                   || 'hogvm posthog'
               }} -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
+                  --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
         - name: Run EE tests
-          id: run-ee-tests
           if: ${{ inputs.segment == 'EE' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
@@ -171,11 +169,10 @@ runs:
           run: | # async_migrations covered in ci-async-migrations.yml
               pytest ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
+                  --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
         - name: Run /decide read replica tests
-          id: run-decide-read-replica-tests
           if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
           env:
               POSTHOG_DB_NAME: posthog
@@ -189,9 +186,7 @@ runs:
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
-        # Post tests
         - name: Show docker compose logs on failure
-          if: failure() && (steps.run-foss-tests.outcome != 'failure' || steps.run-ee-tests.outcome != 'failure' || steps.run-decide-read-replica-tests.outcome != 'failure')
+          if: failure()
           shell: bash
-          run: |
-              docker compose -f docker-compose.dev.yml logs
+          run: docker compose -f docker-compose.dev.yml logs
