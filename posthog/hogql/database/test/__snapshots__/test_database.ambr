@@ -236,8 +236,9 @@
                   "$event_count_map",
                   "$pageview_count",
                   "$autocapture_count",
+                  "$channel_type",
                   "$session_duration",
-                  "$channel_type"
+                  "duration"
               ]
           }
       ],
@@ -662,12 +663,16 @@
               "type": "integer"
           },
           {
+              "key": "$channel_type",
+              "type": "string"
+          },
+          {
               "key": "$session_duration",
               "type": "integer"
           },
           {
-              "key": "$channel_type",
-              "type": "string"
+              "key": "duration",
+              "type": "integer"
           }
       ],
       "raw_session_replay_events": [
@@ -1213,8 +1218,9 @@
                   "$event_count_map",
                   "$pageview_count",
                   "$autocapture_count",
+                  "$channel_type",
                   "$session_duration",
-                  "$channel_type"
+                  "duration"
               ]
           }
       ],
@@ -1639,12 +1645,16 @@
               "type": "integer"
           },
           {
+              "key": "$channel_type",
+              "type": "string"
+          },
+          {
               "key": "$session_duration",
               "type": "integer"
           },
           {
-              "key": "$channel_type",
-              "type": "string"
+              "key": "duration",
+              "type": "integer"
           }
       ],
       "raw_session_replay_events": [
