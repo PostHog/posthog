@@ -31,6 +31,7 @@ runs:
     steps:
         # Env var setup
         - name: Initialize actual_test_failure
+          shell: bash
           run: echo "actual_test_failure=not_set" >> $GITHUB_ENV
 
         # Pre-tests
