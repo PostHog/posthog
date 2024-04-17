@@ -361,7 +361,7 @@
           AND timestamp >= '2020-12-24 12:00:00'
           AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '')))
+            AND (has(['bla'], "mat_pp_email"))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
@@ -507,7 +507,7 @@
           AND timestamp >= '2020-12-24 12:00:00'
           AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '')))
+            AND (has(['bla'], "mat_pp_email"))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
@@ -665,10 +665,10 @@
                  (SELECT id
                   FROM person
                   WHERE team_id = 2
-                    AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))) )
+                    AND (has(['bla'], "pmat_email")) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+             AND (has(['bla'], argMax(person."pmat_email", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -1151,10 +1151,10 @@
                  (SELECT id
                   FROM person
                   WHERE team_id = 2
-                    AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))) )
+                    AND (has(['bla'], "pmat_email")) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+             AND (has(['bla'], argMax(person."pmat_email", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
