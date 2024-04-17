@@ -50,3 +50,31 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 2
         assert response.results[0][2] == "something1"
         assert response.results[1][2] == "something2"
+
+    def test_empty_version(self):
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "$another_prop": "something1"},
+        )
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {"key": "$some_prop", "value": "something", "type": "person"},
+                    ]
+                }
+            ],
+            name="cohort1",
+        )
+        response = execute_hogql_query(
+            parse_select(
+                "select *, person.properties.$another_prop from cohort_people order by person.properties.$another_prop"
+            ),
+            self.team,
+        )
+        # never calculated, version empty
+        assert response.columns == ["person_id", "cohort_id", "$another_prop"]
+        assert len(response.results) == 0
+        assert cohort1.version is None
