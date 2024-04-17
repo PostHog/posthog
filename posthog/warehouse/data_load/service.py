@@ -95,6 +95,11 @@ async def a_sync_external_data_job_workflow(
     return external_data_schema
 
 
+def trigger_external_data_source_workflow(external_data_source: ExternalDataSource):
+    temporal = sync_connect()
+    trigger_schedule(temporal, schedule_id=str(external_data_source.id))
+
+
 def trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(external_data_schema.id))

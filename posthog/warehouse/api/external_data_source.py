@@ -17,6 +17,7 @@ from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     delete_data_import_folder,
     is_any_external_data_job_paused,
+    trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
@@ -380,24 +381,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            trigger_external_data_workflow(instance)
+            trigger_external_data_source_workflow(instance)
 
-        except temporalio.service.RPCError as e:
+        except temporalio.service.RPCError:
             # if the source schedule has been removed - trigger the schema schedules
-            if e.message == "workflow execution already completed":
-                for schema in ExternalDataSchema.objects.filter(
-                    team_id=self.team_id, source_id=instance.id, should_sync=True
-                ).all():
-                    try:
-                        trigger_external_data_workflow(schema)
-                    except temporalio.service.RPCError as e:
-                        # if schema schedule doesn't exist
-                        if e.message == "sql: no rows in result set":
-                            sync_external_data_job_workflow(schema, create=True)
-
-            # source schedule doesn't exist
-            if e.message == "sql: no rows in result set":
-                sync_external_data_job_workflow(instance, create=True)
+            for schema in ExternalDataSchema.objects.filter(
+                team_id=self.team_id, source_id=instance.id, should_sync=True
+            ).all():
+                try:
+                    trigger_external_data_workflow(schema)
+                except Exception as e:
+                    logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)
 
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
