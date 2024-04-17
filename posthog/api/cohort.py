@@ -40,7 +40,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.client import sync_execute
 from posthog.constants import (
-    CSV_EXPORT_LIMIT,
     INSIGHT_FUNNELS,
     INSIGHT_LIFECYCLE,
     INSIGHT_PATHS,
@@ -50,6 +49,7 @@ from posthog.constants import (
     OFFSET,
     PropertyOperatorType,
 )
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User, Person
