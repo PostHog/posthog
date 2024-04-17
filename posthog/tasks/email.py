@@ -193,7 +193,7 @@ async def send_batch_export_run_failure(
     memberships = OrganizationMembership.objects.select_related("user", "organization").filter(
         organization_id=team.organization_id
     )
-    all_memberships = await sync_to_async(list)(memberships)
+    all_memberships: list[OrganizationMembership] = await sync_to_async(list)(memberships)  # type: ignore
     for membership in all_memberships:
         has_notification_settings_enabled = await sync_to_async(membership.user.notification_settings.get)(
             "batch_export_run_failure", True
