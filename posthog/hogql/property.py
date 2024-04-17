@@ -69,8 +69,10 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    scope: Literal["event", "person"] = "event",
+    scope: Literal["event", "person", "session"] = "event",
 ) -> ast.Expr:
+    if scope == "session":
+        raise NotImplementedError("session scope is not implemented yet")
     if isinstance(property, dict):
         try:
             property = Property(**property)
