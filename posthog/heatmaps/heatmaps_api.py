@@ -145,14 +145,12 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
 
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
-        doohickies = execute_hogql_query(
-            query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context
-        )
+        results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
 
         if is_scrolldepth_query:
-            return self._return_scroll_depth_response(doohickies)
+            return self._return_scroll_depth_response(results)
         else:
-            return self._return_heatmap_coordinates_response(doohickies)
+            return self._return_heatmap_coordinates_response(results)
 
     @staticmethod
     def _predicate_expressions(placeholders: Dict[str, Expr]) -> List[ast.Expr]:
