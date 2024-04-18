@@ -595,8 +595,12 @@ export class DB {
     public async fetchPerson(
         teamId: number,
         distinctId: string,
-        options: { forUpdate?: boolean } = {}
+        options: { forUpdate?: boolean; useReadReplica?: boolean } = {}
     ): Promise<InternalPerson | undefined> {
+        if (options.forUpdate && options.useReadReplica) {
+            throw new Error("can't enable both forUpdate and useReadReplica in db::fetchPerson")
+        }
+
         let queryString = `SELECT
                 posthog_person.id,
                 posthog_person.uuid,
@@ -621,7 +625,7 @@ export class DB {
         const values = [teamId, distinctId]
 
         const { rows } = await this.postgres.query<RawPerson>(
-            PostgresUse.COMMON_WRITE,
+            options.useReadReplica ? PostgresUse.COMMON_READ : PostgresUse.COMMON_WRITE,
             queryString,
             values,
             'fetchPerson'
@@ -641,10 +645,10 @@ export class DB {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: string[]
+        distinctIds?: string[],
+        version = 0
     ): Promise<InternalPerson> {
         distinctIds ||= []
-        const version = 0 // We're creating the person now!
 
         const { rows } = await this.postgres.query<RawPerson>(
             PostgresUse.COMMON_WRITE,
@@ -832,8 +836,8 @@ export class DB {
         return personDistinctIds.map((pdi) => pdi.distinct_id)
     }
 
-    public async addDistinctId(person: InternalPerson, distinctId: string): Promise<void> {
-        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
+    public async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<void> {
+        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version)
         if (kafkaMessages.length) {
             await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
         }
@@ -842,18 +846,18 @@ export class DB {
     public async addDistinctIdPooled(
         person: InternalPerson,
         distinctId: string,
+        version: number,
         tx?: TransactionClient
     ): Promise<ProducerRecord[]> {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
-            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, 0) RETURNING *',
-            [distinctId, person.id, person.team_id],
+            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
+            [distinctId, person.id, person.team_id, version],
             'addDistinctIdPooled'
         )
 
-        const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
-        const version = Number(versionStr || 0)
+        const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
         const messages = [
             {
                 topic: KAFKA_PERSON_DISTINCT_ID,

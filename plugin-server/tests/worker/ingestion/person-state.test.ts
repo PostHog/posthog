@@ -118,7 +118,12 @@ describe('PersonState.update()', () => {
         await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
 
-    function personState(event: Partial<PluginEvent>, customHub?: Hub, processPerson = true) {
+    function personState(
+        event: Partial<PluginEvent>,
+        customHub?: Hub,
+        processPerson = true,
+        lazyPersonCreation = false
+    ) {
         const fullEvent = {
             team_id: teamId,
             properties: {},
@@ -132,6 +137,7 @@ describe('PersonState.update()', () => {
             timestamp,
             processPerson,
             customHub ? customHub.db : hub.db,
+            lazyPersonCreation,
             overridesMode?.getWriter(customHub ?? hub)
         )
     }
@@ -142,6 +148,11 @@ describe('PersonState.update()', () => {
 
     async function fetchPersonsRows() {
         const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} ORDER BY _offset`
+        return (await hub.db.clickhouseQuery(query)).data
+    }
+
+    async function fetchOverridesForDistinctId(distinctId: string) {
+        const query = `SELECT * FROM person_distinct_id_overrides_mv FINAL WHERE team_id = ${teamId} AND distinct_id = '${distinctId}'`
         return (await hub.db.clickhouseQuery(query)).data
     }
 
@@ -182,6 +193,79 @@ describe('PersonState.update()', () => {
             expect(personPrimaryTeam.uuid).toEqual(uuidFromDistinctId(primaryTeamId, newUserDistinctId))
             expect(personOtherTeam.uuid).toEqual(uuidFromDistinctId(otherTeamId, newUserDistinctId))
             expect(personPrimaryTeam.uuid).not.toEqual(personOtherTeam.uuid)
+        })
+
+        it('returns an ephemeral user object when lazy creation is enabled and $process_person_profile=false', async () => {
+            const event_uuid = new UUIDT().toString()
+
+            const hubParam = undefined
+            const processPerson = false
+            const lazyPersonCreation = true
+            const fakePerson = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: newUserDistinctId,
+                    uuid: event_uuid,
+                    properties: { $set: { should_be_dropped: 100 } },
+                },
+                hubParam,
+                processPerson,
+                lazyPersonCreation
+            ).update()
+            await hub.db.kafkaProducer.flush()
+
+            expect(fakePerson).toEqual(
+                expect.objectContaining({
+                    team_id: teamId,
+                    uuid: newUserUuid, // deterministic even though no user rows were created
+                    properties: {}, // empty even though there was a $set attempted
+                    created_at: DateTime.utc(1970, 1, 1, 0, 0, 5), // fake person created_at
+                })
+            )
+
+            // verify there is no Postgres person
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(0)
+
+            // verify there are no Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(fakePerson as InternalPerson)
+            expect(distinctIds).toEqual(expect.arrayContaining([]))
+        })
+
+        it('merging with lazy person creation creates an override', async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
+
+            const hubParam = undefined
+            const processPerson = true
+            const lazyPersonCreation = true
+            await personState(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $anon_distinct_id: oldUserDistinctId,
+                    },
+                },
+                hubParam,
+                processPerson,
+                lazyPersonCreation
+            ).update()
+            await hub.db.kafkaProducer.flush()
+
+            await delayUntilEventIngested(() => fetchOverridesForDistinctId(newUserDistinctId))
+            const chOverrides = await fetchOverridesForDistinctId(newUserDistinctId)
+            expect(chOverrides.length).toEqual(1)
+
+            // Override created for Person that never existed in the DB
+            expect(chOverrides).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        distinct_id: newUserDistinctId,
+                        person_id: oldUserUuid,
+                        version: 1,
+                    }),
+                ])
+            )
         })
 
         it('creates person if they are new', async () => {
@@ -1097,7 +1181,7 @@ describe('PersonState.update()', () => {
                         uuidFromDistinctId(teamId, distinctId),
                         [distinctId]
                     )
-                    await hub.db.addDistinctId(person, distinctId) // this throws
+                    await hub.db.addDistinctId(person, distinctId, 0) // this throws
                 })
 
                 const person = await personState({
