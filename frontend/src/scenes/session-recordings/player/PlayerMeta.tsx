@@ -167,7 +167,7 @@ export function PlayerMeta(): JSX.Element {
             >
                 <div
                     className={clsx(
-                        'PlayerMeta__top flex items-center gap-2 shrink-0 p-2',
+                        'PlayerMeta__top flex items-center gap-1 shrink-0 p-2',
                         isFullScreen ? ' text-xs' : 'border-b'
                     )}
                 >
@@ -194,7 +194,6 @@ export function PlayerMeta(): JSX.Element {
                                         formatTime="h:mm A"
                                         showPopover={false}
                                     />
-                                    {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
                                 </div>
                             )}
                         </div>
@@ -211,7 +210,12 @@ export function PlayerMeta(): JSX.Element {
                         </div>
                     </div>
 
-                    {sessionRecordingId && <PlayerMetaLinks />}
+                    {sessionRecordingId && (
+                        <>
+                            <PlayerMetaLinks />
+                            {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
+                        </>
+                    )}
                 </div>
                 <div
                     className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
@@ -316,7 +320,7 @@ const MenuActions = (): JSX.Element => {
 
     return (
         <LemonMenu items={items}>
-            <LemonButton size="xsmall" icon={<IconEllipsis className="rotate-90" />} />
+            <LemonButton size="small" icon={<IconEllipsis />} />
         </LemonMenu>
     )
 }
