@@ -165,7 +165,7 @@ class ActionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "action"
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
+    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
     authentication_classes = [TemporaryTokenAuthentication]

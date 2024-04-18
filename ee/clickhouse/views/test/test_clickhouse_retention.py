@@ -592,7 +592,7 @@ class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
             ),
         )
 
-        chrome_cohort = [cohort for cohort in retention["result"] if cohort["label"] == "Chrome"][0]
+        chrome_cohort = next(cohort for cohort in retention["result"] if cohort["label"] == "Chrome")
         people_url = chrome_cohort["values"][0]["people_url"]
         people_response = self.client.get(people_url)
         assert people_response.status_code == 200

@@ -381,7 +381,7 @@ def _insight_filter(filter: Dict):
     else:
         raise Exception(f"Invalid insight type {filter.get('insight')}.")
 
-    if len(list(insight_filter.values())[0].model_dump(exclude_defaults=True)) == 0:
+    if len(next(iter(insight_filter.values())).model_dump(exclude_defaults=True)) == 0:
         return {}
 
     return insight_filter

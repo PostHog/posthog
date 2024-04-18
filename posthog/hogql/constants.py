@@ -25,7 +25,7 @@ ConstantSupportedData: TypeAlias = (
 KEYWORDS = ["true", "false", "null"]
 
 # Keywords you can't alias to
-RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
+RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100

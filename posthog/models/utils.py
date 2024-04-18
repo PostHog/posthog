@@ -122,7 +122,7 @@ class UUIDClassicModel(models.Model):
 
 def sane_repr(*attrs: str, include_id=True) -> Callable[[object], str]:
     if "id" not in attrs and "pk" not in attrs and include_id:
-        attrs = ("id",) + attrs
+        attrs = ("id", *attrs)
 
     def _repr(self):
         pairs = (f"{attr}={repr(getattr(self, attr))}" for attr in attrs)

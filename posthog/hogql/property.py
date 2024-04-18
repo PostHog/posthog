@@ -161,7 +161,7 @@ def property_to_expr(
             chain = ["properties"]
 
         properties_field = ast.Field(chain=chain)
-        field = ast.Field(chain=chain + [property.key])
+        field = ast.Field(chain=[*chain, property.key])
 
         if property.type == "session" and property.key == "$session_duration":
             field = ast.Field(chain=["session", "duration"])

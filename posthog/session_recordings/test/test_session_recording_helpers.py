@@ -280,7 +280,6 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                 "distinct_id": "abc123",
             },
         },
-    ] + [
         {
             "event": "$snapshot",
             "properties": {

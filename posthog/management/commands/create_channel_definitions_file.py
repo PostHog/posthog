@@ -62,8 +62,8 @@ class Command(BaseCommand):
         entries: OrderedDict[Tuple[str, str], SourceEntry] = OrderedDict(map(handle_entry, split_items))
 
         # add google domains to this, from https://www.google.com/supported_domains
-        for google_domain in (
-            ".google.com .google.ad .google.ae .google.com.af .google.com.ag .google.al .google.am .google.co.ao "
+        for google_domain in [
+            *".google.com .google.ad .google.ae .google.com.af .google.com.ag .google.al .google.am .google.co.ao "
             ".google.com.ar .google.as .google.at .google.com.au .google.az .google.ba .google.com.bd .google.be "
             ".google.bf .google.bg .google.com.bh .google.bi .google.bj .google.com.bn .google.com.bo "
             ".google.com.br .google.bs .google.bt .google.co.bw .google.by .google.com.bz .google.ca .google.cd "
@@ -87,8 +87,9 @@ class Command(BaseCommand):
             ".google.co.th .google.com.tj .google.tl .google.tm .google.tn .google.to .google.com.tr .google.tt "
             ".google.com.tw .google.co.tz .google.com.ua .google.co.ug .google.co.uk .google.com.uy .google.co.uz "
             ".google.com.vc .google.co.ve .google.co.vi .google.com.vn .google.vu .google.ws .google.rs "
-            ".google.co.za .google.co.zm .google.co.zw .google.cat"
-        ).split(" ") + ["google"]:
+            ".google.co.za .google.co.zm .google.co.zw .google.cat".split(" "),
+            "google",
+        ]:
             google_domain = google_domain.strip()
             if google_domain[0] == ".":
                 google_domain = google_domain[1:]

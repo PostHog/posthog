@@ -94,7 +94,7 @@ class AllowIPMiddleware:
                 client_ip = forwarded_for.pop(0)
                 if settings.TRUST_ALL_PROXIES:
                     return client_ip
-                proxies = [closest_proxy] + forwarded_for
+                proxies = [closest_proxy, *forwarded_for]
                 for proxy in proxies:
                     if proxy not in self.trusted_proxies:
                         return None

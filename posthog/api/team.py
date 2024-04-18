@@ -421,7 +421,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             IsAuthenticated,
             APIScopePermission,
             PremiumMultiProjectPermissions,
-        ] + self.permission_classes
+            *self.permission_classes,
+        ]
 
         base_permissions = [permission() for permission in common_permissions]
 

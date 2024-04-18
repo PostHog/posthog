@@ -55,21 +55,19 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         return [p for p in self.query.properties if p.key != "$pathname"]
 
     def session_where(self, include_previous_period: Optional[bool] = None):
-        properties = (
-            [
-                parse_expr(
-                    "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
-                    placeholders={
-                        "date_from": self.query_date_range.previous_period_date_from_as_hogql()
-                        if include_previous_period
-                        else self.query_date_range.date_from_as_hogql(),
-                        "date_to": self.query_date_range.date_to_as_hogql(),
-                    },
-                )
-            ]
-            + self.property_filters_without_pathname
-            + self._test_account_filters
-        )
+        properties = [
+            parse_expr(
+                "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
+                placeholders={
+                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
+                    if include_previous_period
+                    else self.query_date_range.date_from_as_hogql(),
+                    "date_to": self.query_date_range.date_to_as_hogql(),
+                },
+            ),
+            *self.property_filters_without_pathname,
+            *self._test_account_filters,
+        ]
         return property_to_expr(
             properties,
             self.team,

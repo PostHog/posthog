@@ -408,7 +408,7 @@ class PropertyType(Type):
     joined_subquery_field_name: Optional[str] = field(default=None, init=False)
 
     def get_child(self, name: str | int, context: HogQLContext) -> "Type":
-        return PropertyType(chain=self.chain + [name], field_type=self.field_type)
+        return PropertyType(chain=[*self.chain, name], field_type=self.field_type)
 
     def has_child(self, name: str | int, context: HogQLContext) -> bool:
         return True

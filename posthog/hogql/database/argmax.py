@@ -21,7 +21,7 @@ def argmax_select(
             fields_to_select.append(
                 ast.Alias(
                     alias=name,
-                    expr=argmax_version(ast.Field(chain=[table_name] + chain)),
+                    expr=argmax_version(ast.Field(chain=[table_name, *chain])),
                 )
             )
     for key in group_fields:

@@ -224,7 +224,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     scope_object = "person"
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
+    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
@@ -932,21 +932,11 @@ def prepare_actor_query_filter(filter: T) -> T:
     new_group = {
         "type": "OR",
         "values": [
-            {
-                "key": "email",
-                "type": "person",
-                "value": search,
-                "operator": "icontains",
-            },
+            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
             {"key": "name", "type": "person", "value": search, "operator": "icontains"},
-            {
-                "key": "distinct_id",
-                "type": "event",
-                "value": search,
-                "operator": "icontains",
-            },
-        ]
-        + group_properties_filter_group,
+            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
+            *group_properties_filter_group,
+        ],
     }
     prop_group = (
         {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}
