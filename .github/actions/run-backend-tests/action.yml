@@ -158,7 +158,7 @@ runs:
                   && './posthog/clickhouse/ ./posthog/hogql/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
                   || 'hogvm posthog'
               }} -m "not async_migrations" \
-                  --ignore=posthog/temporal
+                  --ignore=posthog/temporal \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
