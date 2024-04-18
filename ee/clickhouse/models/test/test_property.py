@@ -1119,10 +1119,12 @@ def test_parse_prop_clauses_defaults(snapshot):
 
 @pytest.mark.django_db
 def test_parse_prop_clauses_precalculated_cohort(snapshot):
+    Cohort.objects.filter(pk=42).delete()
     org = Organization.objects.create(name="other org")
 
     team = Team.objects.create(organization=org)
-    cohort = Cohort.objects.create(team=team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort")
+    # force pk for snapshot consistency
+    cohort = Cohort.objects.create(pk=42, team=team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort")
 
     filter = Filter(
         data={"properties": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}]},
