@@ -493,12 +493,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Session Properties',
                         searchPlaceholder: 'sessions',
                         type: TaxonomicFilterGroupType.Sessions,
-                        options: [
-                            {
-                                name: 'Session duration',
-                                value: '$session_duration',
-                            },
-                        ],
+                        options: featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
+                            ? undefined
+                            : [
+                                  {
+                                      id: '$session_duration',
+                                      name: '$session_duration',
+                                      property_type: 'Duration',
+                                      is_numerical: true,
+                                  },
+                              ],
                         getName: (option: any) => option.name,
                         getValue: (option) => option.name,
                         getPopoverHeader: () => 'Session',
