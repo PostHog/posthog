@@ -185,6 +185,7 @@ ORDER BY
             timings=response.timings,
             types=response.types,
             hogql=response.hogql,
+            modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
 

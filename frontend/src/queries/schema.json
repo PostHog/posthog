@@ -1765,6 +1765,9 @@
                 "limit": {
                     "type": "integer"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "offset": {
                     "type": "integer"
                 },
@@ -4505,6 +4508,9 @@
                         "limit": {
                             "type": "integer"
                         },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
+                        },
                         "offset": {
                             "type": "integer"
                         },
@@ -5675,6 +5681,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
@@ -5735,6 +5744,9 @@
                 "kind": {
                     "const": "WebOverviewQuery",
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
@@ -5843,6 +5855,9 @@
                 "limit": {
                     "type": "integer"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
@@ -5929,6 +5944,9 @@
                 "kind": {
                     "const": "WebTopClicksQuery",
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"

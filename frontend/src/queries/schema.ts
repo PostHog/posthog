@@ -997,6 +997,7 @@ export interface WebAnalyticsQueryBase {
         forceSamplingRate?: SamplingRate
     }
     useSessionsTable?: boolean
+    modifiers?: HogQLQueryModifiers
 }
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
@@ -1172,6 +1173,7 @@ export interface FunnelCorrelationResponse {
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    modifiers?: HogQLQueryModifiers
 }
 
 export enum FunnelCorrelationResultsType {

@@ -1223,6 +1223,7 @@ class FunnelCorrelationResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: Optional[int] = None
     results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
@@ -1564,6 +1565,7 @@ class QueryResponseAlternative17(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: Optional[int] = None
     results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
@@ -1696,6 +1698,7 @@ class WebAnalyticsQueryBase(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
@@ -1708,6 +1711,7 @@ class WebOverviewQuery(BaseModel):
     compare: Optional[bool] = None
     dateRange: Optional[DateRange] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -1725,6 +1729,7 @@ class WebStatsTableQuery(BaseModel):
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -1737,6 +1742,7 @@ class WebTopClicksQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
     sampling: Optional[Sampling] = None
