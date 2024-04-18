@@ -587,7 +587,7 @@
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token"
   FROM "posthog_sharingconfiguration"
-  WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
+  WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,  
                                                           2,
                                                           3,
                                                           4,
