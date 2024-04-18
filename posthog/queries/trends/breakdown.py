@@ -43,6 +43,7 @@ from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import TIME_IN_SECONDS, QueryDateRange
+from posthog.schema import PersonsOnEventsMode
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import (
     BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL,
@@ -76,11 +77,7 @@ from posthog.queries.util import (
     get_person_properties_mode,
     get_start_of_interval_sql,
 )
-from posthog.utils import (
-    PersonsOnEventsMode,
-    encode_get_request_params,
-    generate_short_id,
-)
+from posthog.utils import encode_get_request_params, generate_short_id
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"

@@ -38,16 +38,9 @@ from posthog.queries.trends.util import (
     parse_response,
     process_math,
 )
-from posthog.queries.util import (
-    TIME_IN_SECONDS,
-    get_interval_func_ch,
-    get_start_of_interval_sql,
-)
-from posthog.utils import (
-    PersonsOnEventsMode,
-    encode_get_request_params,
-    generate_short_id,
-)
+from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_start_of_interval_sql
+from posthog.schema import PersonsOnEventsMode
+from posthog.utils import encode_get_request_params, generate_short_id
 
 
 class TrendsTotalVolume:

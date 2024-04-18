@@ -13,11 +13,8 @@ from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.sql import LIFECYCLE_EVENTS_QUERY, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
 from posthog.queries.util import get_person_properties_mode
-from posthog.utils import (
-    PersonsOnEventsMode,
-    encode_get_request_params,
-    generate_short_id,
-)
+from posthog.schema import PersonsOnEventsMode
+from posthog.utils import encode_get_request_params, generate_short_id
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #
