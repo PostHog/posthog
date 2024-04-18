@@ -154,9 +154,13 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm install --frozen-lockfile
 
-            - name: Generate logic types and run typescript with strict
+            - name: Generate logic types
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm typegen:write && pnpm typescript:check
+              run: pnpm typegen:write
+
+            - name: Run typescript with strict
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm typescript:check
 
     jest:
         runs-on: ubuntu-latest
@@ -168,7 +172,7 @@ jobs:
             fail-fast: false
             matrix:
                 segment: ['FOSS', 'EE']
-                chunk: [1, 2, 3]
+                chunk: [1, 2]
 
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
