@@ -235,6 +235,21 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         )
         assert other_user_filtered_teams == [self.team]
 
+    def test_filters_project_queryset_based_on_acs_always_allows_org_admin(self):
+        team2 = Team.objects.create(organization=self.organization)
+        team3 = Team.objects.create(organization=self.organization)
+        # No default access
+        self._create_access_control(resource="project", resource_id=team2.id, access_level="none")
+        self._create_access_control(resource="project", resource_id=team3.id, access_level="none")
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        filtered_teams = list(
+            self.user_access_control.filter_queryset_by_access_level(Team.objects.all(), include_all_if_admin=True)
+        )
+        assert filtered_teams == [self.team, team2, team3]
+
 
 class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
     """

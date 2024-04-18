@@ -109,13 +109,21 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # Filter based on org or project
         queryset = self.filter_queryset_by_parents_lookups(queryset)
 
-        # TODO: Detect GET param to include hidden resources (for admins)
         if self.action != "list":
             # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
             # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
             return queryset
 
-        queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
+        include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
+
+        # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
+        if self.scope_object == "project":
+            include_all_if_admin = True
+
+        queryset = self.user_access_control.filter_queryset_by_access_level(
+            queryset, include_all_if_admin=include_all_if_admin
+        )
 
         return queryset
 

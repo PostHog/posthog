@@ -571,6 +571,13 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         me_response = self.client.get("/api/users/@me").json()
         assert len(me_response["organization"]["teams"]) == 2
 
+    def test_always_lists_all_projects_if_org_admin(self):
+        self._put_project_access_control(self.other_team.id, {"access_level": "none"})
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert len(self.client.get("/api/projects").json()["results"]) == 3
+        me_response = self.client.get("/api/users/@me").json()
+        assert len(me_response["organization"]["teams"]) == 3
+
     def test_template_render_filters_teams(self):
         app_context = self._get_posthog_app_context()
         assert len(app_context["current_user"]["organization"]["teams"]) == 3
