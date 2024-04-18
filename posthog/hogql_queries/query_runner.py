@@ -335,10 +335,12 @@ class QueryRunner(ABC):
                     return cached_response
                 else:
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
+                    if execution_mode == ExecutionMode.CACHE_ONLY:
+                        return cached_response
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
-            if execution_mode == ExecutionMode.CACHE_ONLY:
-                return CacheMissResponse(cache_key=cache_key)
+                if execution_mode == ExecutionMode.CACHE_ONLY:
+                    return CacheMissResponse(cache_key=cache_key)
 
         fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
         fresh_response_dict["is_cached"] = False
