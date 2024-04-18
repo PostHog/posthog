@@ -1,4 +1,3 @@
-import type h337 from 'heatmap.js'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
@@ -7,6 +6,7 @@ import { windowValues } from 'kea-window-values'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
 import { dateFilterToText } from 'lib/utils'
+import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -44,6 +44,17 @@ export type HeatmapFilters = {
     aggregation?: HeatmapRequestType['aggregation']
 }
 
+export type HeatmapJsDataPoint = {
+    x: number
+    y: number
+    value: number
+}
+
+export type HeatmapJsData = {
+    data: HeatmapJsDataPoint[]
+    max: number
+    min: number
+}
 export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'
 
 export const heatmapLogic = kea<heatmapLogicType>([
@@ -431,13 +442,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
-            (posthog): 'version' | 'disabled' | null => {
+            (posthog: PostHog): 'version' | 'disabled' | null => {
                 const posthogVersion = posthog?._calculate_event_properties('test', {})?.['$lib_version'] ?? '0.0.0'
                 const majorMinorVersion = posthogVersion.split('.')
                 const majorVersion = parseInt(majorMinorVersion[0], 10)
                 const minorVersion = parseInt(majorMinorVersion[1], 10)
 
-                if (!posthog?.scrollManager?.scrollY) {
+                if (!(posthog as any)?.scrollManager?.scrollY) {
                     return 'version'
                 }
 
@@ -452,12 +463,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
         heatmapJsData: [
             (s) => [s.heatmapElements, s.heatmapScrollY, s.windowWidth, s.heatmapFixedPositionMode],
-            (
-                heatmapElements,
-                heatmapScrollY,
-                windowWidth,
-                heatmapFixedPositionMode
-            ): h337.HeatmapData<h337.DataPoint<'value', 'x', 'y'>> => {
+            (heatmapElements, heatmapScrollY, windowWidth, heatmapFixedPositionMode): HeatmapJsData => {
                 // We want to account for all the fixed position elements, the scroll of the context and the browser width
                 const data = heatmapElements.reduce((acc, element) => {
                     if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
@@ -472,7 +478,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     const x = Math.round(element.xPercentage * windowWidth)
 
                     return [...acc, { x, y, value: element.count }]
-                }, [] as h337.DataPoint<'value', 'x', 'y'>[])
+                }, [] as HeatmapJsDataPoint[])
 
                 // Max is the highest value in the data set we have
                 const max = data.reduce((max, { value }) => Math.max(max, value), 0)
