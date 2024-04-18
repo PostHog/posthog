@@ -321,7 +321,7 @@ export function SecondaryMetricsTable({
                         <div className="flex flex-col items-center mx-auto space-y-3">
                             <IconAreaChart fontSize="30" />
                             <div className="text-sm text-center text-balance">
-                                Add up to 3 secondary metrics to gauge side effects of your experiment.
+                                Add up to 3 secondary metrics to monitor side effects of your experiment.
                             </div>
                             <LemonButton
                                 icon={<IconPlus />}

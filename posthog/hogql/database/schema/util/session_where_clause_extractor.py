@@ -239,6 +239,9 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_constant(self, node: ast.Constant) -> bool:
         return True
 
+    def visit_select_query(self, node: ast.SelectQuery) -> bool:
+        return False
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
 
@@ -304,6 +307,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     context: HogQLContext
 
     def visit_constant(self, node: ast.Constant) -> bool:
+        return False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> bool:
         return False
 
     def visit_field(self, node: ast.Field) -> bool:
