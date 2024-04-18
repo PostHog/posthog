@@ -47,7 +47,7 @@
             "protocol": "$NGINX_UNIT_PYTHON_PROTOCOL",
             "user": "nobody",
             "limits": {
-                "requests": 50000
+                "requests": 7500
             }
         },
         "metrics": {
