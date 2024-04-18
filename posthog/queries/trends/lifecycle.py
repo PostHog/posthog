@@ -14,7 +14,7 @@ from posthog.queries.trends.sql import LIFECYCLE_EVENTS_QUERY, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
 from posthog.queries.util import get_person_properties_mode
 from posthog.utils import (
-    PersonOnEventsMode,
+    PersonsOnEventsMode,
     encode_get_request_params,
     generate_short_id,
 )
@@ -128,12 +128,12 @@ class LifecycleEventQuery(EventQuery):
         self.params.update(entity_prop_params)
 
         created_at_clause = (
-            "person.created_at" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_created_at"
+            "person.created_at" if self._person_on_events_mode == PersonsOnEventsMode.DISABLED else "person_created_at"
         )
 
         null_person_filter = (
             ""
-            if self._person_on_events_mode == PersonOnEventsMode.DISABLED
+            if self._person_on_events_mode == PersonsOnEventsMode.DISABLED
             else f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
         )
 
@@ -189,8 +189,8 @@ class LifecycleEventQuery(EventQuery):
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = (
-            self._person_on_events_mode != PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            self._person_on_events_mode != PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
         )
 
     def _determine_should_join_persons(self) -> None:
-        self._should_join_persons = self._person_on_events_mode == PersonOnEventsMode.DISABLED
+        self._should_join_persons = self._person_on_events_mode == PersonsOnEventsMode.DISABLED

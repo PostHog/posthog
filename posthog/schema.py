@@ -422,10 +422,10 @@ class PersonsArgMaxVersion(str, Enum):
 
 
 class PersonsOnEventsMode(str, Enum):
-    disabled = "disabled"
-    person_id_no_override_properties_on_events = "person_id_no_override_properties_on_events"
-    person_id_override_properties_on_events = "person_id_override_properties_on_events"
-    person_id_override_properties_joined = "person_id_override_properties_joined"
+    DISABLED = "disabled"
+    PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_no_override_properties_on_events"
+    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_override_properties_on_events"
+    PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
 class HogQLQueryModifiers(BaseModel):

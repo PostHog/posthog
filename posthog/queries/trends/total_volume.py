@@ -44,7 +44,7 @@ from posthog.queries.util import (
     get_start_of_interval_sql,
 )
 from posthog.utils import (
-    PersonOnEventsMode,
+    PersonsOnEventsMode,
     encode_get_request_params,
     generate_short_id,
 )
@@ -59,9 +59,9 @@ class TrendsTotalVolume:
         interval_func = get_interval_func_ch(filter.interval)
 
         person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        if team.person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        if team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
-        elif team.person_on_events_mode == PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+        elif team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
 
         aggregate_operation, join_condition, math_params = process_math(
