@@ -129,21 +129,15 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer.is_valid(raise_exception=True)
 
         aggregation = request_serializer.validated_data.pop("aggregation")
-
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
-
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
+
         raw_query = SCROLL_DEPTH_QUERY if is_scrolldepth_query else DEFAULT_QUERY
 
-        aggregation_value = "count(*) as cnt" if aggregation == "total_count" else "count(distinct distinct_id) as cnt"
-        if is_scrolldepth_query:
-            aggregation_value = "count(*)" if aggregation == "total_count" else "count(distinct distinct_id)"
-        aggregation_count = parse_expr(aggregation_value)
-
+        aggregation_count = self._choose_aggregation(aggregation, is_scrolldepth_query)
         exprs = self._predicate_expressions(placeholders)
 
         stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
-
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
         results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
 
@@ -151,6 +145,13 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self._return_scroll_depth_response(results)
         else:
             return self._return_heatmap_coordinates_response(results)
+
+    def _choose_aggregation(self, aggregation, is_scrolldepth_query):
+        aggregation_value = "count(*) as cnt" if aggregation == "total_count" else "count(distinct distinct_id) as cnt"
+        if is_scrolldepth_query:
+            aggregation_value = "count(*)" if aggregation == "total_count" else "count(distinct distinct_id)"
+        aggregation_count = parse_expr(aggregation_value)
+        return aggregation_count
 
     @staticmethod
     def _predicate_expressions(placeholders: Dict[str, Expr]) -> List[ast.Expr]:
