@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -51,7 +51,7 @@
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -104,7 +104,7 @@
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -155,7 +155,7 @@
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -209,7 +209,7 @@
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -274,7 +274,7 @@
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -341,7 +341,7 @@
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -413,7 +413,7 @@
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
