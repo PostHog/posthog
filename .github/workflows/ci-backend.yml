@@ -244,7 +244,7 @@ jobs:
                 python-version: ['3.10.10']
                 clickhouse-server-image:
                     ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:23.12.5.81-alpine']
-                segment: ['FOSS']
+                segment: ['Core']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
                 concurrency: [10]
@@ -311,7 +311,7 @@ jobs:
 
             - name: Archive email renders
               uses: actions/upload-artifact@v3
-              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'FOSS' && matrix.person-on-events == false
+              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.person-on-events == false
               with:
                   name: email_renders
                   path: posthog/tasks/test/__emails__

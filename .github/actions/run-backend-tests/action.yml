@@ -12,7 +12,7 @@ inputs:
         description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
     segment:
         required: true
-        description: Either 'FOSS' or 'Temporal' segment
+        description: Either 'Core' or 'Temporal' segment
     concurrency:
         required: true
         description: Count of concurrency groups
@@ -145,9 +145,9 @@ runs:
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
         # Tests
-        - name: Run FOSS & EE tests
-          id: run-foss-tests
-          if: ${{ inputs.segment == 'FOSS' }}
+        - name: Run Core tests
+          id: run-core-tests
+          if: ${{ inputs.segment == 'Core' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
@@ -165,7 +165,7 @@ runs:
 
         - name: Run /decide read replica tests
           id: run-decide-read-replica-tests
-          if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
+          if: ${{ inputs.segment == 'Core' && inputs.group == 1 && inputs.person-on-events != 'true' }}
           env:
               POSTHOG_DB_NAME: posthog
               READ_REPLICA_OPT_IN: 'decide,PersonalAPIKey, local_evaluation'
@@ -190,7 +190,7 @@ runs:
 
         # Post tests
         - name: Show docker compose logs on failure
-          if: failure() && (steps.run-foss-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
+          if: failure() && (steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
           shell: bash
           run: docker compose -f docker-compose.dev.yml logs
 
