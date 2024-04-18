@@ -21,7 +21,7 @@ def create_default_modifiers_for_team(
         modifiers = modifiers.model_copy()
 
     if modifiers.personsOnEventsMode is None:
-        modifiers.personsOnEventsMode = team.person_on_events_mode or PersonsOnEventsMode.DISABLED
+        modifiers.personsOnEventsMode = team.person_on_events_mode or PersonsOnEventsMode.disabled
 
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.auto

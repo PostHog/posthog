@@ -728,7 +728,7 @@ class ClickhouseFunnelBase(ABC):
 
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
-            if self._team.person_on_events_mode != PersonsOnEventsMode.DISABLED:
+            if self._team.person_on_events_mode != PersonsOnEventsMode.disabled:
                 basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
                     self._filter.breakdown,
                     table="events",
@@ -758,7 +758,7 @@ class ClickhouseFunnelBase(ABC):
             # :TRICKY: We only support string breakdown for group properties
             assert isinstance(self._filter.breakdown, str)
 
-            if self._team.person_on_events_mode != PersonsOnEventsMode.DISABLED and groups_on_events_querying_enabled():
+            if self._team.person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
                 properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
                 expression, _ = get_property_string_expr(
                     table="events",

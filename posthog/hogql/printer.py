@@ -953,7 +953,7 @@ class _Printer(Visitor):
                 and type.name == "properties"
                 and type.table_type.field == "poe"
             ):
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -977,7 +977,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -1027,7 +1027,7 @@ class _Printer(Visitor):
                 or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
             ):
                 # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                     materialized_column = self._get_materialized_column(
                         "events", str(type.chain[0]), "person_properties"
                     )

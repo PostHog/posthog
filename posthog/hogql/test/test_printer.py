@@ -139,7 +139,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
-                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.disabled),
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
@@ -156,7 +156,7 @@ class TestPrinter(BaseTest):
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
                 modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                    personsOnEventsMode=PersonsOnEventsMode.person_id_no_override_properties_on_events
                 ),
             )
             self.assertEqual(

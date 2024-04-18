@@ -84,7 +84,7 @@ def get_breakdown_prop_values(
     sessions_join_params: Dict = {}
 
     null_person_filter = (
-        f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonsOnEventsMode.DISABLED else ""
+        f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonsOnEventsMode.disabled else ""
     )
 
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:

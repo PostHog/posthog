@@ -64,7 +64,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -120,9 +120,9 @@ class EventQuery(metaclass=ABCMeta):
         pass
 
     def _get_person_id_alias(self, person_on_events_mode) -> str:
-        if person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        if person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
             return f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
-        elif person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+        elif person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
             return f"{self.EVENT_TABLE_ALIAS}.person_id"
 
         return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
@@ -131,7 +131,7 @@ class EventQuery(metaclass=ABCMeta):
         if not self._should_join_distinct_ids:
             return ""
 
-        if self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
             return PERSON_OVERRIDES_JOIN_SQL.format(
                 person_overrides_table_alias=self.PERSON_ID_OVERRIDES_TABLE_ALIAS,
                 event_table_alias=self.EVENT_TABLE_ALIAS,

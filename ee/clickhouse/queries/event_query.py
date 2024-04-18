@@ -37,7 +37,7 @@ class EnterpriseEventQuery(EventQuery):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
         **kwargs,
     ) -> None:
         super().__init__(

@@ -145,7 +145,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
             else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
@@ -200,7 +200,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
             else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
@@ -225,7 +225,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
             else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
@@ -276,7 +276,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
             else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
@@ -297,7 +297,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonsOnEventsMode.DISABLED
+            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
             else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )

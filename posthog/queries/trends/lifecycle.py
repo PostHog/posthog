@@ -125,12 +125,12 @@ class LifecycleEventQuery(EventQuery):
         self.params.update(entity_prop_params)
 
         created_at_clause = (
-            "person.created_at" if self._person_on_events_mode == PersonsOnEventsMode.DISABLED else "person_created_at"
+            "person.created_at" if self._person_on_events_mode == PersonsOnEventsMode.disabled else "person_created_at"
         )
 
         null_person_filter = (
             ""
-            if self._person_on_events_mode == PersonsOnEventsMode.DISABLED
+            if self._person_on_events_mode == PersonsOnEventsMode.disabled
             else f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
         )
 
@@ -186,8 +186,8 @@ class LifecycleEventQuery(EventQuery):
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = (
-            self._person_on_events_mode != PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            self._person_on_events_mode != PersonsOnEventsMode.person_id_no_override_properties_on_events
         )
 
     def _determine_should_join_persons(self) -> None:
-        self._should_join_persons = self._person_on_events_mode == PersonsOnEventsMode.DISABLED
+        self._should_join_persons = self._person_on_events_mode == PersonsOnEventsMode.disabled
