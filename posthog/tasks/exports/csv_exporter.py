@@ -86,7 +86,10 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
             for row in results:
                 row_dict = {}
                 for idx, x in enumerate(row):
-                    row_dict[data["columns"][idx]] = x
+                    if not data.get("columns"):
+                        row_dict[f"column_{idx}"] = x
+                    else:
+                        row_dict[data["columns"][idx]] = x
                 yield row_dict
             return
 
