@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestResponsesCount.test_responses_count
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT JSONExtractString(properties, '$survey_id') as survey_id,
          count()
   FROM events

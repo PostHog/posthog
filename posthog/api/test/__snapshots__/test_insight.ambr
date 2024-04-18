@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestInsight.test_insight_funnels_hogql_breakdown
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT array(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
@@ -32,7 +32,7 @@
 # ---
 # name: TestInsight.test_insight_funnels_hogql_breakdown.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -120,7 +120,7 @@
 # ---
 # name: TestInsight.test_insight_funnels_hogql_global_filters
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -194,7 +194,7 @@
 # ---
 # name: TestInsight.test_insight_funnels_hogql_local_filters
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -270,7 +270,7 @@
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') AS value,
          count(*) as count
   FROM events e
@@ -286,7 +286,7 @@
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -331,7 +331,7 @@
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') AS value,
          count(*) as count
   FROM events e
@@ -347,7 +347,7 @@
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -392,7 +392,7 @@
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
@@ -418,7 +418,7 @@
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
@@ -467,7 +467,7 @@
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
@@ -493,7 +493,7 @@
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
@@ -542,7 +542,7 @@
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
@@ -591,7 +591,7 @@
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters_materialized
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM

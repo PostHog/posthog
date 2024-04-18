@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestPersonTrends.test_trends_people_endpoint_filters_search
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value ,
          groupUniqArray(100)((timestamp, uuid,
@@ -45,7 +45,7 @@
 # ---
 # name: TestPersonTrends.test_trends_people_endpoint_filters_search.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
@@ -56,7 +56,7 @@
 # ---
 # name: TestPersonTrends.test_trends_people_endpoint_filters_search.2
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value ,
          groupUniqArray(100)((timestamp, uuid,
@@ -110,7 +110,7 @@
 # ---
 # name: TestPersonTrends.test_trends_people_endpoint_filters_search.3
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
@@ -121,7 +121,7 @@
 # ---
 # name: TestPersonTrends.test_trends_people_endpoint_includes_recordings
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value ,
          groupUniqArray(100)((timestamp, uuid,
@@ -165,7 +165,7 @@
 # ---
 # name: TestPersonTrends.test_trends_people_endpoint_includes_recordings.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
