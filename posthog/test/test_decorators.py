@@ -4,7 +4,6 @@ import pytest
 from posthog.decorators import cached_by_filters, is_stale_filter
 
 from django.core.cache import cache
-from django.test import Client
 
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.response import Response
@@ -37,12 +36,7 @@ class TestCachedByFiltersDecorator(APIBaseTest):
         super().setUp()
 
     def test_returns_fresh_result(self) -> None:
-        router.register(r"dummy", DummyViewSet, "dummy")
-        self.client = Client()
-        self.client.force_login(self.user)
         response = self.client.get(f"/api/dummy").json()
-
-        print(response)  # noqa: T201
 
         assert response["result"] == "bla"
         assert response["is_cached"] is False
