@@ -6,6 +6,7 @@ import { windowValues } from 'kea-window-values'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
 import { dateFilterToText } from 'lib/utils'
+import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -441,13 +442,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
-            (posthog): 'version' | 'disabled' | null => {
+            (posthog: PostHog): 'version' | 'disabled' | null => {
                 const posthogVersion = posthog?._calculate_event_properties('test', {})?.['$lib_version'] ?? '0.0.0'
                 const majorMinorVersion = posthogVersion.split('.')
                 const majorVersion = parseInt(majorMinorVersion[0], 10)
                 const minorVersion = parseInt(majorMinorVersion[1], 10)
 
-                if (!posthog?.scrollManager?.scrollY) {
+                if (!(posthog as any)?.scrollManager?.scrollY) {
                     return 'version'
                 }
 
