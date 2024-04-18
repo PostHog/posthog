@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestBlastRadius.test_user_blast_radius
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT id
@@ -19,7 +19,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT id
@@ -31,7 +31,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT group_key,
@@ -46,7 +46,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT group_key)
   FROM groups
   WHERE team_id = 2
@@ -55,7 +55,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT group_key,
@@ -71,7 +71,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT group_key)
   FROM groups
   WHERE team_id = 2
@@ -120,7 +120,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.4
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT id
@@ -144,7 +144,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.5
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT id
@@ -165,7 +165,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT id
@@ -191,7 +191,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT id
@@ -243,7 +243,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.7
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT id
@@ -266,7 +266,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT id
@@ -286,7 +286,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT id
@@ -318,7 +318,7 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.4
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT count(1)
   FROM
     (SELECT id
@@ -1758,7 +1758,7 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.15
   '''
-  /* user_id:XXX celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
   WHERE team_id = 2
@@ -1767,7 +1767,7 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.16
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
   INNER JOIN

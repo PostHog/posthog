@@ -253,7 +253,7 @@
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
   FROM
@@ -1184,7 +1184,7 @@
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
   FROM
