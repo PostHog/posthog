@@ -109,6 +109,9 @@ class DashboardTile(models.Model):
             if has_no_filters_hash and self.insight.filters != {}:
                 self.filters_hash = generate_insight_cache_key(self.insight, self.dashboard)
 
+                if "update_fields" in kwargs:
+                    kwargs["update_fields"].append("filters_hash")
+
         super(DashboardTile, self).save(*args, **kwargs)
 
     def copy_to_dashboard(self, dashboard: Dashboard) -> None:

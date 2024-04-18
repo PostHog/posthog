@@ -131,7 +131,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -140,10 +140,15 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
         )
         self.assertEqual(response.status_code, 201, response.content)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
-            assert len(response.json()["results"]) == 2
+            assert len(response.json()["results"]) == 3
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):

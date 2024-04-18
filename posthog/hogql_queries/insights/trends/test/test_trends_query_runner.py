@@ -601,6 +601,49 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
 
+    def test_formula_with_multi_cohort_all_breakdown(self):
+        self._create_test_events()
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="A+B"),
+            BreakdownFilter(breakdown_type=BreakdownType.cohort, breakdown=[cohort1.pk, "all"]),
+        )
+
+        print(response)  # noqa: T201
+        assert len(response.results) == 2
+
+        assert response.results[0]["label"] == "Formula (A+B)"
+        assert response.results[0]["breakdown_value"] == "all"
+        assert response.results[0]["count"] == 16
+
+        assert response.results[1]["label"] == "Formula (A+B)"
+        assert response.results[1]["breakdown_value"] == cohort1.pk
+        assert response.results[1]["count"] == 9
+        assert response.results[1]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+
+        # action needs to be unset to display custom label
+        assert response.results[0]["action"] is None
+
     def test_formula_with_breakdown_and_no_data(self):
         self._create_test_events()
 
@@ -1289,6 +1332,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.event, breakdown_limit=10),
         )
         self.assertEqual(len(response.results), 11)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ActionsLineGraph),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.event),
+            limit_context=LimitContext.EXPORT,
+        )
+        self.assertEqual(len(response.results), 30)
 
     def test_breakdown_values_unknown_property(self):
         # same as above test, just without creating the property definition

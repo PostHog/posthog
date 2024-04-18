@@ -26,8 +26,8 @@ from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
     UnexpectedEmptyJsonResponse,
     add_query_params,
-    CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL,
 )
+from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from posthog.utils import absolute_uri
 

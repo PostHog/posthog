@@ -143,7 +143,7 @@ class ExportedAssetViewSet(
         return queryset
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["export:read"])
     def content(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.get_object()
         return get_content_response(instance, request.query_params.get("download") == "true")

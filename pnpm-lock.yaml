@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -254,8 +254,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.121.4
-    version: 1.121.4
+    specifier: 1.128.1
+    version: 1.128.1
   posthog-js-lite:
     specifier: 2.5.0
     version: 2.5.0
@@ -350,7 +350,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.2
+    version: 2.3.3
 
 devDependencies:
   '@babel/core':
@@ -6799,7 +6799,7 @@ packages:
       '@storybook/csf': 0.1.4
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.17
-      '@types/qs': 6.9.14
+      '@types/qs': 6.9.15
       dequal: 2.0.3
       lodash: 4.17.21
       memoizerific: 1.11.3
@@ -8203,8 +8203,8 @@ packages:
     resolution: {integrity: sha512-bZcOkJ6uWrL0Qb2NAWKa7TBU+mJHPzhx9jjLL1KHF+XpzEcR7EXHvjbHlGtR/IsP1vyPrehuS6XqkmaePy//mg==}
     dev: false
 
-  /@types/qs@6.9.14:
-    resolution: {integrity: sha512-5khscbd3SwWMhFqylJBLQ0zIu7c1K6Vz0uBIt915BI3zV0q1nfjRQD3RqSBcPaO6PHEF4ov/t9y89fSiyThlPA==}
+  /@types/qs@6.9.15:
+    resolution: {integrity: sha512-uXHQKES6DQKKCLh441Xv/dwxOq1TVS3JPUMlEqoEglvlhR6Mxnlew/Xq/LRVHpLyk7iK3zODe1qYHIMltO7XGg==}
     dev: true
 
   /@types/query-selector-shadow-dom@1.0.0:
@@ -12825,6 +12825,7 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
+    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -17456,8 +17457,8 @@ packages:
     resolution: {integrity: sha512-Urvlp0Vu9h3td0BVFWt0QXFJDoOZcaAD83XM9d91NKMKTVPZtfU0ysoxstIf5mw/ce9ZfuMgpWPaagrZI4rmSg==}
     dev: false
 
-  /posthog-js@1.121.4:
-    resolution: {integrity: sha512-6VdLeDqV/ptcWOefKumRvB2iWWgmJnK8VHafPo9Uta9dE++LkO0fghoAlrYvxjPmJEi3kXR4Asst0DxZVUFgjg==}
+  /posthog-js@1.128.1:
+    resolution: {integrity: sha512-+CIiZf+ijhgAF8g6K+PfaDbSBiADfRaXzrlYKmu5IEN8ghunFd06EV5QM68cwLUEkti4FXn7AAM3k9/KxJgvcA==}
     dependencies:
       fflate: 0.4.8
       preact: 10.20.2

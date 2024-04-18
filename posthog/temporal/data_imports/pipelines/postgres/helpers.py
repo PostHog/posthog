@@ -117,8 +117,8 @@ class SqlDatabaseTableConfiguration(BaseConfiguration):
 class SqlTableResourceConfiguration(BaseConfiguration):
     credentials: ConnectionStringCredentials
     table: str
-    incremental: Optional[dlt.sources.incremental] = None
     schema: Optional[str]
+    incremental: Optional[dlt.sources.incremental] = None
 
 
 __source_name__ = "sql_database"

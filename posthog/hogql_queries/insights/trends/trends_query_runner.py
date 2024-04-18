@@ -1,4 +1,5 @@
 import copy
+from natsort import natsorted, ns
 from typing import Union
 from copy import deepcopy
 from datetime import timedelta
@@ -130,6 +131,7 @@ class TrendsQueryRunner(QueryRunner):
                     series=series.series,
                     timings=self.timings,
                     modifiers=self.modifiers,
+                    limit_context=self.limit_context,
                 )
                 query = query_builder.build_query()
 
@@ -174,6 +176,7 @@ class TrendsQueryRunner(QueryRunner):
                 series=series,
                 timings=self.timings,
                 modifiers=self.modifiers,
+                limit_context=self.limit_context,
             )
 
             query = query_builder.build_actors_query(time_frame=time_frame, breakdown_filter=str(breakdown_value))
@@ -223,6 +226,7 @@ class TrendsQueryRunner(QueryRunner):
                 series=series,
                 timings=self.timings,
                 modifiers=self.modifiers,
+                limit_context=self.limit_context,
             )
 
             breakdown = query_builder._breakdown(is_actors_query=False)
@@ -645,7 +649,12 @@ class TrendsQueryRunner(QueryRunner):
         # we need to apply the formula to a group of results when we have a breakdown or the compare option is enabled
         if has_compare or has_breakdown:
             keys = [*(["compare_label"] if has_compare else []), *(["breakdown_value"] if has_breakdown else [])]
-            sorted_results = sorted(results, key=itemgetter(*keys))
+            try:
+                sorted_results = natsorted(
+                    results, key=lambda x: tuple(str(itemgetter(k)(x)) for k in keys), alg=ns.IGNORECASE
+                )
+            except Exception:
+                sorted_results = results
 
             computed_results = []
             for _key, group in groupby(sorted_results, key=itemgetter(*keys)):

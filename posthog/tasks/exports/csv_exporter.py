@@ -21,11 +21,9 @@ from ..exporter import (
     EXPORT_SUCCEEDED_COUNTER,
     EXPORT_TIMER,
 )
-from ...constants import CSV_EXPORT_LIMIT
+from ...exceptions import QuerySizeExceeded
+from ...hogql.constants import CSV_EXPORT_LIMIT, CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW
 from ...hogql.query import LimitContext
-
-CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
-CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
 
 logger = structlog.get_logger(__name__)
 
@@ -241,6 +239,28 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         next_url = data.get("next")
 
 
+def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any, None, None]:
+    query = resource.get("source")
+    assert query is not None
+
+    while True:
+        try:
+            query_response = process_query(
+                team=exported_asset.team, query_json=query, limit_context=LimitContext.EXPORT
+            )
+        except QuerySizeExceeded:
+            if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
+                raise
+
+            # HACKY: Adjust the breakdown_limit in the query
+            limit = int(limit / 2)
+            query["breakdownFilter"]["breakdown_limit"] = limit
+            continue
+
+        yield from _convert_response_to_csv_data(query_response)
+        return
+
+
 def _export_to_dict(exported_asset: ExportedAsset, limit: int) -> Any:
     resource = exported_asset.export_context
 
@@ -248,9 +268,7 @@ def _export_to_dict(exported_asset: ExportedAsset, limit: int) -> Any:
     returned_rows: Generator[Any, None, None]
 
     if resource.get("source"):
-        query = resource.get("source")
-        query_response = process_query(team=exported_asset.team, query_json=query, limit_context=LimitContext.EXPORT)
-        returned_rows = _convert_response_to_csv_data(query_response)
+        returned_rows = get_from_hogql_query(exported_asset, limit, resource)
     else:
         returned_rows = get_from_insights_api(exported_asset, limit, resource)
 

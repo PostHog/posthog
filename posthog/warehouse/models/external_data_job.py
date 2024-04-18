@@ -16,6 +16,9 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     pipeline: models.ForeignKey = models.ForeignKey("posthog.ExternalDataSource", on_delete=models.CASCADE)
+    schema: models.ForeignKey = models.ForeignKey(
+        "posthog.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True
+    )
     status: models.CharField = models.CharField(max_length=400)
     rows_synced: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
     latest_error: models.TextField = models.TextField(

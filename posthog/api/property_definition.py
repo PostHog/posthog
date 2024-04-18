@@ -131,8 +131,8 @@ class QueryContext:
         if properties_to_filter:
             return dataclasses.replace(
                 self,
-                name_filter="AND name IN %(names)s",
-                params={**self.params, "names": tuple(properties_to_filter.split(","))},
+                name_filter="AND name = ANY(%(names)s)",
+                params={**self.params, "names": properties_to_filter.split(",")},
             )
         else:
             return self
@@ -141,7 +141,7 @@ class QueryContext:
         if is_numerical:
             return dataclasses.replace(
                 self,
-                numerical_filter="AND is_numerical = true AND name NOT IN ('distinct_id', 'timestamp')",
+                numerical_filter="AND is_numerical = true AND NOT name = ANY(ARRAY['distinct_id', 'timestamp'])",
             )
         else:
             return self
@@ -207,7 +207,7 @@ class QueryContext:
 
         if event_names and len(event_names) > 0:
             event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property is not null"
-            event_name_join_filter = "AND event in %(event_names)s"
+            event_name_join_filter = "AND event = ANY(%(event_names)s)"
 
         return dataclasses.replace(
             self,
@@ -216,7 +216,7 @@ class QueryContext:
             event_name_join_filter=event_name_join_filter,
             event_name_filter=event_name_filter,
             event_property_join_type="INNER JOIN" if filter_by_event_names else "LEFT JOIN",
-            params={**self.params, "event_names": tuple(event_names or [])},
+            params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
     def with_search(self, search_query: str, search_kwargs: Dict) -> "QueryContext":
@@ -230,7 +230,7 @@ class QueryContext:
         if excluded_properties:
             excluded_properties = json.loads(excluded_properties)
 
-        excluded_list = tuple(
+        excluded_list = list(
             set.union(
                 set(excluded_properties or []),
                 EVENTS_HIDDEN_PROPERTY_DEFINITIONS if type == "event" else [],
@@ -239,7 +239,7 @@ class QueryContext:
         return dataclasses.replace(
             self,
             excluded_properties_filter=(
-                f"AND {self.property_definition_table}.name NOT IN %(excluded_properties)s"
+                f"AND NOT {self.property_definition_table}.name = ANY(%(excluded_properties)s)"
                 if len(excluded_list) > 0
                 else ""
             ),
@@ -350,7 +350,7 @@ def add_name_alias_to_search_query(search_term: str):
 
     if not entries:
         return ""
-    return f"""OR name IN ({", ".join(entries)})"""
+    return f"""OR name = ANY(ARRAY[{", ".join(entries)}])"""
 
 
 def add_latest_means_not_initial(search_term: str):

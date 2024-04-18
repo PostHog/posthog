@@ -1,4 +1,6 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from zoneinfo import ZoneInfo
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
@@ -476,13 +478,23 @@ class FOSSCohortQuery(EventQuery):
         else:
             return "AND 1=1", {}
 
+    def _get_relative_interval_from_explicit_date(self, datetime: datetime, timezone: ZoneInfo) -> Relative_Date:
+        # get days difference between now and given datetime for global datetime filters
+        delta = datetime.now().astimezone(timezone) - datetime
+        # one extra day for any partial days
+        return (delta.days + 1, "day")
+
     def _get_entity_datetime_filters(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         if prop.explicit_datetime:
             # Explicit datetime filter, can be a relative or absolute date, follows same convention
             # as all analytics datetime filters
-            # TODO: Confirm if we need to validate the datetime
             date_param = f"{prepend}_explicit_date_{idx}"
             target_datetime = relative_date_parse(prop.explicit_datetime, self._team.timezone_info)
+
+            # Do this to create global filters for the entire query
+            relative_date = self._get_relative_interval_from_explicit_date(target_datetime, self._team.timezone_info)
+            self._check_earliest_date(relative_date)
+
             return f"timestamp > %({date_param})s", {f"{date_param}": target_datetime}
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")

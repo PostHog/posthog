@@ -39,7 +39,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
@@ -90,7 +90,7 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality checks
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
 
         steps:
             # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
@@ -171,7 +171,7 @@ jobs:
         timeout-minutes: 10
 
         name: Validate Django and CH migrations
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
 
         steps:
             - uses: actions/checkout@v3
@@ -236,7 +236,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
@@ -244,11 +244,18 @@ jobs:
                 python-version: ['3.10.10']
                 clickhouse-server-image:
                     ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:23.12.5.81-alpine']
-                segment: ['FOSS', 'EE']
+                segment: ['Core']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [5]
-                group: [1, 2, 3, 4, 5]
+                concurrency: [10]
+                group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+                include:
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:23.12.5.81-alpine'
+                      python-version: '3.10.10'
+                      concurrency: 1
+                      group: 1
 
         steps:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
@@ -304,7 +311,7 @@ jobs:
 
             - name: Archive email renders
               uses: actions/upload-artifact@v3
-              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'FOSS' && matrix.person-on-events == false
+              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.person-on-events == false
               with:
                   name: email_renders
                   path: posthog/tasks/test/__emails__
@@ -319,7 +326,7 @@ jobs:
                 clickhouse-server-image:
                     ['clickhouse/clickhouse-server:23.11.2.11-alpine', 'clickhouse/clickhouse-server:23.12.5.81-alpine']
         if: needs.changes.outputs.backend == 'true'
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v3
@@ -373,7 +380,7 @@ jobs:
     calculate-running-time:
         name: Calculate running time
         needs: [django, async-migrations]
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ubuntu-latest
         if: needs.changes.outputs.backend == 'true'
         steps:
             - name: Calculate running time

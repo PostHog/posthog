@@ -71,14 +71,7 @@ interface PropertyIconProps {
     tooltipTitle?: (property: string, value?: string) => ReactNode // Tooltip title will default to `value`
 }
 
-export function PropertyIcon({
-    property,
-    value,
-    className,
-    noTooltip,
-    tooltipTitle,
-    onClick,
-}: PropertyIconProps): JSX.Element {
+export function PropertyIcon({ property, value, className, noTooltip, tooltipTitle }: PropertyIconProps): JSX.Element {
     if (!property || !(property in PROPERTIES_ICON_MAP)) {
         return <></>
     }
@@ -93,11 +86,7 @@ export function PropertyIcon({
         icon = countryCodeToFlag(value)
     }
 
-    const content = (
-        <div onClick={onClick} className={clsx('inline-flex items-center', className)}>
-            {icon}
-        </div>
-    )
+    const content = <div className={clsx('inline-flex items-center', className)}>{icon}</div>
 
     return noTooltip ? content : <Tooltip title={tooltipTitle?.(property, value) ?? value}>{content}</Tooltip>
 }
