@@ -24,7 +24,7 @@ export abstract class BaseIngester {
             .inc()
     }
 
-    protected async consumeBatch(messages: IncomingRecordingMessage[]) {
+    public async consumeBatch(messages: IncomingRecordingMessage[]) {
         const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
 
         for (const message of messages) {
