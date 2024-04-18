@@ -22,7 +22,13 @@ import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
-export function PlayerController(): JSX.Element {
+export function PlayerController({
+    inspectorExpanded,
+    toggleInspectorExpanded,
+}: {
+    inspectorExpanded: boolean
+    toggleInspectorExpanded: () => void
+}): JSX.Element {
     const { playingState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, exportRecordingToFile, openExplorer, setIsFullScreen } =
         useActions(sessionRecordingPlayerLogic)
@@ -105,6 +111,17 @@ export function PlayerController(): JSX.Element {
                             />
                         </LemonButton>
                     </Tooltip>
+
+                    {!inspectorExpanded && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={toggleInspectorExpanded}
+                            icon={<IconSearch />}
+                        >
+                            Inspector
+                        </LemonButton>
+                    )}
 
                     {mode === SessionRecordingPlayerMode.Standard && (
                         <More

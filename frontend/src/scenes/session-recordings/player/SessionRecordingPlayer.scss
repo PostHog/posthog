@@ -1,8 +1,6 @@
 @import '../../../styles/mixins';
 
 .SessionRecordingPlayer {
-    --inspector-min-width: 30rem;
-
     position: relative;
     display: flex;
     flex-direction: row;
@@ -63,12 +61,8 @@
     .SessionRecordingPlayer__inspector {
         position: relative;
         flex-shrink: 0;
-        min-width: var(--inspector-min-width);
+        min-width: 30rem;
         max-width: 50%;
-
-        &--collapsed {
-            --inspector-min-width: 2.5rem;
-        }
 
         .PlayerInspectorPreview {
             position: absolute;
@@ -86,6 +80,15 @@
 
         .SessionRecordingPlayer__inspector {
             max-width: 75%;
+        }
+    }
+
+    &--stacked-vertically {
+        flex-direction: column;
+
+        .SessionRecordingPlayer__inspector {
+            min-width: 100%;
+            max-width: 100%;
         }
     }
 

@@ -7,7 +7,7 @@ import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotke
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { PlayerController } from 'scenes/session-recordings/player/controller/PlayerController'
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
@@ -142,14 +142,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const isWidescreen = !isFullScreen && size === 'medium'
 
     const [inspectorExpanded, setInspectorExpanded] = useState(isWidescreen)
+    const [isVerticallyStacked, setIsVerticallyStacked] = useState(false)
 
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
-
-    useEffect(() => {
-        if (isWidescreen) {
-            setInspectorExpanded(true)
-        }
-    }, [isWidescreen])
 
     if (isNotFound) {
         return (
@@ -170,6 +165,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     'SessionRecordingPlayer--inspector-focus': inspectorExpanded || isWidescreen,
                     'SessionRecordingPlayer--inspector-hidden': noInspector || size === 'tiny',
                     'SessionRecordingPlayer--buffering': isBuffering,
+                    'SessionRecordingPlayer--stacked-vertically': isVerticallyStacked,
                 })}
                 onClick={incrementClickCount}
             >
@@ -178,14 +174,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                         <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                     ) : (
                         <>
-                            <div
-                                className="SessionRecordingPlayer__main"
-                                onClick={() => {
-                                    if (!isWidescreen) {
-                                        setInspectorExpanded(false)
-                                    }
-                                }}
-                            >
+                            <div className="SessionRecordingPlayer__main">
                                 {(!noMeta || isFullScreen) && size !== 'tiny' ? <PlayerMeta /> : null}
 
                                 <div className="SessionRecordingPlayer__body" draggable={draggable} {...elementProps}>
@@ -193,12 +182,16 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                     <PlayerFrameOverlay />
                                 </div>
                                 <LemonDivider className="my-0" />
-                                <PlayerController />
-                            </div>
-                            {!noInspector && (
-                                <PlayerInspector
+                                <PlayerController
                                     inspectorExpanded={inspectorExpanded}
-                                    setInspectorExpanded={setInspectorExpanded}
+                                    toggleInspectorExpanded={() => setInspectorExpanded(!inspectorExpanded)}
+                                />
+                            </div>
+                            {!noInspector && inspectorExpanded && (
+                                <PlayerInspector
+                                    isVerticallyStacked={isVerticallyStacked}
+                                    onClose={setInspectorExpanded}
+                                    toggleLayoutStacking={() => setIsVerticallyStacked(!isVerticallyStacked)}
                                 />
                             )}
                         </>

@@ -1,4 +1,13 @@
-import { IconBug, IconClock, IconDashboard, IconInfo, IconPause, IconTerminal, IconX } from '@posthog/icons'
+import {
+    IconBug,
+    IconChevronDown,
+    IconClock,
+    IconDashboard,
+    IconInfo,
+    IconPause,
+    IconTerminal,
+    IconX,
+} from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -45,7 +54,7 @@ function TabButtons({
                 return (
                     <LemonButton
                         key={tabId}
-                        size="small"
+                        size="xsmall"
                         // We want to indicate the tab is loading, but not disable it so we just override the icon here
                         icon={
                             TabIcon ? tabsState[tabId] === 'loading' ? <Spinner textColored /> : <TabIcon /> : undefined
@@ -61,7 +70,13 @@ function TabButtons({
     )
 }
 
-export function PlayerInspectorControls({ onClose }: { onClose: () => void }): JSX.Element {
+export function PlayerInspectorControls({
+    onClose,
+    toggleLayoutStacking,
+}: {
+    onClose: () => void
+    toggleLayoutStacking: () => void
+}): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
     const { tab, windowIdFilter, syncScrollingPaused, windowIds, showMatchingEventsFilter } = useValues(inspectorLogic)
@@ -97,12 +112,13 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
     }
 
     return (
-        <div className="bg-side p-2 space-y-2 border-b">
+        <div className="bg-side p-1 space-y-2 border-b">
             <div className="flex justify-between gap-2 flex-nowrap">
                 <div className="flex flex-1 items-center gap-1">
                     <TabButtons tabs={tabs} logicProps={logicProps} />
                 </div>
-                <LemonButton size="small" icon={<IconX />} onClick={onClose} />
+                <LemonButton size="xsmall" icon={<IconChevronDown />} onClick={toggleLayoutStacking} />
+                <LemonButton size="xsmall" icon={<IconX />} onClick={onClose} />
             </div>
 
             <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt" data-attr="mini-filters">

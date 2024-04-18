@@ -1,6 +1,6 @@
 import './SessionRecordingsPlaylist.scss'
 
-import { IconFilter, IconGear } from '@posthog/icons'
+import { IconCollapse, IconFilter, IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { range } from 'd3'
@@ -10,7 +10,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconChevronLeft, IconChevronRight, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -187,6 +187,11 @@ function RecordingsLists(): JSX.Element {
         <div className="flex flex-col w-full bg-bg-light overflow-hidden border-r h-full">
             <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
                 <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
+                    <LemonButton
+                        size="small"
+                        icon={<IconCollapse className="rotate-90" />}
+                        onClick={() => toggleRecordingsListCollapsed()}
+                    />
                     <span className="px-2 py-1 flex flex-1 gap-2">
                         {!notebookNode ? (
                             <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
@@ -234,11 +239,6 @@ function RecordingsLists(): JSX.Element {
                         active={showSettings}
                         icon={<IconGear />}
                         onClick={() => setShowSettings(!showSettings)}
-                    />
-                    <LemonButton
-                        size="small"
-                        icon={<IconChevronLeft />}
-                        onClick={() => toggleRecordingsListCollapsed()}
                     />
                     <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                 </div>
