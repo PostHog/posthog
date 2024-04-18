@@ -19,7 +19,6 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import { gatherIconProperties, PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -28,23 +27,6 @@ import { Logo } from '~/toolbar/assets/Logo'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
-
-function SessionPropertyMeta(props: {
-    fullScreen: boolean
-    iconProperties: Record<string, any>
-    predicate: (x: string) => boolean
-}): JSX.Element {
-    const gatheredProperties = gatherIconProperties(props.iconProperties)
-
-    return (
-        <PropertyIcons
-            recordingProperties={gatheredProperties}
-            iconClassnames="text-muted-alt"
-            showTooltip={false}
-            showLabel={(key) => (props.fullScreen ? key === '$geoip_country_code' : key !== '$geoip_country_code')}
-        />
-    )
-}
 
 function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
     if (!lastUrl) {
@@ -98,7 +80,6 @@ export function PlayerMeta(): JSX.Element {
         currentWindowIndex,
         startTime,
         sessionPlayerMetaDataLoading,
-        sessionProperties,
     } = useValues(playerMetaLogic(logicProps))
 
     const { ref, size } = useResizeBreakpoints({
@@ -196,17 +177,6 @@ export function PlayerMeta(): JSX.Element {
                                     />
                                 </div>
                             )}
-                        </div>
-                        <div className="text-muted">
-                            {sessionPlayerMetaDataLoading ? (
-                                <LemonSkeleton className="w-1/4 h-4 my-1" />
-                            ) : sessionProperties ? (
-                                <SessionPropertyMeta
-                                    fullScreen={isFullScreen}
-                                    iconProperties={sessionProperties}
-                                    predicate={(x) => !!x}
-                                />
-                            ) : null}
                         </div>
                     </div>
 
