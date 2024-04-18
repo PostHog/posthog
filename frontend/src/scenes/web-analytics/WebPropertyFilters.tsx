@@ -21,7 +21,7 @@ export const WebPropertyFilters = ({
             taxonomicGroupTypes={
                 featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
                     ? [
-                          TaxonomicFilterGroupType.Sessions,
+                          TaxonomicFilterGroupType.SessionProperties,
                           TaxonomicFilterGroupType.EventProperties,
                           TaxonomicFilterGroupType.PersonProperties,
                       ]

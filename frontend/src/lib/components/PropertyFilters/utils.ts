@@ -97,7 +97,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Omit<
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
-    [PropertyFilterType.Session]: TaxonomicFilterGroupType.Sessions,
+    [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
     [PropertyFilterType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
     [PropertyFilterType.DataWarehouse]: TaxonomicFilterGroupType.DataWarehouse,
@@ -268,7 +268,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
-    [PropertyFilterType.Session]: TaxonomicFilterGroupType.Sessions,
+    [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
 }
 

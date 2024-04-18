@@ -34,7 +34,7 @@ export function TrendsSeries(): JSX.Element | null {
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        ...(isTrends ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(isTrends ? [TaxonomicFilterGroupType.SessionProperties] : []),
         TaxonomicFilterGroupType.HogQLExpression,
         TaxonomicFilterGroupType.DataWarehouseProperties,
         ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS]

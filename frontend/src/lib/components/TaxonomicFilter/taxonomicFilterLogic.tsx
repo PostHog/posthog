@@ -492,7 +492,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Session Properties',
                         searchPlaceholder: 'sessions',
-                        type: TaxonomicFilterGroupType.Sessions,
+                        type: TaxonomicFilterGroupType.SessionProperties,
                         options: featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
                             ? undefined
                             : [
