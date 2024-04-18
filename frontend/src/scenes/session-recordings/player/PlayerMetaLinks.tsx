@@ -1,9 +1,8 @@
-import { IconNotebook, IconPin, IconPinFilled, IconTrash } from '@posthog/icons'
+import { IconNotebook, IconPin, IconPinFilled } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconComment, IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -57,7 +56,7 @@ function PinToPlaylistButton(): JSX.Element {
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPause, deleteRecording, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
+    const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
@@ -73,22 +72,6 @@ export function PlayerMetaLinks(): JSX.Element {
         openPlayerShareDialog({
             seconds: getCurrentPlayerTime(),
             id: sessionRecordingId,
-        })
-    }
-
-    const onDelete = (): void => {
-        setIsFullScreen(false)
-        LemonDialog.open({
-            title: 'Delete recording',
-            description: 'Are you sure you want to delete this recording? This cannot be undone.',
-            secondaryButton: {
-                children: 'Cancel',
-            },
-            primaryButton: {
-                children: 'Delete',
-                status: 'danger',
-                onClick: deleteRecording,
-            },
         })
     }
 
@@ -149,16 +132,6 @@ export function PlayerMetaLinks(): JSX.Element {
                     ) : null}
 
                     <PinToPlaylistButton />
-
-                    {logicProps.playerKey !== 'modal' && (
-                        <LemonButton
-                            tooltip="Delete"
-                            icon={<IconTrash />}
-                            onClick={onDelete}
-                            {...commonProps}
-                            status="danger"
-                        />
-                    )}
                 </>
             ) : null}
         </div>
