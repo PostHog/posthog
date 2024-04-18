@@ -706,7 +706,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert all_reports["teams_with_recording_count_total"] == {self.team.pk: 16}
         assert report.recording_count_in_period == 5
         assert report.recording_count_total == 16
-    
+
         assert report.mobile_recording_count_in_period == 0
         assert report.mobile_recording_count_total == 0
 
