@@ -215,7 +215,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt @ git+https://github.com/EDsCODE/dlt@9144ad40288db96df1e05e9b56d3f4926681324f
+dlt @ git+https://github.com/dlt-hub/dlt@cc9685fbff7e3e5d66f779006455e9973c78eb8f
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -449,7 +449,9 @@ protobuf==4.22.1
     #   proto-plus
     #   temporalio
 psycopg[binary]==3.1.13
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   psycopg
 psycopg-binary==3.1.13
     # via psycopg
 psycopg2-binary==2.9.7
@@ -688,7 +690,7 @@ typing-extensions==4.7.1
     #   sqlalchemy
     #   stripe
     #   temporalio
-tzdata==2023.3
+tzdata==2024.1
     # via
     #   celery
     #   dlt

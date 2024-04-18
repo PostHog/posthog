@@ -23,6 +23,8 @@ from posthog.warehouse.models import (
     get_table_by_schema_id,
     aget_schema_by_id,
 )
+
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
@@ -201,7 +203,10 @@ async def validate_schema_and_update_table(
             exc_info=e,
         )
 
-    if last_successful_job:
+    if (
+        last_successful_job
+        and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
+    ):
         try:
             last_successful_job.delete_data_in_bucket()
         except Exception as e:

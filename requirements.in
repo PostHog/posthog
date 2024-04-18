@@ -36,7 +36,7 @@ djangorestframework==3.14.0
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
 django-fernet-encrypted-fields==0.1.3
-dlt@ git+https://github.com/EDsCODE/dlt@9144ad40288db96df1e05e9b56d3f4926681324f
+dlt@ git+https://github.com/dlt-hub/dlt@cc9685fbff7e3e5d66f779006455e9973c78eb8f
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
