@@ -1,14 +1,20 @@
 import { useActions, useValues } from 'kea'
+import { CodeEditor } from 'lib/components/CodeEditors'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { HogQLDebug } from 'scenes/debug/HogQLDebug'
+import { Modifiers } from 'scenes/debug/Modifiers'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { stringifiedExamples } from '~/queries/examples'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { Query } from '~/queries/Query/Query'
-import { HogQLQuery } from '~/queries/schema'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import { DataNode, HogQLQuery, Node } from '~/queries/schema'
+import { isDataTableNode, isInsightVizNode } from '~/queries/utils'
 
 import { debugSceneLogic } from './debugSceneLogic'
 
@@ -18,12 +24,20 @@ interface QueryDebugProps {
     setQuery: (query: string) => void
 }
 function QueryDebug({ query, setQuery, queryKey }: QueryDebugProps): JSX.Element {
-    let parsed: Record<string, any> | undefined
+    let parsed: Record<string, any> | null = null
     try {
         parsed = JSON.parse(query)
     } catch (e) {
         // do nothing
     }
+
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: (parsed ?? {}) as DataNode,
+        key: queryKey,
+        dataNodeCollectionId: queryKey,
+    }
+    const { response } = useValues(dataNodeLogic(dataNodeLogicProps))
+
     return (
         <>
             {parsed && parsed?.kind === 'HogQLQuery' ? (
@@ -33,13 +47,32 @@ function QueryDebug({ query, setQuery, queryKey }: QueryDebugProps): JSX.Element
                     setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
                 />
             ) : (
-                <Query
-                    query={query}
-                    setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
-                    context={{
-                        showQueryEditor: true,
-                    }}
-                />
+                <div className="space-y-4">
+                    <QueryEditor query={query} setQuery={setQuery} />
+                    <Modifiers
+                        setQuery={
+                            parsed?.source
+                                ? (query) => setQuery(JSON.stringify({ ...parsed, source: query }, null, 2))
+                                : (query) => setQuery(JSON.stringify(query, null, 2))
+                        }
+                        query={parsed?.source ?? parsed}
+                        response={response}
+                    />
+                    <LemonDivider />
+                    <Query
+                        uniqueKey={queryKey}
+                        query={query}
+                        setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
+                    />
+                    {response && parsed && (isDataTableNode(parsed as Node) || isInsightVizNode(parsed as Node)) ? (
+                        <CodeEditor
+                            className="border"
+                            language="json"
+                            value={JSON.stringify(response, null, 2)}
+                            height={500}
+                        />
+                    ) : null}
+                </div>
             )}
         </>
     )

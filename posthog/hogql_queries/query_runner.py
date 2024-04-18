@@ -70,6 +70,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     limit: Optional[int] = None
     offset: Optional[int] = None
     samplingRate: Optional[SamplingRate] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
 
 
 class CachedQueryResponse(QueryResponse):
@@ -284,7 +285,7 @@ class QueryRunner(ABC):
         self.team = team
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
-        self.modifiers = create_default_modifiers_for_team(team, modifiers)
+        self.modifiers = create_default_modifiers_for_team(team, modifiers or query.modifiers)
 
         if not self.is_query_node(query):
             query = self.query_type.model_validate(query)

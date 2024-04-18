@@ -340,7 +340,7 @@ class RetentionQueryRunner(QueryRunner):
             for first_interval in range(self.query_date_range.total_intervals)
         ]
 
-        return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql)
+        return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
 
     def to_actors_query(self, interval: Optional[int] = None) -> ast.SelectQuery:
         with self.timings.measure("retention_query"):

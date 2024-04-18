@@ -105,6 +105,7 @@ class ActorsQueryRunner(QueryRunner):
             types=[t for _, t in response.types] if response.types else None,
             columns=input_columns,
             hogql=response.hogql,
+            modifiers=self.modifiers,
             missing_actors_count=missing_actors_count,
             **self.paginator.response_params(),
         )

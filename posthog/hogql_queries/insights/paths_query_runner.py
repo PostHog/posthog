@@ -869,7 +869,7 @@ class PathsQueryRunner(QueryRunner):
             for source, target, value, avg_conversion_time in response.results
         )
 
-        return PathsQueryResponse(results=results, timings=response.timings, hogql=hogql)
+        return PathsQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
 
     @property
     def extra_event_fields_and_properties(self) -> list[str]:
