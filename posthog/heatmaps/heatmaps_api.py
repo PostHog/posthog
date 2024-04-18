@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, date
+from datetime import datetime, date
 from typing import Any, Dict, List
 
 from rest_framework import viewsets, request, response, serializers, status
@@ -51,17 +51,6 @@ ORDER BY bucket
 """
 
 
-class HeatmapResponseItemSerializer(serializers.Serializer):
-    count = serializers.IntegerField(required=True)
-    pointer_y = serializers.IntegerField(required=True)
-    pointer_relative_x = serializers.FloatField(required=True)
-    pointer_target_fixed = serializers.BooleanField(required=True)
-
-
-def default_start_date():
-    return (datetime.now() - timedelta(days=7)).date()
-
-
 class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_min = serializers.IntegerField(required=False)
     viewport_width_max = serializers.IntegerField(required=False)
@@ -70,13 +59,12 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     date_to = serializers.DateField(required=False)
     url_exact = serializers.CharField(required=False)
     url_pattern = serializers.CharField(required=False)
-    aggregation = serializers.CharField(required=False, default="total_count")
-
-    def validate_aggregation(self, value: str) -> str:
-        if value not in ["total_count", "unique_visitors"]:
-            raise serializers.ValidationError("Invalid aggregation provided: {}".format(value))
-
-        return value
+    aggregation = serializers.ChoiceField(
+        required=False,
+        choices=["unique_visitors", "total_count"],
+        help_text="How to aggregate the response",
+        default="total_count",
+    )
 
     def validate_date_from(self, value) -> date:
         try:
@@ -104,12 +92,25 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         return values
 
 
+class HeatmapResponseItemSerializer(serializers.Serializer):
+    count = serializers.IntegerField(required=True)
+    pointer_y = serializers.IntegerField(required=True)
+    pointer_relative_x = serializers.FloatField(required=True)
+    pointer_target_fixed = serializers.BooleanField(required=True)
+
+
 class HeatmapsResponseSerializer(serializers.Serializer):
     results = HeatmapResponseItemSerializer(many=True)
 
 
+class HeatmapScrollDepthResponseItemSerializer(serializers.Serializer):
+    cumulative_count = serializers.IntegerField(required=True)
+    bucket_count = serializers.IntegerField(required=True)
+    scroll_depth_bucket = serializers.FloatField(required=True)
+
+
 class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
-    results = serializers.ListField(child=serializers.DictField())
+    results = HeatmapScrollDepthResponseItemSerializer(many=True)
 
 
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
