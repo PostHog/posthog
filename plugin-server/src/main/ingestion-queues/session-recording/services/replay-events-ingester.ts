@@ -23,7 +23,7 @@ const replayEventsCounter = new Counter({
 
 export class ReplayEventsIngester extends BaseIngester {
     constructor(producer: RdKafkaProducer, persistentHighWaterMarker?: OffsetHighWaterMarker) {
-        super('session_replay_events_ingester', producer, persistentHighWaterMarker)
+        super(HIGH_WATERMARK_KEY, producer, persistentHighWaterMarker)
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {

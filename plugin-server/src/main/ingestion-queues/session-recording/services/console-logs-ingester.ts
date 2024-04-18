@@ -5,7 +5,6 @@ import { Counter } from 'prom-client'
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { produce } from '../../../../kafka/producer'
 import { status } from '../../../../utils/status'
-import { eventDroppedCounter } from '../../metrics'
 import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { BaseIngester } from './base-ingester'
@@ -38,23 +37,14 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 
 export class ConsoleLogsIngester extends BaseIngester {
     constructor(producer: RdKafkaProducer, persistentHighWaterMarker?: OffsetHighWaterMarker) {
-        super('session_replay_console_logs_events_ingester', producer, persistentHighWaterMarker)
+        super(HIGH_WATERMARK_KEY, producer, persistentHighWaterMarker)
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
-        const drop = (reason: string) => {
-            eventDroppedCounter
-                .labels({
-                    event_type: 'session_recordings_console_log_events',
-                    drop_cause: reason,
-                })
-                .inc()
-        }
-
         // capture the producer so that TypeScript knows it's not null below this check
         const producer = this.producer
         if (!producer) {
-            return drop('producer_not_ready')
+            return this.drop('producer_not_ready')
         }
 
         if (
@@ -64,7 +54,7 @@ export class ConsoleLogsIngester extends BaseIngester {
                 event.metadata.highOffset
             )
         ) {
-            return drop('high_water_mark')
+            return this.drop('high_water_mark')
         }
 
         const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
@@ -82,7 +72,7 @@ export class ConsoleLogsIngester extends BaseIngester {
         // this keeps the signal here clean and makes it easier to debug
         // when we disable a team's console log ingestion
         if (!event.metadata.consoleLogIngestionEnabled) {
-            return drop('console_log_ingestion_disabled')
+            return this.drop('console_log_ingestion_disabled')
         }
 
         try {
