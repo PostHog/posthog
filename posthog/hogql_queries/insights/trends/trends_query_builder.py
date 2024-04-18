@@ -270,7 +270,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         elif breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
             default_query.select = [
                 ast.Alias(
-                    alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
+                    alias="session_duration",
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
                 ),
                 breakdown.column_expr(),
             ]
@@ -305,7 +306,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         elif self._aggregation_operation.aggregating_on_session_duration():
             default_query.select = [
                 ast.Alias(
-                    alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
+                    alias="session_duration",
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
                 )
             ]
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
