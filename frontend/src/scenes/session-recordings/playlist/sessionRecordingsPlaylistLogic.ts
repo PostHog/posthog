@@ -10,7 +10,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
 import {
-    AnyPropertyFilter,
     DurationType,
     PropertyFilterType,
     PropertyOperator,
@@ -90,59 +89,6 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
 
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
-}
-
-export const defaultPageviewPropertyEntityFilter = (
-    filters: RecordingFilters,
-    property: string,
-    value?: string
-): Partial<RecordingFilters> => {
-    const existingPageview = filters.events?.find(({ name }) => name === '$pageview')
-    const eventEntityFilters = filters.events ?? []
-    const propToAdd = value
-        ? {
-              key: property,
-              value: [value],
-              operator: PropertyOperator.Exact,
-              type: 'event',
-          }
-        : {
-              key: property,
-              value: PropertyOperator.IsNotSet,
-              operator: PropertyOperator.IsNotSet,
-              type: 'event',
-          }
-
-    // If pageview exists, add property to the first pageview event
-    if (existingPageview) {
-        return {
-            events: eventEntityFilters.map((eventFilter) =>
-                eventFilter.order === existingPageview.order
-                    ? {
-                          ...eventFilter,
-                          properties: [
-                              ...(eventFilter.properties?.filter(({ key }: AnyPropertyFilter) => key !== property) ??
-                                  []),
-                              propToAdd,
-                          ],
-                      }
-                    : eventFilter
-            ),
-        }
-    } else {
-        return {
-            events: [
-                ...eventEntityFilters,
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: eventEntityFilters.length,
-                    properties: [propToAdd],
-                },
-            ],
-        }
-    }
 }
 
 const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
