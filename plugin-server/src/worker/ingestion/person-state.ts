@@ -7,7 +7,7 @@ import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
-import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
+import { InternalPerson, Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -126,7 +126,7 @@ export class PersonState {
             return person
         }
 
-        const person: Person | undefined = await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
+        const person: InternalPerson | undefined = await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
         if (person) {
             // try to shortcut if we have the person from identify or alias
             try {
@@ -139,7 +139,7 @@ export class PersonState {
         return await this.handleUpdate()
     }
 
-    async handleUpdate(): Promise<Person> {
+    async handleUpdate(): Promise<InternalPerson> {
         // There are various reasons why update can fail:
         // - anothe thread created the person during a race
         // - the person might have been merged between start of processing and now
@@ -147,7 +147,7 @@ export class PersonState {
         return await promiseRetry(() => this.updateProperties(), 'update_person')
     }
 
-    async updateProperties(): Promise<Person> {
+    async updateProperties(): Promise<InternalPerson> {
         const [person, propertiesHandled] = await this.createOrGetPerson()
         if (propertiesHandled) {
             return person
@@ -158,7 +158,7 @@ export class PersonState {
     /**
      * @returns [Person, boolean that indicates if properties were already handled or not]
      */
-    private async createOrGetPerson(): Promise<[Person, boolean]> {
+    private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
         let person = await this.db.fetchPerson(this.teamId, this.distinctId)
         if (person) {
             return [person, false]
@@ -194,7 +194,7 @@ export class PersonState {
         isIdentified: boolean,
         creatorEventUuid: string,
         distinctIds: string[]
-    ): Promise<Person> {
+    ): Promise<InternalPerson> {
         if (distinctIds.length < 1) {
             throw new Error('at least 1 distinctId is required in `createPerson`')
         }
@@ -225,10 +225,10 @@ export class PersonState {
         )
     }
 
-    private async updatePersonProperties(person: Person): Promise<Person> {
+    private async updatePersonProperties(person: InternalPerson): Promise<InternalPerson> {
         person.properties ||= {}
 
-        const update: Partial<Person> = {}
+        const update: Partial<InternalPerson> = {}
         if (this.applyEventPropertyUpdates(person.properties)) {
             update.properties = person.properties
         }
@@ -280,7 +280,7 @@ export class PersonState {
 
     // Alias & merge
 
-    async handleIdentifyOrAlias(): Promise<Person | undefined> {
+    async handleIdentifyOrAlias(): Promise<InternalPerson | undefined> {
         /**
          * strategy:
          *   - if the two distinct ids passed don't match and aren't illegal, then mark `is_identified` to be true for the `distinct_id` person
@@ -332,7 +332,7 @@ export class PersonState {
         mergeIntoDistinctId: string,
         teamId: number,
         timestamp: DateTime
-    ): Promise<Person | undefined> {
+    ): Promise<InternalPerson | undefined> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (mergeIntoDistinctId === otherPersonDistinctId) {
             return undefined
@@ -376,7 +376,7 @@ export class PersonState {
         mergeIntoDistinctId: string,
         teamId: number,
         timestamp: DateTime
-    ): Promise<Person> {
+    ): Promise<InternalPerson> {
         this.updateIsIdentified = true
 
         const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
@@ -420,11 +420,11 @@ export class PersonState {
         otherPerson,
         otherPersonDistinctId,
     }: {
-        mergeInto: Person
+        mergeInto: InternalPerson
         mergeIntoDistinctId: string
-        otherPerson: Person
+        otherPerson: InternalPerson
         otherPersonDistinctId: string
-    }): Promise<Person> {
+    }): Promise<InternalPerson> {
         const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
         const mergeAllowed = this.isMergeAllowed(otherPerson)
 
@@ -472,18 +472,18 @@ export class PersonState {
         return mergedPerson
     }
 
-    private isMergeAllowed(mergeFrom: Person): boolean {
+    private isMergeAllowed(mergeFrom: InternalPerson): boolean {
         // $merge_dangerously has no restrictions
         // $create_alias and $identify will not merge a user who's already identified into anyone else
         return this.event.event === '$merge_dangerously' || !mergeFrom.is_identified
     }
 
     private async handleMergeTransaction(
-        mergeInto: Person,
-        otherPerson: Person,
+        mergeInto: InternalPerson,
+        otherPerson: InternalPerson,
         createdAt: DateTime,
         properties: Properties
-    ): Promise<[ProducerRecord[], Person]> {
+    ): Promise<[ProducerRecord[], InternalPerson]> {
         mergeTxnAttemptCounter
             .labels({
                 call: this.event.event, // $identify, $create_alias or $merge_dangerously
@@ -493,7 +493,7 @@ export class PersonState {
             })
             .inc()
 
-        const result: [ProducerRecord[], Person] = await this.db.postgres.transaction(
+        const result: [ProducerRecord[], InternalPerson] = await this.db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'mergePeople',
             async (tx) => {
@@ -557,7 +557,11 @@ type PersonOverrideDetails = {
     oldest_event: DateTime
 }
 
-function getPersonOverrideDetails(teamId: number, oldPerson: Person, overridePerson: Person): PersonOverrideDetails {
+function getPersonOverrideDetails(
+    teamId: number,
+    oldPerson: InternalPerson,
+    overridePerson: InternalPerson
+): PersonOverrideDetails {
     if (teamId != oldPerson.team_id || teamId != overridePerson.team_id) {
         throw new Error('cannot merge persons across different teams')
     }

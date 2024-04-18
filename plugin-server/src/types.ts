@@ -733,9 +733,17 @@ export interface RawPerson extends BasePerson {
 }
 
 /** Usable Person model. */
-export interface Person extends BasePerson {
+export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+}
+
+/** Person model exposed outside of person-specific DB logic. */
+export interface Person {
+    team_id: number
+    properties: Properties
+    uuid: string
+    created_at: DateTime
 }
 
 /** Clickhouse Person model. */

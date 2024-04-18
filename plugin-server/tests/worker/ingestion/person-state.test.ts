@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
 import { waitForExpect } from '../../../functional_tests/expectations'
-import { Database, Hub, Person } from '../../../src/types'
+import { Database, Hub, InternalPerson } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
@@ -150,7 +150,7 @@ describe('PersonState.update()', () => {
         return (await hub.db.clickhouseQuery(query)).data
     }
 
-    async function fetchDistinctIdsClickhouse(person: Person) {
+    async function fetchDistinctIdsClickhouse(person: InternalPerson) {
         return hub.db.fetchDistinctIdValues(person, Database.ClickHouse)
     }
 
@@ -587,7 +587,7 @@ describe('PersonState.update()', () => {
         it('handles race condition when person provided has been merged', async () => {
             // TODO: we don't handle this currently person having been changed / updated properties can get overridden
             // Pass in a person, but another thread merges it - we shouldn't error in this case, but instead if we couldn't update we should retry?
-            const mergeDeletedPerson: Person = {
+            const mergeDeletedPerson: InternalPerson = {
                 created_at: timestamp,
                 version: 0,
                 id: 0,
@@ -1599,7 +1599,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`postgres and clickhouse get updated`, async () => {
-                const first: Person = await hub.db.createPerson(
+                const first: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1610,7 +1610,7 @@ describe('PersonState.update()', () => {
                     firstUserUuid,
                     [firstUserDistinctId]
                 )
-                const second: Person = await hub.db.createPerson(
+                const second: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1691,7 +1691,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`throws if postgres unavailable`, async () => {
-                const first: Person = await hub.db.createPerson(
+                const first: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1702,7 +1702,7 @@ describe('PersonState.update()', () => {
                     firstUserUuid,
                     [firstUserDistinctId]
                 )
-                const second: Person = await hub.db.createPerson(
+                const second: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1863,7 +1863,7 @@ describe('PersonState.update()', () => {
                 if (!overridesMode?.supportsSyncTransaction) {
                     return
                 }
-                const first: Person = await hub.db.createPerson(
+                const first: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1874,7 +1874,7 @@ describe('PersonState.update()', () => {
                     firstUserUuid,
                     [firstUserDistinctId]
                 )
-                const second: Person = await hub.db.createPerson(
+                const second: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1990,7 +1990,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`handles a chain of overrides being applied concurrently`, async () => {
-                const first: Person = await hub.db.createPerson(
+                const first: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     { first: true },
                     {},
@@ -2001,7 +2001,7 @@ describe('PersonState.update()', () => {
                     firstUserUuid,
                     [firstUserDistinctId]
                 )
-                const second: Person = await hub.db.createPerson(
+                const second: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 2 }),
                     { second: true },
                     {},
@@ -2012,7 +2012,7 @@ describe('PersonState.update()', () => {
                     secondUserUuid,
                     [secondUserDistinctId]
                 )
-                const third: Person = await hub.db.createPerson(
+                const third: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 5 }),
                     { third: true },
                     {},
@@ -2135,7 +2135,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`handles a chain of overrides being applied out of order`, async () => {
-                const first: Person = await hub.db.createPerson(
+                const first: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     { first: true },
                     {},
@@ -2146,7 +2146,7 @@ describe('PersonState.update()', () => {
                     firstUserUuid,
                     [firstUserDistinctId]
                 )
-                const second: Person = await hub.db.createPerson(
+                const second: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 2 }),
                     { second: true },
                     {},
@@ -2157,7 +2157,7 @@ describe('PersonState.update()', () => {
                     secondUserUuid,
                     [secondUserDistinctId]
                 )
-                const third: Person = await hub.db.createPerson(
+                const third: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 5 }),
                     { third: true },
                     {},

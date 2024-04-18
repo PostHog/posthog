@@ -26,8 +26,8 @@ import {
     GroupKey,
     GroupTypeIndex,
     GroupTypeToColumnIndex,
+    InternalPerson,
     OrganizationMembershipLevel,
-    Person,
     PersonDistinctId,
     Plugin,
     PluginConfig,
@@ -550,7 +550,7 @@ export class DB {
         }
     }
 
-    private toPerson(row: RawPerson): Person {
+    private toPerson(row: RawPerson): InternalPerson {
         return {
             ...row,
             created_at: DateTime.fromISO(row.created_at).toUTC(),
@@ -558,9 +558,9 @@ export class DB {
         }
     }
 
-    public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
+    public async fetchPersons(database?: Database.Postgres): Promise<InternalPerson[]>
     public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
-    public async fetchPersons(database: Database = Database.Postgres): Promise<Person[] | ClickHousePerson[]> {
+    public async fetchPersons(database: Database = Database.Postgres): Promise<InternalPerson[] | ClickHousePerson[]> {
         if (database === Database.ClickHouse) {
             const query = `
             SELECT id, team_id, is_identified, ts as _timestamp, properties, created_at, is_del as is_deleted, _offset
@@ -596,7 +596,7 @@ export class DB {
         teamId: number,
         distinctId: string,
         options: { forUpdate?: boolean } = {}
-    ): Promise<Person | undefined> {
+    ): Promise<InternalPerson | undefined> {
         let queryString = `SELECT
                 posthog_person.id,
                 posthog_person.uuid,
@@ -642,7 +642,7 @@ export class DB {
         isIdentified: boolean,
         uuid: string,
         distinctIds?: string[]
-    ): Promise<Person> {
+    ): Promise<InternalPerson> {
         distinctIds ||= []
         const version = 0 // We're creating the person now!
 
@@ -713,10 +713,10 @@ export class DB {
 
     // Currently in use, but there are various problems with this function
     public async updatePersonDeprecated(
-        person: Person,
-        update: Partial<Person>,
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
         tx?: TransactionClient
-    ): Promise<[Person, ProducerRecord[]]> {
+    ): Promise<[InternalPerson, ProducerRecord[]]> {
         const updateValues = Object.values(unparsePersonPartial(update))
 
         // short circuit if there are no updates to be made
@@ -770,7 +770,7 @@ export class DB {
         return [updatedPerson, kafkaMessages]
     }
 
-    public async deletePerson(person: Person, tx?: TransactionClient): Promise<ProducerRecord[]> {
+    public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<ProducerRecord[]> {
         const { rows } = await this.postgres.query<{ version: string }>(
             tx ?? PostgresUse.COMMON_WRITE,
             'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
@@ -789,10 +789,13 @@ export class DB {
 
     // PersonDistinctId
     // testutil
-    public async fetchDistinctIds(person: Person, database?: Database.Postgres): Promise<PersonDistinctId[]>
-    public async fetchDistinctIds(person: Person, database: Database.ClickHouse): Promise<ClickHousePersonDistinctId2[]>
+    public async fetchDistinctIds(person: InternalPerson, database?: Database.Postgres): Promise<PersonDistinctId[]>
     public async fetchDistinctIds(
-        person: Person,
+        person: InternalPerson,
+        database: Database.ClickHouse
+    ): Promise<ClickHousePersonDistinctId2[]>
+    public async fetchDistinctIds(
+        person: InternalPerson,
         database: Database = Database.Postgres
     ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId2[]> {
         if (database === Database.ClickHouse) {
@@ -821,12 +824,15 @@ export class DB {
         }
     }
 
-    public async fetchDistinctIdValues(person: Person, database: Database = Database.Postgres): Promise<string[]> {
+    public async fetchDistinctIdValues(
+        person: InternalPerson,
+        database: Database = Database.Postgres
+    ): Promise<string[]> {
         const personDistinctIds = await this.fetchDistinctIds(person, database as any)
         return personDistinctIds.map((pdi) => pdi.distinct_id)
     }
 
-    public async addDistinctId(person: Person, distinctId: string): Promise<void> {
+    public async addDistinctId(person: InternalPerson, distinctId: string): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
         if (kafkaMessages.length) {
             await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
@@ -834,7 +840,7 @@ export class DB {
     }
 
     public async addDistinctIdPooled(
-        person: Person,
+        person: InternalPerson,
         distinctId: string,
         tx?: TransactionClient
     ): Promise<ProducerRecord[]> {
@@ -867,7 +873,11 @@ export class DB {
         return messages
     }
 
-    public async moveDistinctIds(source: Person, target: Person, tx?: TransactionClient): Promise<ProducerRecord[]> {
+    public async moveDistinctIds(
+        source: InternalPerson,
+        target: InternalPerson,
+        tx?: TransactionClient
+    ): Promise<ProducerRecord[]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
@@ -955,7 +965,7 @@ export class DB {
 
     public async addPersonToCohort(
         cohortId: number,
-        personId: Person['id'],
+        personId: InternalPerson['id'],
         version: number | null
     ): Promise<CohortPeople> {
         const insertResult = await this.postgres.query(
@@ -969,8 +979,8 @@ export class DB {
 
     public async updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
-        sourcePersonID: Person['id'],
-        targetPersonID: Person['id'],
+        sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id'],
         tx?: TransactionClient
     ): Promise<void> {
         // When personIDs change, update places depending on a person_id foreign key
