@@ -111,9 +111,9 @@ export function convertToIngestionEvent(event: RawClickHouseEvent, skipElementsC
     }
 }
 
-/// Does normalization steps involving the $process_person property. This is currently a separate
+/// Does normalization steps involving the $process_person_profile property. This is currently a separate
 /// function because `normalizeEvent` is called from multiple places, some early in the pipeline,
-/// and we want to have one trusted place where `$process_person` is handled and passed through
+/// and we want to have one trusted place where `$process_person_profile` is handled and passed through
 /// all of the processing steps.
 ///
 /// If `formPipelineEvent` is removed this can easily be combined with `normalizeEvent`.
@@ -130,11 +130,14 @@ export function normalizeProcessPerson(event: PluginEvent, processPerson: boolea
         delete properties.$set
         delete properties.$set_once
         delete properties.$unset
+        // Recorded for clarity and so that the property exists if it is ever sent elsewhere,
+        // e.g. for migrations.
+        properties.$process_person_profile = false
+    } else {
+        // Removed as it is the default, note that we have record the `person_mode` column
+        // in ClickHouse for all events.
+        delete properties.$process_person_profile
     }
-
-    // We store the `person_mode` column if people want to see how an event was processed after
-    // the fact.
-    delete properties.$process_person
 
     event.properties = properties
     return event

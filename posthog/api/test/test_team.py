@@ -204,47 +204,6 @@ class TestTeamAPI(APIBaseTest):
             ]
         )
 
-    @freeze_time("2022-02-08")
-    def test_activity_log_tracks_extra_settings(self):
-        self._assert_activity_log_is_empty()
-
-        response = self.client.patch("/api/projects/@current/", {"extra_settings": {"poe_v2_enabled": True}})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_data = response.json()
-        self.assertEqual(response_data["name"], self.team.name)
-        self.assertEqual(response_data["extra_settings"], {"poe_v2_enabled": True})
-
-        self._assert_activity_log(
-            [
-                {
-                    "activity": "updated",
-                    "created_at": "2022-02-08T00:00:00Z",
-                    "detail": {
-                        "changes": [
-                            {
-                                "action": "created",
-                                "after": {"poe_v2_enabled": True},
-                                "before": None,
-                                "field": "extra_settings",
-                                "type": "Team",
-                            },
-                        ],
-                        "name": "Default project",
-                        "short_id": None,
-                        "trigger": None,
-                        "type": None,
-                    },
-                    "item_id": str(self.team.pk),
-                    "scope": "Team",
-                    "user": {
-                        "email": "user1@posthog.com",
-                        "first_name": "",
-                    },
-                },
-            ]
-        )
-
     def test_update_test_filter_default_checked(self):
         response = self.client.patch("/api/projects/@current/", {"test_account_filters_default_checked": "true"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)

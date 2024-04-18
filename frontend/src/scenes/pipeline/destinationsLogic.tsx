@@ -22,7 +22,14 @@ import { captureBatchExportEvent, capturePluginEvent } from './utils'
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user'], pipelineLogic, ['canConfigurePlugins']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user'],
+            pipelineLogic,
+            ['canConfigurePlugins', 'canEnableNewDestinations'],
+        ],
     }),
     actions({
         toggleEnabled: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
@@ -64,12 +71,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     return pluginConfigs
                 },
                 toggleEnabledWebhook: async ({ destination, enabled }) => {
-                    if (destination.type === 'batch_export') {
-                        return values.pluginConfigs
-                    }
-                    if (!values.canConfigurePlugins) {
-                        return values.pluginConfigs
-                    }
                     const { pluginConfigs, plugins } = values
                     const pluginConfig = pluginConfigs[destination.id]
                     const plugin = plugins[pluginConfig.plugin]
@@ -93,9 +94,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 toggleEnabledBatchExport: async ({ destination, enabled }) => {
                     const batchExport = values.batchExportConfigs[destination.id]
                     if (enabled) {
-                        await api.batchExports.pause(destination.id)
-                    } else {
                         await api.batchExports.unpause(destination.id)
+                    } else {
+                        await api.batchExports.pause(destination.id)
                     }
                     captureBatchExportEvent(`batch export ${enabled ? 'enabled' : 'disabled'}`, batchExport)
                     return { ...values.batchExportConfigs, [destination.id]: { ...batchExport, paused: !enabled } }
@@ -110,8 +111,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading,
         ],
         destinations: [
-            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs],
-            (pluginConfigs, plugins, batchExportConfigs): Destination[] => {
+            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.user],
+            (pluginConfigs, plugins, batchExportConfigs, user): Destination[] => {
+                // Migrations are shown only in impersonation mode, for us to be able to trigger them.
+                const rawBatchExports = Object.values(batchExportConfigs).filter(
+                    (config) => config.destination.type !== 'HTTP' || user?.is_impersonated
+                )
                 const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration)[] = Object.values(
                     pluginConfigs
                 )
@@ -119,7 +124,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                         ...pluginConfig,
                         plugin_info: plugins[pluginConfig.plugin] || null,
                     }))
-                    .concat(Object.values(batchExportConfigs))
+                    .concat(rawBatchExports)
                 const convertedDestinations = rawDestinations.map((d) =>
                     convertToPipelineNode(d, PipelineStage.Destination)
                 )
@@ -138,6 +143,10 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         toggleEnabled: async ({ destination, enabled }) => {
             if (!values.canConfigurePlugins) {
                 lemonToast.error("You don't have permission to enable or disable destinations")
+                return
+            }
+            if (enabled && !values.canEnableNewDestinations) {
+                lemonToast.error('Data pipelines add-on is required for enabling new destinations')
                 return
             }
             if (destination.backend === 'plugin') {

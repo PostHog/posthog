@@ -20,6 +20,7 @@ from posthog.schema import (
     HogQLQueryResponse,
     StickinessQuery,
     TrendsQuery,
+    FunnelsQuery,
 )
 from posthog.types import InsightActorsQueryNode
 
@@ -83,6 +84,11 @@ class InsightActorsQueryRunner(QueryRunner):
             assert isinstance(self.query, FunnelCorrelationActorsQuery)
             assert isinstance(self.query.source, FunnelCorrelationQuery)
             return self.query.source.source.source.aggregation_group_type_index
+
+        if isinstance(self.source_runner, FunnelsQueryRunner):
+            assert isinstance(self.query, FunnelsActorsQuery)
+            assert isinstance(self.query.source, FunnelsQuery)
+            return self.query.source.aggregation_group_type_index
 
         if (
             isinstance(self.source_runner, StickinessQueryRunner) and isinstance(self.query.source, StickinessQuery)

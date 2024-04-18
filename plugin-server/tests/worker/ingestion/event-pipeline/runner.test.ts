@@ -248,15 +248,50 @@ describe('EventPipelineRunner', () => {
                 expect(pipelineStepDLQCounterSpy).not.toHaveBeenCalled()
             })
         })
+
+        describe('client ingestion error event', () => {
+            it('drops events and adds a warning for special $$client_ingestion_warning event', async () => {
+                const event = {
+                    ...pipelineEvent,
+                    properties: { $$client_ingestion_warning_message: 'My warning message!' },
+                    event: '$$client_ingestion_warning',
+                    team_id: 9,
+                }
+
+                const hub: any = {
+                    db: {
+                        kafkaProducer: { queueMessage: jest.fn() },
+                    },
+                }
+                const runner = new TestEventPipelineRunner(hub, event)
+                jest.mocked(populateTeamDataStep).mockResolvedValue(event)
+
+                await runner.runEventPipeline(event)
+                expect(runner.steps).toEqual(['populateTeamDataStep'])
+                expect(hub.db.kafkaProducer.queueMessage).toHaveBeenCalledTimes(1)
+                expect(
+                    JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].kafkaMessage.messages[0].value)
+                ).toMatchObject({
+                    team_id: 9,
+                    type: 'client_ingestion_warning',
+                    details: JSON.stringify({
+                        eventUuid: 'uuid1',
+                        event: '$$client_ingestion_warning',
+                        distinctId: 'my_id',
+                        message: 'My warning message!',
+                    }),
+                })
+            })
+        })
     })
 })
 
-describe('EventPipelineRunner $process_person=false', () => {
-    it('drops events that are not allowed when $process_person=false', async () => {
+describe('EventPipelineRunner $process_person_profile=false', () => {
+    it('drops events that are not allowed when $process_person_profile=false', async () => {
         for (const eventName of ['$identify', '$create_alias', '$merge_dangerously', '$groupidentify']) {
             const event = {
                 ...pipelineEvent,
-                properties: { $process_person: false },
+                properties: { $process_person_profile: false },
                 event: eventName,
                 team_id: 9,
             }
@@ -276,7 +311,7 @@ describe('EventPipelineRunner $process_person=false', () => {
                 JSON.parse(hub.db.kafkaProducer.queueMessage.mock.calls[0][0].kafkaMessage.messages[0].value)
             ).toMatchObject({
                 team_id: 9,
-                type: 'invalid_event_when_process_person_is_false',
+                type: 'invalid_event_when_process_person_profile_is_false',
                 details: JSON.stringify({ eventUuid: 'uuid1', event: eventName, distinctId: 'my_id' }),
             })
         }

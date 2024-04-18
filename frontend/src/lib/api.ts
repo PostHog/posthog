@@ -480,6 +480,10 @@ class ApiRequest {
         return this.experiments(teamId).addPathComponent(experimentId)
     }
 
+    public experimentCreateExposureCohort(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.experimentsDetail(experimentId, teamId).addPathComponent('create_exposure_cohort_for_experiment')
+    }
+
     // # Roles
     public roles(): ApiRequest {
         return this.organizations().current().addPathComponent('roles')
@@ -914,9 +918,6 @@ const api = {
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
-        async getCount(actionId: ActionType['id']): Promise<number> {
-            return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
         },
@@ -1311,6 +1312,9 @@ const api = {
     experiments: {
         async get(id: number): Promise<Experiment> {
             return new ApiRequest().experimentsDetail(id).get()
+        },
+        async createExposureCohort(id: number): Promise<{ cohort: CohortType }> {
+            return await new ApiRequest().experimentCreateExposureCohort(id).create()
         },
     },
 
@@ -1915,7 +1919,7 @@ const api = {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
             return await new ApiRequest().externalDataSources().get(options)
         },
-        async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<ExternalDataSourceCreatePayload> {
+        async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
         },
         async delete(sourceId: ExternalDataStripeSource['id']): Promise<void> {
@@ -1926,17 +1930,21 @@ const api = {
         },
         async database_schema(
             source_type: ExternalDataSourceType,
-            host?: string,
-            port?: string,
-            dbname?: string,
-            user?: string,
-            password?: string,
-            schema?: string
+            payload: Record<string, any>
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
                 .externalDataSources()
                 .withAction('database_schema')
-                .create({ data: { source_type, host, port, dbname, user, password, schema } })
+                .create({ data: { source_type, ...payload } })
+        },
+        async source_prefix(
+            source_type: ExternalDataSourceType,
+            prefix: string
+        ): Promise<ExternalDataSourceSyncSchema[]> {
+            return await new ApiRequest()
+                .externalDataSources()
+                .withAction('source_prefix')
+                .create({ data: { source_type, prefix } })
         },
     },
 

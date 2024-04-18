@@ -16,8 +16,6 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
             return 'Recent recordings'
         case ReplayTabs.Playlists:
             return 'Playlists'
-        case ReplayTabs.FilePlayback:
-            return 'Playback from file'
         default:
             return capitalizeFirstLetter(tab)
     }

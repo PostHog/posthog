@@ -200,7 +200,6 @@ export const FEATURE_FLAGS = {
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     BILLING_UPGRADE_LANGUAGE: 'billing-upgrade-language', // owner: @biancayang
     NEW_EXPERIMENTS_UI: 'new-experiments-ui', // owner: @jurajmajerik #team-feature-success
-    SESSION_REPLAY_V3_INGESTION_PLAYBACK: 'session-replay-v3-ingestion-playback', // owner: @benjackwhite
     SESSION_REPLAY_FILTER_ORDERING: 'session-replay-filter-ordering', // owner: #team-replay
     SESSION_REPLAY_LINKED_VARIANTS: 'session-replay-linked-variants', // owner: #team-replay
     REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
@@ -208,6 +207,7 @@ export const FEATURE_FLAGS = {
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
     REVERSE_PROXY_ONBOARDING: 'reverse-proxy-onboarding', // owner: @zlwaterfield
     SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
+    IP_ALLOWLIST_SETTING: 'ip-allowlist-setting', // owner: @benjackwhite
     EMAIL_VERIFICATION_TICKET_SUBMISSION: 'email-verification-ticket-submission', // owner: #team-growth
     THEME: 'theme', // owner: @aprilfools
 } as const

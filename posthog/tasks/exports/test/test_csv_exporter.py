@@ -26,8 +26,8 @@ from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
     UnexpectedEmptyJsonResponse,
     add_query_params,
-    CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL,
 )
+from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from posthog.utils import absolute_uri
 
@@ -273,7 +273,7 @@ class TestCSVExporter(APIBaseTest):
 
             wb = load_workbook(filename=BytesIO(exported_asset.content))
             ws = wb.active
-            data = [row for row in ws.iter_rows(values_only=True)]
+            data = list(ws.iter_rows(values_only=True))
             assert data == [
                 ("distinct_id", "properties.$browser", "event", "tomato"),
                 ("2", "Safari", "event_name", None),

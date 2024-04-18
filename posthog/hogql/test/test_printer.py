@@ -156,7 +156,9 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
-                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonOnEventsMode.V1_ENABLED),
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
@@ -1581,3 +1583,14 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert printed2 == printed
+
+    def test_case_insensitive_functions(self):
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(
+            self._expr("CoALESce(1)", context),
+            "coalesce(1)",
+        )
+        self.assertEqual(
+            self._expr("SuM(1)", context),
+            "sum(1)",
+        )
