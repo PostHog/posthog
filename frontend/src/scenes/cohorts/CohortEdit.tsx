@@ -1,4 +1,4 @@
-import { LemonDivider, LemonFileInput, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -247,6 +247,15 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 ) : (
                     <>
                         <LemonDivider className="my-6" />
+                        {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
+                            <LemonBanner type="info">
+                                This cohort manages exposure for an experiment. Editing this cohort may change
+                                experiment metrics. If unsure,{' '}
+                                <Link to={urls.experiment(cohort.experiment_set[0])}>
+                                    check the experiment details.
+                                </Link>
+                            </LemonBanner>
+                        )}
                         <div className="flex items-center justify-between my-4">
                             <div className="flex flex-col">
                                 <LemonLabel htmlFor="groups">Matching criteria</LemonLabel>

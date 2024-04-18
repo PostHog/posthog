@@ -190,6 +190,7 @@ export function ExperimentExposureModal({ experimentId }: { experimentId: Experi
                     <MetricSelector
                         dashboardItemId={EXPERIMENT_EXPOSURE_INSIGHT_ID}
                         setPreviewInsight={setExperimentExposureInsight}
+                        forceTrendExposureMetric
                     />
                 </Field>
             </Form>
@@ -208,8 +209,8 @@ export function Goal(): JSX.Element {
             <div className="text-muted text-xs">
                 This <b>{experimentInsightType === InsightType.FUNNELS ? 'funnel' : 'trend'}</b>{' '}
                 {experimentInsightType === InsightType.FUNNELS
-                    ? 'experiment measures conversion through each step of the user journey.'
-                    : 'experiment tracks the performance of a single metric.'}
+                    ? 'experiment measures conversion at each stage.'
+                    : 'experiment tracks the count of a single metric.'}
             </div>
             <div className="inline-flex space-x-6">
                 <div>
