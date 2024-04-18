@@ -208,6 +208,11 @@ class SessionsTable(LazyTable):
     def to_printed_hogql(self):
         return "sessions"
 
+    def avoid_asterisk_fields(self) -> List[str]:
+        return [
+            "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
+        ]
+
 
 def join_events_table_to_sessions_table(
     from_table: str, to_table: str, requested_fields: dict[str, Any], context: HogQLContext, node: ast.SelectQuery
@@ -232,7 +237,7 @@ def join_events_table_to_sessions_table(
 
 def get_lazy_session_table_properties(search: Optional[str]):
     # some fields shouldn't appear as properties
-    hidden_fields = {"team_id", "distinct_id", "session_id", "id", "$event_count_map", "$urls"}
+    hidden_fields = {"team_id", "distinct_id", "session_id", "id", "$event_count_map", "$urls", "duration"}
 
     # some fields should have a specific property type which isn't derivable from the type of database field
     property_type_overrides = {
