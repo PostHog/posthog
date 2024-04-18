@@ -222,7 +222,7 @@ describe('Surveys', () => {
         cy.get(`[data-row-key="${name}"]`).contains(name).click()
     })
 
-    it.only('duplicates a survey', () => {
+    it('duplicates a survey', () => {
         // create survey
         cy.get('[data-attr=new-survey]').click()
         cy.get('[data-attr=new-blank-survey]').click()
