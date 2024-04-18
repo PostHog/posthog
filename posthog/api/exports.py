@@ -81,8 +81,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 {"export_format": [f"Export format {instance.export_format} is not supported."]}
             )
 
-        task_id = exporter.export_asset.delay(instance.id)
-        instance.export_context["task_id"] = task_id
+        task = exporter.export_asset.delay(instance.id)
+        instance.export_context["task_id"] = task.id
         instance.save(update_fields=["export_context"])
 
         if user is not None:
