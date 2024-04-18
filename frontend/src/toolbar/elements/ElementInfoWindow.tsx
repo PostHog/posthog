@@ -81,7 +81,6 @@ export function ElementInfoWindow(): JSX.Element | null {
                 transition: 'opacity 0.2s, box-shadow 0.2s',
                 backgroundBlendMode: 'multiply',
                 background: 'white',
-                boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
             }}
         >
             {onClose ? (
@@ -111,8 +110,16 @@ export function ElementInfoWindow(): JSX.Element | null {
                     <IconX />
                 </div>
             ) : null}
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ minHeight, maxHeight, overflow: 'auto' }}>
+            <div
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    minHeight,
+                    maxHeight,
+                    overflow: 'auto',
+                    boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
+                    borderRadius: '8px',
+                }}
+            >
                 <ElementInfo />
             </div>
         </div>

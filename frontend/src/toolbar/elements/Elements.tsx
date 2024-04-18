@@ -4,13 +4,16 @@ import { useActions, useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 import { Fragment } from 'react'
 
+import { AutocaptureElement } from '~/toolbar/elements/AutocaptureElement'
+import { AutocaptureElementLabel } from '~/toolbar/elements/AutocaptureElementLabel'
 import { ElementInfoWindow } from '~/toolbar/elements/ElementInfoWindow'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
-import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
-import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
+
+import { Heatmap } from './Heatmap'
+import { ScrollDepth } from './ScrollDepth'
 
 export function Elements(): JSX.Element {
     const {
@@ -48,16 +51,18 @@ export function Elements(): JSX.Element {
                     zIndex: 2147483010,
                 }}
             >
+                <ScrollDepth />
+                <Heatmap />
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element }, index) => (
-                    <HeatmapElement
+                    <AutocaptureElement
                         key={`inspect-${index}`}
                         rect={rect}
                         style={{
                             pointerEvents: heatmapPointerEvents,
                             cursor: 'pointer',
-                            zIndex: 0,
+                            zIndex: hoverElement === element ? 2 : 1,
                             opacity:
                                 (!hoverElement && !selectedElement) ||
                                 selectedElement === element ||
@@ -65,6 +70,7 @@ export function Elements(): JSX.Element {
                                     ? 1
                                     : 0.4,
                             transition: 'opacity 0.2s, box-shadow 0.2s',
+                            borderRadius: 5,
                             ...getBoxColors('blue', hoverElement === element || selectedElement === element),
                         }}
                         onClick={() => selectElement(element)}
@@ -76,14 +82,15 @@ export function Elements(): JSX.Element {
                 {heatmapElements.map(({ rect, count, clickCount, rageclickCount, element }, index) => {
                     return (
                         <Fragment key={`heatmap-${index}`}>
-                            <HeatmapElement
+                            <AutocaptureElement
                                 rect={rect}
                                 style={{
                                     pointerEvents: inspectEnabled ? 'none' : heatmapPointerEvents,
-                                    zIndex: 1,
+                                    zIndex: hoverElement === element ? 4 : 3,
                                     opacity: !hoverElement || hoverElement === element ? 1 : 0.4,
                                     transition: 'opacity 0.2s, box-shadow 0.2s',
                                     cursor: 'pointer',
+                                    borderRadius: 5,
                                     ...getBoxColors(
                                         'red',
                                         hoverElement === element,
@@ -95,7 +102,7 @@ export function Elements(): JSX.Element {
                                 onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             />
                             {!!clickCount && (
-                                <HeatmapLabel
+                                <AutocaptureElementLabel
                                     rect={rect}
                                     style={{
                                         pointerEvents: heatmapPointerEvents,
@@ -122,10 +129,10 @@ export function Elements(): JSX.Element {
                                     onMouseOut={() => selectedElement === null && setHoverElement(null)}
                                 >
                                     {compactNumber(clickCount || 0)}
-                                </HeatmapLabel>
+                                </AutocaptureElementLabel>
                             )}
                             {!!rageclickCount && (
-                                <HeatmapLabel
+                                <AutocaptureElementLabel
                                     rect={rect}
                                     style={{
                                         pointerEvents: heatmapPointerEvents,
@@ -153,7 +160,7 @@ export function Elements(): JSX.Element {
                                     onMouseOut={() => selectedElement === null && setHoverElement(null)}
                                 >
                                     {compactNumber(rageclickCount)}&#128545;
-                                </HeatmapLabel>
+                                </AutocaptureElementLabel>
                             )}
                         </Fragment>
                     )
@@ -162,7 +169,7 @@ export function Elements(): JSX.Element {
                 {labelsToDisplay.map(({ element, rect, index }, loopIndex) => {
                     if (rect) {
                         return (
-                            <HeatmapLabel
+                            <AutocaptureElementLabel
                                 key={`label-${loopIndex}`}
                                 rect={rect}
                                 align="left"
@@ -182,7 +189,7 @@ export function Elements(): JSX.Element {
                                 onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             >
                                 {(index || loopIndex) + 1}
-                            </HeatmapLabel>
+                            </AutocaptureElementLabel>
                         )
                     }
                 })}
