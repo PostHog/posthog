@@ -556,6 +556,38 @@ class TestCSVExporter(APIBaseTest):
             first_row = lines[1].split(",")
             self.assertEqual(first_row[0], "$pageview")
 
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_empty_result(self, mocked_uuidt: Any) -> None:
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
+                        {"kind": "EventsNode", "name": "$pageview", "event": "$pageview"},
+                    ],
+                    "interval": "day",
+                    "dateRange": {"date_to": "2024-03-22", "date_from": "2024-03-22"},
+                    "funnelsFilter": {"funnelVizType": "steps"},
+                    "breakdownFilter": {"breakdown": "utm_medium", "breakdown_type": "event"},
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with patch("posthog.tasks.exports.csv_exporter.get_from_hogql_query") as mocked_get_from_hogql_query:
+            mocked_get_from_hogql_query.return_value = iter([])
+
+            with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+                csv_exporter.export_tabular(exported_asset)
+                content = object_storage.read(exported_asset.content_location)
+                lines = (content or "").split("\r\n")
+                self.assertEqual(lines[0], "error")
+                self.assertEqual(lines[1], "No data available or unable to format for export.")
+
     def _split_to_dict(self, url: str) -> Dict[str, Any]:
         first_split_parts = url.split("?")
         assert len(first_split_parts) == 2
