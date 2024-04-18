@@ -126,7 +126,7 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
             </p>
 
             <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                <>
+                <div className="space-y-2">
                     <LemonTable
                         columns={columns}
                         dataSource={rolesWithResourceAccessControls}
@@ -144,7 +144,7 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
                         Create role
                     </LemonButton>
                     <RoleModal />
-                </>
+                </div>
             </PayGateMini>
         </div>
     )
