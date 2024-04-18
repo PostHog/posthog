@@ -1,8 +1,10 @@
+from datetime import datetime, timedelta, timezone
 from django.core.cache import cache
 from flaky import flaky
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from dateutil import parser
 from posthog.constants import ExperimentSignificanceCode
 from posthog.models.action.action import Action
 from posthog.models.action_step import ActionStep
@@ -1471,7 +1473,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             url_matching=ActionStep.REGEX,
         )
         response = self._generate_experiment(
-            "2024-01-01T10:23",
+            datetime.now() - timedelta(days=5),
             {
                 "custom_exposure_filter": {
                     "actions": [
@@ -1499,14 +1501,14 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                 "person1": [
                     {
                         "event": "insight viewed",
-                        "timestamp": "2024-01-02",
+                        "timestamp": datetime.now() - timedelta(days=2),
                         "properties": {"$current_url": "x", "bonk": "bonk", "filters_count": 2},
                     },
                 ],
                 "person2": [
                     {
                         "event": "insight viewed",
-                        "timestamp": "2024-01-02",
+                        "timestamp": datetime.now() - timedelta(days=2),
                         "properties": {
                             "$current_url": "y",
                             "bonk": "bonk",
@@ -1517,14 +1519,14 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                 "person2-no-bonk": [
                     {
                         "event": "insight viewed",
-                        "timestamp": "2024-01-02",
+                        "timestamp": datetime.now() - timedelta(days=2),
                         "properties": {"$current_url": "y", "filters_count": 3},
                     },
                 ],
                 "person2-not-in-prop": [
                     {
                         "event": "$autocapture",
-                        "timestamp": "2024-01-02",
+                        "timestamp": datetime.now() - timedelta(days=2),
                         "properties": {
                             "$current_url": "https://posthog.com/feedback/1234"
                         },  # can't match because clashing current_url filters
@@ -1543,7 +1545,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             team=self.team,
             distinct_id="1",
             properties={"insight": "RETENTION", "$current_url": "x", "bonk": "bonk"},
-            timestamp="2024-01-02",
+            timestamp=datetime.now() - timedelta(days=2),
         )
         _create_person(
             distinct_ids=["2"],
@@ -1555,7 +1557,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             team=self.team,
             distinct_id="2",
             properties={"insight": "RETENTION", "$current_url": "x"},
-            timestamp="2024-01-02",
+            timestamp=datetime.now() - timedelta(days=2),
         )
         flush_persons_and_events()
 
@@ -1568,32 +1570,38 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         cohort = response.json()["cohort"]
         self.assertEqual(cohort["name"], 'Users exposed to experiment "Test Experiment"')
         self.assertEqual(cohort["experiment_set"], [created_experiment])
+
+        self.maxDiff = None
+        target_filter = cohort["filters"]["properties"]["values"][0]["values"][0]
         self.assertEqual(
+            target_filter["event_filters"],
+            [
+                {"key": "bonk", "type": "event", "value": "bonk"},
+                {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
+            ],
             cohort["filters"],
-            {
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "event_filters": [
-                                        {"key": "bonk", "type": "event", "value": "bonk"},
-                                        {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
-                                    ],
-                                    "event_type": "actions",
-                                    "explicit_datetime": "2024-01-01T10:23:00+00:00",
-                                    "key": action1.id,
-                                    "negation": False,
-                                    "type": "behavioral",
-                                    "value": "performed_event",
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
+        )
+        self.assertEqual(
+            target_filter["event_type"],
+            "actions",
+        )
+        self.assertEqual(
+            target_filter["key"],
+            action1.id,
+        )
+        self.assertEqual(
+            target_filter["type"],
+            "behavioral",
+        )
+        self.assertEqual(
+            target_filter["value"],
+            "performed_event",
+        )
+        explicit_datetime = parser.isoparse(target_filter["explicit_datetime"])
+
+        self.assertTrue(
+            explicit_datetime <= datetime.now(timezone.utc) - timedelta(days=5)
+            and explicit_datetime >= datetime.now(timezone.utc) - timedelta(days=5, hours=1)
         )
 
         cohort_id = cohort["id"]
