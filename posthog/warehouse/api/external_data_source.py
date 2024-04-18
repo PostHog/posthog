@@ -17,6 +17,7 @@ from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     delete_data_import_folder,
     is_any_external_data_job_paused,
+    trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
@@ -41,6 +42,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -67,6 +69,28 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         )
 
         return latest_completed_run.created_at if latest_completed_run else None
+
+    def get_status(self, instance: ExternalDataSource) -> str:
+        active_schemas: List[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
+        any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
+        any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
+        any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
+        any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
+        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
+
+        if any_failures:
+            return ExternalDataSchema.Status.ERROR
+        elif any_cancelled:
+            return ExternalDataSchema.Status.CANCELLED
+        elif any_paused:
+            return ExternalDataSchema.Status.PAUSED
+        elif any_running:
+            return ExternalDataSchema.Status.RUNNING
+        elif any_completed:
+            return ExternalDataSchema.Status.COMPLETED
+        else:
+            # Fallback during migration phase of going from source -> schema as the source of truth for syncs
+            return instance.status
 
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
@@ -169,13 +193,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
 
+        active_schemas: List[ExternalDataSchema] = []
+
         for schema in enabled_schemas:
-            ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=True)
+            active_schemas.append(
+                ExternalDataSchema.objects.create(
+                    name=schema, team=self.team, source=new_source_model, should_sync=True
+                )
+            )
         for schema in disabled_schemas:
             ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=False)
 
         try:
-            sync_external_data_job_workflow(new_source_model, create=True)
+            for active_schema in active_schemas:
+                sync_external_data_job_workflow(active_schema, create=True)
         except Exception as e:
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
@@ -331,7 +362,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 pass
 
-        delete_external_data_schedule(instance)
+        for schema in ExternalDataSchema.objects.filter(
+            team_id=self.team_id, source_id=instance.id, should_sync=True
+        ).all():
+            delete_external_data_schedule(str(schema.id))
+
+        delete_external_data_schedule(str(instance.id))
         return super().destroy(request, *args, **kwargs)
 
     @action(methods=["POST"], detail=True)
@@ -345,12 +381,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            trigger_external_data_workflow(instance)
+            trigger_external_data_source_workflow(instance)
 
-        except temporalio.service.RPCError as e:
-            # schedule doesn't exist
-            if e.message == "sql: no rows in result set":
-                sync_external_data_job_workflow(instance, create=True)
+        except temporalio.service.RPCError:
+            # if the source schedule has been removed - trigger the schema schedules
+            for schema in ExternalDataSchema.objects.filter(
+                team_id=self.team_id, source_id=instance.id, should_sync=True
+            ).all():
+                try:
+                    trigger_external_data_workflow(schema)
+                except temporalio.service.RPCError as e:
+                    if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                        sync_external_data_job_workflow(schema, create=True)
+
+                except Exception as e:
+                    logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)
+
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
             raise

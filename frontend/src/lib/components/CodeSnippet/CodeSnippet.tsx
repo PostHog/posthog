@@ -103,6 +103,7 @@ export function CodeSnippet({
     const [expanded, setExpanded] = useState(false)
 
     const indexOfLimitNewline = maxLinesWithoutExpansion ? indexOfNth(text, '\n', maxLinesWithoutExpansion) : -1
+    const lineCount = text.split('\n').length
     const displayedText = indexOfLimitNewline === -1 || expanded ? text : text.slice(0, indexOfLimitNewline)
 
     return (
@@ -138,8 +139,11 @@ export function CodeSnippet({
                     size="small"
                     type="secondary"
                     icon={expanded ? <IconCollapse /> : <IconExpand />}
+                    className="mt-1 mb-0"
                 >
-                    {expanded ? 'Collapse' : 'Expand'} snippet
+                    {expanded
+                        ? `Collapse to ${maxLinesWithoutExpansion!} lines`
+                        : `Show ${lineCount - maxLinesWithoutExpansion!} more lines`}
                 </LemonButton>
             )}
         </div>
