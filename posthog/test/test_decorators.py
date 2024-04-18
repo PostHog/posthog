@@ -3,6 +3,7 @@ from freezegun import freeze_time
 from posthog.decorators import cached_by_filters, is_stale_filter
 
 from django.core.cache import cache
+from django.test import Client
 
 from rest_framework.test import APIRequestFactory
 from rest_framework.viewsets import GenericViewSet
@@ -37,6 +38,8 @@ class TestCachedByFiltersDecorator(APIBaseTest):
         super().setUp()
 
     def test_returns_fresh_result(self) -> None:
+        self.client = Client()
+        self.client.force_login(self.user)
         response = self.client.get(f"/api/dummy").json()
 
         print(response)  # noqa: T201
@@ -46,10 +49,14 @@ class TestCachedByFiltersDecorator(APIBaseTest):
         assert isinstance(response["last_refresh"], str)
 
     def test_returns_cached_result(self) -> None:
+        # testing if out of order somehow doesn't run setup?
+        router.register(r"dummy", DummyViewSet, "dummy")
+
         # cache the result
         self.client.get(f"/api/dummy").json()
 
         response = self.client.get(f"/api/dummy").json()
+        print(response)  # noqa: T201
 
         assert response["result"] == "bla"
         assert response["is_cached"] is True

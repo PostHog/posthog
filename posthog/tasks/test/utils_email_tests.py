@@ -6,7 +6,7 @@ from posthog.email import EmailMessage
 from posthog.utils import get_absolute_path
 
 
-def mock_email_messages(MockEmailMessage: MagicMock, path="tasks/test/__emails__/") -> List[Any]:
+def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__emails__/") -> List[Any]:
     """
     Takes a mocked EmailMessage class and returns a list of all subsequently created EmailMessage instances
     The "send" method is spyed on to write the generated email to a file
