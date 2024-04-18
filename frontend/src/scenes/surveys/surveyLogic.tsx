@@ -87,20 +87,16 @@ export interface QuestionResultsReady {
 
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
 
-function duplicateExistingSurvey(survey: Survey | NewSurvey): NewSurvey {
-    const copiedNewSurvey = Object.keys(NEW_SURVEY).reduce((acc, key) => {
-        acc[key] = survey[key]
-        return acc
-    }, {}) as NewSurvey
-
+function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     return {
-        ...copiedNewSurvey,
+        ...survey,
         id: NEW_SURVEY.id,
         name: `${survey.name} (copy)`,
         archived: false,
+        start_date: null,
+        end_date: null,
         targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
-        start_date: null,
     }
 }
 
