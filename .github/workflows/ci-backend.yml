@@ -130,7 +130,7 @@ jobs:
 
             - name: Check formatting
               run: |
-                  ruff format --exclude posthog/hogql/grammar --check --diff .
+                  ruff format --check --diff .
 
             - name: Add Problem Matcher
               run: echo "::add-matcher::.github/mypy-problem-matcher.json"
