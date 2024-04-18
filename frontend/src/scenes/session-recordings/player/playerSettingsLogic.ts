@@ -182,7 +182,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setHideViewedRecordings: (hideViewedRecordings: boolean) => ({ hideViewedRecordings }),
         setAutoplayDirection: (autoplayDirection: AutoplayDirection) => ({ autoplayDirection }),
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
-        setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSearchQuery: (search: string) => ({ search }),
         setSyncScroll: (enabled: boolean) => ({ enabled }),
@@ -276,14 +275,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setTab: (_, { tab }) => tab,
-            },
-        ],
-
-        timestampMode: [
-            'relative' as 'absolute' | 'relative',
-            { persist: true },
-            {
-                setTimestampMode: (_, { mode }) => mode,
             },
         ],
 

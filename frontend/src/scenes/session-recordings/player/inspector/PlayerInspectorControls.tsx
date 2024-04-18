@@ -1,4 +1,4 @@
-import { IconBug, IconClock, IconDashboard, IconInfo, IconPause, IconTerminal, IconX } from '@posthog/icons'
+import { IconBug, IconDashboard, IconInfo, IconPause, IconTerminal, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -66,9 +66,8 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
     const inspectorLogic = playerInspectorLogic(logicProps)
     const { tab, windowIdFilter, syncScrollingPaused, windowIds, showMatchingEventsFilter } = useValues(inspectorLogic)
     const { setWindowIdFilter, setSyncScrollPaused, setTab } = useActions(inspectorLogic)
-    const { showOnlyMatching, timestampMode, miniFilters, syncScroll, searchQuery } = useValues(playerSettingsLogic)
-    const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll, setSearchQuery } =
-        useActions(playerSettingsLogic)
+    const { showOnlyMatching, miniFilters, syncScroll, searchQuery } = useValues(playerSettingsLogic)
+    const { setShowOnlyMatching, setMiniFilter, setSyncScroll, setSearchQuery } = useActions(playerSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -172,24 +171,6 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                 </div>
 
                 <div className="flex items-center gap-1">
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        noPadding
-                        onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
-                        tooltipPlacement="left"
-                        tooltip={
-                            timestampMode === 'absolute'
-                                ? 'Showing absolute timestamps'
-                                : 'Showing timestamps relative to the start of the recording'
-                        }
-                    >
-                        <span className="p-1 flex items-center gap-1">
-                            <span className=" text-xs">{capitalizeFirstLetter(timestampMode)}</span>{' '}
-                            <IconClock className="text-lg" />
-                        </span>
-                    </LemonButton>
-
                     <LemonButton
                         size="small"
                         type="secondary"
