@@ -505,7 +505,7 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_count_in_period(
-    begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"]
+    begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"] = "web"
 ) -> List[Tuple[int, int]]:
     previous_begin = begin - (end - begin)
 
