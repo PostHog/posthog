@@ -481,6 +481,14 @@ export class SessionRecordingIngester {
             )
         }
 
+        if (this.config.SESSION_RECORDING_NETWORK_PAYLOADS_INGESTION_ENABLED) {
+            this.networkPayloadsIngester = new NetworkPayloadsIngester(
+                this.config,
+                this.sharedClusterProducerWrapper.producer,
+                this.persistentHighWaterMarker
+            )
+        }
+
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
         // the batch consumer reads from the session replay kafka cluster

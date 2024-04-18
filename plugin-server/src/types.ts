@@ -229,6 +229,10 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
     SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
     SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: boolean
+    SESSION_RECORDING_NETWORK_PAYLOADS_INGESTION_ENABLED: boolean
+    // a comma separated team_ids where we will ingest network payload events to CH
+    // empty means no teams ingest, * means all teams ingest
+    SESSION_RECORDING_NETWORK_PAYLOADS_ENABLED_TEAMS: string
     // a single partition which will output many more log messages to the console
     // useful when that partition is lagging unexpectedly
     SESSION_RECORDING_DEBUG_PARTITION: string | undefined

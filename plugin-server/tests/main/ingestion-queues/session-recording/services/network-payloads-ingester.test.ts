@@ -4,6 +4,7 @@ import { produce } from '../../../../../src/kafka/producer'
 import { NetworkPayloadsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/network-payloads-ingester'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
+import { PluginsServerConfig } from '../../../../../src/types'
 import { status } from '../../../../../src/utils/status'
 
 jest.mock('../../../../../src/utils/status')
@@ -43,6 +44,7 @@ describe('network payloads ingester', () => {
 
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
         networkPayloadsIngester = new NetworkPayloadsIngester(
+            {} as PluginsServerConfig,
             mockProducer as unknown as HighLevelProducer,
             mockedHighWaterMarker
         )

@@ -435,6 +435,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 const expectedWaterMarks = {
                     session_replay_console_logs_events_ingester: 3,
                     session_replay_events_ingester: 3,
+                    session_replay_network_payloads_ingester: 3,
                 }
                 if (consumeOverflow) {
                     expectedWaterMarks['session-recordings-blob-overflow'] = 1
@@ -458,6 +459,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 await expect(getPersistentWaterMarks()).resolves.toEqual({
                     session_replay_console_logs_events_ingester: 2,
                     session_replay_events_ingester: 2,
+                    session_replay_network_payloads_ingester: 2,
                 })
                 await expect(getSessionWaterMarks()).resolves.toEqual({
                     sid2: 2, // only processed the second message so far
@@ -688,7 +690,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 await ingester.handleEachBatch(partitionMsgs1, heartbeat)
 
                 // NOTE: the number here can change as we change the code. Important is that it is called a number of times
-                expect(heartbeat).toBeCalledTimes(7)
+                expect(heartbeat).toBeCalledTimes(8)
             })
         })
     })
