@@ -121,6 +121,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal
+
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml

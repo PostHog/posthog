@@ -43,7 +43,8 @@
             "processes": 4,
             "working_directory": "/code",
             "path": ".",
-            "module": "posthog.wsgi",
+            "module": "posthog.$NGINX_UNIT_PYTHON_PROTOCOL",
+            "protocol": "$NGINX_UNIT_PYTHON_PROTOCOL",
             "user": "nobody",
             "limits": {
                 "requests": 50000

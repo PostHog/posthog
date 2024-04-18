@@ -7,6 +7,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useEffect } from 'react'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -28,12 +29,14 @@ export interface MetricSelectorProps {
     dashboardItemId: InsightShortId
     setPreviewInsight: (filters?: Partial<FilterType>) => void
     showDateRangeBanner?: boolean
+    forceTrendExposureMetric?: boolean
 }
 
 export function MetricSelector({
     dashboardItemId,
     setPreviewInsight,
     showDateRangeBanner,
+    forceTrendExposureMetric,
 }: MetricSelectorProps): JSX.Element {
     // insightLogic
     const logic = insightLogic({ dashboardItemId, syncWithUrl: false })
@@ -44,6 +47,12 @@ export function MetricSelector({
 
     // insightVizDataLogic
     const { isTrends } = useValues(insightVizDataLogic(insightProps))
+
+    useEffect(() => {
+        if (forceTrendExposureMetric && !isTrends) {
+            setPreviewInsight({ insight: InsightType.TRENDS })
+        }
+    }, [forceTrendExposureMetric, isTrends])
 
     return (
         <>
@@ -59,6 +68,7 @@ export function MetricSelector({
                         { value: InsightType.TRENDS, label: <b>Trends</b> },
                         { value: InsightType.FUNNELS, label: <b>Funnels</b> },
                     ]}
+                    disabledReason={forceTrendExposureMetric ? 'Exposure metric can only be a trend graph' : undefined}
                 />
             </div>
 
