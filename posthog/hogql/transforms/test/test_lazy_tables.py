@@ -142,7 +142,7 @@ class TestLazyJoins(BaseTest):
         # of a lazy join.
         printed = self._print_select(
             "select person.id from events",
-            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_override_properties_joined),
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
         )
         assert printed == self.snapshot
 
@@ -152,6 +152,6 @@ class TestLazyJoins(BaseTest):
         # is referenced via two different selected columns.
         printed = self._print_select(
             "select person_id, person.properties from events",
-            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_override_properties_joined),
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
         )
         assert printed == self.snapshot

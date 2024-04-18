@@ -12,17 +12,17 @@ class TestModifiers(BaseTest):
     def test_create_default_modifiers_for_team_init(self):
         assert self.team.person_on_events_mode == "disabled"
         modifiers = create_default_modifiers_for_team(self.team)
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled  # NB! not a None
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED  # NB! not a None
         modifiers = create_default_modifiers_for_team(
             self.team,
-            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_no_override_properties_on_events),
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
         )
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
         modifiers = create_default_modifiers_for_team(
             self.team,
-            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_override_properties_on_events),
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
         )
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
     def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"
@@ -31,7 +31,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             query,
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.disabled),
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
         )
         assert " JOIN " in response.clickhouse
 
@@ -40,7 +40,7 @@ class TestModifiers(BaseTest):
             query,
             team=self.team,
             modifiers=HogQLQueryModifiers(
-                personsOnEventsMode=PersonsOnEventsMode.person_id_no_override_properties_on_events
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
         )
         assert " JOIN " not in response.clickhouse
@@ -55,7 +55,7 @@ class TestModifiers(BaseTest):
 
         test_cases: list[TestCase] = [
             TestCase(
-                PersonsOnEventsMode.disabled,
+                PersonsOnEventsMode.DISABLED,
                 [
                     "events.event AS event",
                     "events__pdi__person.id AS id",
@@ -64,7 +64,7 @@ class TestModifiers(BaseTest):
                 ],
             ),
             TestCase(
-                PersonsOnEventsMode.person_id_no_override_properties_on_events,
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
                 [
                     "events.event AS event",
                     "events.person_id AS id",
@@ -73,7 +73,7 @@ class TestModifiers(BaseTest):
                 ],
             ),
             TestCase(
-                PersonsOnEventsMode.person_id_override_properties_on_events,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
                 [
                     "events.event AS event",
                     "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",
@@ -85,7 +85,7 @@ class TestModifiers(BaseTest):
                 ],
             ),
             TestCase(
-                PersonsOnEventsMode.person_id_override_properties_joined,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 [
                     "events.event AS event",
                     "events__person.id AS id",
