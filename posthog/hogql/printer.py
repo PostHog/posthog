@@ -1028,9 +1028,11 @@ class _Printer(Visitor):
             ):
                 # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
                 if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                    materialized_column = self._get_materialized_column("events", type.chain[0], "person_properties")
+                    materialized_column = self._get_materialized_column(
+                        "events", str(type.chain[0]), "person_properties"
+                    )
                 else:
-                    materialized_column = self._get_materialized_column("person", type.chain[0], "properties")
+                    materialized_column = self._get_materialized_column("person", str(type.chain[0]), "properties")
                 if materialized_column:
                     materialized_property_sql = self._print_identifier(materialized_column)
 

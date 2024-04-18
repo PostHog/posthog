@@ -227,7 +227,7 @@ class PropertySwapper(CloningVisitor):
             if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")  # type: ignore[unreachable]
+                materialized_column = self._get_materialized_column("person", property_name, "properties")
         elif property_type == "group":
             name_parts = property_name.split("_")
             name_parts.pop(0)
