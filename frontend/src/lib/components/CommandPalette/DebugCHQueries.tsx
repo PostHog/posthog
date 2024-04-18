@@ -129,14 +129,14 @@ function DebugCHQueries(): JSX.Element {
                                 </span>
                                 {item.queryJson ? (
                                     <div className="flex">
-                                        <LemonButton type="primary" to={urls.debugQuery(item.queryJson)}>
+                                        <LemonButton type="primary" targetBlank to={urls.debugQuery(item.queryJson)}>
                                             {JSON.parse(item.queryJson).kind || 'Debug'}
                                         </LemonButton>
                                         <CopyToClipboardInline
                                             iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
                                             className="font-normal text-sm"
                                             explicitValue={item.queryJson}
-                                            description="Query JSON"
+                                            description="query JSON"
                                             selectable
                                         />
                                     </div>
