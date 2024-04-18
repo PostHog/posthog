@@ -14,7 +14,7 @@ class ZendeskCredentialsBase(CredentialsConfiguration):
     The Base version of all the ZendeskCredential classes.
     """
 
-    subdomain: str
+    subdomain: str = ""
     __config_gen_annotations__: ClassVar[List[str]] = []
 
 
@@ -24,7 +24,7 @@ class ZendeskCredentialsEmailPass(ZendeskCredentialsBase):
     This class is used to store credentials for Email + Password Authentication
     """
 
-    email: str
+    email: str = ""
     password: TSecretValue
 
 
@@ -43,7 +43,7 @@ class ZendeskCredentialsToken(ZendeskCredentialsBase):
     This class is used to store credentials for Token Authentication
     """
 
-    email: str
+    email: str = ""
     token: TSecretValue
 
 
