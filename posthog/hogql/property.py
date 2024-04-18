@@ -69,7 +69,7 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    scope: Literal["event", "person"] = "event",
+    scope: Literal["event", "person", "session"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -139,10 +139,8 @@ def property_to_expr(
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
     ):
-        if scope == "person" and property.type != "person":
-            raise NotImplementedError(
-                f"The '{property.type}' property filter only works in 'event' scope, not in '{scope}' scope"
-            )
+        if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
+            raise NotImplementedError(f"The '{property.type}' property filter does not work in '{scope}' scope")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
         if property.type == "person" and scope != "person":
@@ -157,15 +155,15 @@ def property_to_expr(
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "data_warehouse":
             chain = []
+        elif property.type == "session" and scope == "event":
+            chain = ["session"]
+        elif property.type == "session" and scope == "session":
+            chain = ["sessions"]
         else:
             chain = ["properties"]
 
         properties_field = ast.Field(chain=chain)
         field = ast.Field(chain=chain + [property.key])
-
-        if property.type == "session" and property.key == "$session_duration":
-            field = ast.Field(chain=["session", "duration"])
-            properties_field = field
 
         if isinstance(value, list):
             if len(value) == 0:
