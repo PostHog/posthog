@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/node'
 import { HighLevelProducer as RdKafkaProducer } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
@@ -68,13 +67,6 @@ export class ConsoleLogsIngester extends BaseIngester {
             return
         }
 
-        // ... we don't want to mark events with no console logs as dropped
-        // this keeps the signal here clean and makes it easier to debug
-        // when we disable a team's console log ingestion
-        if (!event.metadata.consoleLogIngestionEnabled) {
-            return this.drop('console_log_ingestion_disabled')
-        }
-
         try {
             const consoleLogEvents = deduplicateConsoleLogEvents(
                 gatherConsoleLogEvents(event.team_id, event.session_id, rrwebEvents)
@@ -91,11 +83,8 @@ export class ConsoleLogsIngester extends BaseIngester {
                 })
             )
         } catch (error) {
-            status.error('⚠️', '[console-log-events-ingester] processing_error', {
+            status.error('⚠️', `[${this.label}] processing_error`, {
                 error: error,
-            })
-            captureException(error, {
-                tags: { source: 'console-log-events-ingester', team_id: event.team_id, session_id: event.session_id },
             })
         }
     }

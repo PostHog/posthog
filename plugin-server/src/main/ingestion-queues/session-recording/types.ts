@@ -10,7 +10,7 @@ export type IncomingRecordingMessage = {
         lowOffset: number
         highOffset: number
         timestamp: number
-        consoleLogIngestionEnabled?: boolean
+        networkPayloadIngestionEnabled?: boolean
     }
 
     team_id: number

@@ -11,7 +11,7 @@ jest.mock('../../../../../src/kafka/producer')
 
 const makeIncomingMessage = (
     data: Record<string, unknown>[],
-    consoleLogIngestionEnabled: boolean
+    networkPayloadIngestionEnabled: boolean
 ): IncomingRecordingMessage => {
     return {
         distinct_id: '',
@@ -23,7 +23,7 @@ const makeIncomingMessage = (
             partition: 0,
             topic: 'topic',
             timestamp: 0,
-            consoleLogIngestionEnabled,
+            networkPayloadIngestionEnabled,
             rawSize: 0,
         },
         session_id: '',

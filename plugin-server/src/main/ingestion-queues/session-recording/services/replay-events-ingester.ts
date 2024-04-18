@@ -93,7 +93,7 @@ export class ReplayEventsIngester extends BaseIngester {
                 }),
             ]
         } catch (error) {
-            status.error('⚠️', '[replay-events] processing_error', {
+            status.error('⚠️', `[${this.label}] processing_error`, {
                 error: error,
             })
         }

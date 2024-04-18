@@ -25,6 +25,7 @@ import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
+import { NetworkPayloadsIngester } from './services/network-payloads-ingester'
 import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
 import { OverflowManager } from './services/overflow-manager'
 import { RealtimeManager } from './services/realtime-manager'
@@ -127,7 +128,7 @@ type PartitionMetrics = {
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
-    consoleLogIngestionEnabled: boolean
+    networkPayloadIngestionEnabled: boolean
 }
 
 export class SessionRecordingIngester {
@@ -139,6 +140,7 @@ export class SessionRecordingIngester {
     overflowDetection?: OverflowManager
     replayEventsIngester?: ReplayEventsIngester
     consoleLogsIngester?: ConsoleLogsIngester
+    networkPayloadsIngester?: NetworkPayloadsIngester
     batchConsumer?: BatchConsumer
     partitionMetrics: Record<number, PartitionMetrics> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
@@ -152,7 +154,7 @@ export class SessionRecordingIngester {
     private promises: Set<Promise<any>> = new Set()
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
     // this allows us to output more information for that partition
-    private debugPartition: number | undefined = undefined
+    private readonly debugPartition: number | undefined = undefined
 
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
 
@@ -350,7 +352,8 @@ export class SessionRecordingIngester {
                             (token) =>
                                 this.teamsRefresher.get().then((teams) => ({
                                     teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                    networkPayloadIngestionEnabled:
+                                        teams[token]?.networkPayloadIngestionEnabled ?? true,
                                 })),
                             this.sharedClusterProducerWrapper
                         )
@@ -413,6 +416,16 @@ export class SessionRecordingIngester {
                         statsKey: `recordingingester.handleEachBatch.consumeConsoleLogEvents`,
                         func: async () => {
                             await this.consoleLogsIngester!.consumeBatch(recordingMessages)
+                        },
+                    })
+                    heartbeat()
+                }
+
+                if (this.networkPayloadsIngester) {
+                    await runInstrumentedFunction({
+                        statsKey: `recordingingester.handleEachBatch.consumeNetworkPayloads`,
+                        func: async () => {
+                            await this.networkPayloadsIngester!.consumeBatch(recordingMessages)
                         },
                     })
                     heartbeat()

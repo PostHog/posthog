@@ -23,7 +23,7 @@ const makeIncomingMessage = (source: string | null, timestamp: number): Incoming
             partition: 0,
             topic: 'topic',
             timestamp: timestamp,
-            consoleLogIngestionEnabled: true,
+            networkPayloadIngestionEnabled: true,
             rawSize: 0,
         },
         session_id: '',

@@ -61,7 +61,7 @@ const counterKafkaMessageReceived = new Counter({
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
-    consoleLogIngestionEnabled: boolean
+    networkPayloadIngestionEnabled: boolean
 }
 
 /**
@@ -201,7 +201,8 @@ export class SessionRecordingIngesterV3 {
                                 (token) =>
                                     this.teamsRefresher.get().then((teams) => ({
                                         teamId: teams[token]?.teamId || null,
-                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                        networkPayloadIngestionEnabled:
+                                            teams[token]?.networkPayloadIngestionEnabled ?? true,
                                     })),
                                 // v3 consumer does not emit ingestion warnings
                                 undefined

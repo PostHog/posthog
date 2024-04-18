@@ -282,7 +282,7 @@ export const parseKafkaMessage = async (
             lowOffset: message.offset,
             highOffset: message.offset,
             timestamp: message.timestamp,
-            consoleLogIngestionEnabled: teamIdWithConfig.consoleLogIngestionEnabled,
+            networkPayloadIngestionEnabled: teamIdWithConfig.networkPayloadIngestionEnabled,
         },
 
         team_id: teamIdWithConfig.teamId,

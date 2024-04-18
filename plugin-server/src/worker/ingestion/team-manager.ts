@@ -191,10 +191,10 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
 }
 
 export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<Record<string, TeamIDWithConfig>> {
-    const selectResult = await client.query<{ capture_console_log_opt_in: boolean } & Pick<Team, 'id' | 'api_token'>>(
+    const selectResult = await client.query<{ capture_perfomance_opt_in: boolean } & Pick<Team, 'id' | 'api_token'>>(
         PostgresUse.COMMON_READ,
         `
-            SELECT id, api_token, capture_console_log_opt_in
+            SELECT id, api_token, capture_performance_opt_in
             FROM posthog_team
             WHERE session_recording_opt_in = true
         `,
@@ -203,7 +203,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
     )
 
     return selectResult.rows.reduce((acc, row) => {
-        acc[row.api_token] = { teamId: row.id, consoleLogIngestionEnabled: row.capture_console_log_opt_in }
+        acc[row.api_token] = { teamId: row.id, networkPayloadIngestionEnabled: row.capture_perfomance_opt_in }
         return acc
     }, {} as Record<string, TeamIDWithConfig>)
 }

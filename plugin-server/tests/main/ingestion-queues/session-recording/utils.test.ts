@@ -77,7 +77,7 @@ describe('session-recording utils', () => {
         it('can parse a message correctly', async () => {
             const parsedMessage = await parseKafkaMessage(
                 validMessage('my-distinct-id', [{ token: 'something' }]),
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                () => Promise.resolve({ teamId: 1, networkPayloadIngestionEnabled: false }),
                 fakeProducer
             )
             expect(parsedMessage).toMatchSnapshot()
@@ -86,14 +86,14 @@ describe('session-recording utils', () => {
             const numericId = 12345
             const parsedMessage = await parseKafkaMessage(
                 validMessage(numericId, [{ token: 'something' }]),
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                () => Promise.resolve({ teamId: 1, networkPayloadIngestionEnabled: false }),
                 fakeProducer
             )
             expect(parsedMessage).toMatchObject({
                 distinct_id: String(numericId),
                 eventsByWindowId: expect.any(Object),
                 metadata: {
-                    consoleLogIngestionEnabled: false,
+                    networkPayloadIngestionEnabled: false,
                 },
                 session_id: '018a47c2-2f4a-70a8-b480-5e51d8b8d070',
                 team_id: 1,
@@ -141,7 +141,7 @@ describe('session-recording utils', () => {
                         timestamp: null,
                     },
                 ]),
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true }),
+                () => Promise.resolve({ teamId: 1, networkPayloadIngestionEnabled: true }),
                 fakeProducer
             )
             expect(parsedMessage).toEqual(undefined)
@@ -159,7 +159,7 @@ describe('session-recording utils', () => {
                         timestamp: 123,
                     },
                 ]),
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true }),
+                () => Promise.resolve({ teamId: 1, networkPayloadIngestionEnabled: true }),
                 fakeProducer
             )
             expect(parsedMessage2).toMatchObject({
@@ -176,7 +176,7 @@ describe('session-recording utils', () => {
 
             const parsedMessage3 = await parseKafkaMessage(
                 createMessage([null]),
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                () => Promise.resolve({ teamId: 1, networkPayloadIngestionEnabled: false }),
                 fakeProducer
             )
             expect(parsedMessage3).toEqual(undefined)
@@ -253,7 +253,7 @@ describe('session-recording utils', () => {
                 validMessage(12345, [{ token: 'q123' } as MessageHeader].concat(headers), {
                     $snapshot_consumer: 'v2',
                 }),
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
+                () => Promise.resolve({ teamId: 1, networkPayloadIngestionEnabled: false }),
                 fakeProducer
             )
             expect(jest.mocked(fakeProducer.queueMessage).mock.calls).toEqual(expectedCalls)
@@ -264,7 +264,7 @@ describe('session-recording utils', () => {
 
             beforeEach(() => {
                 mockTeamResolver.mockReset()
-                mockTeamResolver.mockResolvedValue({ teamId: 1, consoleLogIngestionEnabled: false })
+                mockTeamResolver.mockResolvedValue({ teamId: 1, networkPayloadIngestionEnabled: false })
             })
 
             test.each([
@@ -565,7 +565,7 @@ describe('session-recording utils', () => {
                 () =>
                     Promise.resolve({
                         teamId: 1,
-                        consoleLogIngestionEnabled: true,
+                        networkPayloadIngestionEnabled: true,
                     }),
                 fakeProducer
             )
@@ -703,7 +703,7 @@ describe('session-recording utils', () => {
                 (token: string) =>
                     Promise.resolve({
                         teamId: token.length,
-                        consoleLogIngestionEnabled: true,
+                        networkPayloadIngestionEnabled: true,
                     }),
                 fakeProducer
             )
