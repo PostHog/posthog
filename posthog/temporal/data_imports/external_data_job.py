@@ -32,7 +32,6 @@ from posthog.warehouse.models import (
     ExternalDataJob,
     get_active_schemas_for_source_id,
     ExternalDataSource,
-    aget_schema_by_id,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from typing import Dict
@@ -118,12 +117,6 @@ async def check_schedule_activity(inputs: ExternalDataWorkflowInputs) -> bool:
         # Delete the source schedule in favour of the schema schedules
         await a_delete_external_data_schedule(ExternalDataSource(id=inputs.external_data_source_id))
         logger.info(f"Deleted schedule for source {inputs.external_data_source_id}")
-        return True
-
-    schema_model = await aget_schema_by_id(inputs.external_data_schema_id, inputs.team_id)
-
-    # schema turned off so don't sync
-    if schema_model and not schema_model.should_sync:
         return True
 
     logger.info("Schema ID is set. Continuing...")
