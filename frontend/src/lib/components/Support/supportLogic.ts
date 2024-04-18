@@ -54,7 +54,7 @@ function getBillingAdminLink(user: UserType | null): string {
     if (!user) {
         return ''
     }
-    const link = `http://go/billing/customer/${user.organization?.id}`
+    const link = `http://go/billing/${user.organization?.id}`
     return `Billing Admin: ${link} (Organization: '${user.organization?.name}'`
 }
 
