@@ -94,7 +94,12 @@ export function queryExportContext<N extends DataNode = DataNode>(
     }
 }
 
-const SYNC_ONLY_QUERY_KINDS = ['HogQLMetadata', 'EventsQuery', 'HogQLAutocomplete'] satisfies NodeKind[keyof NodeKind][]
+const SYNC_ONLY_QUERY_KINDS = [
+    'HogQLMetadata',
+    'EventsQuery',
+    'HogQLAutocomplete',
+    'DatabaseSchemaQuery',
+] satisfies NodeKind[keyof NodeKind][]
 
 /**
  * Execute a query node and return the response, use async query if enabled
