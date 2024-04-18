@@ -249,6 +249,12 @@ jobs:
                 # :NOTE: Keep concurrency and groups in sync
                 concurrency: [5]
                 group: [1, 2, 3, 4, 5]
+                include:
+                    - segment: 'TEMPORAL'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:23.12.5.81-alpine'
+                      concurrency: 1
+                      group: 1
 
         steps:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
