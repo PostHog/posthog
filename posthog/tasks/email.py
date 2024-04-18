@@ -183,7 +183,7 @@ async def send_batch_export_run_failure(
         subject=f"PostHog: {batch_export_run.batch_export.name} batch export run failure",
         template_name="batch_export_run_failure",
         template_context={
-            "time": batch_export_run.last_updated_at.strftime("%I:%M%p on %B %d"),
+            "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
             "team": team,
             "id": batch_export_run.batch_export.id,
             "name": batch_export_run.batch_export.name,
