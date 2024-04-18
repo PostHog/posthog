@@ -316,9 +316,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
             if resolved_field and isinstance(resolved_field, DatabaseField) and resolved_field:
-                return resolved_field.name in ["min_timestamp", "timestamp"]
+                return resolved_field.name in ["$start_timestamp", "min_timestamp", "timestamp"]
         # no type information, so just use the name of the field
-        return node.chain[-1] in ["min_timestamp", "timestamp"]
+        return node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp"]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         # only allow the min_timestamp field to be used on one side of the arithmetic operation
@@ -386,7 +386,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
             ) or (
                 isinstance(table_type, ast.LazyTableType)
                 and isinstance(table_type.table, SessionsTable)
-                and resolved_field.name == "min_timestamp"
+                and resolved_field.name == "$start_timestamp"
             )
 
         return self.visit(node.expr)
@@ -412,11 +412,11 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
             table = node.type.resolve_table_type(self.context).table
             if resolved_field and isinstance(resolved_field, DatabaseField):
                 if (isinstance(table, EventsTable) and resolved_field.name == "timestamp") or (
-                    isinstance(table, SessionsTable) and resolved_field.name == "min_timestamp"
+                    isinstance(table, SessionsTable) and resolved_field.name == "$start_timestamp"
                 ):
                     return ast.Field(chain=["raw_sessions", "min_timestamp"])
         # no type information, so just use the name of the field
-        if node.chain[-1] in ["min_timestamp", "timestamp"]:
+        if node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp"]:
             return ast.Field(chain=["raw_sessions", "min_timestamp"])
         return node
 
