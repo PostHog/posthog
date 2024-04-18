@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
-import { mockEventDefinitions, mockSessionPropertyDefinitions } from '~/test/mocks'
+import { mockEventDefinitions } from '~/test/mocks'
 import { AppContext } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
@@ -25,19 +25,6 @@ describe('taxonomicFilterLogic', () => {
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
-                    return [
-                        200,
-                        {
-                            results,
-                            count: results.length,
-                        },
-                    ]
-                },
-                '/api/projects/:team/sessions/property_definitions': (res) => {
-                    const search = res.url.searchParams.get('search')
-                    const results = search
-                        ? mockSessionPropertyDefinitions.filter((e) => e.name.includes(search))
-                        : mockSessionPropertyDefinitions
                     return [
                         200,
                         {
@@ -89,10 +76,10 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 1,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.Sessions]: 0,
+                    [TaxonomicFilterGroupType.Sessions]: 1,
                 },
             })
-            .toDispatchActions(['infiniteListResultsReceived', 'infiniteListResultsReceived'])
+            .toDispatchActions(['infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -100,27 +87,27 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 157,
                     [TaxonomicFilterGroupType.Actions]: 0, // not mocked
                     [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.Sessions]: 2,
+                    [TaxonomicFilterGroupType.Sessions]: 1,
                 },
             })
     })
 
     it('setting search query filters events', async () => {
         // load the initial results
-        await expectLogic(logic)
-            .toDispatchActions(['infiniteListResultsReceived', 'infiniteListResultsReceived'])
-            .delay(1)
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'infiniteListResultsReceived',
+            'infiniteListResultsReceived',
+        ])
 
         await expectLogic(logic, () => {
-            logic.actions.setSearchQuery('search term')
+            logic.actions.setSearchQuery('event')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
-            .delay(1)
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
             .toMatchValues({
-                searchQuery: 'search term',
+                searchQuery: 'event',
                 activeTab: TaxonomicFilterGroupType.Events,
                 infiniteListCounts: {
-                    [TaxonomicFilterGroupType.Events]: 1,
+                    [TaxonomicFilterGroupType.Events]: 4,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
                     [TaxonomicFilterGroupType.Sessions]: 0,
@@ -130,7 +117,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('selector')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -147,7 +134,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('this is not found')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -164,7 +151,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -174,7 +161,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Events]: 157,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
-                    [TaxonomicFilterGroupType.Sessions]: 2,
+                    [TaxonomicFilterGroupType.Sessions]: 1,
                 },
             })
 
@@ -204,7 +191,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('event')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
