@@ -111,7 +111,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         <LemonSelect
                             options={[
                                 { value: 'auto', label: 'auto' },
-                                { value: 'leftjoin', label: 'join' },
+                                { value: 'leftjoin', label: 'leftjoin' },
                                 { value: 'subquery', label: 'subquery' },
                                 { value: 'leftjoin_conjoined', label: 'leftjoin conjoined' },
                             ]}
