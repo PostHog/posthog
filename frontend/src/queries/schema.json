@@ -1686,6 +1686,9 @@
                     "const": "FunnelCorrelationActorsQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
                 },
@@ -2139,6 +2142,9 @@
                 "kind": {
                     "const": "FunnelsActorsQuery",
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
@@ -2799,6 +2805,9 @@
                     "const": "InsightActorsQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
                 },
@@ -2820,6 +2829,9 @@
             "properties": {
                 "includeRecordings": {
                     "type": "boolean"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"

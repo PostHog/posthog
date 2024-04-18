@@ -1339,6 +1339,7 @@ class InsightActorsQueryBase(BaseModel):
         extra="forbid",
     )
     includeRecordings: Optional[bool] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
 
 
@@ -2856,6 +2857,7 @@ class FunnelsActorsQuery(BaseModel):
     )
     includeRecordings: Optional[bool] = None
     kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
     source: FunnelsQuery
 
@@ -2967,6 +2969,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
     ] = None
     includeRecordings: Optional[bool] = None
     kind: Literal["FunnelCorrelationActorsQuery"] = "FunnelCorrelationActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
     source: FunnelCorrelationQuery
 
@@ -2983,6 +2986,7 @@ class InsightActorsQuery(BaseModel):
         default=None, description="An interval selected out of available intervals in source query."
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
     series: Optional[int] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(

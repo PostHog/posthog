@@ -1106,6 +1106,7 @@ export type Day = integer
 export interface InsightActorsQueryBase {
     includeRecordings?: boolean
     response?: ActorsQueryResponse
+    modifiers?: HogQLQueryModifiers
 }
 export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
