@@ -132,6 +132,7 @@ posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Argument
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "PathsFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "LifecycleFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "StickinessFilter"; expected "str": "TrendsFilter"  [dict-item]
+posthog/hogql/modifiers.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonsOnEventsMode | None")  [assignment]
 posthog/api/utils.py:0: error: Incompatible types in assignment (expression has type "type[EventDefinition]", variable has type "type[EnterpriseEventDefinition]")  [assignment]
 posthog/api/utils.py:0: error: Argument 1 to "UUID" has incompatible type "int | str"; expected "str | None"  [arg-type]
 ee/billing/quota_limiting.py:0: error: List comprehension has incompatible type List[int]; expected List[str]  [misc]

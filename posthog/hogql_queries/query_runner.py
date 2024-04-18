@@ -395,7 +395,7 @@ class QueryRunner(ABC):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
         if hasattr(self.query, "properties") and hasattr(self.query, "dateRange"):
-            query_update = {}
+            query_update: Dict[str, Any] = {}
             if dashboard_filter.properties:
                 if self.query.properties:
                     query_update["properties"] = PropertyGroupFilter(
