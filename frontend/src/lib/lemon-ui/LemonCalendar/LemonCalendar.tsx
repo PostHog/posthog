@@ -36,7 +36,7 @@ export interface GetLemonButtonPropsOpts {
     weekIndex: number
 }
 export interface GetLemonButtonTimePropsOpts {
-    unit: 'hh' | 'mm' | 'a'
+    unit: 'h' | 'm' | 'a'
     value: number | string
 }
 
@@ -161,7 +161,7 @@ export function LemonCalendar({ showTime = false, ...props }: LemonCalendarProps
                         {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hour) => {
                             const buttonProps = props.getLemonButtonTimeProps?.({
                                 unit: 'h',
-                                value: String(hour),
+                                value: hour,
                             })
 
                             return (
@@ -176,7 +176,7 @@ export function LemonCalendar({ showTime = false, ...props }: LemonCalendarProps
                         {range(0, 60).map((minute) => {
                             const buttonProps = props.getLemonButtonTimeProps?.({
                                 unit: 'm',
-                                value: String(minute),
+                                value: minute,
                             })
                             return (
                                 <LemonButton fullWidth key={minute} {...buttonProps}>

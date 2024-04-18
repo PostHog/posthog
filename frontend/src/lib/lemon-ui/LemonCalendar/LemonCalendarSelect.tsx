@@ -32,6 +32,29 @@ export function LemonCalendarSelect({
         setSelectValue(date)
     }
 
+    const onTimeClick = ({ value, unit }: GetLemonButtonTimePropsOpts): void => {
+        let date = selectValue
+        if (date === null) {
+            date = dayjs()
+            if (unit === 'h') {
+                date = date.minute(0)
+            } else if (unit === 'm') {
+                date = date.hour(0)
+            } else if (unit === 'a') {
+                date = date.hour(0).minute(0)
+            }
+        }
+
+        if (unit === 'h') {
+            date = date.hour(Number(value))
+        } else if (unit === 'm') {
+            date = date.minute(Number(value))
+        } else if (unit === 'a') {
+            date = value === 'am' ? date.subtract(12, 'hour') : date.add(12, 'hour')
+        }
+        setSelectValue(date)
+    }
+
     return (
         <div className="LemonCalendarSelect" data-attr="lemon-calendar-select">
             <div className="flex justify-between border-b p-2 pb-4">
@@ -50,9 +73,17 @@ export function LemonCalendarSelect({
                     }
                     return props
                 }}
-                getLemonButtonTimeProps={({ value, unit }) => {
-                    const selected = selectValue ? selectValue.format(unit) : null
-                    return { active: selected === value, className: 'rounded-none' }
+                getLemonButtonTimeProps={(props) => {
+                    const selected = selectValue ? selectValue.format(props.unit) : null
+                    return {
+                        active: selected === String(props.value),
+                        className: 'rounded-none',
+                        onClick: () => {
+                            if (selected != props.value) {
+                                onTimeClick(props)
+                            }
+                        },
+                    }
                 }}
                 showTime={showTime}
             />
