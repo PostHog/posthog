@@ -306,6 +306,7 @@ export interface OrganizationType extends OrganizationBasicType {
     enforce_2fa: boolean | null
     metadata?: OrganizationMetadata
     member_count: number
+    billing_access_level: OrganizationMembershipLevel
 }
 
 export interface OrganizationDomainType {

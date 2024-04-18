@@ -48,6 +48,14 @@ class OrganizationUsageInfo(TypedDict):
     period: Optional[List[str]]
 
 
+class OrganizationMembershipLevel(models.IntegerChoices):
+    """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
+
+    MEMBER = 1, "member"
+    ADMIN = 8, "administrator"
+    OWNER = 15, "owner"
+
+
 class OrganizationManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
         return create_with_slug(super().create, *args, **kwargs)
@@ -138,6 +146,10 @@ class Organization(UUIDModel):
     never_drop_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+
+    billing_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=OrganizationMembershipLevel.MEMBER, choices=OrganizationMembershipLevel.choices, null=True, blank=True
+    )
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
@@ -240,12 +252,7 @@ def ensure_available_features_sync(sender, instance: Organization, **kwargs):
 
 
 class OrganizationMembership(UUIDModel):
-    class Level(models.IntegerChoices):
-        """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
-
-        MEMBER = 1, "member"
-        ADMIN = 8, "administrator"
-        OWNER = 15, "owner"
+    Level = OrganizationMembershipLevel
 
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",

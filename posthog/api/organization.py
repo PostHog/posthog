@@ -87,6 +87,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "customer_id",
             "enforce_2fa",
             "member_count",
+            "billing_access_level",
         ]
         read_only_fields = [
             "id",

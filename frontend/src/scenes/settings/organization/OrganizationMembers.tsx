@@ -134,7 +134,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     )
 }
 
-export function Members(): JSX.Element | null {
+export function OrganizationMembers(): JSX.Element | null {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
     const { setSearch, ensureAllMembersLoaded, loadAllMembers } = useActions(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
