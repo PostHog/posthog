@@ -297,9 +297,6 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_alias(self, node: ast.Alias) -> bool:
         return self.visit(node.expr)
 
-    def visit_select_query(self, node: ast.SelectQuery) -> bool:
-        return False
-
 
 def is_simple_timestamp_field_expression(expr: ast.Expr, context: HogQLContext) -> bool:
     return IsSimpleTimestampFieldExpressionVisitor(context).visit(expr)
@@ -395,9 +392,6 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
             )
 
         return self.visit(node.expr)
-
-    def visit_select_query(self, node: ast.SelectQuery) -> bool:
-        return False
 
 
 def rewrite_timestamp_field(expr: ast.Expr, context: HogQLContext) -> ast.Expr:
