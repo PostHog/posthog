@@ -21,7 +21,16 @@ export function LemonCalendarSelect({
     onClose,
     showTime,
 }: LemonCalendarSelectProps): JSX.Element {
-    const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf('day') : null)
+    const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(
+        value ? (showTime ? value : value.startOf('day')) : null
+    )
+
+    const onDateClick = (date: dayjs.Dayjs | null): void => {
+        if (showTime && selectValue === null && date != null) {
+            date = date.hour(dayjs().hour()).minute(dayjs().minute())
+        }
+        setSelectValue(date)
+    }
 
     return (
         <div className="LemonCalendarSelect" data-attr="lemon-calendar-select">
@@ -31,25 +40,22 @@ export function LemonCalendarSelect({
                     <LemonButton icon={<IconX />} size="small" onClick={onClose} aria-label="close" noPadding />
                 )}
             </div>
-            <div className="p-2">
-                <LemonCalendar
-                    onDateClick={setSelectValue}
-                    leftmostMonth={selectValue?.startOf('month')}
-                    months={months}
-                    getLemonButtonProps={({ date, props }) => {
-                        if (date.isSame(selectValue, 'd')) {
-                            return { ...props, status: 'default', type: 'primary' }
-                        }
-                        return props
-                    }}
-                    getLemonButtonTimeProps={({ value, unit }) => {
-                        const selected = selectValue ? selectValue.format(unit) : null
-                        debugger
-                        return { active: selected === value }
-                    }}
-                    showTime={showTime}
-                />
-            </div>
+            <LemonCalendar
+                onDateClick={onDateClick}
+                leftmostMonth={selectValue?.startOf('month')}
+                months={months}
+                getLemonButtonProps={({ date, props }) => {
+                    if (date.isSame(selectValue, 'd')) {
+                        return { ...props, status: 'default', type: 'primary' }
+                    }
+                    return props
+                }}
+                getLemonButtonTimeProps={({ value, unit }) => {
+                    const selected = selectValue ? selectValue.format(unit) : null
+                    return { active: selected === value, className: 'rounded-none' }
+                }}
+                showTime={showTime}
+            />
             <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">
                 <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
                     Cancel
@@ -113,7 +119,7 @@ export function LemonCalendarSelectInput(
                 }
                 {...props.buttonProps}
             >
-                {props.value?.format('MMMM D, YYYY') ?? placeholder ?? 'Select date'}
+                {props.value?.format(`MMMM D, YYYY${props.showTime && ' h:mm A'}`) ?? placeholder ?? 'Select date'}
             </LemonButton>
         </Popover>
     )

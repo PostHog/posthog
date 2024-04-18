@@ -2,6 +2,7 @@ import './LemonCalendar.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -126,6 +127,7 @@ export function LemonCalendar({ showTime = false, ...props }: LemonCalendarProps
                                                 LemonCalendar__today: date.isSame(today, 'd'),
                                             }),
                                         }
+
                                         const buttonProps =
                                             props.getLemonButtonProps?.({
                                                 dayIndex: day,
@@ -154,35 +156,37 @@ export function LemonCalendar({ showTime = false, ...props }: LemonCalendarProps
                 )
             })}
             {showTime && (
-                <div className="LemonCalendar__time flex">
-                    <div className="px-2 overflow-y-auto border-x">
+                <div className="LemonCalendar__time flex divide-x border-l">
+                    <ScrollableShadows direction="vertical">
                         {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hour) => {
                             const buttonProps = props.getLemonButtonTimeProps?.({
-                                unit: 'hh',
-                                value: hour,
+                                unit: 'h',
+                                value: String(hour),
                             })
 
                             return (
-                                <LemonButton key={hour} {...buttonProps}>
-                                    {String(hour).padStart(2, '0')}
+                                <LemonButton fullWidth key={hour} {...buttonProps}>
+                                    <span className="w-full text-center px-2">{String(hour).padStart(2, '0')}</span>
                                 </LemonButton>
                             )
                         })}
-                    </div>
-                    <div className="px-2 overflow-y-auto border-r">
+                        <div className="h-[229px]" />
+                    </ScrollableShadows>
+                    <ScrollableShadows direction="vertical">
                         {range(0, 60).map((minute) => {
                             const buttonProps = props.getLemonButtonTimeProps?.({
-                                unit: 'mm',
-                                value: minute,
+                                unit: 'm',
+                                value: String(minute),
                             })
                             return (
-                                <LemonButton key={minute} {...buttonProps}>
-                                    {String(minute).padStart(2, '0')}
+                                <LemonButton fullWidth key={minute} {...buttonProps}>
+                                    <span className="w-full text-center px-2">{String(minute).padStart(2, '0')}</span>
                                 </LemonButton>
                             )
                         })}
-                    </div>
-                    <div className="pl-2">
+                        <div className="h-[229px]" />
+                    </ScrollableShadows>
+                    <div>
                         <LemonButton {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'am' })}>AM</LemonButton>
                         <LemonButton {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'pm' })}>PM</LemonButton>
                     </div>

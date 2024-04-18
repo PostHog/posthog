@@ -54,8 +54,12 @@
     .LemonCalendar__time {
         height: 266px;
 
-        & > div {
-            scrollbar-width: none;
+        & .ScrollableShadows {
+            width: unset;
+
+            & .ScrollableShadows__inner {
+                scrollbar-width: none;
+            }
         }
     }
 }
