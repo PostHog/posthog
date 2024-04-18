@@ -275,7 +275,7 @@ def get_js_url(request: HttpRequest) -> str:
 def render_template(
     template_name: str,
     request: HttpRequest,
-    context: Dict = {},
+    context: Optional[Dict] = None,
     *,
     team_for_public_context: Optional["Team"] = None,
 ) -> HttpResponse:
@@ -284,6 +284,8 @@ def render_template(
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
     """
 
+    if context is None:
+        context = {}
     template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE

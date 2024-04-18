@@ -409,9 +409,9 @@ def cleanup_materialized_columns():
 
 
 def also_test_with_materialized_columns(
-    event_properties=[],
-    person_properties=[],
-    group_properties=[],
+    event_properties=None,
+    person_properties=None,
+    group_properties=None,
     verify_no_jsonextract=True,
     # :TODO: Remove this when groups-on-events is released
     materialize_only_with_person_on_events=False,
@@ -422,6 +422,12 @@ def also_test_with_materialized_columns(
     Requires a unittest class with ClickhouseTestMixin mixed in
     """
 
+    if group_properties is None:
+        group_properties = []
+    if person_properties is None:
+        person_properties = []
+    if event_properties is None:
+        event_properties = []
     try:
         from ee.clickhouse.materialized_columns.analyze import materialize
     except:

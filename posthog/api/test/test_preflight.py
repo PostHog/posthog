@@ -19,7 +19,9 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def instance_preferences(self, **kwargs):
         return {"debug_queries": False, "disable_paid_fs": False, **kwargs}
 
-    def preflight_dict(self, options={}):
+    def preflight_dict(self, options=None):
+        if options is None:
+            options = {}
         return {
             "django": True,
             "redis": True,
@@ -47,7 +49,9 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             **options,
         }
 
-    def preflight_authenticated_dict(self, options={}):
+    def preflight_authenticated_dict(self, options=None):
+        if options is None:
+            options = {}
         preflight = {
             "opt_out_capture": False,
             "licensed_users_available": None,

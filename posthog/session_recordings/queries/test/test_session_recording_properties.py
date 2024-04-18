@@ -25,8 +25,10 @@ class TestSessionRecordingProperties(BaseTest, ClickhouseTestMixin):
         timestamp,
         team=None,
         event_name="$pageview",
-        properties={"$os": "Windows 95", "$current_url": "aloha.com/2"},
+        properties=None,
     ):
+        if properties is None:
+            properties = {"$os": "Windows 95", "$current_url": "aloha.com/2"}
         if team is None:
             team = self.team
         _create_event(
