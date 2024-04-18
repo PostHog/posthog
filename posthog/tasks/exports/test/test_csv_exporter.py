@@ -501,7 +501,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_funnels_query(self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_funnels_query(self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10) -> None:
         _create_person(
             distinct_ids=[f"user_1"],
             team=self.team,
