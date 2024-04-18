@@ -507,6 +507,12 @@ class QueryMatchingTest:
             r"equals(\1\2, 2)",
             query,
         )
+        # replace cohort id lists in queries too
+        query = re.sub(
+            r"in((.*)?cohort_id, \[\d+(, ?\d+)*\])",
+            r"in(\1cohort_id, [1, 2, 3, 4, 5 /* ... */])",
+            query,
+        )
 
         # replace explicit timestamps in cohort queries
         query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
