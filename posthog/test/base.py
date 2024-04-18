@@ -574,7 +574,7 @@ class QueryMatchingTest:
         )
         query = re.sub(
             rf"""user_id:([0-9]+)""",
-            r"""user_id:XXX""",
+            r"""user_id:0""",
             query,
         )
 
