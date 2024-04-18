@@ -12,7 +12,7 @@ inputs:
         description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
     segment:
         required: true
-        description: Either 'FOSS' or 'TEMPORAL' segment
+        description: Either 'FOSS' or 'Temporal' segment
     concurrency:
         required: true
         description: Count of concurrency groups
@@ -132,7 +132,7 @@ runs:
           run: bin/check_kafka_clickhouse_up
 
         - name: Wait for Temporal
-          if: ${{ inputs.segment == 'TEMPORAL' }}
+          if: ${{ inputs.segment == 'Temporal' }}
           shell: bash
           run: |
               bin/check_temporal_up
@@ -180,7 +180,7 @@ runs:
 
         - name: Run Temporal tests
           id: run-temporal-tests
-          if: ${{ inputs.segment == 'TEMPORAL' }}
+          if: ${{ inputs.segment == 'Temporal' }}
           shell: bash
           run: |
               pytest posthog/temporal -m "not async_migrations" \
