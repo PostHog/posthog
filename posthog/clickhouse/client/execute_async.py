@@ -1,11 +1,13 @@
 import datetime
 import json
+from functools import partial
 from typing import Optional
 import uuid
 
 import structlog
 from prometheus_client import Histogram
 from rest_framework.exceptions import NotFound
+from django.db import transaction
 
 from posthog import celery, redis
 from posthog.clickhouse.query_tagging import tag_queries
@@ -124,6 +126,27 @@ def execute_process_query(
         manager.store_query_status(query_status)
 
 
+def kick_off_task(
+    manager: QueryStatusManager,
+    query_id: str,
+    query_json: dict,
+    query_status: QueryStatus,
+    refresh_requested: bool,
+    team_id: int,
+    user_id: int,
+):
+    task = process_query_task.delay(
+        team_id,
+        user_id,
+        query_id,
+        query_json,
+        limit_context=LimitContext.QUERY_ASYNC,
+        refresh_requested=refresh_requested,
+    )
+    query_status.task_id = task.id
+    manager.store_query_status(query_status)
+
+
 def enqueue_process_query_task(
     team_id: int,
     user_id: int,
@@ -159,16 +182,9 @@ def enqueue_process_query_task(
             refresh_requested=refresh_requested,
         )
     else:
-        task = process_query_task.delay(
-            team_id,
-            user_id,
-            query_id,
-            query_json,
-            limit_context=LimitContext.QUERY_ASYNC,
-            refresh_requested=refresh_requested,
+        transaction.on_commit(
+            partial(kick_off_task, manager, query_id, query_json, query_status, refresh_requested, team_id, user_id)
         )
-        query_status.task_id = task.id
-        manager.store_query_status(query_status)
 
     return query_status
 
