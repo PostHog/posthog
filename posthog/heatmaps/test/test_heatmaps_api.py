@@ -3,6 +3,8 @@ from typing import Dict
 
 import freezegun
 from django.http import HttpResponse
+from parameterized import parameterized
+from rest_framework import status
 
 from posthog.heatmaps.sql import INSERT_SINGLE_HEATMAP_EVENT
 from posthog.kafka_client.client import ClickhouseProducer
@@ -15,24 +17,29 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def _assert_heatmap_no_result_count(self, params: Dict[str, str | int] | None) -> None:
-        response = self._get_heatmap(params)
-        assert len(response.json()["results"]) == 0
+    def _assert_heatmap_no_result_count(
+        self, params: Dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
+    ) -> None:
+        response = self._get_heatmap(params, expected_status_code)
+        if response.status_code == status.HTTP_200_OK:
+            assert len(response.json()["results"]) == 0
 
     def _assert_heatmap_single_result_count(
-        self, params: Dict[str, str | int] | None, expected_grouped_count: int
+        self, params: Dict[str, str | int | None] | None, expected_grouped_count: int
     ) -> None:
         response = self._get_heatmap(params)
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["count"] == expected_grouped_count
 
-    def _get_heatmap(self, params: Dict[str, str | int] | None) -> HttpResponse:
+    def _get_heatmap(
+        self, params: Dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
+    ) -> HttpResponse:
         if params is None:
             params = {}
 
         query_params = "&".join([f"{key}={value}" for key, value in params.items()])
         response = self.client.get(f"/api/heatmap/?{query_params}")
-        assert response.status_code == 200, response.json()
+        assert response.status_code == expected_status_code, response.json()
 
         return response
 
@@ -197,6 +204,22 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 3)
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "aggregation": "unique_visitors"}, 2)
+
+    @parameterized.expand(
+        [
+            ["total_count", status.HTTP_200_OK],
+            ["unique_visitors", status.HTTP_200_OK],
+            ["direction", status.HTTP_400_BAD_REQUEST],
+            # equivalent to not providing it
+            ["", status.HTTP_200_OK],
+            ["     ", status.HTTP_400_BAD_REQUEST],
+            [None, status.HTTP_400_BAD_REQUEST],
+        ]
+    )
+    def test_only_allow_valid_values_for_aggregation(self, choice: str | None, expected_status_code: int) -> None:
+        self._assert_heatmap_no_result_count(
+            {"date_from": "2023-03-08", "aggregation": choice}, expected_status_code=expected_status_code
+        )
 
     def test_can_get_scrolldepth_counts_by_visitor(self) -> None:
         self._create_heatmap_event(
