@@ -64,28 +64,6 @@ function TabButtons({
             })}
         />
     )
-
-    return (
-        <>
-            {tabs.map((tabId) => {
-                const TabIcon = TabToIcon[tabId]
-                return (
-                    <LemonButton
-                        key={tabId}
-                        size="small"
-                        // We want to indicate the tab is loading, but not disable it so we just override the icon here
-                        icon={
-                            TabIcon ? tabsState[tabId] === 'loading' ? <Spinner textColored /> : <TabIcon /> : undefined
-                        }
-                        active={tab === tabId}
-                        onClick={() => setTab(tabId)}
-                    >
-                        {capitalizeFirstLetter(tabId)}
-                    </LemonButton>
-                )
-            })}
-        </>
-    )
 }
 
 export function PlayerInspectorControls({ onClose }: { onClose: () => void }): JSX.Element {
