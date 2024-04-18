@@ -88,7 +88,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         if (props.instrument) {
             const distinctId = props.distinctId
 
-            toolbarPosthogJS.optIn()
+            void toolbarPosthogJS.optIn()
 
             if (distinctId) {
                 toolbarPosthogJS.identify(distinctId, props.userEmail ? { email: props.userEmail } : {})
