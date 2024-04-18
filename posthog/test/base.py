@@ -508,6 +508,9 @@ class QueryMatchingTest:
             query,
         )
 
+        # replace explicit timestamps in cohort queries
+        query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
+
         # Replace organization_id and notebook_id lookups, for postgres
         query = re.sub(
             rf"""("organization_id"|"posthog_organization"\."id"|"posthog_notebook"."id") = '[^']+'::uuid""",

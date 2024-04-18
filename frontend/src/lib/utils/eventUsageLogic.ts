@@ -23,6 +23,7 @@ import {
     AccessLevel,
     AnyPartialFilterType,
     AnyPropertyFilter,
+    CohortType,
     DashboardMode,
     DashboardType,
     EntityType,
@@ -395,6 +396,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             endDate,
             duration,
             significant,
+        }),
+        reportExperimentExposureCohortCreated: (experiment: Experiment, cohort: CohortType) => ({ experiment, cohort }),
+        reportExperimentExposureCohortEdited: (existingCohort: CohortType, newCohort: CohortType) => ({
+            existingCohort,
+            newCohort,
         }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -982,6 +988,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 end_date: endDate.toISOString(),
                 duration,
                 significant,
+            })
+        },
+        reportExperimentExposureCohortCreated: ({ experiment, cohort }) => {
+            posthog.capture('experiment exposure cohort created', {
+                experiment_id: experiment.id,
+                cohort_filters: cohort.filters,
+            })
+        },
+        reportExperimentExposureCohortEdited: ({ existingCohort, newCohort }) => {
+            posthog.capture('experiment exposure cohort edited', {
+                existing_filters: existingCohort.filters,
+                new_filters: newCohort.filters,
+                id: newCohort.id,
             })
         },
         reportPropertyGroupFilterAdded: () => {
