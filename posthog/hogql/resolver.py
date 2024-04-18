@@ -4,7 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
+from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     StringJSONDatabaseField,
@@ -384,7 +384,7 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
-        if func_meta := HOGQL_POSTHOG_FUNCTIONS.get(node.name):
+        if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))

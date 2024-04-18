@@ -117,8 +117,8 @@ def _deliver_subscription_report(
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
     if not is_new_subscription_target:
-        subscription.set_next_delivery_date()
-        subscription.save()
+        subscription.set_next_delivery_date(subscription.next_delivery_date)
+        subscription.save(update_fields=["next_delivery_date"])
 
 
 @shared_task(queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value)

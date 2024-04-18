@@ -341,3 +341,11 @@ export function taxonomicFilterTypeToPropertyFilterType(
         | PropertyFilterType
         | undefined
 }
+
+export function isEmptyProperty(property: AnyPropertyFilter): boolean {
+    return (
+        property.value === null ||
+        property.value === undefined ||
+        (Array.isArray(property.value) && property.value.length === 0)
+    )
+}

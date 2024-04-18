@@ -60,7 +60,8 @@ def clean_property_group_filter(properties: dict):
 
 
 def clean_property_group_filter_values(properties: list[dict]):
-    return [clean_property_group_filter_value(property) for property in properties]
+    cleaned = [clean_property_group_filter_value(property) for property in properties if property]
+    return cleaned
 
 
 def clean_property_group_filter_value(property: dict):

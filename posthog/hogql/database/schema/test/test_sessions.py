@@ -44,7 +44,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
 
         response = execute_hogql_query(
             parse_select(
-                "select channel_type from sessions where session_id = {session_id}",
+                "select $channel_type from sessions where session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
             self.team,
@@ -68,7 +68,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
 
         response = execute_hogql_query(
             parse_select(
-                "select events.session.channel_type from events where $session_id = {session_id}",
+                "select events.session.$channel_type from events where $session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
             self.team,
@@ -92,7 +92,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
 
         response = execute_hogql_query(
             parse_select(
-                "select session.channel_type from events where $session_id = {session_id}",
+                "select session.$channel_type from events where $session_id = {session_id}",
                 placeholders={"session_id": ast.Constant(value=session_id)},
             ),
             self.team,

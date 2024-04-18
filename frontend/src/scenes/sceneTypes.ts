@@ -23,6 +23,7 @@ export enum Scene {
     Replay = 'Replay',
     ReplaySingle = 'ReplaySingle',
     ReplayPlaylist = 'ReplayPlaylist',
+    ReplayFilePlayback = 'ReplayFilePlayback',
     PersonsManagement = 'PersonsManagement',
     Person = 'Person',
     Pipeline = 'Pipeline',

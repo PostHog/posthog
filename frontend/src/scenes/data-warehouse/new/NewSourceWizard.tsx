@@ -1,6 +1,5 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,7 +9,6 @@ import stripeLogo from 'public/stripe-logo.svg'
 import zendeskLogo from 'public/zendesk-logo.png'
 import { useCallback } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SourceConfig } from '~/types'
 
@@ -26,7 +24,7 @@ export const scene: SceneExport = {
 }
 export function NewSourceWizard(): JSX.Element {
     const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, closeWizard, cancelWizard } = useActions(sourceWizardLogic)
+    const { onBack, onSubmit, closeWizard } = useActions(sourceWizardLogic)
     const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } =
         useValues(sourceWizardLogic)
 
@@ -65,17 +63,17 @@ export function NewSourceWizard(): JSX.Element {
         )
     }, [currentStep, isLoading, canGoNext, canGoBack, nextButtonText, showSkipButton])
 
-    const onCancel = (): void => {
-        cancelWizard()
-        router.actions.push(urls.dataWarehouse())
-    }
-
     return (
         <>
             <PageHeader
                 buttons={
                     <>
-                        <LemonButton type="secondary" center data-attr="source-form-cancel-button" onClick={onCancel}>
+                        <LemonButton
+                            type="secondary"
+                            center
+                            data-attr="source-form-cancel-button"
+                            onClick={closeWizard}
+                        >
                             Cancel
                         </LemonButton>
                     </>

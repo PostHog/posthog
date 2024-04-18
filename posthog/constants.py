@@ -262,6 +262,14 @@ class ExperimentSignificanceCode(str, Enum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class ExperimentNoResultsErrorKeys(str, Enum):
+    NO_EVENTS = "no-events"
+    NO_FLAG_INFO = "no-flag-info"
+    NO_CONTROL_VARIANT = "no-control-variant"
+    NO_TEST_VARIANT = "no-test-variant"
+    NO_RESULTS = "no-results"
+
+
 class PropertyOperatorType(str, Enum):
     AND = "AND"
     OR = "OR"
@@ -281,9 +289,6 @@ class BreakdownAttributionType(str, Enum):
 
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
-BREAKDOWN_VALUES_LIMIT = 25
-BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
-CSV_EXPORT_LIMIT = 10000
 
 
 class EventDefinitionType(str, Enum):

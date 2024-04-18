@@ -5,6 +5,7 @@ import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -70,6 +71,11 @@ interface BaseTile {
     layout: WebTileLayout
 }
 
+export interface Docs {
+    docsUrl: PostHogComDocsURL
+    title: string
+    description: string
+}
 export interface QueryTile extends BaseTile {
     title?: string
     query: QuerySchema
@@ -78,6 +84,7 @@ export interface QueryTile extends BaseTile {
     insightProps: InsightLogicProps
     canOpenModal: boolean
     canOpenInsight?: boolean
+    docs?: Docs
 }
 
 export interface TabsTile extends BaseTile {
@@ -93,6 +100,7 @@ export interface TabsTile extends BaseTile {
         insightProps: InsightLogicProps
         canOpenModal?: boolean
         canOpenInsight?: boolean
+        docs?: Docs
     }[]
 }
 
@@ -116,8 +124,8 @@ export enum GraphsTab {
 }
 
 export enum SourceTab {
-    REFERRING_DOMAIN = 'REFERRING_DOMAIN',
     CHANNEL = 'CHANNEL',
+    REFERRING_DOMAIN = 'REFERRING_DOMAIN',
     UTM_SOURCE = 'UTM_SOURCE',
     UTM_MEDIUM = 'UTM_MEDIUM',
     UTM_CAMPAIGN = 'UTM_CAMPAIGN',
@@ -371,7 +379,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     }),
     selectors(({ actions, values }) => ({
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
-        sourceTab: [(s) => [s._sourceTab], (sourceTab: string | null) => sourceTab || SourceTab.REFERRING_DOMAIN],
+        sourceTab: [(s) => [s._sourceTab], (sourceTab: string | null) => sourceTab || SourceTab.CHANNEL],
         deviceTab: [(s) => [s._deviceTab], (deviceTab: string | null) => deviceTab || DeviceTab.DEVICE_TYPE],
         pathTab: [(s) => [s._pathTab], (pathTab: string | null) => pathTab || PathTab.PATH],
         geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
@@ -585,7 +593,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             {
                                 id: PathTab.INITIAL_PATH,
                                 title: 'Top entry paths',
-                                linkText: 'Entry Path',
+                                linkText: 'Entry path',
                                 query: {
                                     full: true,
                                     kind: NodeKind.DataTableNode,
@@ -617,6 +625,31 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         setTabId: actions.setSourceTab,
                         tabs: [
                             {
+                                id: SourceTab.CHANNEL,
+                                title: 'Top channels',
+                                linkText: 'Channel',
+                                query: {
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.InitialChannelType,
+                                        dateRange,
+                                        sampling,
+                                        limit: 10,
+                                    },
+                                },
+                                insightProps: createInsightProps(TileId.SOURCES, SourceTab.CHANNEL),
+                                canOpenModal: true,
+                                docs: {
+                                    docsUrl: 'https://posthog.com/docs/data/channel-type',
+                                    title: 'Channels',
+                                    description:
+                                        'Channels are the different sources that bring traffic to your website, e.g. Paid Search, Organic Social, Direct, etc.',
+                                },
+                            },
+                            {
                                 id: SourceTab.REFERRING_DOMAIN,
                                 title: 'Top referrers',
                                 linkText: 'Referring domain',
@@ -635,25 +668,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.REFERRING_DOMAIN),
                                 canOpenModal: true,
                             },
-                            {
-                                id: SourceTab.CHANNEL,
-                                title: 'Top channels',
-                                linkText: 'Channel',
-                                query: {
-                                    full: true,
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.WebStatsTableQuery,
-                                        properties: webAnalyticsFilters,
-                                        breakdownBy: WebStatsBreakdown.InitialChannelType,
-                                        dateRange,
-                                        sampling,
-                                        limit: 10,
-                                    },
-                                },
-                                insightProps: createInsightProps(TileId.SOURCES, SourceTab.CHANNEL),
-                                canOpenModal: true,
-                            },
+
                             {
                                 id: SourceTab.UTM_SOURCE,
                                 title: 'Top sources',

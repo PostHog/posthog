@@ -1590,3 +1590,7 @@ class TestPrinter(BaseTest):
             self._expr("CoALESce(1)", context),
             "coalesce(1)",
         )
+        self.assertEqual(
+            self._expr("SuM(1)", context),
+            "sum(1)",
+        )

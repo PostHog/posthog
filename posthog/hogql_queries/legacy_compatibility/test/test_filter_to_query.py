@@ -1230,7 +1230,7 @@ class TestFilterToQuery(BaseTest):
                 EventsNode(
                     event="$pageview",
                     name="$pageview",
-                    properties=[SessionPropertyFilter(value=1, operator=PropertyOperator.gt)],
+                    properties=[SessionPropertyFilter(key="$session_duration", value=1, operator=PropertyOperator.gt)],
                 ),
                 EventsNode(
                     event="$pageview",

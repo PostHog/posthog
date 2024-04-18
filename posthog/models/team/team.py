@@ -327,8 +327,8 @@ class Team(UUIDClassicModel):
             return posthoganalytics.feature_enabled(
                 "persons-on-events-person-id-no-override-properties-on-events",
                 str(self.uuid),
-                groups={"team": str(self.id)},
-                group_properties={"team": {"id": str(self.id), "created_at": self.created_at, "uuid": self.uuid}},
+                groups={"project": str(self.id)},
+                group_properties={"project": {"id": str(self.id), "created_at": self.created_at, "uuid": self.uuid}},
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )

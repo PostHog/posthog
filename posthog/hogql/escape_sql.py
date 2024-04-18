@@ -61,7 +61,7 @@ def escape_hogql_string(
 
 
 def escape_clickhouse_string(
-    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT,
+    name: Optional[float | int | str | list | tuple | date | datetime | UUID | UUIDT],
     timezone: Optional[str] = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="clickhouse").visit(name)

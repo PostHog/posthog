@@ -25,7 +25,7 @@ describe('normalizeEventStep()', () => {
                     a: 5,
                 },
                 $browser: 'Chrome',
-                $process_person: true, // This is dropped, as it is implied
+                $process_person_profile: true, // This is dropped, as it is implied
             },
             $set: {
                 someProp: 'value',
@@ -54,7 +54,7 @@ describe('normalizeEventStep()', () => {
         expect(timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
     })
 
-    it('normalizes $process_person=false events by dropping $set and related', async () => {
+    it('normalizes $process_person_profile=false events by dropping $set and related', async () => {
         await resetTestDatabase()
         const [hub, _] = await createHub()
         const organizationId = await createOrganization(hub.db.postgres)
@@ -94,7 +94,7 @@ describe('normalizeEventStep()', () => {
             ...event,
             properties: {
                 $browser: 'Chrome',
-                $process_person: false,
+                $process_person_profile: false,
             },
         })
 

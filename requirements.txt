@@ -144,7 +144,7 @@ distro==1.9.0
     # via openai
 dj-database-url==0.5.0
     # via -r requirements.in
-django==4.1.13
+django==4.2.11
     # via
     #   -r requirements.in
     #   django-axes
@@ -262,8 +262,6 @@ google-cloud-bigquery==3.11.4
     # via -r requirements.in
 google-cloud-core==2.3.3
     # via google-cloud-bigquery
-google-cloud-sqlcommenter==2.0.0
-    # via -r requirements.in
 google-crc32c==1.5.0
     # via google-resumable-media
 google-resumable-media==2.5.0
@@ -273,9 +271,7 @@ googleapis-common-protos==1.60.0
     #   google-api-core
     #   grpcio-status
 greenlet==3.0.3
-    # via
-    #   gevent
-    #   sqlalchemy
+    # via gevent
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -373,6 +369,8 @@ multidict==6.0.2
     #   yarl
 mypy-boto3-s3==1.26.127
     # via boto3-stubs
+natsort==8.4.0
+    # via -r requirements.in
 nh3==0.2.14
     # via -r requirements.in
 numpy==1.23.3
@@ -448,8 +446,10 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
-psycopg==3.1.13
+psycopg[binary]==3.1.13
     # via -r requirements.in
+psycopg-binary==3.1.13
+    # via psycopg
 psycopg2-binary==2.9.7
     # via -r requirements.in
 ptyprocess==0.6.0

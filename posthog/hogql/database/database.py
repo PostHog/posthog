@@ -40,7 +40,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
 from posthog.hogql.database.schema.person_overrides import (
     PersonOverridesTable,
     RawPersonOverridesTable,
@@ -143,6 +143,41 @@ class Database(BaseModel):
             self._warehouse_table_names.append(f_name)
 
 
+def _use_person_properties_from_events(database: Database) -> None:
+    database.events.fields["person"] = FieldTraverser(chain=["poe"])
+
+
+def _use_person_id_from_person_overrides(database: Database, use_distinct_id_overrides: bool) -> None:
+    database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
+    if use_distinct_id_overrides:
+        database.events.fields["override"] = LazyJoin(
+            from_field=["distinct_id"],
+            join_table=PersonDistinctIdOverridesTable(),
+            join_function=join_with_person_distinct_id_overrides_table,
+        )
+        database.events.fields["person_id"] = ExpressionField(
+            name="person_id",
+            expr=parse_expr(
+                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
+                start=None,
+            ),
+        )
+    else:
+        database.events.fields["override"] = LazyJoin(
+            from_field=["event_person_id"],
+            join_table=PersonOverridesTable(),
+            join_function=join_with_person_overrides_table,
+        )
+        database.events.fields["person_id"] = ExpressionField(
+            name="person_id",
+            expr=parse_expr(
+                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
+                start=None,
+            ),
+        )
+
+
 def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
@@ -163,52 +198,22 @@ def create_hogql_database(
         database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
         database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_mixed:
-        # person.id via a join, person.properties on events
-        database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
-        database.events.fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
-        database.events.fields["poe"].fields["created_at"] = FieldTraverser(chain=["..", "pdi", "person", "created_at"])
-        database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(name="person_properties")
-
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled:
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+        _use_person_properties_from_events(database)
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled:
-        database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-        database.events.fields["override"] = LazyJoin(
-            from_field=["event_person_id"],
-            join_table=PersonOverridesTable(),
-            join_function=join_with_person_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
-                start=None,
-            ),
-        )
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
+        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=False)
+        _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v3_enabled:
-        database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-        database.events.fields["override"] = LazyJoin(
-            from_field=["distinct_id"],  # ???
-            join_table=PersonDistinctIdOverridesTable(),
-            join_function=join_with_person_distinct_id_overrides_table,
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_joined:
+        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=True)
+        database.events.fields["person"] = LazyJoin(
+            from_field=["person_id"],
+            join_table=PersonsTable(),
+            join_function=join_with_persons_table,
         )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
-                start=None,
-            ),
-        )
-        database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"

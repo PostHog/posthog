@@ -2,6 +2,7 @@ import '../Experiment.scss'
 
 import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -85,9 +86,20 @@ export function SecondaryMetricsModal({
                 )
             }
         >
-            {showResults && targetResults ? (
+            {showResults ? (
                 <div>
-                    <ResultsQuery targetResults={targetResults} showTable={false} />
+                    {targetResults && targetResults.insight ? (
+                        <ResultsQuery targetResults={targetResults} showTable={false} />
+                    ) : (
+                        <div className="bg-bg-light pt-6 pb-8 text-muted">
+                            <div className="flex flex-col items-center mx-auto">
+                                <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+                                <h2 className="text-xl font-semibold leading-tight">
+                                    There are no results for this metric yet
+                                </h2>
+                            </div>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <Form
@@ -309,7 +321,7 @@ export function SecondaryMetricsTable({
                         <div className="flex flex-col items-center mx-auto space-y-3">
                             <IconAreaChart fontSize="30" />
                             <div className="text-sm text-center text-balance">
-                                Add up to 3 secondary metrics to gauge side effects of your experiment.
+                                Add up to 3 secondary metrics to monitor side effects of your experiment.
                             </div>
                             <LemonButton
                                 icon={<IconPlus />}

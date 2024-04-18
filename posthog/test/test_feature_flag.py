@@ -985,7 +985,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(4):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
             self.assertEqual(
                 self.match_flag(feature_flag, "307"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
@@ -1014,7 +1014,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # test with a flag where the property is a number
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(4):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
             self.assertEqual(
                 self.match_flag(feature_flag2, "307"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3),
@@ -1493,7 +1493,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(4):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(5):
             self.assertEqual(
                 self.match_flag(feature_flag2, "307"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8),
@@ -1625,6 +1625,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             distinct_ids=["307"],
             properties={},
         )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["309"],
+            properties={"Distinct Id": "307"},
+        )
         feature_flag = self.create_feature_flag(
             key="random",
             filters={
@@ -1648,8 +1653,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
+        # person doesn't exist, meaning the property doesn't exist, so it should pass the is_not check
         self.assertEqual(
             self.match_flag(feature_flag, "308"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag, "309"),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
@@ -3320,6 +3331,43 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     property_value_overrides={"email": "example@example.com"},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+    def test_is_not_equal_with_non_existing_person(self):
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "$initial_utm_source", "type": "person", "value": ["fb"], "operator": "is_not"}
+                        ]
+                    }
+                ]
+            }
+        )
+
+        # one extra query to check existence
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "not-seen-person").get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "not-seen-person",
+                    property_value_overrides={"$initial_utm_source": "fb"},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "not-seen-person",
+                    property_value_overrides={"$initial_utm_source": "fbx"},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
     def test_is_not_set_operator_with_overrides(self):

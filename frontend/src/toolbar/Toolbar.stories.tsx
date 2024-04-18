@@ -131,6 +131,10 @@ export const FeatureFlags = (): JSX.Element => {
     return <BasicTemplate menu="flags" />
 }
 
+export const EventsDebuggerEmpty = (): JSX.Element => {
+    return <BasicTemplate menu="debugger" />
+}
+
 // Dark theme
 export const DefaultDark = (): JSX.Element => {
     return <BasicTemplate theme="dark" />
@@ -154,4 +158,8 @@ export const ActionsDark = (): JSX.Element => {
 
 export const FeatureFlagsDark = (): JSX.Element => {
     return <BasicTemplate theme="dark" menu="flags" />
+}
+
+export const EventsDebuggerEmptyDark = (): JSX.Element => {
+    return <BasicTemplate theme="dark" menu="debugger" />
 }
