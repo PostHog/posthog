@@ -1131,7 +1131,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             )
 
-    @patch("posthog.hogql.query.execute_hogql_query", wraps=execute_hogql_query)
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
     def test_insight_refreshing_query(self, spy_execute_hogql_query) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
