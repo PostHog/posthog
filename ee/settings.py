@@ -1,6 +1,7 @@
 """
 Django settings for PostHog Enterprise Edition.
 """
+
 import os
 from typing import Dict, List
 
