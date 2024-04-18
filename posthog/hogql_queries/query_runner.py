@@ -394,7 +394,7 @@ class QueryRunner(ABC):
             query_update = {}
             if dashboard_filter.properties:
                 if self.query.properties:
-                    query_update["properties"] = self.quyry.properties + dashboard_filter.properties
+                    query_update["properties"] = self.query.properties + dashboard_filter.properties
                 else:
                     query_update["properties"] = dashboard_filter.properties
             if dashboard_filter.date_from or dashboard_filter.date_to:
