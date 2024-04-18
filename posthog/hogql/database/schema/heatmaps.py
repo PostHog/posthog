@@ -24,18 +24,6 @@ class HeatmapsTable(Table):
         "current_url": StringDatabaseField(name="current_url"),
         "timestamp": DateTimeDatabaseField(name="timestamp"),
         "type": StringDatabaseField(name="type"),
-        # join to get analytics for heatmap areas?
-        # "session": LazyJoin(
-        #     from_field=["session_id"],
-        #     join_table=SessionsTable(),
-        #     join_function=join_events_table_to_sessions_table,
-        # ),
-        # join to get example replays?
-        # "recordings": LazyJoin(
-        #     from_field=["session_id"],
-        #     join_table=SessionReplayEventsTable(),
-        #     join_function=join_events_table_to_replay_table,
-        # ),
     }
 
     def to_printed_clickhouse(self, context):
