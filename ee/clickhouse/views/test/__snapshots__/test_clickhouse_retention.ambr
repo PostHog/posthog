@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people
   '''
-  /* user_id:0 request:_snapshot_ */ WITH actor_query AS
+  /* user_id:XXX request:_snapshot_ */ WITH actor_query AS
     (WITH 'Day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
@@ -60,7 +60,7 @@
 # ---
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -132,7 +132,7 @@
 # ---
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people.2
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -204,7 +204,7 @@
 # ---
 # name: RetentionTests.test_retention_test_account_filters
   '''
-  /* user_id:0 request:_snapshot_ */ WITH actor_query AS
+  /* user_id:XXX request:_snapshot_ */ WITH actor_query AS
     (WITH 'Day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
@@ -301,7 +301,7 @@
 # ---
 # name: RetentionTests.test_retention_test_account_filters.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -397,7 +397,7 @@
 # ---
 # name: RetentionTests.test_retention_test_account_filters.2
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM

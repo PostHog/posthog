@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
@@ -17,7 +17,7 @@
 # ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -215,7 +215,7 @@
 # ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
@@ -231,7 +231,7 @@
 # ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -429,7 +429,7 @@
 # ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
@@ -445,7 +445,7 @@
 # ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -643,7 +643,7 @@
 # ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_with_hogql_aggregation
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
@@ -659,7 +659,7 @@
 # ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_with_hogql_aggregation.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -857,7 +857,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -876,7 +876,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -924,7 +924,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.2
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -944,7 +944,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.3
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -1159,7 +1159,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -1176,7 +1176,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -1222,7 +1222,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.2
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -1240,7 +1240,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.3
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT [now()] AS date,
          [0] AS total,
          '' AS breakdown_value
@@ -1339,7 +1339,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -1356,7 +1356,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -1402,7 +1402,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.2
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -1420,7 +1420,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.3
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -1625,7 +1625,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -1643,7 +1643,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.1
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -1690,7 +1690,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.2
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -1708,7 +1708,7 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.3
   '''
-  /* user_id:0 request:_snapshot_ */
+  /* user_id:XXX request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -1949,7 +1949,7 @@
 # ---
 # name: TestExperimentAuxiliaryEndpoints.test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure.1
   '''
-  /* user_id:3 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:XXX cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -1989,7 +1989,7 @@
                             OR (match(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/123')
                                 AND event = '$autocapture'))
                        AND (has(['bonk'], replaceRegexpAll(JSONExtractRaw(properties, 'bonk'), '^"|"$', ''))
-                            AND ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), tuple('x', 'y')), 0))) > 0 AS performed_event_condition_3_level_level_0_level_0_0
+                            AND ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), tuple('x', 'y')), 0))) > 0 AS performed_event_condition_X_level_level_0_level_0_0
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -2004,7 +2004,7 @@
           AND timestamp >= now() - INTERVAL 6 day
         GROUP BY person_id) behavior_query
      WHERE 1 = 1
-       AND (((performed_event_condition_3_level_level_0_level_0_0))) ) as person
+       AND (((performed_event_condition_X_level_level_0_level_0_0))) ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
