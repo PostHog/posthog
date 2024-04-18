@@ -2,6 +2,7 @@ import { URL } from 'url'
 
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
 import { castTimestampOrNow } from '../../../utils/utils'
+import { captureIngestionWarning } from '../utils'
 import { EventPipelineRunner } from './runner'
 
 // This represents the scale factor for the heatmap data. Essentially how much we are reducing the resolution by.
@@ -20,7 +21,7 @@ export function extractHeatmapDataStep(
     runner: EventPipelineRunner,
     event: PreIngestionEvent
 ): Promise<[PreIngestionEvent, Promise<void>[]]> {
-    const { eventUuid } = event
+    const { eventUuid, teamId } = event
 
     let acks: Promise<void>[] = []
 
@@ -37,8 +38,11 @@ export function extractHeatmapDataStep(
             })
         })
     } catch (e) {
-        console.error('Error extracting heatmap data:', e, event)
-        // TODO: Report error properly
+        acks.push(
+            captureIngestionWarning(runner.hub.kafkaProducer, teamId, 'invalid_heatmap_data', {
+                eventUuid,
+            })
+        )
     }
 
     // We don't want to ingest this data to the events table
