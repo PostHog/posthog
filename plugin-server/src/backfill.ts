@@ -6,10 +6,10 @@ import { initApp } from './init'
 import { Hub, RawClickHouseEvent, TimestampFormat } from './types'
 import { DB } from './utils/db/db'
 import { createHub } from './utils/db/hub'
-import { formPluginEvent } from './utils/event'
+// import { formPluginEvent } from './utils/event'
 import { Status } from './utils/status'
 import { castTimestampToClickhouseFormat } from './utils/utils'
-import { PersonState } from './worker/ingestion/person-state'
+// import { PersonState } from './worker/ingestion/person-state'
 
 const status = new Status('backfill')
 
@@ -146,18 +146,23 @@ async function handleBatch(db: DB, events: RawClickHouseEvent[]): Promise<void> 
     await Promise.all(tasks)
 }
 
-async function handleEvent(db: DB, event: RawClickHouseEvent): Promise<void> {
+// eslint-disable-next-line @typescript-eslint/require-await
+async function handleEvent(_1: DB, _2: RawClickHouseEvent): Promise<void> {
+    // This was one-off code to fix an issue that has bitrotted. If it ever needs to be used again
+    // it needs to revisited and lazy Person creation ($process_person_profile) needs to be accounted for.
+    throw new Error('Unimplemented! Backfill code needs to be revisited after Person refactor')
+
     // single CH event handlin
-    const pluginEvent = formPluginEvent(event)
-    const ts: DateTime = DateTime.fromISO(pluginEvent.timestamp as string)
-    const processPerson = true
-    const personState = new PersonState(
-        pluginEvent,
-        pluginEvent.team_id,
-        pluginEvent.distinct_id,
-        ts,
-        processPerson,
-        db
-    )
-    await personState.handleIdentifyOrAlias()
+    // const pluginEvent = formPluginEvent(event)
+    // const ts: DateTime = DateTime.fromISO(pluginEvent.timestamp as string)
+    // const processPerson = true
+    // const personState = new PersonState(
+    //     pluginEvent,
+    //     pluginEvent.team_id,
+    //     pluginEvent.distinct_id,
+    //     ts,
+    //     processPerson,
+    //     db
+    // )
+    // await personState.handleIdentifyOrAlias()
 }
