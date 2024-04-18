@@ -1,5 +1,6 @@
 import {
     IconChat,
+    IconCursorClick,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -449,6 +450,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconRewindPlay />,
                             to: urls.replay(),
                         },
+                        featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
+                            ? {
+                                  identifier: Scene.Heatmaps,
+                                  label: 'Heatmaps',
+                                  icon: <IconCursorClick />,
+                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
+                                  tag: 'beta' as const,
+                              }
+                            : null,
                         {
                             identifier: Scene.FeatureFlags,
                             label: 'Feature flags',

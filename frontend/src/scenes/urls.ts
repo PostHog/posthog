@@ -223,4 +223,5 @@ export const urls = {
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
     moveToPostHogCloud: (): string => '/move-to-cloud',
+    heatmaps: (): string => `/heatmaps`,
 }

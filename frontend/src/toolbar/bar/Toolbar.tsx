@@ -141,9 +141,9 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     )
 }
 
-export function Toolbar(): JSX.Element {
+export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, dragPosition, isDragging, hedgehogMode } = useValues(toolbarLogic)
+    const { minimized, dragPosition, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
@@ -164,8 +164,15 @@ export function Toolbar(): JSX.Element {
         if (userIntent === 'add-action' || userIntent === 'edit-action') {
             setVisibleMenu('actions')
         }
+
+        if (userIntent === 'heatmaps') {
+            setVisibleMenu('heatmap')
+        }
     }, [userIntent])
 
+    if (isEmbeddedInApp) {
+        return null
+    }
     return (
         <>
             <ToolbarInfoMenu />

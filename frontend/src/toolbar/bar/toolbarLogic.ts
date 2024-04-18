@@ -14,6 +14,11 @@ const MARGIN = 2
 
 export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger'
 
+export enum PostHogAppToolbarEvent {
+    PH_APP_CONTEXT = 'ph-app-context',
+    PH_HEATMAPS_CONFIG = 'ph-heatmaps-config',
+}
+
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
     connect(() => ({
@@ -41,6 +46,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setElement: (element: HTMLElement | null) => ({ element }),
         setMenu: (element: HTMLElement | null) => ({ element }),
         setIsBlurred: (isBlurred: boolean) => ({ isBlurred }),
+        setIsEmbeddedInApp: (isEmbedded: boolean) => ({ isEmbedded }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -117,6 +123,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
             null as HedgehogActor | null,
             {
                 setHedgehogActor: (_, { actor }) => actor,
+            },
+        ],
+        isEmbeddedInApp: [
+            false,
+            {
+                setIsEmbeddedInApp: (_, { isEmbedded }) => isEmbedded,
             },
         ],
     })),
@@ -273,9 +285,31 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.setIsBlurred(true)
             }
         }
+
+        cache.iframeEventListener = (e: MessageEvent): void => {
+            // TODO: Probably need to have strict checks here
+            const type: PostHogAppToolbarEvent = e?.data?.type
+
+            if (!type || !type.startsWith('ph-')) {
+                return
+            }
+
+            switch (type) {
+                case PostHogAppToolbarEvent.PH_APP_CONTEXT:
+                    return actions.setIsEmbeddedInApp(true)
+                case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
+                    actions.enableHeatmap()
+                    return
+
+                default:
+                    console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
+            }
+        }
         window.addEventListener('mousedown', cache.clickListener)
+        window.addEventListener('message', cache.iframeEventListener, false)
     }),
     beforeUnmount(({ cache }) => {
         window.removeEventListener('mousedown', cache.clickListener)
+        window.removeEventListener('message', cache.iframeEventListener, false)
     }),
 ])

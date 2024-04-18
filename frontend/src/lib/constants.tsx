@@ -210,6 +210,7 @@ export const FEATURE_FLAGS = {
     IP_ALLOWLIST_SETTING: 'ip-allowlist-setting', // owner: @benjackwhite
     EMAIL_VERIFICATION_TICKET_SUBMISSION: 'email-verification-ticket-submission', // owner: #team-growth
     TOOLBAR_HEATMAPS: 'toolbar-heatmaps', // owner: #team-replay
+    HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
