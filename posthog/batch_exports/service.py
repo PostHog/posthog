@@ -1,3 +1,4 @@
+import collections.abc
 import datetime as dt
 import typing
 from dataclasses import asdict, dataclass, fields
@@ -5,7 +6,7 @@ from uuid import UUID
 
 import structlog
 import temporalio
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from temporalio.client import (
     Client,
     Schedule,
@@ -227,10 +228,13 @@ class BatchExportServiceScheduleNotFound(BatchExportServiceRPCError):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
-def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> None:
+def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> bool:
     """Pause this BatchExport.
 
     We pass the call to the underlying Temporal Schedule.
+
+    Returns:
+        `True` if the batch export was paused, `False` if it was already paused.
     """
     try:
         batch_export = BatchExport.objects.get(id=batch_export_id)
@@ -238,7 +242,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         raise BatchExportIdError(batch_export_id)
 
     if batch_export.paused is True:
-        return
+        return False
 
     try:
         pause_schedule(temporal, schedule_id=batch_export_id, note=note)
@@ -248,6 +252,8 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
     batch_export.paused = True
     batch_export.last_paused_at = dt.datetime.now(dt.timezone.utc)
     batch_export.save()
+
+    return True
 
 
 def unpause_batch_export(
@@ -312,9 +318,10 @@ def disable_and_delete_export(instance: BatchExport):
 
     instance.save()
 
-    for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
-        if backfill.status == BatchExportBackfill.Status.RUNNING:
-            cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
+    backfill_iter = iter_running_backfills_for_batch_export(instance.id)
+
+    for backfill in backfill_iter:
+        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
 
 
 def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
@@ -328,16 +335,27 @@ def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
             raise BatchExportServiceRPCError() from e
 
 
-@async_to_sync
-async def cancel_running_batch_export_backfill(temporal: Client, workflow_id: str) -> None:
+def iter_running_backfills_for_batch_export(batch_export_id: str) -> collections.abc.Iterable[BatchExportBackfill]:
+    """Return an iterator over running batch export backfills."""
+    return (
+        BatchExportBackfill.objects.filter(batch_export_id=batch_export_id, status=BatchExportBackfill.Status.RUNNING)
+        .select_related("batch_export")
+        .iterator()
+    )
+
+
+async def cancel_running_batch_export_backfill(temporal: Client, batch_export_backfill: BatchExportBackfill) -> None:
     """Delete a running BatchExportBackfill.
 
     A BatchExportBackfill represents a Temporal Workflow. When deleting the Temporal
     Schedule that we are backfilling, we should also clean-up any Workflows that are
     still running.
     """
-    handle = temporal.get_workflow_handle(workflow_id=workflow_id)
+    handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
     await handle.cancel()
+
+    batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
+    await sync_to_async(batch_export_backfill.save)()
 
 
 @dataclass

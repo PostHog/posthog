@@ -14,9 +14,11 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    cancel_running_batch_export_backfill,
     count_failed_batch_export_runs,
     create_batch_export_backfill,
     create_batch_export_run,
+    iter_running_backfills_for_batch_export,
     pause_batch_export,
     update_batch_export_backfill_status,
     update_batch_export_run,
@@ -439,25 +441,43 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         except Exception:
             logger.exception("Failure email notification could not be sent")
 
+        is_over_failure_threshold = await check_if_over_failure_threshold(
+            inputs.batch_export_id,
+            check_window=inputs.failure_check_window,
+            failure_threshold=inputs.failure_threshold,
+        )
+        if not is_over_failure_threshold:
+            return
+
         try:
-            was_paused = await pause_batch_export_if_over_failure_threshold(
-                inputs.batch_export_id,
-                check_window=inputs.failure_check_window,
-                failure_threshold=inputs.failure_threshold,
-            )
+            was_paused = await pause_batch_export_over_failure_threshold(inputs.batch_export_id)
         except Exception:
             # Pausing could error if the underlying schedule is deleted.
             # Our application logic should prevent that, but I want to log it in case it ever happens
             # as that would indicate a bug.
             logger.exception("Batch export could not be automatically paused")
-            was_paused = False
+        else:
+            if was_paused:
+                logger.warning(
+                    "Batch export was automatically paused due to exceeding failure threshold and exhausting "
+                    "all automated retries."
+                    "The batch export can be unpaused after addressing any errors."
+                )
 
-        if was_paused:
-            logger.warning(
-                "Batch export was automatically paused due to exceeding failure threshold and exhausting "
-                "all automated retries."
-                "The batch export can be manually unpaused after addressing any errors."
+        try:
+            total_cancelled = await cancel_running_backfills(
+                inputs.batch_export_id,
             )
+        except Exception:
+            logger.exception("Ongoing backfills could not be automatically cancelled")
+        else:
+            if total_cancelled > 0:
+                logger.warning(
+                    f"{total_cancelled} ongoing batch export backfill{'s' if total_cancelled > 1 else ''} "
+                    f"{'were' if total_cancelled > 1 else 'was'} cancelled due to exceeding failure threshold "
+                    " and exhausting all automated retries."
+                    "The backfill can be triggered again after addressing any errors."
+                )
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
         logger.warning("Batch export was cancelled")
@@ -470,10 +490,8 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
 
-async def pause_batch_export_if_over_failure_threshold(
-    batch_export_id: str, check_window: int, failure_threshold: int = 10
-) -> bool:
-    """Pause a batch export if it exceeds failure threshold.
+async def check_if_over_failure_threshold(batch_export_id: str, check_window: int, failure_threshold: int):
+    """Check if a given batch export is over failure threshold.
 
     A 'check_window' was added to account for batch exports that have a history of failures but have some
     occassional successes in the middle. This is relevant particularly for low-volume exports:
@@ -482,11 +500,6 @@ async def pause_batch_export_if_over_failure_threshold(
 
     Keep in mind that if 'check_window' is less than 'failure_threshold', there is no point in even counting,
     so we raise an exception.
-
-    We check if the count of failed runs in the last 'check_window' runs exceeds 'failure_threshold'. This means
-    that 'pause_batch_export_if_over_failure_threshold' should only be called when handling a failed run,
-    otherwise we could be pausing a batch export that is just now recovering (as old failed runs in 'check_window'
-    contribute to exceeding 'failure_threshold').
 
     Arguments:
         batch_export_id: The ID of the batch export to check and pause.
@@ -507,7 +520,18 @@ async def pause_batch_export_if_over_failure_threshold(
 
     if count < failure_threshold:
         return False
+    return True
 
+
+async def pause_batch_export_over_failure_threshold(batch_export_id: str) -> bool:
+    """Pause a batch export once it exceeds failure threshold.
+
+    Arguments:
+        batch_export_id: The ID of the batch export to check and pause.
+
+    Returns:
+        A bool indicating if the batch export was paused or not.
+    """
     client = await connect(
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
@@ -517,10 +541,44 @@ async def pause_batch_export_if_over_failure_threshold(
         settings.TEMPORAL_CLIENT_KEY,
     )
 
-    await sync_to_async(pause_batch_export)(
+    was_paused = await sync_to_async(pause_batch_export)(
         client, batch_export_id=batch_export_id, note="Paused due to exceeding failure threshold"
     )
-    return True
+
+    return was_paused
+
+
+async def cancel_running_backfills(batch_export_id: str) -> int:
+    """Cancel any running batch export backfills.
+
+    This is intended to be called once a batch export failure threshold has been exceeded.
+
+    Arguments:
+        batch_export_id: The ID of the batch export whose backfills will be cancelled.
+
+    Returns:
+        The number of cancelled backfills, if any.
+    """
+    client = await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        settings.TEMPORAL_CLIENT_ROOT_CA,
+        settings.TEMPORAL_CLIENT_CERT,
+        settings.TEMPORAL_CLIENT_KEY,
+    )
+
+    total_cancelled = 0
+
+    backfill_iter = iter_running_backfills_for_batch_export(batch_export_id)
+    backfills = await sync_to_async(list)(backfill_iter)  # type: ignore
+
+    for backfill in backfills:
+        await cancel_running_batch_export_backfill(client, backfill)
+
+        total_cancelled += 1
+
+    return total_cancelled
 
 
 @dataclasses.dataclass
