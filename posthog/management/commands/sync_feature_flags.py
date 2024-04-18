@@ -8,7 +8,6 @@ INACTIVE_FLAGS = [
     "cloud-announcement",
     "session-reset-on-load",
     "posthog-3000-nav",
-    "session-replay-v3-ingestion-playback",
 ]
 
 

@@ -76,7 +76,6 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
-            RECORDINGS_INGESTER_URL: http://plugins:6738
         depends_on:
             - db
             - redis

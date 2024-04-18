@@ -83,8 +83,8 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
 
             await expectLogic(logic).toNotHaveDispatchedActions([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsSuccess,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
             ])
         })
 
@@ -104,10 +104,10 @@ describe('sessionRecordingPlayerLogic', () => {
 
             await expectLogic(logic).toDispatchActions([
                 // once to gather sources
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
                 // once to load source from that
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsSuccess,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSource,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSourceSuccess,
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
@@ -136,15 +136,11 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.seekToTime(50) // greater than null buffered time
             })
                 .toDispatchActions([
-                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
-                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
                     'seekToTimestamp',
+                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesFailure,
                 ])
                 .toFinishAllListeners()
-                .toDispatchActions([
-                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
-                    'setErrorPlayerState',
-                ])
+                .toDispatchActions(['setErrorPlayerState'])
 
             expect(logic.values).toMatchObject({
                 sessionPlayerData: {
@@ -161,7 +157,10 @@ describe('sessionRecordingPlayerLogic', () => {
             logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions(['initializePlayerFromStart'])
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                'initializePlayerFromStart',
+            ])
             expect(logic.cache.hasInitialized).toBeTruthy()
 
             logic.unmount()
