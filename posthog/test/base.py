@@ -481,7 +481,8 @@ class QueryMatchingTest:
         # :TRICKY: team_id changes every test, avoid it messing with snapshots.
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
-            query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            query = re.sub(r"(\"?) IN \(\d+(, ?\d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
             # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
             query = re.sub(
                 r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
@@ -506,6 +507,9 @@ class QueryMatchingTest:
             r"equals(\1\2, 2)",
             query,
         )
+
+        # replace explicit timestamps in cohort queries
+        query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
 
         # Replace organization_id and notebook_id lookups, for postgres
         query = re.sub(
@@ -974,7 +978,7 @@ def snapshot_clickhouse_alter_queries(fn):
 
         for query in queries:
             if "FROM system.columns" not in query:
-                self.assertQueryMatchesSnapshot(query)
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped
 

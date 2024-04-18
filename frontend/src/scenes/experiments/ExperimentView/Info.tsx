@@ -5,7 +5,6 @@ import { Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { TZLabel } from 'lib/components/TZLabel'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
@@ -14,13 +13,14 @@ import { ProgressStatus } from '~/types'
 import { StatusTag } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-import { ResultsTag } from './components'
+import { ActionBanner, ResultsTag } from './components'
+import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
     const { updateExperiment } = useActions(experimentLogic)
 
-    const { created_by, created_at } = experiment
+    const { created_by } = experiment
 
     if (!experiment.feature_flag) {
         return <></>
@@ -30,7 +30,7 @@ export function Info(): JSX.Element {
         <div>
             <div className="flex">
                 <div className="w-1/2 inline-flex space-x-8">
-                    <div className="block">
+                    <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
                     </div>
@@ -76,10 +76,7 @@ export function Info(): JSX.Element {
 
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto inline-flex space-x-8">
-                        <div className="block">
-                            <div className="text-xs font-semibold uppercase tracking-wide">Created at</div>
-                            {created_at && <TZLabel time={created_at} />}
-                        </div>
+                        <ExperimentDates />
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">Created by</div>
                             {created_by && <ProfilePicture user={created_by} size="md" showName />}
@@ -102,6 +99,7 @@ export function Info(): JSX.Element {
                     compactButtons
                 />
             </div>
+            <ActionBanner />
         </div>
     )
 }

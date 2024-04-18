@@ -1,5 +1,6 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
+import json
 from typing import List, Optional, Tuple, Type
 from zoneinfo import ZoneInfo
 
@@ -11,7 +12,7 @@ from ee.clickhouse.queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
-from posthog.constants import ExperimentSignificanceCode
+from posthog.constants import ExperimentSignificanceCode, ExperimentNoResultsErrorKeys
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -320,39 +321,42 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
 
 
 def validate_event_variants(funnel_results, variants):
-    if not funnel_results or not funnel_results[0]:
-        raise ValidationError("No experiment events have been ingested yet.", code="no-events")
+    errors = {
+        ExperimentNoResultsErrorKeys.NO_EVENTS: True,
+        ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+    }
 
+    if not funnel_results or not funnel_results[0]:
+        raise ValidationError(code="no-results", detail=json.dumps(errors))
+
+    errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
+
+    # Funnels: the first step must be present for *any* results to show up
     eventsWithOrderZero = []
     for eventArr in funnel_results:
         for event in eventArr:
             if event.get("order") == 0:
                 eventsWithOrderZero.append(event)
 
-    missing_variants = []
-
     # Check if "control" is present
-    control_found = False
     for event in eventsWithOrderZero:
         event_variant = event.get("breakdown_value")[0]
         if event_variant == "control":
-            control_found = True
+            errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
+            errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
             break
-    if not control_found:
-        missing_variants.append("control")
 
     # Check if at least one of the test variants is present
     test_variants = [variant for variant in variants if variant != "control"]
-    test_variant_found = False
     for event in eventsWithOrderZero:
         event_variant = event.get("breakdown_value")[0]
         if event_variant in test_variants:
-            test_variant_found = True
+            errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
+            errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
             break
-    if not test_variant_found:
-        missing_variants.extend(test_variants)
 
-    if not len(missing_variants) == 0:
-        missing_variants_str = ", ".join(missing_variants)
-        message = f"No experiment events have been ingested yet for the following variants: {missing_variants_str}"
-        raise ValidationError(message, code=f"missing-flag-variants::{missing_variants_str}")
+    has_errors = any(errors.values())
+    if has_errors:
+        raise ValidationError(detail=json.dumps(errors))

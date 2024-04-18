@@ -98,6 +98,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
+    row_count: models.IntegerField = models.IntegerField(
+        null=True, help_text="How many rows are currently synced in this table"
+    )
+
     __repr__ = sane_repr("name")
 
     def table_name_without_prefix(self) -> str:

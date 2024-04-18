@@ -57,6 +57,7 @@ export function SupportForm(): JSX.Element | null {
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
     const { user } = useValues(userLogic)
+    // only allow authentication issues for logged out users
 
     const dropRef = useRef<HTMLDivElement>(null)
 
@@ -124,7 +125,15 @@ export function SupportForm(): JSX.Element | null {
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
             <LemonField name="target_area" label="Topic">
-                <LemonSelect fullWidth options={TARGET_AREA_TO_NAME} />
+                <LemonSelect
+                    disabledReason={
+                        !user
+                            ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
+                            : null
+                    }
+                    fullWidth
+                    options={TARGET_AREA_TO_NAME}
+                />
             </LemonField>
             <LemonField
                 name="message"

@@ -42,7 +42,6 @@ from posthog.caching.fetch_from_cache import (
 )
 from posthog.caching.insights_api import should_refresh_insight
 from posthog.constants import (
-    BREAKDOWN_VALUES_LIMIT,
     INSIGHT,
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
@@ -51,6 +50,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
     FunnelVizType,
 )
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.decorators import cached_by_filters
 from posthog.helpers.multi_property_breakdown import (
     protect_old_clients_from_multi_property_default,

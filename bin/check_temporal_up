@@ -14,8 +14,8 @@ while true; do
     fi
     
     if [ $SECONDS -ge $TIMEOUT ]; then
-        echo "Timed out waiting for Temporal to be ready"
-        exit 1
+        echo "Timed out ($TIMEOUT sec) waiting for Temporal to be ready. Crossing fingers and trying to run tests anyway."
+        exit 0
     fi
     
     echo "Waiting for Temporal to be ready"

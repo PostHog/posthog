@@ -47,6 +47,8 @@ export function CohortCriteriaRowBuilder({
                     ...(_field.type === FilterType.Text ? { value: _field.defaultValue } : {}),
                     ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
                     onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),
+                    groupIndex,
+                    index,
                 } as CohortFieldProps)}
             </div>
         )
@@ -120,7 +122,7 @@ export function CohortCriteriaRowBuilder({
                             <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
                         </div>
                         <div>
-                            <div className="flex items-center">
+                            <div className="flex flex-wrap items-center">
                                 {rowShape.fields.map((field, i) => {
                                     return (
                                         !field.hide &&

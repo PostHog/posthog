@@ -27,7 +27,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.1
@@ -87,7 +87,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.2
@@ -119,7 +119,7 @@
          "posthog_organization"."available_features"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.3
@@ -130,7 +130,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.4
@@ -141,6 +141,6 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:HEATMAP_SAMPLE_N'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  LIMIT 1
   '''
 # ---
