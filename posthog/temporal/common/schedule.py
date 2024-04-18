@@ -93,6 +93,16 @@ async def a_trigger_schedule(temporal: Client, schedule_id: str, note: str | Non
     await handle.trigger()
 
 
+@async_to_sync
+async def schedule_exists(temporal: Client, schedule_id: str) -> bool:
+    """Check whether a schedule exists."""
+    try:
+        await temporal.get_schedule_handle(schedule_id).describe()
+        return True
+    except:
+        return False
+
+
 async def a_schedule_exists(temporal: Client, schedule_id: str) -> bool:
     """Check whether a schedule exists."""
     try:

@@ -21,6 +21,7 @@ from posthog.temporal.common.schedule import (
     create_schedule,
     pause_schedule,
     a_schedule_exists,
+    schedule_exists,
     trigger_schedule,
     update_schedule,
     delete_schedule,
@@ -110,19 +111,24 @@ async def a_trigger_external_data_workflow(external_data_schema: ExternalDataSch
     await a_trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 
 
+def external_data_workflow_exists(id: str) -> bool:
+    temporal = sync_connect()
+    return schedule_exists(temporal, schedule_id=id)
+
+
 async def a_external_data_workflow_exists(id: str) -> bool:
     temporal = await async_connect()
     return await a_schedule_exists(temporal, schedule_id=id)
 
 
-def pause_external_data_schedule(external_data_source: ExternalDataSource):
+def pause_external_data_schedule(id: str):
     temporal = sync_connect()
-    pause_schedule(temporal, schedule_id=str(external_data_source.id))
+    pause_schedule(temporal, schedule_id=id)
 
 
-def unpause_external_data_schedule(external_data_source: ExternalDataSource):
+def unpause_external_data_schedule(id: str):
     temporal = sync_connect()
-    unpause_schedule(temporal, schedule_id=str(external_data_source.id))
+    unpause_schedule(temporal, schedule_id=id)
 
 
 def delete_external_data_schedule(schedule_id: str):
