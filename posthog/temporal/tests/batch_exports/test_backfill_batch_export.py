@@ -375,7 +375,7 @@ async def failing_s3_batch_export(ateam, temporal_client):
         },
     }
 
-    batch_export_data = {
+    failing_batch_export_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "every 5 minutes",
@@ -383,9 +383,11 @@ async def failing_s3_batch_export(ateam, temporal_client):
 
     batch_export = await acreate_batch_export(
         team_id=ateam.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
+        # I don't know what is mypy's problem with all these parameters.
+        # The types are correct, the values are hardcoded just above.
+        name=failing_batch_export_data["name"],  # type: ignore
+        destination_data=failing_batch_export_data["destination"],  # type: ignore
+        interval=failing_batch_export_data["interval"],  # type: ignore
     )
 
     yield batch_export

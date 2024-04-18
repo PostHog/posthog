@@ -570,7 +570,7 @@ async def cancel_running_backfills(batch_export_id: str) -> int:
 
     total_cancelled = 0
 
-    backfill_iter = iter_running_backfills_for_batch_export(batch_export_id)
+    backfill_iter = iter_running_backfills_for_batch_export(uuid.UUID(batch_export_id))
     backfills = await sync_to_async(list)(backfill_iter)  # type: ignore
 
     for backfill in backfills:

@@ -335,7 +335,7 @@ def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
             raise BatchExportServiceRPCError() from e
 
 
-def iter_running_backfills_for_batch_export(batch_export_id: str) -> collections.abc.Iterable[BatchExportBackfill]:
+def iter_running_backfills_for_batch_export(batch_export_id: UUID) -> collections.abc.Iterable[BatchExportBackfill]:
     """Return an iterator over running batch export backfills."""
     return (
         BatchExportBackfill.objects.filter(batch_export_id=batch_export_id, status=BatchExportBackfill.Status.RUNNING)
