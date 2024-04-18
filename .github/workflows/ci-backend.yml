@@ -253,6 +253,7 @@ jobs:
                     - segment: 'TEMPORAL'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:23.12.5.81-alpine'
+                      python-version: '3.10.10'
                       concurrency: 1
                       group: 1
 
