@@ -92,7 +92,7 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.Sessions]: 0,
                 },
             })
-            .toDispatchActions(['infiniteListResultsReceived'])
+            .toDispatchActions(['infiniteListResultsReceived', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -107,19 +107,15 @@ describe('taxonomicFilterLogic', () => {
 
     it('setting search query filters events', async () => {
         // load the initial results
-        await expectLogic(logic).toDispatchActionsInAnyOrder([
-            'infiniteListResultsReceived',
-            'infiniteListResultsReceived',
-            'infiniteListResultsReceived',
-            'infiniteListResultsReceived',
-            'infiniteListResultsReceived',
-            'infiniteListResultsReceived',
-        ])
+        await expectLogic(logic)
+            .toDispatchActions(['infiniteListResultsReceived', 'infiniteListResultsReceived'])
+            .delay(1)
 
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('search term')
         })
             .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
+            .delay(1)
             .toMatchValues({
                 searchQuery: 'search term',
                 activeTab: TaxonomicFilterGroupType.Events,
@@ -134,7 +130,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('selector')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -151,7 +147,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('this is not found')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -168,7 +164,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
@@ -208,7 +204,7 @@ describe('taxonomicFilterLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setSearchQuery('event')
         })
-            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+            .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived', 'infiniteListResultsReceived'])
             .delay(1)
             .clearHistory()
             .toMatchValues({
