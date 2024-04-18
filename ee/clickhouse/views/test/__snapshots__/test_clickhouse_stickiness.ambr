@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestClickhouseStickiness.test_aggregate_by_groups
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -35,7 +35,7 @@
 # ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
@@ -69,7 +69,7 @@
 # ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.2
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
@@ -103,7 +103,7 @@
 # ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.3
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
@@ -137,7 +137,7 @@
 # ---
 # name: TestClickhouseStickiness.test_compare
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -170,7 +170,7 @@
 # ---
 # name: TestClickhouseStickiness.test_compare.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -203,7 +203,7 @@
 # ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -244,7 +244,7 @@
 # ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
@@ -284,7 +284,7 @@
 # ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.2
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
@@ -324,7 +324,7 @@
 # ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.3
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
@@ -364,7 +364,7 @@
 # ---
 # name: TestClickhouseStickiness.test_stickiness_all_time
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT timestamp
   from events
   WHERE team_id = 2
@@ -375,7 +375,7 @@
 # ---
 # name: TestClickhouseStickiness.test_stickiness_all_time.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -408,7 +408,7 @@
 # ---
 # name: TestClickhouseStickiness.test_stickiness_all_time_with_sampling
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT timestamp
   from events
   WHERE team_id = 2
@@ -419,7 +419,7 @@
 # ---
 # name: TestClickhouseStickiness.test_stickiness_all_time_with_sampling.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -452,7 +452,7 @@
 # ---
 # name: TestClickhouseStickiness.test_stickiness_hours
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -485,7 +485,7 @@
 # ---
 # name: TestClickhouseStickiness.test_stickiness_people_endpoint
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
@@ -517,7 +517,7 @@
 # ---
 # name: TestClickhouseStickiness.test_stickiness_people_paginated
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
@@ -549,7 +549,7 @@
 # ---
 # name: TestClickhouseStickiness.test_stickiness_people_paginated.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
@@ -595,7 +595,7 @@
 # ---
 # name: TestClickhouseStickiness.test_stickiness_with_person_on_events_v2.1
   '''
-  /* user_id:XXX request:_snapshot_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
