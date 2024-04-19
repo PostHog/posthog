@@ -197,7 +197,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 job_inputs,
                 heartbeat_timeout=dt.timedelta(minutes=1),
                 **timeout_params,
-            )
+            )  # type: ignore
 
             # check schema first
             validate_inputs = ValidateSchemaInputs(

@@ -98,7 +98,7 @@ class DataImportPipeline:
         total_counts = Counter({})
 
         if self._incremental:
-            counts = 1
+            counts = Counter({})
 
             while counts:
                 pipeline.run(self.source, loader_file_format=self.loader_file_format)
