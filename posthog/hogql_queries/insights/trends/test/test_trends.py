@@ -5948,7 +5948,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         data = {
             "date_from": "2020-01-01",
-            "date_to": "2020-01-08",
+            "date_to": "2020-01-18",
             "display": TRENDS_TABLE,
             "events": [
                 {
@@ -5962,7 +5962,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        # Only p0 was active on 2020-01-18 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
 
     @snapshot_clickhouse_queries
@@ -5972,7 +5972,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         data = {
             "sampling_factor": 1,
             "date_from": "2020-01-01",
-            "date_to": "2020-01-08",
+            "date_to": "2020-01-18",
             "display": TRENDS_TABLE,
             "events": [
                 {
@@ -5986,7 +5986,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        # Only p0 was active on 2020-01-18 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
 
     @snapshot_clickhouse_queries

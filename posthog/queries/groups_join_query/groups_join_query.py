@@ -5,7 +5,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 class GroupsJoinQuery:
@@ -23,7 +23,7 @@ class GroupsJoinQuery:
         team_id: int,
         column_optimizer: Optional[ColumnOptimizer] = None,
         join_key: Optional[str] = None,
-        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
     ) -> None:
         self._filter = filter
         self._team_id = team_id

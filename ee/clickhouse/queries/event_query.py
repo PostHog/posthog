@@ -12,7 +12,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyName
 from posthog.models.team import Team
 from posthog.queries.event_query.event_query import EventQuery
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 class EnterpriseEventQuery(EventQuery):
@@ -37,7 +37,7 @@ class EnterpriseEventQuery(EventQuery):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
         **kwargs,
     ) -> None:
         super().__init__(
