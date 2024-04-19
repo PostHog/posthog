@@ -425,6 +425,15 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"paused": False})
 
+    @action(methods=["POST"], detail=True)
+    def archive(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Archive a BatchExport."""
+        if not isinstance(request.user, User) or request.user.current_team is None:
+            raise NotAuthenticated()
+
+        disable_and_delete_export(self.get_object())
+        return response.Response({"archived": True})
+
     def perform_destroy(self, instance: BatchExport):
         """Perform a BatchExport destroy by clearing Temporal and Django state.
 

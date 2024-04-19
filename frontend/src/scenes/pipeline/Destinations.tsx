@@ -146,7 +146,7 @@ export const DestinationMoreOverlay = ({
     inOverview?: boolean
 }): JSX.Element => {
     const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
-    const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
+    const { toggleEnabled, loadPluginConfigs, archiveBatchExport } = useActions(pipelineDestinationsLogic)
 
     return (
         <LemonMenuOverlay
@@ -165,6 +165,7 @@ export const DestinationMoreOverlay = ({
                     ? [
                           {
                               label: 'Delete destination',
+                              status: 'danger' as const, // for typechecker happiness
                               onClick: () => {
                                   if (destination.backend === PipelineBackend.Plugin) {
                                       void deleteWithUndo({
@@ -176,9 +177,8 @@ export const DestinationMoreOverlay = ({
                                           callback: loadPluginConfigs,
                                       })
                                   } else {
-                                      lemonToast.warning(
-                                          'Deleting batch export destinations is not yet supported here.'
-                                      )
+                                      archiveBatchExport(destination)
+                                      lemonToast.success(`${destination.name} archived.`)
                                   }
                               },
                               disabledReason: canConfigurePlugins

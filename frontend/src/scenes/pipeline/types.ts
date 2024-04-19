@@ -1,6 +1,6 @@
 import {
     BatchExportConfiguration,
-    BatchExportDestination as BatchExportService,
+    BatchExportDestination,
     PipelineStage,
     PluginConfigWithPluginInfoNew,
     PluginType,
@@ -34,7 +34,7 @@ export interface BatchExportBasedStep extends PipelineNodeBase {
     backend: PipelineBackend.BatchExport
     /** UUID */
     id: string
-    service: BatchExportService
+    service: BatchExportDestination
     interval: BatchExportConfiguration['interval']
 }
 
@@ -57,10 +57,12 @@ export interface WebhookDestination extends PluginBasedStepBase {
     stage: PipelineStage.Destination
     interval: 'realtime'
 }
-export interface BatchExportDestination extends BatchExportBasedStep {
+
+// Ideally this would be called BatchExportDestination, but that's used already
+export interface BatchExportDestinationStep extends BatchExportBasedStep {
     stage: PipelineStage.Destination
 }
-export type Destination = BatchExportDestination | WebhookDestination
+export type Destination = BatchExportDestinationStep | WebhookDestination
 
 // Legacy: Site apps
 export interface SiteApp extends PluginBasedStepBase {

@@ -1816,6 +1816,9 @@ const api = {
         async unpause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).withAction('unpause').create()
         },
+        async archive(id: BatchExportConfiguration['id']): Promise<void> {
+            await new ApiRequest().batchExport(id).withAction('archive').create()
+        },
 
         async listRuns(
             id: BatchExportConfiguration['id'],

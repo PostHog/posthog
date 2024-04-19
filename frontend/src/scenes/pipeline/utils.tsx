@@ -298,6 +298,7 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
         },
         {
             label: 'View metrics',
+            status: 'danger',
             to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Metrics),
         },
         {
@@ -327,13 +328,14 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                     enabled: !node.enabled,
                     id: node.id,
                 }),
-            disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to enable/disable apps.',
+            disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to enable/disable.',
         },
         ...pipelineNodeMenuCommonItems(node),
         ...(!inOverview
             ? [
                   {
                       label: 'Delete app',
+                      status: 'danger' as const, // for typechecker happiness
                       onClick: () => {
                           void deleteWithUndo({
                               endpoint: `plugin_config`,
@@ -344,7 +346,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                               callback: loadPluginConfigs,
                           })
                       },
-                      disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete apps.',
+                      disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete.',
                   },
               ]
             : []),
