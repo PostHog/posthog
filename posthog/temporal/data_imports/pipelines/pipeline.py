@@ -95,10 +95,10 @@ class DataImportPipeline:
     def _run(self) -> Dict[str, int]:
         pipeline = self._create_pipeline()
 
-        total_counts = Counter({})
+        total_counts: Counter = Counter({})
 
         if self._incremental:
-            counts = Counter({})
+            counts: Counter = Counter({})
 
             while counts:
                 pipeline.run(self.source, loader_file_format=self.loader_file_format)

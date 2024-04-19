@@ -24,8 +24,8 @@ class ZendeskCredentialsEmailPass(ZendeskCredentialsBase):
     This class is used to store credentials for Email + Password Authentication
     """
 
-    email: str = ""
     password: TSecretValue
+    email: str = ""
 
 
 @configspec
@@ -43,8 +43,8 @@ class ZendeskCredentialsToken(ZendeskCredentialsBase):
     This class is used to store credentials for Token Authentication
     """
 
-    email: str = ""
     token: TSecretValue
+    email: str = ""
 
 
 TZendeskCredentials = Union[ZendeskCredentialsEmailPass, ZendeskCredentialsToken, ZendeskCredentialsOAuth]

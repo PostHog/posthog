@@ -126,10 +126,11 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
         from posthog.temporal.data_imports.pipelines.zendesk.helpers import zendesk_support
 
         # NOTE: this line errors on CI mypy but not locally. Putting arguments within the function causes the opposite error
-        credentials = ZendeskCredentialsToken()
-        credentials.token = model.pipeline.job_inputs.get("zendesk_api_key")
-        credentials.subdomain = model.pipeline.job_inputs.get("zendesk_subdomain")
-        credentials.email = model.pipeline.job_inputs.get("zendesk_email_address")
+        credentials = ZendeskCredentialsToken(
+            token=model.pipeline.job_inputs.get("zendesk_api_key"),
+            subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
+            email=model.pipeline.job_inputs.get("zendesk_email_address"),
+        )
 
         data_support = zendesk_support(credentials=credentials, endpoints=tuple(endpoints), team_id=inputs.team_id)
         # Uncomment to support zendesk chat and talk
