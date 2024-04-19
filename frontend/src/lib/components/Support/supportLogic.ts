@@ -8,6 +8,7 @@ import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -341,7 +342,7 @@ export const supportLogic = kea<supportLogicType>([
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
-            } else if (window.location.href.includes('/billing')) {
+            } else if (window.location.href.includes(urls.organizationBilling())) {
                 area = 'billing'
             }
             kind = kind ?? 'support'
