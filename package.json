@@ -47,7 +47,7 @@
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
         "lint:js": "eslint frontend/src",
         "lint:css": "stylelint \"frontend/**/*.{css,scss}\"",
-        "format:backend": "ruff --exclude posthog/hogql/grammar .",
+        "format:backend": "ruff .",
         "format:frontend": "pnpm lint:js --fix && pnpm lint:css --fix && pnpm prettier",
         "format": "pnpm format:backend && pnpm format:frontend",
         "typegen:write": "kea-typegen write --delete --show-ts-errors",
@@ -76,7 +76,7 @@
         "@medv/finder": "^3.1.0",
         "@microlink/react-json-view": "^1.21.3",
         "@monaco-editor/react": "4.4.6",
-        "@posthog/icons": "0.6.7",
+        "@posthog/icons": "0.7.0",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
         "@rrweb/types": "2.0.0-alpha.12",
@@ -337,8 +337,8 @@
             "pnpm --dir plugin-server exec prettier --write"
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
-            "ruff format",
-            "ruff check --fix"
+            "ruff check --fix",
+            "ruff format"
         ]
     },
     "browserslist": {

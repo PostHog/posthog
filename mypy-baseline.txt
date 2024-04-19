@@ -2,10 +2,6 @@ posthog/temporal/common/utils.py:0: error: Argument 1 to "abstractclassmethod" h
 posthog/temporal/common/utils.py:0: note: This is likely because "from_activity" has named arguments: "cls". Consider marking them positional-only
 posthog/temporal/common/utils.py:0: error: Argument 2 to "__get__" of "classmethod" has incompatible type "type[HeartbeatType]"; expected "type[Never]"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/talk_api.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "str")  [assignment]
-posthog/hogql/database/argmax.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql/database/argmax.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/argmax.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql/database/argmax.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
 posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/numbers.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
@@ -51,14 +47,6 @@ posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incomp
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "Expr | None"; expected "AST"  [arg-type]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "WindowFrameExpr | None"; expected "AST"  [arg-type]
 posthog/hogql/visitor.py:0: error: Argument 1 to "visit" of "Visitor" has incompatible type "WindowFrameExpr | None"; expected "AST"  [arg-type]
-posthog/hogql/database/schema/log_entries.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql/database/schema/log_entries.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/log_entries.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql/database/schema/log_entries.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
-posthog/hogql/database/schema/log_entries.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql/database/schema/log_entries.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/log_entries.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql/database/schema/log_entries.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
 posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
@@ -76,18 +64,6 @@ posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/database/schema/person_distinct_ids.py:0: error: Argument 1 to "select_from_person_distinct_ids_table" has incompatible type "dict[str, list[str]]"; expected "dict[str, list[str | int]]"  [arg-type]
 posthog/hogql/database/schema/person_distinct_id_overrides.py:0: error: Argument 1 to "select_from_person_distinct_id_overrides_table" has incompatible type "dict[str, list[str]]"; expected "dict[str, list[str | int]]"  [arg-type]
-posthog/hogql/database/schema/cohort_people.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql/database/schema/cohort_people.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/cohort_people.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql/database/schema/cohort_people.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
-posthog/hogql/database/schema/session_replay_events.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql/database/schema/session_replay_events.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/session_replay_events.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql/database/schema/session_replay_events.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
-posthog/hogql/database/schema/session_replay_events.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql/database/schema/session_replay_events.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/session_replay_events.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql/database/schema/session_replay_events.py:0: error: Unsupported operand types for + ("list[str]" and "list[str | int]")  [operator]
 posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/filters/base_filter.py:0: error: "HogQLContext" has no attribute "person_on_events_mode"  [attr-defined]
@@ -291,9 +267,6 @@ posthog/queries/trends/util.py:0: error: Argument 1 to "translate_hogql" has inc
 posthog/hogql/property.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql/property.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/property.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql/property.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql/property.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/property.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql/property.py:0: error: Incompatible type for lookup 'pk': (got "str | float", expected "str | int")  [misc]
 posthog/hogql/filters.py:0: error: Incompatible default for argument "team" (default has type "None", argument has type "Team")  [assignment]
 posthog/hogql/filters.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
@@ -326,10 +299,10 @@ posthog/hogql/metadata.py:0: error: Argument "metadata_source" to "translate_hog
 posthog/queries/breakdown_props.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/queries/funnels/base.py:0: error: "HogQLContext" has no attribute "person_on_events_mode"  [attr-defined]
 posthog/queries/funnels/base.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | int"; expected "str"  [arg-type]
-ee/clickhouse/queries/funnels/funnel_correlation.py:0: error: Statement is unreachable  [unreachable]
-posthog/api/person.py:0: error: Argument 1 to "loads" has incompatible type "str | None"; expected "str | bytes | bytearray"  [arg-type]
+ee/clickhouse/queries/funnels/funnel_correlation.py:0: error: Statement is unreachable  [unreachable]posthog/api/person.py:0: error: Argument 1 to "loads" has incompatible type "str | None"; expected "str | bytes | bytearray"  [arg-type]
 posthog/api/person.py:0: error: Argument "user" to "log_activity" has incompatible type "User | AnonymousUser"; expected "User | None"  [arg-type]
 posthog/api/person.py:0: error: Argument "user" to "log_activity" has incompatible type "User | AnonymousUser"; expected "User | None"  [arg-type]
+posthog/api/person.py:0: error: Cannot determine type of "group_properties_filter_group"  [has-type]
 posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Argument 1 to "append" of "list" has incompatible type "EventPropertyFilter"; expected "Expr"  [arg-type]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Signature of "to_actors_query" incompatible with supertype "QueryRunner"  [override]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
@@ -497,9 +470,6 @@ posthog/hogql/test/test_resolver.py:0: error: "FieldOrTable" has no attribute "f
 posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinExpr | None" has no attribute "table"  [union-attr]
 posthog/hogql/test/test_resolver.py:0: error: Argument 1 to "clone_expr" has incompatible type "SelectQuery | SelectUnionQuery | Field | Any | None"; expected "Expr"  [arg-type]
 posthog/hogql/test/test_resolver.py:0: error: Item "None" of "JoinExpr | None" has no attribute "alias"  [union-attr]
-posthog/hogql/test/test_property.py:0: error: Incompatible default for argument "placeholders" (default has type "None", argument has type "dict[str, Any]")  [assignment]
-posthog/hogql/test/test_property.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql/test/test_property.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 posthog/hogql/test/test_property.py:0: error: Argument 1 to "_property_to_expr" of "TestProperty" has incompatible type "HogQLPropertyFilter"; expected "PropertyGroup | Property | dict[Any, Any] | list[Any]"  [arg-type]
 posthog/hogql/test/test_printer.py:0: error: Argument 2 to "Database" has incompatible type "int"; expected "WeekStartDay | None"  [arg-type]
 posthog/hogql/test/test_printer.py:0: error: Argument 2 to "Database" has incompatible type "int"; expected "WeekStartDay | None"  [arg-type]
@@ -519,12 +489,6 @@ posthog/hogql/test/test_modifiers.py:0: error: Unsupported right operand type fo
 posthog/hogql/test/test_modifiers.py:0: error: Unsupported right operand type for in ("str | None")  [operator]
 posthog/hogql/test/test_modifiers.py:0: error: Unsupported right operand type for in ("str | None")  [operator]
 posthog/hogql/test/test_modifiers.py:0: error: Unsupported right operand type for in ("str | None")  [operator]
-posthog/hogql/test/test_filters.py:0: error: Incompatible default for argument "placeholders" (default has type "None", argument has type "dict[str, Any]")  [assignment]
-posthog/hogql/test/test_filters.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql/test/test_filters.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
-posthog/hogql/test/test_filters.py:0: error: Incompatible default for argument "placeholders" (default has type "None", argument has type "dict[str, Any]")  [assignment]
-posthog/hogql/test/test_filters.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
-posthog/hogql/test/test_filters.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 posthog/hogql/test/_test_parser.py:0: error: Invalid base class  [misc]
 posthog/hogql/test/_test_parser.py:0: error: Argument "table" to "JoinExpr" has incompatible type "Placeholder"; expected "SelectQuery | SelectUnionQuery | Field | None"  [arg-type]
 posthog/hogql/test/_test_parser.py:0: error: Item "None" of "JoinExpr | None" has no attribute "table"  [union-attr]
@@ -544,6 +508,7 @@ posthog/hogql/database/schema/test/test_channel_type.py:0: error: Value of type 
 posthog/hogql/database/schema/test/test_channel_type.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
 posthog/hogql/database/schema/event_sessions.py:0: error: Statement is unreachable  [unreachable]
 posthog/api/organization_member.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
+posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 ee/api/role.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 ee/clickhouse/views/insights.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 6 has incompatible type "ExternalDataSchema"; expected "str"  [arg-type]
@@ -656,6 +621,7 @@ posthog/api/property_definition.py:0: error: Item "None" of "Organization | Any 
 posthog/api/property_definition.py:0: error: Incompatible types in assignment (expression has type "type[EnterprisePropertyDefinitionSerializer]", variable has type "type[PropertyDefinitionSerializer]")  [assignment]
 posthog/api/property_definition.py:0: error: Item "AnonymousUser" of "User | AnonymousUser" has no attribute "organization"  [union-attr]
 posthog/api/property_definition.py:0: error: Item "None" of "Organization | Any | None" has no attribute "is_feature_available"  [union-attr]
+posthog/api/event.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/api/dashboards/dashboard_templates.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 ee/api/feature_flag_role_access.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
@@ -715,6 +681,7 @@ posthog/management/commands/test/test_create_batch_export_from_app.py:0: error: 
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: Possible overload variants:
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, SupportsIndex, /) -> str
 posthog/management/commands/test/test_create_batch_export_from_app.py:0: note: def __getitem__(self, slice, /) -> list[str]
+posthog/api/test/test_capture.py:0: error: Statement is unreachable  [unreachable]
 posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
 posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]
 posthog/api/test/test_capture.py:0: error: Dict entry 0 has incompatible type "Any": "float"; expected "str": "int"  [dict-item]

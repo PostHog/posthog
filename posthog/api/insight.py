@@ -587,7 +587,7 @@ class InsightViewSet(
         ClickHouseBurstRateThrottle,
         ClickHouseSustainedRateThrottle,
     ]
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
+    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.CSVRenderer)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     sharing_enabled_actions = ["retrieve", "list"]
