@@ -427,6 +427,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.onClear()
             actions.clearSource()
             actions.loadSources(null)
+            actions.resetSourceConnectionDetails()
             router.actions.push(urls.dataWarehouseSettings())
         },
         cancelWizard: () => {

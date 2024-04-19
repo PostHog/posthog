@@ -1,7 +1,7 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { useActions, useValues } from 'kea'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { PersonIcon, TZLabel } from '@posthog/apps-common'
 import { personLogic } from 'scenes/persons/personLogic'
@@ -78,17 +78,16 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                     }
 
                     return (
-                        <PropertyIcon
+                        <Tooltip
                             key={property}
-                            className="text-muted-alt"
-                            property={property}
-                            value={value}
-                            tooltipTitle={() => (
+                            title={
                                 <div className="text-center">
                                     <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
                                 </div>
-                            )}
-                        />
+                            }
+                        >
+                            <PropertyIcon className="text-muted-alt" property={property} value={value} />
+                        </Tooltip>
                     )
                 })
             ) : (

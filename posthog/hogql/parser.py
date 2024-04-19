@@ -752,7 +752,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
         if ctx.tableIdentifier():
             table = self.visit(ctx.tableIdentifier())
-            return ast.Field(chain=table + ["*"])
+            return ast.Field(chain=[*table, "*"])
         return ast.Field(chain=["*"])
 
     def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):

@@ -1,4 +1,4 @@
-from typing import List, Set, Union
+from typing import List, Set, Union, Optional
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -21,9 +21,13 @@ class FunnelEventQuery:
     def __init__(
         self,
         context: FunnelQueryContext,
-        extra_fields: List[ColumnName] = [],
-        extra_event_properties: List[PropertyName] = [],
+        extra_fields: Optional[List[ColumnName]] = None,
+        extra_event_properties: Optional[List[PropertyName]] = None,
     ):
+        if extra_event_properties is None:
+            extra_event_properties = []
+        if extra_fields is None:
+            extra_fields = []
         self.context = context
 
         self._extra_fields = extra_fields
