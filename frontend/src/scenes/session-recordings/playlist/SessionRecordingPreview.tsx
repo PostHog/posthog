@@ -195,6 +195,7 @@ export function SessionRecordingPreview({
     const nodeLogic = useNotebookNode()
     const inNotebook = !!nodeLogic
 
+    const countryCode = recording.person?.properties['$geoip_country_code']
     const iconClassnames = 'text-base text-muted-alt'
 
     const innerContent = (
@@ -209,15 +210,18 @@ export function SessionRecordingPreview({
             <div className="grow overflow-hidden space-y-px">
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1 shrink overflow-hidden">
-                        <div className="truncate font-medium text-link ph-no-capture">
-                            {asDisplay(recording.person)}
+                        <div className="truncate font-medium text-link ph-no-capture space-x-1">
+                            {countryCode && (
+                                <PropertyIcon property="$geoip_country_code" value={countryCode} noTooltip={true} />
+                            )}
+                            <span>{asDisplay(recording.person)}</span>
                         </div>
                     </div>
 
                     <div className="flex-1" />
 
                     <TZLabel
-                        className="overflow-hidden text-ellipsis text-xs text-muted"
+                        className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
                         time={recording.start_time}
                         placement="right"
                         showPopover={false}
