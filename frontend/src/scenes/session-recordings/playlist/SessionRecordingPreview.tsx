@@ -20,6 +20,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
+import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -130,7 +131,7 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
             ) : (
                 recordingProperties.map(({ property, value, label }) => (
                     <div className="flex items-center" key={property}>
-                        <PropertyIcon className={iconClassNames} property={property} value={value} noTooltip={true} />
+                        <PropertyIcon className={iconClassNames} property={property} value={value} />
                         <span className={!value ? 'text-muted' : undefined}>
                             {!value ? 'Not captured' : label || value}
                         </span>
@@ -195,6 +196,7 @@ export function SessionRecordingPreview({
     const nodeLogic = useNotebookNode()
     const inNotebook = !!nodeLogic
 
+    const countryCode = recording.person?.properties['$geoip_country_code']
     const iconClassnames = 'text-base text-muted-alt'
 
     const innerContent = (
@@ -209,15 +211,20 @@ export function SessionRecordingPreview({
             <div className="grow overflow-hidden space-y-px">
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1 shrink overflow-hidden">
-                        <div className="truncate font-medium text-link ph-no-capture">
-                            {asDisplay(recording.person)}
+                        <div className="truncate font-medium text-link ph-no-capture space-x-1">
+                            {countryCode && (
+                                <Tooltip title={countryCodeToName[countryCode]}>
+                                    <PropertyIcon property="$geoip_country_code" value={countryCode} />
+                                </Tooltip>
+                            )}
+                            <span>{asDisplay(recording.person)}</span>
                         </div>
                     </div>
 
                     <div className="flex-1" />
 
                     <TZLabel
-                        className="overflow-hidden text-ellipsis text-xs text-muted"
+                        className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
                         time={recording.start_time}
                         placement="right"
                         showPopover={false}

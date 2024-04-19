@@ -358,7 +358,7 @@ class TrendsQueryRunner(QueryRunner):
             with self.timings.measure("apply_formula"):
                 res = self.apply_formula(self.query.trendsFilter.formula, res)
 
-        return TrendsQueryResponse(results=res, timings=timings, hogql=response_hogql)
+        return TrendsQueryResponse(results=res, timings=timings, hogql=response_hogql, modifiers=self.modifiers)
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         if response.results is None:

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, TypeVar
 
 from dateutil.parser import isoparse
 
@@ -12,7 +12,10 @@ from posthog.schema import HogQLFilters
 from posthog.utils import relative_date_parse
 
 
-def replace_filters(node: ast.Expr, filters: Optional[HogQLFilters], team: Team) -> ast.Expr:
+T = TypeVar("T", bound=ast.Expr)
+
+
+def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team) -> T:
     return ReplaceFilters(filters, team).visit(node)
 
 

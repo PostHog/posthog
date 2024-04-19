@@ -14,7 +14,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.models.team import PersonOnEventsMode
+from posthog.models.team import PersonsOnEventsMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.session_recordings.queries.session_replay_events import ttl_days
@@ -197,7 +197,7 @@ class ActorsQuery(EventQuery):
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         # we don't support PoE V1 - hopefully that's ok
-        if self._person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
             return "", {}
 
         prop_query, prop_params = self._get_prop_groups(
@@ -302,7 +302,7 @@ class SessionIdEventsQuery(EventQuery):
         )
 
         has_poe_filters = (
-            self._person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
             and len(
                 [
                     pg
@@ -314,7 +314,7 @@ class SessionIdEventsQuery(EventQuery):
         )
 
         has_poe_person_filter = (
-            self._person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
             and self._filter.person_uuid
         )
 
@@ -371,7 +371,7 @@ class SessionIdEventsQuery(EventQuery):
             allow_denormalized_props=True,
             has_person_id_joined=True,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
-            if self._person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             hogql_context=self._filter.hogql_context,
         )
@@ -416,7 +416,7 @@ class SessionIdEventsQuery(EventQuery):
                 -- select the unique events in this session to support filtering sessions by presence of an event
                     groupUniqArray(event) as event_names,"""
 
-        if self._person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
             person_id_clause, person_id_params = self._get_person_id_clause
             condition_sql += person_id_clause
             params = {**params, **person_id_params}
@@ -493,7 +493,7 @@ class SessionIdEventsQuery(EventQuery):
                     g
                     for g in self._filter.property_groups.flat
                     if (
-                        self._person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+                        self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
                         and g.type == "person"
                     )
                     or (
@@ -509,7 +509,7 @@ class SessionIdEventsQuery(EventQuery):
             # but would need careful monitoring
             allow_denormalized_props=settings.ALLOW_DENORMALIZED_PROPS_IN_LISTING,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
-            if self._person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
 

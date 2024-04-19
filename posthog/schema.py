@@ -860,6 +860,7 @@ class StickinessQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
@@ -870,6 +871,9 @@ class TimeToSeeDataQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["TimeToSeeDataQuery"] = "TimeToSeeDataQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
     sessionEnd: Optional[str] = None
     sessionId: Optional[str] = Field(default=None, description="Project to filter on. Defaults to current session")
@@ -950,6 +954,7 @@ class TrendsQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
@@ -1013,6 +1018,7 @@ class WebOverviewQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
@@ -1047,6 +1053,7 @@ class WebStatsTableQueryResponse(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     offset: Optional[int] = None
     results: List
@@ -1063,6 +1070,7 @@ class WebTopClicksQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
     samplingRate: Optional[SamplingRate] = None
@@ -1079,6 +1087,7 @@ class ActorsQueryResponse(BaseModel):
     hogql: str
     limit: int
     missing_actors_count: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: int
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
@@ -1121,6 +1130,9 @@ class DataNode(BaseModel):
         extra="forbid",
     )
     kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
 
 
@@ -1185,6 +1197,7 @@ class EventsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: Optional[int] = None
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
@@ -1210,6 +1223,7 @@ class FunnelCorrelationResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: Optional[int] = None
     results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
@@ -1243,6 +1257,7 @@ class FunnelsQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: Union[FunnelTimeToConvertResults, List[Dict[str, Any]], List[List[Dict[str, Any]]]]
     timings: Optional[List[QueryTiming]] = None
@@ -1325,6 +1340,7 @@ class InsightActorsQueryBase(BaseModel):
         extra="forbid",
     )
     includeRecordings: Optional[bool] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
 
 
@@ -1351,6 +1367,7 @@ class LifecycleQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
@@ -1370,6 +1387,7 @@ class PathsQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
@@ -1393,6 +1411,7 @@ class QueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: Any
     timings: Optional[List[QueryTiming]] = None
@@ -1406,6 +1425,7 @@ class QueryResponseAlternative3(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: Optional[int] = None
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
@@ -1421,6 +1441,7 @@ class QueryResponseAlternative4(BaseModel):
     hogql: str
     limit: int
     missing_actors_count: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: int
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
@@ -1481,6 +1502,7 @@ class QueryResponseAlternative10(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
@@ -1497,6 +1519,7 @@ class QueryResponseAlternative11(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     offset: Optional[int] = None
     results: List
@@ -1513,6 +1536,7 @@ class QueryResponseAlternative12(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
     samplingRate: Optional[SamplingRate] = None
@@ -1527,6 +1551,7 @@ class QueryResponseAlternative13(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
@@ -1540,6 +1565,7 @@ class QueryResponseAlternative17(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: Optional[int] = None
     results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
@@ -1660,6 +1686,9 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     kind: Literal["TimeToSeeDataSessionsQuery"] = "TimeToSeeDataSessionsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(default=None, description="Cached query response")
     teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
 
@@ -1669,6 +1698,7 @@ class WebAnalyticsQueryBase(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
@@ -1681,6 +1711,7 @@ class WebOverviewQuery(BaseModel):
     compare: Optional[bool] = None
     dateRange: Optional[DateRange] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -1698,6 +1729,7 @@ class WebStatsTableQuery(BaseModel):
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -1710,6 +1742,7 @@ class WebTopClicksQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -1800,6 +1833,9 @@ class DataWarehouseNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     properties: Optional[
         List[
@@ -1829,6 +1865,9 @@ class DatabaseSchemaQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[Dict[str, List[DatabaseSchemaQueryResponseField]]] = Field(
         default=None, description="Cached query response"
     )
@@ -1867,6 +1906,9 @@ class EntityNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     properties: Optional[
         List[
@@ -1924,6 +1966,9 @@ class EventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     orderBy: Optional[List[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -1979,6 +2024,9 @@ class EventsQuery(BaseModel):
     )
     kind: Literal["EventsQuery"] = "EventsQuery"
     limit: Optional[int] = Field(default=None, description="Number of rows to return")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: Optional[List[str]] = Field(default=None, description="Columns to order by")
     personId: Optional[str] = Field(default=None, description="Show events for a given person")
@@ -2041,6 +2089,9 @@ class FunnelExclusionActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     properties: Optional[
         List[
@@ -2100,6 +2151,9 @@ class FunnelExclusionEventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     orderBy: Optional[List[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -2156,7 +2210,9 @@ class HogQLQuery(BaseModel):
     explain: Optional[bool] = None
     filters: Optional[HogQLFilters] = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
-    modifiers: Optional[HogQLQueryModifiers] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     query: str
     response: Optional[HogQLQueryResponse] = Field(default=None, description="Cached query response")
     values: Optional[Dict[str, Any]] = Field(
@@ -2193,6 +2249,9 @@ class PersonsNode(BaseModel):
     )
     kind: Literal["PersonsNode"] = "PersonsNode"
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     offset: Optional[int] = None
     properties: Optional[
         List[
@@ -2249,6 +2308,7 @@ class QueryResponseAlternative14(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[RetentionResult]
     timings: Optional[List[QueryTiming]] = None
@@ -2305,6 +2365,7 @@ class RetentionQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[RetentionResult]
     timings: Optional[List[QueryTiming]] = None
@@ -2321,6 +2382,9 @@ class SessionsTimelineQuery(BaseModel):
         default=None, description="Only fetch sessions that started before this timestamp (default: '+5s')"
     )
     kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     personId: Optional[str] = Field(default=None, description="Fetch sessions only for a given person")
     response: Optional[SessionsTimelineQueryResponse] = Field(default=None, description="Cached query response")
 
@@ -2359,6 +2423,9 @@ class ActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     properties: Optional[
         List[
@@ -2422,6 +2489,9 @@ class HogQLAutocomplete(BaseModel):
     endPosition: int = Field(..., description="End position of the editor word")
     filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
     kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[HogQLAutocompleteResponse] = Field(default=None, description="Cached query response")
     select: str = Field(..., description="Full select query to validate")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -2451,6 +2521,9 @@ class RetentionQuery(BaseModel):
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
     kind: Literal["RetentionQuery"] = "RetentionQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2489,6 +2562,9 @@ class StickinessQuery(BaseModel):
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
     kind: Literal["StickinessQuery"] = "StickinessQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2533,6 +2609,9 @@ class TrendsQuery(BaseModel):
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2632,6 +2711,9 @@ class FunnelsQuery(BaseModel):
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
     kind: Literal["FunnelsQuery"] = "FunnelsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2669,6 +2751,9 @@ class InsightsQueryBase(BaseModel):
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2707,6 +2792,9 @@ class LifecycleQuery(BaseModel):
     kind: Literal["LifecycleQuery"] = "LifecycleQuery"
     lifecycleFilter: Optional[LifecycleFilter] = Field(
         default=None, description="Properties specific to the lifecycle insight"
+    )
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
     )
     properties: Optional[
         Union[
@@ -2775,6 +2863,7 @@ class FunnelsActorsQuery(BaseModel):
     )
     includeRecordings: Optional[bool] = None
     kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
     source: FunnelsQuery
 
@@ -2792,6 +2881,9 @@ class PathsQuery(BaseModel):
         default=None, description="Used for displaying paths in relation to funnel steps."
     )
     kind: Literal["PathsQuery"] = "PathsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
     properties: Optional[
         Union[
@@ -2883,6 +2975,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
     ] = None
     includeRecordings: Optional[bool] = None
     kind: Literal["FunnelCorrelationActorsQuery"] = "FunnelCorrelationActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
     source: FunnelCorrelationQuery
 
@@ -2899,6 +2992,7 @@ class InsightActorsQuery(BaseModel):
         default=None, description="An interval selected out of available intervals in source query."
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
     series: Optional[int] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
@@ -2940,6 +3034,9 @@ class ActorsQuery(BaseModel):
     ] = None
     kind: Literal["ActorsQuery"] = "ActorsQuery"
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     offset: Optional[int] = None
     orderBy: Optional[List[str]] = None
     properties: Optional[
@@ -3054,6 +3151,9 @@ class HogQLMetadata(BaseModel):
     ] = Field(default=None, description='Query within which "expr" is validated. Defaults to "select * from events"')
     filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[HogQLMetadataResponse] = Field(default=None, description="Cached query response")
     select: Optional[str] = Field(
         default=None, description="Full select query to validate (use `select` or `expr`, but not both)"

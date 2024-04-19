@@ -91,7 +91,7 @@ class Table(FieldOrTable):
         return []
 
     def get_asterisk(self):
-        fields_to_avoid = self.avoid_asterisk_fields() + ["team_id"]
+        fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
         asterisk: Dict[str, FieldOrTable] = {}
         for key, field in self.fields.items():
             if key in fields_to_avoid:

@@ -121,8 +121,8 @@ def is_old_style_properties(properties):
 
 
 def transform_old_style_properties(properties):
-    key = list(properties.keys())[0]
-    value = list(properties.values())[0]
+    key = next(iter(properties.keys()))
+    value = next(iter(properties.values()))
     key_split = key.split("__")
     return [
         {
