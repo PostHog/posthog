@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
 from decimal import Decimal
 from functools import lru_cache
@@ -166,95 +165,6 @@ class WeekStartDay(models.IntegerChoices):
         return "3" if self == WeekStartDay.MONDAY else "0"
 
 
-@dataclass
-class PersonOnEventsModeSelector:
-    flag_name: str
-    flag_group_type: Literal["organization", "project"]
-    setting_name: str | None = None
-    instance_setting_name: str | None = None
-
-    def evaluate(self, team: Team) -> bool:
-        if self.setting_name is not None:
-            settings_value = getattr(settings, self.setting_name, None)
-            if settings_value is not None:
-                return settings_value
-
-        # on PostHog Cloud, use the feature flag
-        if is_cloud():
-            if self.flag_group_type == "organization":
-                key = str(team.organization_id)
-                groups = {"organization": str(team.organization_id)}
-                groups_properties: dict[str, Any] = {
-                    "organization": {
-                        "id": str(team.organization_id),
-                        "created_at": team.organization.created_at,
-                    }
-                }
-            elif self.flag_group_type == "project":
-                key = str(team.uuid)
-                groups = {"project": str(team.id)}
-                groups_properties = {
-                    "project": {
-                        "id": str(team.id),
-                        "created_at": team.created_at,
-                        "uuid": team.uuid,
-                    }
-                }
-            else:
-                raise ValueError("invalid flag group")
-
-            return posthoganalytics.feature_enabled(
-                self.flag_name,
-                key,
-                groups=groups,
-                group_properties=groups_properties,
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-
-        # on self-hosted, use the instance setting
-        if self.instance_setting_name:
-            return get_instance_setting(self.instance_setting_name)
-        else:
-            return False
-
-
-PERSON_ON_EVENTS_MODES = [
-    (
-        PersonOnEventsModeSelector(
-            flag_name="persons-on-events-person-id-no-override-properties-on-events",
-            flag_group_type="project",
-            setting_name="PERSON_ON_EVENTS_OVERRIDE",
-            instance_setting_name="PERSON_ON_EVENTS_ENABLED",
-        ),
-        PersonsOnEventsMode.person_id_no_override_properties_on_events,
-    ),
-    (
-        PersonOnEventsModeSelector(
-            flag_name="persons-on-events-v2-reads-enabled",
-            flag_group_type="organization",
-            setting_name="PERSON_ON_EVENTS_V2_OVERRIDE",
-            instance_setting_name="PERSON_ON_EVENTS_V2_ENABLED",
-        ),
-        PersonsOnEventsMode.person_id_override_properties_on_events_deprecated,
-    ),
-    (
-        PersonOnEventsModeSelector(
-            flag_name="persons-on-events-person-id-override-properties-on-events",
-            flag_group_type="organization",
-        ),
-        PersonsOnEventsMode.person_id_override_properties_on_events,
-    ),
-    (
-        PersonOnEventsModeSelector(
-            flag_name="persons-on-events-person-id-override-properties-joined",
-            flag_group_type="organization",
-        ),
-        PersonsOnEventsMode.person_id_override_properties_joined,
-    ),
-]
-
-
 class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
@@ -378,12 +288,86 @@ class Team(UUIDClassicModel):
 
     @property
     def person_on_events_mode(self) -> PersonsOnEventsMode:
-        for selector, mode in PERSON_ON_EVENTS_MODES:
-            if selector.evaluate(self):
-                tag_queries(person_on_events_enabled=True, person_on_events_mode=mode)
-                return mode
+        def is_any_enabled(
+            *,
+            flag_name: str,
+            flag_group: Literal["organization", "project"],
+            setting_name: str | None = None,
+            instance_setting_name: str | None = None,
+        ) -> bool:
+            if setting_name is not None:
+                settings_value = getattr(settings, setting_name, None)
+                if settings_value is not None:
+                    return settings_value
 
-        return PersonsOnEventsMode.disabled
+            # on PostHog Cloud, use the feature flag
+            if is_cloud():
+                if flag_group == "organization":
+                    groups = {"organization": str(self.organization_id)}
+                    groups_properties: dict[str, Any] = {
+                        "organization": {
+                            "id": str(self.organization_id),
+                            "created_at": self.organization.created_at,
+                        }
+                    }
+                elif flag_group == "project":
+                    groups = {"project": str(self.id)}
+                    groups_properties = {
+                        "project": {
+                            "id": str(self.id),
+                            "created_at": self.created_at,
+                            "uuid": self.uuid,
+                        }
+                    }
+                else:
+                    raise TypeError("invalid flag group")
+
+                return posthoganalytics.feature_enabled(
+                    flag_name,
+                    str(self.uuid),
+                    groups=groups,
+                    group_properties=groups_properties,
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+
+            # on self-hosted, use the instance setting
+            if instance_setting_name:
+                return get_instance_setting(instance_setting_name)
+            else:
+                return False
+
+        if is_any_enabled(
+            flag_name="persons-on-events-v2-reads-enabled",
+            flag_group="organization",
+            setting_name="PERSON_ON_EVENTS_V2_OVERRIDE",
+            instance_setting_name="PERSON_ON_EVENTS_V2_ENABLED",
+        ):
+            mode = PersonsOnEventsMode.person_id_override_properties_on_events_deprecated
+        elif is_any_enabled(
+            flag_name="persons-on-events-person-id-no-override-properties-on-events",
+            flag_group="project",
+            setting_name="PERSON_ON_EVENTS_OVERRIDE",
+            instance_setting_name="PERSON_ON_EVENTS_ENABLED",
+        ):
+            mode = PersonsOnEventsMode.person_id_no_override_properties_on_events
+        elif is_any_enabled(
+            flag_name="persons-on-events-person-id-override-properties-on-events",
+            flag_group="organization",
+        ):
+            mode = PersonsOnEventsMode.person_id_override_properties_on_events
+        elif is_any_enabled(
+            flag_name="persons-on-events-person-id-override-properties-joined",
+            flag_group="organization",
+        ):
+            mode = PersonsOnEventsMode.person_id_override_properties_joined
+        else:
+            mode = PersonsOnEventsMode.disabled
+
+        if mode is not PersonsOnEventsMode.disabled:
+            tag_queries(person_on_events_enabled=True, person_on_events_mode=mode)
+
+        return mode
 
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
     # Keeping this property for now only to be used by the frontend in certain cases
