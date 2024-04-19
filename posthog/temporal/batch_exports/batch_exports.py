@@ -476,7 +476,7 @@ async def pause_batch_export_if_over_failure_threshold(
     could be scattered between these successes.
 
     Keep in mind that if 'check_window' is less than 'failure_threshold', there is no point in even counting,
-    so we immediately return.
+    so we raise an exception.
 
     We check if the count of failed runs in the last 'check_window' runs exceeds 'failure_threshold'. This means
     that 'pause_batch_export_if_over_failure_threshold' should only be called when handling a failed run,
@@ -490,9 +490,13 @@ async def pause_batch_export_if_over_failure_threshold(
 
     Returns:
         A bool indicating if the batch export is paused.
+
+    Raises:
+        ValueError: If 'check_window' is smaller than 'failure_threshold' as that check would be redundant and,
+            likely, a bug.
     """
     if check_window < failure_threshold:
-        return False
+        raise ValueError("'failure_threshold' cannot be higher than 'check_window'")
 
     count = await sync_to_async(count_failed_batch_export_runs)(uuid.UUID(batch_export_id), last_n=check_window)
 
