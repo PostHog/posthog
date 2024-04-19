@@ -870,7 +870,7 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
     # A set of keys for config fields that have secret = true
-    secret_fields = {field["key"] for field in plugin.config_schema if field.get("secret")}
+    secret_fields = {field["key"] for field in plugin.config_schema if isinstance(field, dict) and field.get("secret")}
     return secret_fields
 
 
