@@ -367,8 +367,6 @@ def action_to_expr(action: Action) -> ast.Expr:
         if step.event == AUTOCAPTURE_EVENT:
             if step.selector:
                 exprs.append(selector_to_expr(step.selector))
-            if step.tag_name is not None:
-                exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
                 if step.href_matching == ActionStep.REGEX:
                     operator = PropertyOperator.regex
