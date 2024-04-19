@@ -197,6 +197,11 @@ class Plugin(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     log_level: models.IntegerField = models.IntegerField(null=True, blank=True)
 
+    # Some plugins are private, only certain organizations should be able to access them
+    # Sometimes we want to deprecate plugins, where the first step is limiting access to organizations using them
+    # Sometimes we want to test out new plugins by only enabling them for certain organizations at first
+    has_private_access = models.ManyToManyField(Organization)
+
     objects: PluginManager = PluginManager()
 
     def get_default_config(self) -> Dict[str, Any]:
