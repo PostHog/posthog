@@ -1,4 +1,5 @@
 from datetime import timedelta
+import uuid
 
 from rest_framework import status
 
@@ -8,6 +9,7 @@ from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.models import SessionRecording
 from posthog.schema import EventsQuery
 from posthog.test.base import APIBaseTest
 
@@ -437,6 +439,23 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight.id}/sharing?personal_api_key={self.value}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_works_with_session_recording_snapshots(self):
+        session_id = str(uuid.uuid4())
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_id,
+            deleted=False,
+            storage_version="2023-08-01",
+            object_storage_path="an lts stored object path",
+        )
+
+        self.key.scopes = ["session_recording:read"]
+        self.key.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2"
         )
         assert response.status_code == status.HTTP_200_OK
 
