@@ -12,7 +12,7 @@ from posthog.queries.foss_cohort_query import (
     validate_seq_date_more_recent_than_date,
 )
 from posthog.queries.util import PersonPropertiesMode
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 def check_negation_clause(prop: PropertyGroup) -> Tuple[bool, bool]:
@@ -319,7 +319,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         event_param_name = f"{self._cohort_pk}_event_ids"
 
-        if self.should_pushdown_persons and self._person_on_events_mode != PersonOnEventsMode.DISABLED:
+        if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.disabled:
             person_prop_query, person_prop_params = self._get_prop_groups(
                 self._inner_property_groups,
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,

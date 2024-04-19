@@ -11,7 +11,7 @@
 
 -c requirements.txt
 
-ruff>=0.1.2
+ruff~=0.3.7
 pip-tools==7.3.0
 mypy~=1.8.0
 mypy-baseline~=0.6.1

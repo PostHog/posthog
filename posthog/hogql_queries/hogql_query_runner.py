@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Callable, cast
+from typing import Callable, Dict, Optional, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
@@ -26,7 +26,7 @@ class HogQLQueryRunner(QueryRunner):
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:
             self.timings = HogQLTimings()
-        values = (
+        values: Optional[Dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
