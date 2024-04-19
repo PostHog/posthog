@@ -94,7 +94,7 @@ class AllowIPMiddleware:
                 client_ip = forwarded_for.pop(0)
                 if settings.TRUST_ALL_PROXIES:
                     return client_ip
-                proxies = [closest_proxy] + forwarded_for
+                proxies = [closest_proxy, *forwarded_for]
                 for proxy in proxies:
                     if proxy not in self.trusted_proxies:
                         return None
@@ -486,7 +486,7 @@ class CaptureMiddleware:
 
 
 def per_request_logging_context_middleware(
-    get_response: Callable[[HttpRequest], HttpResponse]
+    get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
     We get some default logging context from the django-structlog middleware,
@@ -517,7 +517,7 @@ def per_request_logging_context_middleware(
 
 
 def user_logging_context_middleware(
-    get_response: Callable[[HttpRequest], HttpResponse]
+    get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
     This middleware adds the team_id to the logging context if it exists. Note

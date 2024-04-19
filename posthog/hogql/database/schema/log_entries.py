@@ -35,7 +35,7 @@ class ReplayConsoleLogsLogEntriesTable(LazyTable):
     fields: Dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
     def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
-        fields: List[ast.Expr] = [ast.Field(chain=["log_entries"] + chain) for name, chain in requested_fields.items()]
+        fields: List[ast.Expr] = [ast.Field(chain=["log_entries", *chain]) for name, chain in requested_fields.items()]
 
         return ast.SelectQuery(
             select=fields,
@@ -58,7 +58,7 @@ class BatchExportLogEntriesTable(LazyTable):
     fields: Dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
     def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
-        fields: List[ast.Expr] = [ast.Field(chain=["log_entries"] + chain) for name, chain in requested_fields.items()]
+        fields: List[ast.Expr] = [ast.Field(chain=["log_entries", *chain]) for name, chain in requested_fields.items()]
 
         return ast.SelectQuery(
             select=fields,

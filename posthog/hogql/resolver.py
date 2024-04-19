@@ -464,7 +464,7 @@ class Resolver(CloningVisitor):
             if table_count > 1:
                 raise QueryError("Cannot use '*' without table name when there are multiple tables in the query")
             table_type = (
-                scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
+                scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else next(iter(scope.tables.values()))
             )
             type = ast.AsteriskType(table_type=table_type)
 

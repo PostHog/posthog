@@ -235,7 +235,7 @@ class _Printer(Visitor):
                 if where is None:
                     where = extra_where
                 elif isinstance(where, ast.And):
-                    where = ast.And(exprs=[extra_where] + where.exprs)
+                    where = ast.And(exprs=[extra_where, *where.exprs])
                 else:
                     where = ast.And(exprs=[extra_where, where])
             else:
@@ -1169,7 +1169,7 @@ class _Printer(Visitor):
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: List[str]) -> str:
-        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field] + unsafe_args)}), ''), 'null'), '^\"|\"$', '')"
+        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
