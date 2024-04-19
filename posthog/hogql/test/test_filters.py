@@ -63,6 +63,34 @@ class TestFilters(BaseTest):
             "SELECT event FROM events WHERE less(timestamp, toDateTime('2020-02-02 00:00:00.000000')) LIMIT 10000",
         )
 
+        select = replace_filters(
+            self._parse_select("SELECT event FROM events where {filters}"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT event FROM events WHERE "
+            "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            "greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT 10000",
+        )
+
+        # now with different team timezone
+        self.team.timezone = "America/New_York"
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select("SELECT event FROM events where {filters}"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT event FROM events WHERE "
+            "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            "greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT 10000",
+        )
+
     def test_replace_filters_event_property(self):
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
