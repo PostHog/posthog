@@ -215,7 +215,7 @@ export const SidePanelSupport = (): JSX.Element => {
                             ) : null}
 
                             {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ||
-                            window.location.href.includes('/billing') ? (
+                            window.location.href.includes(urls.billing()) ? (
                                 <>
                                     <Section title="Contact us">
                                         <p>Can't find what you need in the docs?</p>
