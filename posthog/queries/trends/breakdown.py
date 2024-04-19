@@ -108,7 +108,7 @@ class TrendsBreakdown:
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
         self.add_person_urls = add_person_urls
         self.person_on_events_mode = person_on_events_mode
-        if person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+        if person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events_deprecated:
             self._person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
         elif person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
             self._person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
@@ -748,7 +748,7 @@ class TrendsBreakdown:
         if self.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
             return "", {}
 
-        if self.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+        if self.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events_deprecated:
             return (
                 PERSON_OVERRIDES_JOIN_SQL.format(
                     person_overrides_table_alias=self.PERSON_ID_OVERRIDES_TABLE_ALIAS,

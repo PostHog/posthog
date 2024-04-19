@@ -25,7 +25,7 @@ export function Modifiers({ setQuery, query, response = null }: ModifiersProps):
                             label: 'Properties: Events, Person ID: Events',
                         },
                         {
-                            value: 'person_id_override_properties_on_events',
+                            value: 'person_id_override_properties_on_events_deprecated',
                             label: 'Properties: Events, Person ID: Overrides (v2)',
                         },
                         {

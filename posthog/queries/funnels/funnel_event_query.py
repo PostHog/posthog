@@ -131,7 +131,7 @@ class FunnelEventQuery(EventQuery):
         )
         is_using_cohort_propertes = self._column_optimizer.is_using_cohort_propertes
 
-        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events_deprecated:
             self._should_join_distinct_ids = True
         elif self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events or (
             non_person_id_aggregation and not is_using_cohort_propertes

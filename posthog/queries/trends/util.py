@@ -178,7 +178,7 @@ def determine_aggregator(entity: Entity, team: Team) -> str:
         return "e.distinct_id"
     elif team.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
         return "e.person_id"
-    elif team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+    elif team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events_deprecated:
         return f"if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)"
     else:
         return "pdi.person_id"

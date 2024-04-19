@@ -287,8 +287,8 @@ class Team(UUIDClassicModel):
     @property
     def person_on_events_mode(self) -> PersonsOnEventsMode:
         if self._person_on_events_person_id_override_properties_on_events:
-            tag_queries(person_on_events_mode=PersonsOnEventsMode.person_id_override_properties_on_events)
-            return PersonsOnEventsMode.person_id_override_properties_on_events
+            tag_queries(person_on_events_mode=PersonsOnEventsMode.person_id_override_properties_on_events_deprecated)
+            return PersonsOnEventsMode.person_id_override_properties_on_events_deprecated
 
         if self._person_on_events_person_id_no_override_properties_on_events:
             # also tag person_on_events_enabled for legacy compatibility

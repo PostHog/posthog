@@ -20,9 +20,11 @@ class TestModifiers(BaseTest):
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events
         modifiers = create_default_modifiers_for_team(
             self.team,
-            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.person_id_override_properties_on_events),
+            HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.person_id_override_properties_on_events_deprecated
+            ),
         )
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events_deprecated
 
     def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"
@@ -73,7 +75,7 @@ class TestModifiers(BaseTest):
                 ],
             ),
             TestCase(
-                PersonsOnEventsMode.person_id_override_properties_on_events,
+                PersonsOnEventsMode.person_id_override_properties_on_events_deprecated,
                 [
                     "events.event AS event",
                     "ifNull(nullIf(events__override.override_person_id, %(hogql_val_0)s), events.person_id) AS id",

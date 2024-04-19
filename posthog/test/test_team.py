@@ -139,7 +139,7 @@ class TestTeam(BaseTest):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertEqual(
-                    team.person_on_events_mode, PersonsOnEventsMode.person_id_override_properties_on_events
+                    team.person_on_events_mode, PersonsOnEventsMode.person_id_override_properties_on_events_deprecated
                 )
                 # called more than once when evaluating hogql
                 mock_feature_enabled.assert_called_with(
@@ -162,7 +162,7 @@ class TestTeam(BaseTest):
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertEqual(
-                    team.person_on_events_mode, PersonsOnEventsMode.person_id_override_properties_on_events
+                    team.person_on_events_mode, PersonsOnEventsMode.person_id_override_properties_on_events_deprecated
                 )
                 mock_feature_enabled.assert_not_called()
 

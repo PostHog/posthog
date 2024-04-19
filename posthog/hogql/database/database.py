@@ -202,7 +202,7 @@ def create_hogql_database(
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
         _use_person_properties_from_events(database)
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events_deprecated:
         _use_person_id_from_person_overrides(database, use_distinct_id_overrides=False)
         _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]

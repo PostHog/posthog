@@ -178,7 +178,7 @@ def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
     if team.person_on_events_mode == PersonsOnEventsMode.disabled:
         return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
 
-    if team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+    if team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events_deprecated:
         return PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
 
     return PersonPropertiesMode.DIRECT_ON_EVENTS
