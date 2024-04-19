@@ -270,6 +270,7 @@ class BreakdownValues:
         return AggregationOperations(
             self.team,
             self.series,
+            self.chart_display_type,
             self.query_date_range,
             should_aggregate_values=True,  # doesn't matter in this case
         )

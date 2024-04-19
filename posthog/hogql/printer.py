@@ -41,8 +41,7 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsOnEventsMode
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -954,7 +953,7 @@ class _Printer(Visitor):
                 and type.name == "properties"
                 and type.table_type.field == "poe"
             ):
-                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -978,7 +977,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -1028,10 +1027,12 @@ class _Printer(Visitor):
                 or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
             ):
                 # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
-                    materialized_column = self._get_materialized_column("events", type.chain[0], "person_properties")
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
+                    materialized_column = self._get_materialized_column(
+                        "events", str(type.chain[0]), "person_properties"
+                    )
                 else:
-                    materialized_column = self._get_materialized_column("person", type.chain[0], "properties")
+                    materialized_column = self._get_materialized_column("person", str(type.chain[0]), "properties")
                 if materialized_column:
                     materialized_property_sql = self._print_identifier(materialized_column)
 
