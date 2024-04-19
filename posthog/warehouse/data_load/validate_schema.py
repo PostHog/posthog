@@ -130,6 +130,7 @@ async def validate_schema_and_update_table(
 
     table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
     new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
+
     row_count = table_row_counts.get(_schema_name.lower(), 0)
 
     # Check

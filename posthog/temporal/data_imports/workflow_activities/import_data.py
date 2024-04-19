@@ -148,7 +148,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
     heartbeat_task = asyncio.create_task(heartbeat())
 
     try:
-        table_row_counts = await DataImportPipeline(job_inputs, source, logger).run()
+        table_row_counts = await DataImportPipeline(job_inputs, source, logger, schema.is_incremental).run()
         total_rows_synced = sum(table_row_counts.values())
 
         await aupdate_job_count(inputs.run_id, inputs.team_id, total_rows_synced)
