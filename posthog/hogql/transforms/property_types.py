@@ -6,7 +6,7 @@ from posthog.hogql.database.models import DateTimeDatabaseField
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.models.property import PropertyName, TableColumn
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
@@ -224,10 +224,10 @@ class PropertySwapper(CloningVisitor):
     ):
         property_name = str(node.chain[-1])
         if property_type == "person":
-            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:  # type: ignore[comparison-overlap]
+            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")  # type: ignore[unreachable]
+                materialized_column = self._get_materialized_column("person", property_name, "properties")
         elif property_type == "group":
             name_parts = property_name.split("_")
             name_parts.pop(0)

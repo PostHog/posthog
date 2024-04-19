@@ -14,7 +14,7 @@ from posthog.queries.retention.retention_events_query import RetentionEventsQuer
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
 from posthog.queries.retention.types import BreakdownValues, CohortKey
 from posthog.queries.util import correct_result_for_sampling
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 class Retention:
@@ -166,7 +166,7 @@ def build_returning_event_query(
     filter: RetentionFilter,
     team: Team,
     aggregate_users_by_distinct_id: Optional[bool] = None,
-    person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+    person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
     retention_events_query=RetentionEventsQuery,
 ) -> Tuple[str, Dict[str, Any]]:
     returning_event_query_templated, returning_event_params = retention_events_query(
@@ -184,7 +184,7 @@ def build_target_event_query(
     filter: RetentionFilter,
     team: Team,
     aggregate_users_by_distinct_id: Optional[bool] = None,
-    person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+    person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
     retention_events_query=RetentionEventsQuery,
 ) -> Tuple[str, Dict[str, Any]]:
     target_event_query_templated, target_event_params = retention_events_query(
