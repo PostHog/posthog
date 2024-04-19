@@ -380,7 +380,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     }),
     listeners(({ actions, values }) => ({
         onBack: () => {
-            if (values.currentStep <= 2) {
+            if (values.currentStep <= 1) {
                 actions.selectConnector(null)
             }
         },
@@ -446,6 +446,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 lemonToast.success('New Data Resource Created')
                 actions.setSourceId(id)
+                actions.resetSourceConnectionDetails()
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
