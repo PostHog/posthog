@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple
 
 import posthoganalytics
 import pydantic
@@ -172,9 +172,6 @@ class PersonOnEventsModeSelector:
     setting_name: str | None = None
     instance_setting_name: str | None = None
 
-    def __get__(self, team: Team, objtype: Type[Team]) -> bool:
-        return self.evaluate(team)
-
     def evaluate(self, team: Team) -> bool:
         if self.setting_name is not None:
             settings_value = getattr(settings, self.setting_name, None)
@@ -222,6 +219,32 @@ class PersonOnEventsModeSelector:
             return get_instance_setting(self.instance_setting_name)
         else:
             return False
+
+
+PERSON_ON_EVENTS_MODES = [
+    (
+        PersonOnEventsModeSelector(
+            flag=("persons-on-events-person-id-no-override-properties-on-events", "project"),
+            setting_name="PERSON_ON_EVENTS_OVERRIDE",
+            instance_setting_name="PERSON_ON_EVENTS_ENABLED",
+        ),
+        PersonsOnEventsMode.person_id_no_override_properties_on_events,
+    ),
+    (
+        PersonOnEventsModeSelector(
+            flag=("persons-on-events-v2-reads-enabled", "organization"),
+            setting_name="PERSON_ON_EVENTS_V2_OVERRIDE",
+            instance_setting_name="PERSON_ON_EVENTS_V2_ENABLED",
+        ),
+        PersonsOnEventsMode.person_id_override_properties_on_events_deprecated,
+    ),
+    (
+        PersonOnEventsModeSelector(
+            flag=("persons-on-events-person-id-override-properties-joined", "organization"),
+        ),
+        PersonsOnEventsMode.person_id_override_properties_joined,
+    ),
+]
 
 
 class Team(UUIDClassicModel):
@@ -347,24 +370,10 @@ class Team(UUIDClassicModel):
 
     @property
     def person_on_events_mode(self) -> PersonsOnEventsMode:
-        if self._person_on_events_person_id_override_properties_on_events:
-            tag_queries(person_on_events_mode=PersonsOnEventsMode.person_id_override_properties_on_events_deprecated)
-            return PersonsOnEventsMode.person_id_override_properties_on_events_deprecated
-
-        if self._person_on_events_person_id_no_override_properties_on_events:
-            # also tag person_on_events_enabled for legacy compatibility
-            tag_queries(
-                person_on_events_enabled=True,
-                person_on_events_mode=PersonsOnEventsMode.person_id_no_override_properties_on_events,
-            )
-            return PersonsOnEventsMode.person_id_no_override_properties_on_events
-
-        if self._person_on_events_person_id_override_properties_joined:
-            tag_queries(
-                person_on_events_enabled=True,
-                person_on_events_mode=PersonsOnEventsMode.person_id_override_properties_joined,
-            )
-            return PersonsOnEventsMode.person_id_override_properties_joined
+        for selector, mode in PERSON_ON_EVENTS_MODES:
+            if selector.evaluate(self):
+                tag_queries(person_on_events_enabled=True, person_on_events_mode=mode)
+                return mode
 
         return PersonsOnEventsMode.disabled
 
@@ -373,22 +382,6 @@ class Team(UUIDClassicModel):
     @property
     def person_on_events_querying_enabled(self) -> bool:
         return self.person_on_events_mode != PersonsOnEventsMode.disabled
-
-    _person_on_events_person_id_no_override_properties_on_events = PersonOnEventsModeSelector(
-        flag=("persons-on-events-person-id-no-override-properties-on-events", "project"),
-        setting_name="PERSON_ON_EVENTS_OVERRIDE",
-        instance_setting_name="PERSON_ON_EVENTS_ENABLED",
-    )
-
-    _person_on_events_person_id_override_properties_on_events = PersonOnEventsModeSelector(
-        flag=("persons-on-events-v2-reads-enabled", "organization"),
-        setting_name="PERSON_ON_EVENTS_V2_OVERRIDE",
-        instance_setting_name="PERSON_ON_EVENTS_V2_ENABLED",
-    )
-
-    _person_on_events_person_id_override_properties_joined = PersonOnEventsModeSelector(
-        flag=("persons-on-events-person-id-override-properties-joined", "organization"),
-    )
 
     @property
     def strict_caching_enabled(self) -> bool:
