@@ -40,7 +40,7 @@ class Command(BaseCommand):
         input_arg = options.get("ga_sources")
         if not input_arg:
             raise ValueError("No input file specified")
-        with open(input_arg, "r", encoding="utf-8-sig") as input_file:
+        with open(input_arg, encoding="utf-8-sig") as input_file:
             input_str = input_file.read()
         split_items = re.findall(r"\S+\s+SOURCE_CATEGORY_\S+", input_str)
 

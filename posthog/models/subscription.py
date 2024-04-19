@@ -134,7 +134,7 @@ class Subscription(models.Model):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
-        super(Subscription, self).save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     @property
     def url(self):

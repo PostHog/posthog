@@ -42,5 +42,5 @@ class ReplacePlaceholders(CloningVisitor):
             return new_node
         raise QueryError(
             f"Placeholder {{{node.field}}} is not available in this context. You can use the following: "
-            + ", ".join((f"{placeholder}" for placeholder in self.placeholders))
+            + ", ".join(f"{placeholder}" for placeholder in self.placeholders)
         )

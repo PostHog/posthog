@@ -70,7 +70,7 @@ def get_decide_site_apps(team: "Team", using_database: str = "default") -> List[
     )
 
     def site_app_url(source: tuple) -> str:
-        hash = md5(f"{source[2]}-{source[3]}-{source[4]}".encode("utf-8")).hexdigest()
+        hash = md5(f"{source[2]}-{source[3]}-{source[4]}".encode()).hexdigest()
         return f"/site_app/{source[0]}/{source[1]}/{hash}/"
 
     return [asdict(WebJsUrl(source[0], site_app_url(source))) for source in sources]

@@ -52,8 +52,15 @@ from posthog.utils import (
 
 logger = structlog.get_logger(__name__)
 
-Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
-TableSizes = TypedDict("TableSizes", {"posthog_event": int, "posthog_sessionrecordingevent": int})
+
+class Period(TypedDict):
+    start_inclusive: str
+    end_inclusive: str
+
+
+class TableSizes(TypedDict):
+    posthog_event: int
+    posthog_sessionrecordingevent: int
 
 
 CH_BILLING_SETTINGS = {

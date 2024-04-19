@@ -117,7 +117,7 @@ class TaggedItem(UUIDModel):
 
     def save(self, *args, **kwargs):
         self.full_clean()
-        return super(TaggedItem, self).save(*args, **kwargs)
+        return super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return str(self.tag)

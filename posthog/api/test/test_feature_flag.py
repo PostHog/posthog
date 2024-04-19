@@ -3738,7 +3738,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
 
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+        self.assertEqual(len(response_json["analytics_dashboards"]), 1)
 
         # check deleting the dashboard doesn't delete flag, but deletes the relationship
         dashboard.delete()
@@ -3768,7 +3768,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
 
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+        self.assertEqual(len(response_json["analytics_dashboards"]), 1)
 
     def test_feature_flag_dashboard_already_exists(self):
         another_feature_flag = FeatureFlag.objects.create(
@@ -3794,7 +3794,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
 
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+        self.assertEqual(len(response_json["analytics_dashboards"]), 1)
 
     @freeze_time("2021-01-01")
     @snapshot_clickhouse_queries

@@ -488,13 +488,11 @@ class FeatureFlagViewSet(
             feature_flags, many=True, context=self.get_serializer_context()
         ).data
         return Response(
-            (
-                {
-                    "feature_flag": feature_flag,
-                    "value": matches.get(feature_flag["key"], False),
-                }
-                for feature_flag in all_serialized_flags
-            )
+            {
+                "feature_flag": feature_flag,
+                "value": matches.get(feature_flag["key"], False),
+            }
+            for feature_flag in all_serialized_flags
         )
 
     @action(

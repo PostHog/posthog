@@ -242,7 +242,7 @@ def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
 
 def load_json_file(filename: str):
     try:
-        with open(filename, "r", encoding="utf_8") as reader:
+        with open(filename, encoding="utf_8") as reader:
             return json.loads(reader.read())
     except FileNotFoundError:
         return None

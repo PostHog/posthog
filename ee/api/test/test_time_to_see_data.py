@@ -64,7 +64,7 @@ class TestTimeToSeeDataApi(APIBaseTest):
         )
 
         response = self.client.post("/api/time_to_see_data/sessions").json()
-        self.assertEquals(
+        self.assertEqual(
             response,
             [
                 {

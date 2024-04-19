@@ -175,7 +175,7 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
         # contents as a string in `staged_files`.
         if match := re.match(r"^PUT file://(?P<file_path>.*) @%(?P<table_name>.*)$", sql_text):
             file_path = match.group("file_path")
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 staged_files.append(f.read())
 
             if fail == "put":

@@ -124,7 +124,7 @@ class FuzzyInt(int):
     highest: int
 
     def __new__(cls, lowest, highest):
-        obj = super(FuzzyInt, cls).__new__(cls, highest)
+        obj = super().__new__(cls, highest)
         obj.lowest = lowest
         obj.highest = highest
         return obj
@@ -1088,7 +1088,7 @@ def create_person_id_override_by_distinct_id(
     """
     )
 
-    person_id_from, person_id_to = [row[1] for row in person_ids_result]
+    person_id_from, person_id_to = (row[1] for row in person_ids_result)
 
     sync_execute(
         f"""

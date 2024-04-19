@@ -112,7 +112,7 @@ class DashboardTile(models.Model):
                 if "update_fields" in kwargs:
                     kwargs["update_fields"].append("filters_hash")
 
-        super(DashboardTile, self).save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     def copy_to_dashboard(self, dashboard: Dashboard) -> None:
         DashboardTile.objects.create(

@@ -222,7 +222,7 @@ class LazyTableResolver(TraversingVisitor):
                         if property is not None:
                             chain.extend(property.chain)
                             property.joined_subquery_field_name = (
-                                f"{field.name}___{'___'.join((str(x) for x in property.chain))}"
+                                f"{field.name}___{'___'.join(str(x) for x in property.chain)}"
                             )
                             new_join.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
@@ -241,7 +241,7 @@ class LazyTableResolver(TraversingVisitor):
                         if property is not None:
                             chain.extend(property.chain)
                             property.joined_subquery_field_name = (
-                                f"{field.name}___{'___'.join((str(x) for x in property.chain))}"
+                                f"{field.name}___{'___'.join(str(x) for x in property.chain)}"
                             )
                             new_table.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
@@ -264,7 +264,7 @@ class LazyTableResolver(TraversingVisitor):
                             if property is not None:
                                 chain.extend(property.chain)
                                 property.joined_subquery_field_name = (
-                                    f"{field.name}___{'___'.join((str(x) for x in property.chain))}"
+                                    f"{field.name}___{'___'.join(str(x) for x in property.chain)}"
                                 )
                                 new_join.fields_accessed[property.joined_subquery_field_name] = chain
                             else:
@@ -283,7 +283,7 @@ class LazyTableResolver(TraversingVisitor):
                             if property is not None:
                                 chain.extend(property.chain)
                                 property.joined_subquery_field_name = (
-                                    f"{field.name}___{'___'.join((str(x) for x in property.chain))}"
+                                    f"{field.name}___{'___'.join(str(x) for x in property.chain)}"
                                 )
                                 new_table.fields_accessed[property.joined_subquery_field_name] = chain
                             else:
@@ -294,7 +294,7 @@ class LazyTableResolver(TraversingVisitor):
         join_constraint_overrides: Dict[str, List[ConstraintOverride]] = {}
 
         def create_override(table_name: str, field_chain: List[str | int]) -> None:
-            alias = f"{table_name}___{'___'.join((str(x) for x in field_chain))}"
+            alias = f"{table_name}___{'___'.join(str(x) for x in field_chain)}"
 
             if table_name in tables_to_add:
                 tables_to_add[table_name].fields_accessed[alias] = field_chain

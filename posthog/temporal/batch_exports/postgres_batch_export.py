@@ -98,7 +98,7 @@ async def copy_tsv_to_postgres(
             # TODO: Switch to binary encoding as CSV has a million edge cases.
             sql.SQL("COPY {table_name} ({fields}) FROM STDIN WITH (FORMAT CSV, DELIMITER '\t')").format(
                 table_name=sql.Identifier(table_name),
-                fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
+                fields=sql.SQL(",").join(sql.Identifier(column) for column in schema_columns),
             )
         ) as copy:
             while data := tsv_file.read():

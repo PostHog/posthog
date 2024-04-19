@@ -100,7 +100,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         key_a = self._create_web_stats_table_query(date_from_a, date_to, properties)._sample_rate_cache_key()
         key_b = self._create_web_stats_table_query(date_from_b, date_to, properties)._sample_rate_cache_key()
 
-        self.assertNotEquals(key_a, key_b)
+        self.assertNotEqual(key_a, key_b)
 
     def test_sample_rate_from_count(self):
         self.assertEqual(SamplingRate(numerator=1), _sample_rate_from_count(0))

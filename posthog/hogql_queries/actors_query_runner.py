@@ -70,9 +70,7 @@ class ActorsQueryRunner(QueryRunner):
             return None, None
 
         column_index_events = input_columns.index("matched_recordings")
-        matching_events_list = itertools.chain.from_iterable(
-            (row[column_index_events] for row in self.paginator.results)
-        )
+        matching_events_list = itertools.chain.from_iterable(row[column_index_events] for row in self.paginator.results)
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:

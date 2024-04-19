@@ -188,14 +188,14 @@ def iter_records(
         timestamp_predicates = ""
 
     if fields is None:
-        query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in default_fields()))
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())
     else:
         if "_inserted_at" not in [field["alias"] for field in fields]:
             control_fields = [BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at")]
         else:
             control_fields = []
 
-        query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in fields + control_fields))
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields=query_fields,
@@ -219,8 +219,7 @@ def iter_records(
     else:
         query_parameters = base_query_parameters
 
-    for record_batch in client.stream_query_as_arrow(query, query_parameters=query_parameters):
-        yield record_batch
+    yield from client.stream_query_as_arrow(query, query_parameters=query_parameters)
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:

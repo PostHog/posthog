@@ -283,7 +283,7 @@ async def create_table_in_snowflake(
         table_name:
         fields: An iterable of (name, type) tuples representing the fields of the table.
     """
-    field_ddl = ", ".join((f'"{field[0]}" {field[1]}' for field in fields))
+    field_ddl = ", ".join(f'"{field[0]}" {field[1]}' for field in fields)
 
     await execute_async_query(
         connection,
