@@ -27,13 +27,11 @@ interface RRWebEventWithWindow {
 }
 
 export interface ClickHousePerformanceEvent {
-    uuid: string
     timestamp: string | number
     distinct_id: string
     session_id: string
     window_id: string
     team_id: number
-    pageview_id: string
     current_url: string
 
     // BASE_EVENT_COLUMNS
