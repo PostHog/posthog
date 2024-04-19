@@ -81,13 +81,9 @@ class TeamManager(models.Manager):
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     return [
-                        {
-                            "key": "email",
-                            "operator": "not_icontains",
-                            "value": example_email.group(),
-                            "type": "person",
-                        }
-                    ] + filters
+                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                        *filters,
+                    ]
         return filters
 
     def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":

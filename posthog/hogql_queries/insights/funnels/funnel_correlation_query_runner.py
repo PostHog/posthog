@@ -245,9 +245,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         # Get the total success/failure counts from the results
         results = [result for result in response.results if result[0] != self.TOTAL_IDENTIFIER]
-        _, success_total, failure_total = [result for result in response.results if result[0] == self.TOTAL_IDENTIFIER][
-            0
-        ]
+        _, success_total, failure_total = next(
+            result for result in response.results if result[0] == self.TOTAL_IDENTIFIER
+        )
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
