@@ -202,12 +202,12 @@ export function NoResultsEmptyState(): JSX.Element {
                         <div className="w-1/2 my-auto px-6 space-y-4 items-center">
                             <div className="flex items-center">
                                 <div className="font-semibold leading-tight text-base text-current">
-                                    Experiment results not yet available
+                                    Experiment results are not yet available
                                 </div>
                             </div>
                             <div className="text-muted">
-                                Results will be calculated once we've received the necessary minimum events. The
-                                checklist on the right shows what's still needed.
+                                Results will be calculated once we've received the necessary events. The checklist on
+                                the right shows what's still needed.
                             </div>
                         </div>
                         <LemonDivider vertical />
@@ -296,7 +296,11 @@ export function PageHeaderCustom(): JSX.Element {
                             <LemonButton type="secondary" className="mr-2" onClick={() => setEditExperiment(true)}>
                                 Edit
                             </LemonButton>
-                            <LemonButton type="primary" onClick={() => launchExperiment()}>
+                            <LemonButton
+                                type="primary"
+                                data-attr="launch-experiment"
+                                onClick={() => launchExperiment()}
+                            >
                                 Launch
                             </LemonButton>
                         </div>
@@ -337,7 +341,12 @@ export function PageHeaderCustom(): JSX.Element {
                             </>
                             <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
                             {!experiment.end_date && (
-                                <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                <LemonButton
+                                    type="secondary"
+                                    data-attr="stop-experiment"
+                                    status="danger"
+                                    onClick={() => endExperiment()}
+                                >
                                     Stop
                                 </LemonButton>
                             )}
@@ -404,7 +413,7 @@ export function ActionBanner(): JSX.Element {
         ) {
             return (
                 <LemonBanner type="warning" className="mt-4">
-                    You've reached a robust sample size for your experiment, but the results are still inconclusive.
+                    You've reached a sufficient sample size for your experiment, but the results are still inconclusive.
                     Continuing the experiment is unlikely to yield significant findings. It may be time to stop this
                     experiment.
                 </LemonBanner>
@@ -421,8 +430,8 @@ export function ActionBanner(): JSX.Element {
 
         return (
             <LemonBanner type="info" className="mt-4">
-                Your experiment is live and is collecting data, but hasn't yet reached the statistical significance
-                needed to make reliable decisions. It's important to wait for more data to avoid premature conclusions.
+                Your experiment is live and collecting data, but hasn't yet reached the statistical significance needed
+                to make reliable decisions. It's important to wait for more data to avoid premature conclusions.
             </LemonBanner>
         )
     }
@@ -445,9 +454,9 @@ export function ActionBanner(): JSX.Element {
         ) {
             return (
                 <LemonBanner type="info" className="mt-4">
-                    You've achieved significant results, however, the sample size just meets the minimum requirements,
-                    and the win probability is only marginally above 90%. To ensure more reliable outcomes, consider
-                    running the experiment a bit longer.
+                    You've achieved significant results, however, the sample size barely meets the minimum requirements,
+                    and the win probability is marginally above 90%. To ensure more reliable outcomes, consider running
+                    the experiment longer.
                 </LemonBanner>
             )
         }
@@ -459,9 +468,9 @@ export function ActionBanner(): JSX.Element {
         ) {
             return (
                 <LemonBanner type="info" className="mt-4">
-                    You've achieved significant results, however, the running time just meets the minimum requirements,
-                    and the win probability is only marginally above 90%. To ensure more reliable outcomes, consider
-                    running the experiment a bit longer.
+                    You've achieved significant results, however, the running time barely meets the minimum
+                    requirements, and the win probability is marginally above 90%. To ensure more reliable outcomes,
+                    consider running the experiment longer.
                 </LemonBanner>
             )
         }

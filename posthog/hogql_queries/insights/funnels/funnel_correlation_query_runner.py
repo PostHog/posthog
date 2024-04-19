@@ -207,7 +207,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         for us to calculate the odds ratio.
         """
         if not self.funnels_query.series:
-            return FunnelCorrelationResponse(results=FunnelCorrelationResult(events=[], skewed=False))
+            return FunnelCorrelationResponse(
+                results=FunnelCorrelationResult(events=[], skewed=False), modifiers=self.modifiers
+            )
 
         events, skewed_totals, hogql, response = self._calculate()
 
@@ -223,6 +225,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             hasMore=response.hasMore,
             limit=response.limit,
             offset=response.offset,
+            modifiers=self.modifiers,
         )
 
     def _calculate(self) -> tuple[List[EventOddsRatio], bool, str, HogQLQueryResponse]:

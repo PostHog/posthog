@@ -1320,8 +1320,8 @@
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
-    AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+    AND ((has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+         AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1553,8 +1553,8 @@
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
     AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
-    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+    AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+         AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1607,8 +1607,8 @@
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$feature_flag_called'
-                   AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-                        AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+                   AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+                        AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
                    AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
                    AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific') )
               GROUP BY person_id,
@@ -1843,8 +1843,8 @@
     AND event = '$feature_flag_called'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
-    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+    AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+         AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1897,8 +1897,8 @@
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$feature_flag_called'
-                   AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
-                        AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+                   AND ((has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', '')))
+                        AND (has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', ''))))
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') )
               GROUP BY person_id,
@@ -1949,7 +1949,7 @@
 # ---
 # name: TestExperimentAuxiliaryEndpoints.test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure.1
   '''
-  /* user_id:115 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:0 cohort_calculation:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -1989,7 +1989,7 @@
                             OR (match(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/123')
                                 AND event = '$autocapture'))
                        AND (has(['bonk'], replaceRegexpAll(JSONExtractRaw(properties, 'bonk'), '^"|"$', ''))
-                            AND ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), tuple('x', 'y')), 0))) > 0 AS performed_event_condition_22_level_level_0_level_0_0
+                            AND ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), tuple('x', 'y')), 0))) > 0 AS performed_event_condition_X_level_level_0_level_0_0
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -2004,7 +2004,7 @@
           AND timestamp >= now() - INTERVAL 6 day
         GROUP BY person_id) behavior_query
      WHERE 1 = 1
-       AND (((performed_event_condition_22_level_level_0_level_0_0))) ) as person
+       AND (((performed_event_condition_X_level_level_0_level_0_0))) ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
