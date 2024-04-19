@@ -2777,7 +2777,7 @@
                                                           2,
                                                           3,
                                                           4,
-                                                          5 /* ... */) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+                                                          5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.6
