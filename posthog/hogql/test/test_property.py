@@ -520,17 +520,16 @@ class TestProperty(BaseTest):
             event="$autocapture",
             action=action1,
             selector="a.nav-link.active",
-            tag_name="a",
+            tag_name="a",  # This is ignored!
         )
         self.assertEqual(
             clear_locations(action_to_expr(action1)),
             self._parse_expr(
-                "event = '$autocapture' and elements_chain =~ {regex1} and elements_chain =~ {regex2}",
+                "event = '$autocapture' and elements_chain =~ {regex1}",
                 {
                     "regex1": ast.Constant(
                         value='(^|;)a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                     ),
-                    "regex2": ast.Constant(value="(^|;)a(\\.|$|;|:)"),
                 },
             ),
         )
