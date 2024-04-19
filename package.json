@@ -35,7 +35,7 @@
         "schema:build": "pnpm run schema:build:json && pnpm run schema:build:python",
         "schema:build:json": "ts-node bin/build-schema.mjs && prettier --write frontend/src/queries/schema.json",
         "schema:build:python": "datamodel-codegen --class-name='SchemaRoot' --collapse-root-models --target-python-version 3.10 --disable-timestamp --use-one-literal-as-default --use-default --use-default-kwarg --use-subclass-enum --input frontend/src/queries/schema.json --input-file-type jsonschema --output posthog/schema.py --output-model-type pydantic_v2.BaseModel && ruff format posthog/schema.py && npm run schema:build:python:fix-up-enum",
-        "schema:build:python:fix-up-enum": "sed -i '' -e 's/Optional\\[PropertyOperator\\] = \\(\"[A-Za-z_]*\"\\)/Optional[PropertyOperator] = PropertyOperator(\\1)/g' posthog/schema.py # THIS SED INVOCATION IS A MASSIVE HACK - remove when datamodel-codegen properly supports enums",
+        "schema:build:python:fix-up-enum": "sed -i -e 's/Optional\\[PropertyOperator\\] = \\(\"[A-Za-z_]*\"\\)/Optional[PropertyOperator] = PropertyOperator(\\1)/g' posthog/schema.py # THIS SED INVOCATION IS A MASSIVE HACK - remove when datamodel-codegen properly supports enums",
         "grammar:build": "npm run grammar:build:python && npm run grammar:build:cpp",
         "grammar:build:python": "cd posthog/hogql/grammar && antlr -Dlanguage=Python3 HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
         "grammar:build:cpp": "cd posthog/hogql/grammar && antlr -o ../../../hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && antlr -o ../../../hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
