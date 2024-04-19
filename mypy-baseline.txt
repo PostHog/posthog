@@ -68,6 +68,7 @@ posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: w
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/filters/base_filter.py:0: error: "HogQLContext" has no attribute "person_on_events_mode"  [attr-defined]
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
+posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
 posthog/hogql/database/database.py:0: error: Incompatible types (expression has type "Literal['view', 'lazy_table']", TypedDict item "type" has type "Literal['integer', 'float', 'string', 'datetime', 'date', 'boolean', 'array', 'json', 'lazy_table', 'virtual_table', 'field_traverser', 'expression']")  [typeddict-item]
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Argument 1 to "create_hogql_database" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
