@@ -54,6 +54,10 @@ click==8.1.7
     #   pip-tools
 colorama==0.4.4
     # via pytest-watch
+coreapi==2.3.3
+    # via djangorestframework-stubs
+coreschema==0.0.4
+    # via coreapi
 coverage[toml]==5.5
     # via
     #   coverage
@@ -65,13 +69,13 @@ django==4.2.11
     #   -c requirements.txt
     #   django-stubs
     #   django-stubs-ext
-django-stubs==4.2.7
+django-stubs==1.13.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
 django-stubs-ext==4.2.7
     # via django-stubs
-djangorestframework-stubs==3.14.5
+djangorestframework-stubs==1.4.0
     # via -r requirements-dev.in
 dnspython==2.2.1
     # via
@@ -116,8 +120,12 @@ iniconfig==1.1.1
     # via pytest
 isort==5.2.2
     # via datamodel-code-generator
+itypes==1.2.0
+    # via coreapi
 jinja2==3.1.3
-    # via datamodel-code-generator
+    # via
+    #   coreschema
+    #   datamodel-code-generator
 lupa==1.14.1
     # via fakeredis
 markupsafe==2.1.5
@@ -128,7 +136,10 @@ multidict==6.0.2
     #   aiohttp
     #   yarl
 mypy==1.8.0
-    # via -r requirements-dev.in
+    # via
+    #   -r requirements-dev.in
+    #   django-stubs
+    #   djangorestframework-stubs
 mypy-baseline==0.6.1
     # via -r requirements-dev.in
 mypy-extensions==1.0.0
@@ -214,6 +225,7 @@ redis==4.5.4
 requests==2.31.0
     # via
     #   -c requirements.txt
+    #   coreapi
     #   djangorestframework-stubs
     #   responses
 responses==0.23.1
@@ -262,14 +274,11 @@ types-pyyaml==6.0.1
     # via
     #   -r requirements-dev.in
     #   django-stubs
-    #   djangorestframework-stubs
     #   responses
 types-redis==4.3.20
     # via -r requirements-dev.in
 types-requests==2.26.1
-    # via
-    #   -r requirements-dev.in
-    #   djangorestframework-stubs
+    # via -r requirements-dev.in
 types-retry==0.9.9.4
     # via -r requirements-dev.in
 types-tzlocal==5.1.0.1
@@ -284,6 +293,10 @@ typing-extensions==4.7.1
     #   mypy
     #   pydantic
     #   pydantic-core
+uritemplate==4.1.1
+    # via
+    #   -c requirements.txt
+    #   coreapi
 urllib3==1.26.18
     # via
     #   -c requirements.txt
