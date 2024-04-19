@@ -182,10 +182,8 @@
   
   CREATE TABLE IF NOT EXISTS kafka_performance_events ON CLUSTER 'posthog'
   (
-      uuid UUID,
-  session_id String,
+      session_id String,
   window_id String,
-  pageview_id String,
   distinct_id String,
   timestamp DateTime64,
   time_origin DateTime64(3, 'UTC'),
@@ -228,7 +226,9 @@
   redirect_count Int64,
   navigation_type LowCardinality(String),
   unload_event_end Float64,
-  unload_event_start Float64
+  unload_event_start Float64,
+  method LowCardinality(String),
+  is_initial boolean
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
   
@@ -832,10 +832,8 @@
   
   CREATE TABLE IF NOT EXISTS kafka_performance_events ON CLUSTER 'posthog'
   (
-      uuid UUID,
-  session_id String,
+      session_id String,
   window_id String,
-  pageview_id String,
   distinct_id String,
   timestamp DateTime64,
   time_origin DateTime64(3, 'UTC'),
@@ -878,7 +876,9 @@
   redirect_count Int64,
   navigation_type LowCardinality(String),
   unload_event_end Float64,
-  unload_event_start Float64
+  unload_event_start Float64,
+  method LowCardinality(String),
+  is_initial boolean
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
   
@@ -1100,10 +1100,8 @@
   
   CREATE TABLE IF NOT EXISTS performance_events ON CLUSTER 'posthog'
   (
-      uuid UUID,
-  session_id String,
+      session_id String,
   window_id String,
-  pageview_id String,
   distinct_id String,
   timestamp DateTime64,
   time_origin DateTime64(3, 'UTC'),
@@ -1146,7 +1144,9 @@
   redirect_count Int64,
   navigation_type LowCardinality(String),
   unload_event_end Float64,
-  unload_event_start Float64
+  unload_event_start Float64,
+  method LowCardinality(String),
+  is_initial boolean
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1162,7 +1162,7 @@
   CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER 'posthog'
   TO posthog_test.writeable_performance_events
   AS SELECT
-  uuid, session_id, window_id, pageview_id, distinct_id, timestamp, time_origin, entry_type, name, team_id, current_url, start_time, duration, redirect_start, redirect_end, worker_start, fetch_start, domain_lookup_start, domain_lookup_end, connect_start, secure_connection_start, connect_end, request_start, response_start, response_end, decoded_body_size, encoded_body_size, initiator_type, next_hop_protocol, render_blocking_status, response_status, transfer_size, largest_contentful_paint_element, largest_contentful_paint_render_time, largest_contentful_paint_load_time, largest_contentful_paint_size, largest_contentful_paint_id, largest_contentful_paint_url, dom_complete, dom_content_loaded_event, dom_interactive, load_event_end, load_event_start, redirect_count, navigation_type, unload_event_end, unload_event_start
+  session_id, window_id, distinct_id, timestamp, time_origin, entry_type, name, team_id, current_url, start_time, duration, redirect_start, redirect_end, worker_start, fetch_start, domain_lookup_start, domain_lookup_end, connect_start, secure_connection_start, connect_end, request_start, response_start, response_end, decoded_body_size, encoded_body_size, initiator_type, next_hop_protocol, render_blocking_status, response_status, transfer_size, largest_contentful_paint_element, largest_contentful_paint_render_time, largest_contentful_paint_load_time, largest_contentful_paint_size, largest_contentful_paint_id, largest_contentful_paint_url, dom_complete, dom_content_loaded_event, dom_interactive, load_event_end, load_event_start, redirect_count, navigation_type, unload_event_end, unload_event_start, method, is_initial
   ,_timestamp, _offset, _partition
   FROM posthog_test.kafka_performance_events
   
@@ -1839,10 +1839,8 @@
   
   CREATE TABLE IF NOT EXISTS sharded_performance_events ON CLUSTER 'posthog'
   (
-      uuid UUID,
-  session_id String,
+      session_id String,
   window_id String,
-  pageview_id String,
   distinct_id String,
   timestamp DateTime64,
   time_origin DateTime64(3, 'UTC'),
@@ -1885,7 +1883,9 @@
   redirect_count Int64,
   navigation_type LowCardinality(String),
   unload_event_end Float64,
-  unload_event_start Float64
+  unload_event_start Float64,
+  method LowCardinality(String),
+  is_initial boolean
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1893,7 +1893,7 @@
   
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
+  ORDER BY (team_id, toDate(timestamp), session_id, timestamp)
   
   
   
@@ -2161,10 +2161,8 @@
   
   CREATE TABLE IF NOT EXISTS writeable_performance_events ON CLUSTER 'posthog'
   (
-      uuid UUID,
-  session_id String,
+      session_id String,
   window_id String,
-  pageview_id String,
   distinct_id String,
   timestamp DateTime64,
   time_origin DateTime64(3, 'UTC'),
@@ -2207,7 +2205,9 @@
   redirect_count Int64,
   navigation_type LowCardinality(String),
   unload_event_end Float64,
-  unload_event_start Float64
+  unload_event_start Float64,
+  method LowCardinality(String),
+  is_initial boolean
       
   , _timestamp DateTime
   , _offset UInt64
@@ -2659,10 +2659,8 @@
   
   CREATE TABLE IF NOT EXISTS sharded_performance_events ON CLUSTER 'posthog'
   (
-      uuid UUID,
-  session_id String,
+      session_id String,
   window_id String,
-  pageview_id String,
   distinct_id String,
   timestamp DateTime64,
   time_origin DateTime64(3, 'UTC'),
@@ -2705,7 +2703,9 @@
   redirect_count Int64,
   navigation_type LowCardinality(String),
   unload_event_end Float64,
-  unload_event_start Float64
+  unload_event_start Float64,
+  method LowCardinality(String),
+  is_initial boolean
       
   , _timestamp DateTime
   , _offset UInt64
@@ -2713,7 +2713,7 @@
   
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
+  ORDER BY (team_id, toDate(timestamp), session_id, timestamp)
   
   SETTINGS storage_policy = 'hot_to_cold'
   
