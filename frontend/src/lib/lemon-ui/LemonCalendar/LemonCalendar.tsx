@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { range } from 'lib/utils'
-import { useEffect, useState } from 'react'
+import { forwardRef, Ref, useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface LemonCalendarProps {
@@ -42,7 +42,10 @@ export interface GetLemonButtonTimePropsOpts {
 
 const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
 
-export function LemonCalendar({ showTime = false, ...props }: LemonCalendarProps): JSX.Element {
+export const LemonCalendar = forwardRef(function LemonCalendar(
+    { showTime = false, ...props }: LemonCalendarProps,
+    ref: Ref<HTMLDivElement>
+): JSX.Element {
     const { weekStartDay: teamWeekStartDay } = useValues(teamLogic)
 
     const months = Math.max(props.months ?? 1, 1)
@@ -56,7 +59,7 @@ export function LemonCalendar({ showTime = false, ...props }: LemonCalendarProps
     }, [props.leftmostMonth])
 
     return (
-        <div className="LemonCalendar flex items-start gap-4" data-attr="lemon-calendar">
+        <div ref={ref} className="LemonCalendar flex items-start gap-4" data-attr="lemon-calendar">
             {range(0, months).map((month) => {
                 const startOfMonth = leftmostMonth.add(month, 'month').startOf('month')
                 const endOfMonth = startOfMonth.endOf('month')
@@ -187,11 +190,15 @@ export function LemonCalendar({ showTime = false, ...props }: LemonCalendarProps
                         <div className="h-[229px]" />
                     </ScrollableShadows>
                     <div>
-                        <LemonButton {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'am' })}>AM</LemonButton>
-                        <LemonButton {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'pm' })}>PM</LemonButton>
+                        <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'am' })}>
+                            AM
+                        </LemonButton>
+                        <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'pm' })}>
+                            PM
+                        </LemonButton>
                     </div>
                 </div>
             )}
         </div>
     )
-}
+})

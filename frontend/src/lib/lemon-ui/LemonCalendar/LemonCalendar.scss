@@ -59,6 +59,7 @@
 
             & .ScrollableShadows__inner {
                 scrollbar-width: none;
+                scroll-behavior: smooth;
             }
         }
     }

@@ -1,10 +1,24 @@
 import { IconX } from '@posthog/icons'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
-import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
-import { useState } from 'react'
+import { GetLemonButtonTimePropsOpts, LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
+import { useRef, useState } from 'react'
 
 import { Popover } from '../Popover'
+
+function timeDataAttr({ unit, value }: GetLemonButtonTimePropsOpts): string {
+    return `${value}-${unit}`
+}
+
+function getTimeElement(
+    parent: HTMLDivElement | null,
+    props: GetLemonButtonTimePropsOpts
+): HTMLDivElement | undefined | null {
+    return parent?.querySelector(`[data-attr="${timeDataAttr(props)}"]`)
+}
+function scrollToTimeElement(calendarEl: HTMLDivElement | null, props: GetLemonButtonTimePropsOpts): void {
+    getTimeElement(calendarEl, props)?.scrollIntoView({ block: 'start', inline: 'nearest' })
+}
 
 export interface LemonCalendarSelectProps {
     value?: dayjs.Dayjs | null
@@ -21,6 +35,7 @@ export function LemonCalendarSelect({
     onClose,
     showTime,
 }: LemonCalendarSelectProps): JSX.Element {
+    const calendarRef = useRef<HTMLDivElement | null>(null)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(
         value ? (showTime ? value : value.startOf('day')) : null
     )
@@ -32,26 +47,45 @@ export function LemonCalendarSelect({
         setSelectValue(date)
     }
 
-    const onTimeClick = ({ value, unit }: GetLemonButtonTimePropsOpts): void => {
+    const onTimeClick = (props: GetLemonButtonTimePropsOpts): void => {
+        const { value, unit } = props
+        const calendarEl = calendarRef.current
+        const scrollElements: { hour: number | null; minute: number | null } = { hour: null, minute: null }
+
         let date = selectValue
         if (date === null) {
             date = dayjs()
             if (unit === 'h') {
                 date = date.minute(0)
+                scrollElements.minute = 0
             } else if (unit === 'm') {
                 date = date.hour(0)
+                scrollElements.hour = 0
             } else if (unit === 'a') {
                 date = date.hour(0).minute(0)
+                scrollElements.hour = 0
+                scrollElements.minute = 0
             }
         }
 
         if (unit === 'h') {
             date = date.hour(Number(value))
+            scrollElements.hour = Number(value)
+            getTimeElement(calendarEl, { value, unit: 'h' })?.scrollIntoView(true)
         } else if (unit === 'm') {
             date = date.minute(Number(value))
+            scrollElements.minute = Number(value)
         } else if (unit === 'a') {
             date = value === 'am' ? date.subtract(12, 'hour') : date.add(12, 'hour')
         }
+
+        if (scrollElements.hour) {
+            scrollToTimeElement(calendarEl, { unit: 'h', value: scrollElements.hour })
+        }
+        if (scrollElements.minute) {
+            scrollToTimeElement(calendarEl, { unit: 'm', value: scrollElements.minute })
+        }
+
         setSelectValue(date)
     }
 
@@ -64,6 +98,7 @@ export function LemonCalendarSelect({
                 )}
             </div>
             <LemonCalendar
+                ref={calendarRef}
                 onDateClick={onDateClick}
                 leftmostMonth={selectValue?.startOf('month')}
                 months={months}
@@ -78,6 +113,7 @@ export function LemonCalendarSelect({
                     return {
                         active: selected === String(props.value),
                         className: 'rounded-none',
+                        'data-attr': timeDataAttr(props),
                         onClick: () => {
                             if (selected != props.value) {
                                 onTimeClick(props)
