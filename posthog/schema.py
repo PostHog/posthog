@@ -425,6 +425,7 @@ class PersonsOnEventsMode(str, Enum):
     disabled = "disabled"
     person_id_no_override_properties_on_events = "person_id_no_override_properties_on_events"
     person_id_override_properties_on_events_deprecated = "person_id_override_properties_on_events_deprecated"
+    person_id_override_properties_on_events = "person_id_override_properties_on_events"
     person_id_override_properties_joined = "person_id_override_properties_joined"
 
 

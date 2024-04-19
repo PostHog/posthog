@@ -240,6 +240,12 @@ PERSON_ON_EVENTS_MODES = [
     ),
     (
         PersonOnEventsModeSelector(
+            flag=("persons-on-events-person-id-override-properties-on-events", "organization"),
+        ),
+        PersonsOnEventsMode.person_id_override_properties_on_events,
+    ),
+    (
+        PersonOnEventsModeSelector(
             flag=("persons-on-events-person-id-override-properties-joined", "organization"),
         ),
         PersonsOnEventsMode.person_id_override_properties_joined,
