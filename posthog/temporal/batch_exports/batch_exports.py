@@ -6,7 +6,6 @@ import uuid
 from string import Template
 
 import pyarrow as pa
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -14,14 +13,14 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    acount_failed_batch_export_runs,
+    acreate_batch_export_backfill,
+    acreate_batch_export_run,
+    apause_batch_export,
+    aupdate_batch_export_backfill_status,
+    aupdate_batch_export_run,
     cancel_running_batch_export_backfill,
-    count_failed_batch_export_runs,
-    create_batch_export_backfill,
-    create_batch_export_run,
-    iter_running_backfills_for_batch_export,
-    pause_batch_export,
-    update_batch_export_backfill_status,
-    update_batch_export_run,
+    running_backfills_for_batch_export,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
@@ -355,10 +354,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[Bat
             inputs.data_interval_end,
         )
 
-    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
-    # But one of our dependencies is pinned to asgiref==3.3.2.
-    # Remove these comments once we upgrade.
-    run = await sync_to_async(create_batch_export_run)(
+    run = await acreate_batch_export_run(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
@@ -417,7 +413,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         for key, value in dataclasses.asdict(inputs).items()
         if key not in not_model_params and value is not None
     }
-    batch_export_run = await sync_to_async(update_batch_export_run)(
+    batch_export_run = await aupdate_batch_export_run(
         run_id=uuid.UUID(inputs.id),
         finished_at=dt.datetime.now(),
         **update_params,
@@ -516,7 +512,7 @@ async def check_if_over_failure_threshold(batch_export_id: str, check_window: in
     if check_window < failure_threshold:
         raise ValueError("'failure_threshold' cannot be higher than 'check_window'")
 
-    count = await sync_to_async(count_failed_batch_export_runs)(uuid.UUID(batch_export_id), last_n=check_window)
+    count = await acount_failed_batch_export_runs(uuid.UUID(batch_export_id), last_n=check_window)
 
     if count < failure_threshold:
         return False
@@ -541,7 +537,7 @@ async def pause_batch_export_over_failure_threshold(batch_export_id: str) -> boo
         settings.TEMPORAL_CLIENT_KEY,
     )
 
-    was_paused = await sync_to_async(pause_batch_export)(
+    was_paused = await apause_batch_export(
         client, batch_export_id=batch_export_id, note="Paused due to exceeding failure threshold"
     )
 
@@ -570,10 +566,7 @@ async def cancel_running_backfills(batch_export_id: str) -> int:
 
     total_cancelled = 0
 
-    backfill_iter = iter_running_backfills_for_batch_export(uuid.UUID(batch_export_id))
-    backfills = await sync_to_async(list)(backfill_iter)  # type: ignore
-
-    for backfill in backfills:
+    async for backfill in running_backfills_for_batch_export(uuid.UUID(batch_export_id)):
         await cancel_running_batch_export_backfill(client, backfill)
 
         total_cancelled += 1
@@ -603,10 +596,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         inputs.start_at,
         inputs.end_at,
     )
-    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
-    # But one of our dependencies is pinned to asgiref==3.3.2.
-    # Remove these comments once we upgrade.
-    run = await sync_to_async(create_batch_export_backfill)(
+    run = await acreate_batch_export_backfill(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -628,9 +618,7 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
     """Activity that updates the status of an BatchExportRun."""
-    backfill = await sync_to_async(update_batch_export_backfill_status)(
-        backfill_id=uuid.UUID(inputs.id), status=inputs.status
-    )
+    backfill = await aupdate_batch_export_backfill_status(backfill_id=uuid.UUID(inputs.id), status=inputs.status)
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
