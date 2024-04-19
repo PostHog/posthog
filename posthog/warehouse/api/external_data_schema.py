@@ -16,11 +16,15 @@ from posthog.warehouse.data_load.service import (
 
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
+    incremental = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSchema
 
-        fields = ["id", "name", "table", "should_sync", "last_synced_at", "latest_error"]
+        fields = ["id", "name", "table", "should_sync", "last_synced_at", "latest_error", "incremental"]
+
+    def get_incremental(self, schema: ExternalDataSchema) -> bool:
+        return schema.is_incremental
 
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from posthog.warehouse.api.table import SimpleTableSerializer

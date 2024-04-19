@@ -35,10 +35,6 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     __repr__ = sane_repr("name")
 
     @property
-    def folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.source.source_type}_{str(self.pk)}".lower().replace("-", "_")
-
-    @property
     def is_incremental(self):
         from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
 
