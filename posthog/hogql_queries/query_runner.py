@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.cache import cache
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
+from sentry_sdk import capture_exception, push_scope
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -63,7 +64,7 @@ DataT = TypeVar("DataT")
 
 class ExecutionMode(IntEnum):
     CALCULATION_REQUESTED = 2
-    """Always recalculate, except if very recent results are present in cache."""
+    """Always recalculate."""
     CALCULATION_ONLY_IF_STALE = 1
     """Use cache, unless the results are missing or stale."""
     CACHE_ONLY = 0
@@ -327,20 +328,41 @@ class QueryRunner(ABC):
         tag_queries(cache_key=cache_key)
 
         if execution_mode != ExecutionMode.CALCULATION_REQUESTED:
-            cached_response = get_safe_cache(cache_key)
-            if cached_response:
+            # Let's look in the cache first
+            cached_response: CachedQueryResponse | CacheMissResponse
+            cached_response_candidate = get_safe_cache(cache_key)
+            match cached_response_candidate:
+                case CachedQueryResponse():
+                    cached_response = cached_response_candidate
+                    cached_response_candidate.is_cached = True
+                case None:
+                    cached_response = CacheMissResponse(cache_key=cache_key)
+                case _:
+                    # Whatever's in cache is malformed, so let's treat is as non-existent
+                    cached_response = CacheMissResponse(cache_key=cache_key)
+                    with push_scope() as scope:
+                        scope.set_tag("cache_key", cache_key)
+                        capture_exception(
+                            ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
+                        )
+
+            if isinstance(cached_response, CachedQueryResponse):
                 if not self._is_stale(cached_response):
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
-                    cached_response.is_cached = True
+                    # We have a valid result that's fresh enough, let's return it
                     return cached_response
                 else:
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="stale").inc()
+                    # We have a stale result. If we aren't allowed to calculate, let's still return it
+                    # – otherwise let's proceed to calculation
                     if execution_mode == ExecutionMode.CACHE_ONLY:
                         return cached_response
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
+                # We have no cached result. If we aren't allowed to calculate, let's return the cache miss
+                # – otherwise let's proceed to calculation
                 if execution_mode == ExecutionMode.CACHE_ONLY:
-                    return CacheMissResponse(cache_key=cache_key)
+                    return cached_response
 
         fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
         fresh_response_dict["is_cached"] = False
