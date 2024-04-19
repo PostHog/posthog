@@ -1155,27 +1155,28 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 properties={"prop": "val", "another": "never_return_this"},
             )
 
+        query_dict = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
+                )
+            ]
+        ).model_dump()
+
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights",
                 data={
-                    "query": TrendsQuery(
-                        series=[
-                            EventsNode(
-                                event="$pageview",
-                                properties=[
-                                    EventPropertyFilter(key="another", value="never_return_this", operator="is_not")
-                                ],
-                            )
-                        ]
-                    ).model_dump(),
+                    "query": query_dict,
                     "dashboards": [dashboard_id],
                 },
             ).json()
             self.assertNotIn("code", response)  # Watching out for an error code
             self.assertEqual(response["last_refresh"], None)
+            insight_id = response["id"]
 
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
             self.assertEqual(spy_execute_hogql_query.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
@@ -1185,7 +1186,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         with freeze_time("2012-01-15T05:01:34.000Z"):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
             self.assertEqual(spy_execute_hogql_query.call_count, 2)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
@@ -1194,7 +1195,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertFalse(response["is_cached"])
 
         with freeze_time("2012-01-15T05:17:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/").json()
             self.assertNotIn("code", response)
             self.assertEqual(spy_execute_hogql_query.call_count, 2)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
@@ -1202,10 +1203,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
             self.assertTrue(response["is_cached"])
 
+        with freeze_time("2012-01-15T05:17:39.000Z"):
+            # Make sure the /query/ endpoint reuses the same cached result
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query_dict}).json()
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+            self.assertEqual(response["results"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
+            self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")  # Using cached result
+            self.assertTrue(response["is_cached"])
+
         with freeze_time("2012-01-16T05:01:34.000Z"):
             # load it in the context of the dashboard, so has last 14 days as filter
             response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
+                f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
             self.assertNotIn("code", response)
             self.assertEqual(spy_execute_hogql_query.call_count, 3)
@@ -1243,7 +1253,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         dashboard.save()
         with freeze_time("2012-01-16T05:01:34.000Z"):
             response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
+                f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
             self.assertNotIn("code", response)
             self.assertEqual(spy_execute_hogql_query.call_count, 4)
