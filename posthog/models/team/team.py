@@ -1,7 +1,10 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Type
 
 import posthoganalytics
 import pydantic
@@ -163,6 +166,64 @@ class WeekStartDay(models.IntegerChoices):
         return "3" if self == WeekStartDay.MONDAY else "0"
 
 
+@dataclass
+class PersonOnEventsModeSelector:
+    flag: Tuple[str, Literal["organization", "project"]]  # name, group
+    setting_name: str | None = None
+    instance_setting_name: str | None = None
+
+    def __get__(self, team: Team, objtype: Type[Team]) -> bool:
+        return self.evaluate(team)
+
+    def evaluate(self, team: Team) -> bool:
+        if self.setting_name is not None:
+            settings_value = getattr(settings, self.setting_name, None)
+            if settings_value is not None:
+                return settings_value
+
+        # on PostHog Cloud, use the feature flag
+        if is_cloud():
+            flag_name, flag_group = self.flag
+            if flag_group == "project":
+                key = str(team.uuid)
+                groups = {"project": str(team.id)}
+                groups_properties = (
+                    {
+                        "project": {
+                            "id": str(team.id),
+                            "created_at": team.created_at,
+                            "uuid": team.uuid,
+                        }
+                    },
+                )
+            elif flag_group == "team":
+                key = str(team.organization_id)
+                groups = {"organization": str(team.organization_id)}
+                groups_properties = {
+                    "organization": {
+                        "id": str(team.organization_id),
+                        "created_at": team.organization.created_at,
+                    }
+                }
+            else:
+                raise ValueError("invalid flag group")
+
+            return posthoganalytics.feature_enabled(
+                flag_name,
+                key,
+                groups=groups,
+                group_properties=groups_properties,
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+
+        # on self-hosted, use the instance setting
+        if self.instance_setting_name:
+            return get_instance_setting(self.instance_setting_name)
+        else:
+            return False
+
+
 class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
@@ -313,67 +374,21 @@ class Team(UUIDClassicModel):
     def person_on_events_querying_enabled(self) -> bool:
         return self.person_on_events_mode != PersonsOnEventsMode.disabled
 
-    @property
-    def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
-        if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
-            return settings.PERSON_ON_EVENTS_OVERRIDE
+    _person_on_events_person_id_no_override_properties_on_events = PersonOnEventsModeSelector(
+        flag=("persons-on-events-person-id-no-override-properties-on-events", "project"),
+        setting_name="PERSON_ON_EVENTS_OVERRIDE",
+        instance_setting_name="PERSON_ON_EVENTS_ENABLED",
+    )
 
-        # on PostHog Cloud, use the feature flag
-        if is_cloud():
-            return posthoganalytics.feature_enabled(
-                "persons-on-events-person-id-no-override-properties-on-events",
-                str(self.uuid),
-                groups={"project": str(self.id)},
-                group_properties={"project": {"id": str(self.id), "created_at": self.created_at, "uuid": self.uuid}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
+    _person_on_events_person_id_override_properties_on_events = PersonOnEventsModeSelector(
+        flag=("persons-on-events-v2-reads-enabled", "organization"),
+        setting_name="PERSON_ON_EVENTS_V2_OVERRIDE",
+        instance_setting_name="PERSON_ON_EVENTS_V2_ENABLED",
+    )
 
-        # on self-hosted, use the instance setting
-        return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
-
-    @property
-    def _person_on_events_person_id_override_properties_on_events(self) -> bool:
-        if settings.PERSON_ON_EVENTS_V2_OVERRIDE is not None:
-            return settings.PERSON_ON_EVENTS_V2_OVERRIDE
-
-        # on PostHog Cloud, use the feature flag
-        if is_cloud():
-            return posthoganalytics.feature_enabled(
-                "persons-on-events-v2-reads-enabled",
-                str(self.uuid),
-                groups={"organization": str(self.organization_id)},
-                group_properties={
-                    "organization": {
-                        "id": str(self.organization_id),
-                        "created_at": self.organization.created_at,
-                    }
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-
-        return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
-
-    @property
-    def _person_on_events_person_id_override_properties_joined(self) -> bool:
-        # on PostHog Cloud, use the feature flag
-        if is_cloud():
-            return posthoganalytics.feature_enabled(
-                "persons-on-events-person-id-override-properties-joined",
-                str(self.uuid),
-                groups={"organization": str(self.organization_id)},
-                group_properties={
-                    "organization": {
-                        "id": str(self.organization_id),
-                        "created_at": self.organization.created_at,
-                    }
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-
-        return False
+    _person_on_events_person_id_override_properties_joined = PersonOnEventsModeSelector(
+        flag=("persons-on-events-person-id-override-properties-joined", "organization"),
+    )
 
     @property
     def strict_caching_enabled(self) -> bool:
