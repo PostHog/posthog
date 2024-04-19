@@ -503,7 +503,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id,
                             breakdown_value) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -561,7 +561,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id,
                             breakdown_value) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -4662,7 +4662,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
      GROUP BY d.timestamp,
@@ -4681,8 +4681,8 @@
     (SELECT d.timestamp AS timestamp,
             e.actor_id AS actor_id
      FROM
-       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC')))) AS numbers) AS d
+       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
+        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')))) AS numbers) AS d
      CROSS JOIN
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                e__pdi.person_id AS actor_id
@@ -4694,13 +4694,13 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), 0))
+  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
@@ -4713,8 +4713,8 @@
     (SELECT d.timestamp AS timestamp,
             e.actor_id AS actor_id
      FROM
-       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC')))) AS numbers) AS d
+       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
+        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')))) AS numbers) AS d
      CROSS JOIN
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                e__pdi.person_id AS actor_id
@@ -4726,13 +4726,13 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), 0))
+  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1

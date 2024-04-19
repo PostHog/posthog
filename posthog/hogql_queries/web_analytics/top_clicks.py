@@ -59,6 +59,7 @@ LIMIT 10
             results=response.results,
             timings=response.timings,
             types=response.types,
+            modifiers=self.modifiers,
         )
 
     @cached_property

@@ -1,7 +1,12 @@
 from typing import Optional, TYPE_CHECKING
 
-from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsArgMaxVersion
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import (
+    HogQLQueryModifiers,
+    InCohortVia,
+    MaterializationMode,
+    PersonsArgMaxVersion,
+    PersonsOnEventsMode,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -16,7 +21,7 @@ def create_default_modifiers_for_team(
         modifiers = modifiers.model_copy()
 
     if modifiers.personsOnEventsMode is None:
-        modifiers.personsOnEventsMode = team.person_on_events_mode or PersonOnEventsMode.DISABLED
+        modifiers.personsOnEventsMode = team.person_on_events_mode or PersonsOnEventsMode.disabled
 
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.auto

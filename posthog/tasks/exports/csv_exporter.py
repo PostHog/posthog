@@ -86,7 +86,10 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
             for row in results:
                 row_dict = {}
                 for idx, x in enumerate(row):
-                    row_dict[data["columns"][idx]] = x
+                    if not data.get("columns"):
+                        row_dict[f"column_{idx}"] = x
+                    else:
+                        row_dict[data["columns"][idx]] = x
                 yield row_dict
             return
 
@@ -285,6 +288,9 @@ def _export_to_dict(exported_asset: ExportedAsset, limit: int) -> Any:
         if not is_any_col_list_or_dict:
             # If values are serialised then keep the order of the keys, else allow it to be unordered
             renderer.header = all_csv_rows[0].keys()
+    else:
+        # If we have no rows, that means we couldn't convert anything, so put something to avoid confusion
+        all_csv_rows = [{"error": "No data available or unable to format for export."}]
 
     return renderer, all_csv_rows, render_context
 

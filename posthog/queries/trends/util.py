@@ -23,7 +23,7 @@ from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 logger = structlog.get_logger(__name__)
 
@@ -174,9 +174,9 @@ def determine_aggregator(entity: Entity, team: Team) -> str:
         return f'"$group_{entity.math_group_type_index}"'
     elif team.aggregate_users_by_distinct_id:
         return "e.distinct_id"
-    elif team.person_on_events_mode == PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+    elif team.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
         return "e.person_id"
-    elif team.person_on_events_mode == PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+    elif team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
         return f"if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)"
     else:
         return "pdi.person_id"
