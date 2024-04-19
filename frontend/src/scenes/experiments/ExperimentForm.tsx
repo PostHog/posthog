@@ -31,17 +31,20 @@ const StepInfo = (): JSX.Element => {
             <div className="space-y-8">
                 <div className="space-y-6 max-w-120">
                     <LemonField name="name" label="Name">
-                        <LemonInput placeholder="Pricing page conversion" />
+                        <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
                     </LemonField>
                     <LemonField
                         name="feature_flag_key"
                         label="Feature flag key"
                         help="Each experiment is backed by a feature flag. You'll use this key in your code."
                     >
-                        <LemonInput placeholder="pricing-page-conversion" />
+                        <LemonInput placeholder="pricing-page-conversion" data-attr="experiment-feature-flag-key" />
                     </LemonField>
                     <LemonField name="description" label="Description">
-                        <LemonTextArea placeholder="The goal of this experiment is ..." />
+                        <LemonTextArea
+                            placeholder="The goal of this experiment is ..."
+                            data-attr="experiment-description"
+                        />
                     </LemonField>
                 </div>
                 <div className="mt-10">
@@ -132,7 +135,12 @@ const StepInfo = (): JSX.Element => {
                     </div>
                 </div>
             </div>
-            <LemonButton className="mt-2" type="primary" onClick={() => moveToNextFormStep()}>
+            <LemonButton
+                className="mt-2"
+                type="primary"
+                data-attr="continue-experiment-creation"
+                onClick={() => moveToNextFormStep()}
+            >
                 Continue
             </LemonButton>
         </div>
@@ -255,6 +263,7 @@ const StepGoal = (): JSX.Element => {
             <LemonButton
                 className="mt-2"
                 type="primary"
+                data-attr="save-experiment"
                 onClick={() => {
                     const { exposure, sampleSize } = exposureAndSampleSize
                     createExperiment(true, exposure, sampleSize)

@@ -30,13 +30,13 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
+from posthog.schema import PersonsOnEventsMode
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import (
     HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL,
     TOP_ELEMENTS_ARRAY_OF_KEY_SQL,
 )
 from posthog.queries.util import PersonPropertiesMode
-from posthog.utils import PersonOnEventsMode
 
 ALL_USERS_COHORT_ID = 0
 
@@ -84,7 +84,7 @@ def get_breakdown_prop_values(
     sessions_join_params: Dict = {}
 
     null_person_filter = (
-        f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonOnEventsMode.DISABLED else ""
+        f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonsOnEventsMode.disabled else ""
     )
 
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:

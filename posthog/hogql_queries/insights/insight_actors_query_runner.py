@@ -31,7 +31,7 @@ class InsightActorsQueryRunner(QueryRunner):
 
     @cached_property
     def source_runner(self) -> QueryRunner:
-        return get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+        return get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):

@@ -503,7 +503,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id,
                             breakdown_value) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -561,7 +561,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), true), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id,
                             breakdown_value) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
@@ -3813,10 +3813,10 @@
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
   '''
   SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')) AS value,
-         max(e__session.duration) AS count
+         max(e__session.`$session_duration`) AS count
   FROM events AS e
   LEFT JOIN
-    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
      WHERE equals(sessions.team_id, 2)
@@ -3835,11 +3835,11 @@
   SELECT quantile(0.5)(session_duration) AS total,
          breakdown_value AS breakdown_value
   FROM
-    (SELECT any(e__session.duration) AS session_duration,
+    (SELECT any(e__session.`$session_duration`) AS session_duration,
             transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['value2', 'value1', '$$_posthog_breakdown_null_$$'], ['value2', 'value1', '$$_posthog_breakdown_null_$$'], '$$_posthog_breakdown_other_$$') AS breakdown_value
      FROM events AS e SAMPLE 1
      LEFT JOIN
-       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
         WHERE equals(sessions.team_id, 2)
@@ -3857,10 +3857,10 @@
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
   '''
   SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')) AS value,
-         max(e__session.duration) AS count
+         max(e__session.`$session_duration`) AS count
   FROM events AS e
   LEFT JOIN
-    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
      WHERE equals(sessions.team_id, 2)
@@ -3879,11 +3879,11 @@
   SELECT quantile(0.5)(session_duration) AS total,
          breakdown_value AS breakdown_value
   FROM
-    (SELECT any(e__session.duration) AS session_duration,
+    (SELECT any(e__session.`$session_duration`) AS session_duration,
             transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['value2', 'value1', '$$_posthog_breakdown_null_$$'], ['value2', 'value1', '$$_posthog_breakdown_null_$$'], '$$_posthog_breakdown_other_$$') AS breakdown_value
      FROM events AS e SAMPLE 1
      LEFT JOIN
-       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
         WHERE equals(sessions.team_id, 2)
@@ -4269,10 +4269,10 @@
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
   '''
   SELECT toString(e__pdi__person.`properties___$some_prop`) AS value,
-         max(e__session.duration) AS count
+         max(e__session.`$session_duration`) AS count
   FROM events AS e
   LEFT JOIN
-    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
      WHERE equals(sessions.team_id, 2)
@@ -4309,11 +4309,11 @@
   SELECT quantile(0.5)(session_duration) AS total,
          breakdown_value AS breakdown_value
   FROM
-    (SELECT any(e__session.duration) AS session_duration,
+    (SELECT any(e__session.`$session_duration`) AS session_duration,
             transform(ifNull(nullIf(toString(e__pdi__person.`properties___$some_prop`), ''), '$$_posthog_breakdown_null_$$'), ['some_val', 'another_val'], ['some_val', 'another_val'], '$$_posthog_breakdown_other_$$') AS breakdown_value
      FROM events AS e SAMPLE 1
      LEFT JOIN
-       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
         WHERE equals(sessions.team_id, 2)
@@ -4376,10 +4376,10 @@
   '''
   SELECT quantile(0.5)(session_duration) AS total
   FROM
-    (SELECT any(e__session.duration) AS session_duration
+    (SELECT any(e__session.`$session_duration`) AS session_duration
      FROM events AS e SAMPLE 1
      LEFT JOIN
-       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
         WHERE equals(sessions.team_id, 2)
@@ -4396,10 +4396,10 @@
   '''
   SELECT quantile(0.5)(session_duration) AS total
   FROM
-    (SELECT any(e__session.duration) AS session_duration
+    (SELECT any(e__session.`$session_duration`) AS session_duration
      FROM events AS e SAMPLE 1
      LEFT JOIN
-       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+       (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
         WHERE equals(sessions.team_id, 2)
@@ -4428,11 +4428,11 @@
         UNION ALL SELECT quantile(0.5)(session_duration) AS total,
                          day_start AS day_start
         FROM
-          (SELECT any(e__session.duration) AS session_duration,
+          (SELECT any(e__session.`$session_duration`) AS session_duration,
                   toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
            FROM events AS e SAMPLE 1
            LEFT JOIN
-             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
               WHERE equals(sessions.team_id, 2)
@@ -4467,11 +4467,11 @@
         UNION ALL SELECT quantile(0.5)(session_duration) AS total,
                          day_start AS day_start
         FROM
-          (SELECT any(e__session.duration) AS session_duration,
+          (SELECT any(e__session.`$session_duration`) AS session_duration,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
            FROM events AS e SAMPLE 1
            LEFT JOIN
-             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
               WHERE equals(sessions.team_id, 2)
@@ -4493,10 +4493,10 @@
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
   '''
   SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')) AS value,
-         max(e__session.duration) AS count
+         max(e__session.`$session_duration`) AS count
   FROM events AS e
   LEFT JOIN
-    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
      WHERE equals(sessions.team_id, 2)
@@ -4537,12 +4537,12 @@
                          day_start AS day_start,
                          breakdown_value AS breakdown_value
         FROM
-          (SELECT any(e__session.duration) AS session_duration,
+          (SELECT any(e__session.`$session_duration`) AS session_duration,
                   transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['value2', 'value1'], ['value2', 'value1'], '$$_posthog_breakdown_other_$$') AS breakdown_value,
                   toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
            FROM events AS e SAMPLE 1
            LEFT JOIN
-             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
               WHERE equals(sessions.team_id, 2)
@@ -4569,10 +4569,10 @@
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
   '''
   SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')) AS value,
-         max(e__session.duration) AS count
+         max(e__session.`$session_duration`) AS count
   FROM events AS e
   LEFT JOIN
-    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+    (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
      WHERE equals(sessions.team_id, 2)
@@ -4613,12 +4613,12 @@
                          day_start AS day_start,
                          breakdown_value AS breakdown_value
         FROM
-          (SELECT any(e__session.duration) AS session_duration,
+          (SELECT any(e__session.`$session_duration`) AS session_duration,
                   transform(ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$'), ['value2', 'value1'], ['value2', 'value1'], '$$_posthog_breakdown_other_$$') AS breakdown_value,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
            FROM events AS e SAMPLE 1
            LEFT JOIN
-             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS duration,
+             (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
               WHERE equals(sessions.team_id, 2)
@@ -4662,7 +4662,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
      GROUP BY d.timestamp,
@@ -4681,8 +4681,8 @@
     (SELECT d.timestamp AS timestamp,
             e.actor_id AS actor_id
      FROM
-       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC')))) AS numbers) AS d
+       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
+        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')))) AS numbers) AS d
      CROSS JOIN
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                e__pdi.person_id AS actor_id
@@ -4694,13 +4694,13 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), 0))
+  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
@@ -4713,8 +4713,8 @@
     (SELECT d.timestamp AS timestamp,
             e.actor_id AS actor_id
      FROM
-       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC')))) AS numbers) AS d
+       (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
+        FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')))) AS numbers) AS d
      CROSS JOIN
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                e__pdi.person_id AS actor_id
@@ -4726,13 +4726,13 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), 0))
+  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
