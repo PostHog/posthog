@@ -36,7 +36,7 @@ allows us to show performance events in a waterfall chart for a given pageview
 SELECT * FROM performance_events
 WHERE team_id = 1
 AND session_id = 'my-session-uuid'
-AND pageview_id = 'my-page-view-uuid' -- sent by SDK
+AND pageview_id = 'my-page-view-uuid' -- no longer sent by SDK 😱
 AND timestamp >= {before-the-session}
 AND timestamp < now()
 ORDER BY timestamp
@@ -45,10 +45,8 @@ ORDER BY timestamp
 """
 
 PERFORMANCE_EVENT_COLUMNS = """
-uuid UUID,
 session_id String,
 window_id String,
-pageview_id String,
 distinct_id String,
 timestamp DateTime64,
 time_origin DateTime64(3, 'UTC'),
@@ -92,6 +90,8 @@ redirect_count Int64,
 navigation_type LowCardinality(String),
 unload_event_end Float64,
 unload_event_start Float64,
+method LowCardinality(String),
+is_initial boolean
 """.strip().rstrip(",")
 
 PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTreeEngine(
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 PERFORMANCE_EVENTS_TABLE_SQL = lambda: (
     PERFORMANCE_EVENTS_TABLE_BASE_SQL()
     + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
+ORDER BY (team_id, toDate(timestamp), session_id, timestamp)
 {ttl_period}
 {storage_policy}
 """
@@ -199,7 +199,7 @@ FROM {database}.kafka_performance_events
 # and because the inclusion of entry_type in the filters here
 # might be bad for perf of the query
 RECENT_PAGE_VIEWS_SQL = """
-select session_id, pageview_id, name, duration, timestamp
+select session_id, name, duration, timestamp
 from performance_events
 prewhere team_id = %(team_id)s
 and timestamp >= %(date_from)s

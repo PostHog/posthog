@@ -1,6 +1,8 @@
 import { HighLevelProducer as RdKafkaProducer } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
+import { KAFKA_PERFORMANCE_EVENTS } from '../../../../config/kafka-topics'
+import { produce } from '../../../../kafka/producer'
 import { PluginsServerConfig, RRWebEvent } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { RRWebEventType } from '../process-event'
@@ -19,12 +21,18 @@ const payloadsPerMessageHistogram = new Histogram({
     help: 'a histogram of how many network payload events are extracted from each message processed',
 })
 
+interface RRWebEventWithWindow {
+    event: RRWebEvent
+    windowId: string
+}
+
 export interface ClickHousePerformanceEvent {
     uuid: string
     timestamp: string | number
     distinct_id: string
     session_id: string
     window_id: string
+    team_id: number
     pageview_id: string
     current_url: string
 
@@ -88,6 +96,20 @@ export interface ClickHousePerformanceEvent {
     is_initial?: boolean
 }
 
+function convertPascalCaseToSnakeCase(input: string): string {
+    // Regular expression to find capital letters
+    return input.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+}
+
+function mapKeysToSnakeCase<T extends Record<string, any>>(obj: T): ClickHousePerformanceEvent {
+    const result: Record<string, any> = {}
+    for (const key in obj) {
+        const newKey = convertPascalCaseToSnakeCase(key)
+        result[newKey] = obj[key]
+    }
+    return result as ClickHousePerformanceEvent
+}
+
 export class NetworkPayloadsIngester extends BaseIngester {
     private readonly enabledTeams: number[] | true | false
 
@@ -130,11 +152,17 @@ export class NetworkPayloadsIngester extends BaseIngester {
             return this.drop('high_water_mark')
         }
 
-        const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
+        const rrwebEvents: RRWebEventWithWindow[] = Object.entries(event.eventsByWindowId).flatMap(
+            ([windowId, events]) =>
+                events.map((event) => ({
+                    windowId,
+                    event,
+                }))
+        )
 
         // cheapest possible check for any console logs to avoid parsing the events because...
         const hasAnyNetworkPayloads = rrwebEvents.some(
-            (e) => !!e && e.type === RRWebEventType.Plugin && e.data?.plugin === 'rrweb/network@1'
+            (e) => !!e && e.event.type === RRWebEventType.Plugin && e.event.data?.plugin === 'rrweb/network@1'
         )
 
         if (!hasAnyNetworkPayloads) {
@@ -149,22 +177,20 @@ export class NetworkPayloadsIngester extends BaseIngester {
         }
 
         try {
-            const networkPayloads = extractNetworkPayloadsFrom(rrwebEvents, event.team_id, event.session_id)
-            // const consoleLogEvents = deduplicateConsoleLogEvents(
-            //     gatherConsoleLogEvents(event.team_id, event.session_id, rrwebEvents)
-            // )
+            const networkPayloads = extractNetworkPayloadsFrom(rrwebEvents, event)
             networkPayloadsEventsCounter.inc(networkPayloads.length)
             payloadsPerMessageHistogram.observe(networkPayloads.length)
-            //
-            // return consoleLogEvents.map((cle: ConsoleLogEntry) =>
-            //     produce({
-            //         producer,
-            //         topic: KAFKA_LOG_ENTRIES,
-            //         value: Buffer.from(JSON.stringify(cle)),
-            //         key: event.session_id,
-            //         waitForAck: true,
-            //     })
-            // )
+
+            return networkPayloads.map((np: ClickHousePerformanceEvent) =>
+                produce({
+                    producer,
+                    topic: KAFKA_PERFORMANCE_EVENTS,
+                    value: Buffer.from(JSON.stringify(np)),
+                    key: event.session_id,
+                    // we'll be producing a lot of messages let's be a little YOLO
+                    waitForAck: false,
+                })
+            )
         } catch (error) {
             status.error('⚠️', `[${this.label}] processing_error`, {
                 error: error,
@@ -174,15 +200,23 @@ export class NetworkPayloadsIngester extends BaseIngester {
 }
 
 function extractNetworkPayloadsFrom(
-    rrwebEvents: RRWebEvent[],
-    _teamId: number,
-    _sessionId: string
+    rrwebEvents: RRWebEventWithWindow[],
+    incomingMessage: IncomingRecordingMessage
 ): ClickHousePerformanceEvent[] {
+    const results = []
     for (const event of rrwebEvents) {
-        if (event.type === 6 && event.data.plugin === 'rrweb/network@1') {
+        if (event.event.type === RRWebEventType.Plugin && event.event.data.plugin === 'rrweb/network@1') {
             // we want to map event.data to a shape we can ingest to ClickHouse
             // we don't want request or response bodies
+            for (const request of event.event.data.payload.requests) {
+                const x = mapKeysToSnakeCase(request)
+                x.team_id = incomingMessage.team_id
+                x.session_id = incomingMessage.session_id
+                x.distinct_id = incomingMessage.distinct_id
+                x.window_id = event.windowId
+                results.push(x)
+            }
         }
     }
-    return []
+    return results
 }
