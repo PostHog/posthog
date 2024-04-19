@@ -32,6 +32,7 @@ from posthog.warehouse.models import (
     ExternalDataJob,
     get_active_schemas_for_source_id,
     ExternalDataSource,
+    aget_schema_by_id,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from typing import Dict
@@ -181,12 +182,21 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
             )
 
+            schema_model = await aget_schema_by_id(inputs.external_data_schema_id, inputs.team_id)
+            if schema_model is None:
+                raise ValueError(f"Schema with ID {inputs.external_data_schema_id} not found")
+
+            timeout_params = (
+                {}
+                if schema_model.is_incremental
+                else {"start_to_close_timeout": dt.timedelta(hours=5), "retry_policy": RetryPolicy(maximum_attempts=3)}
+            )
+
             table_schemas, table_row_counts = await workflow.execute_activity(
                 import_data_activity,
                 job_inputs,
-                start_to_close_timeout=dt.timedelta(hours=30),
-                retry_policy=RetryPolicy(maximum_attempts=5),
                 heartbeat_timeout=dt.timedelta(minutes=1),
+                **timeout_params,
             )
 
             # check schema first
