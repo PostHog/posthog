@@ -11,7 +11,7 @@ import os
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.sources import DltSource
-
+from collections import Counter
 
 
 @dataclass
@@ -33,7 +33,7 @@ class DataImportPipeline:
         self.inputs = inputs
         self.logger = logger
         # Assuming each page is 100 items for now so bound each run at 100_000 items
-        self.source = source.add_limit(1)
+        self.source = source.add_limit(1000)
 
         self._incremental = incremental
 
@@ -95,7 +95,7 @@ class DataImportPipeline:
     def _run(self) -> Dict[str, int]:
         pipeline = self._create_pipeline()
 
-        total_counts = {}
+        total_counts = Counter({})
 
         if self._incremental:
             counts = 1
@@ -106,16 +106,16 @@ class DataImportPipeline:
                 row_counts = pipeline.last_trace.last_normalize_info.row_counts
                 # Remove any DLT tables from the counts
                 filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
-                counts = dict(filtered_rows)
-                total_counts = {k: total_counts.get(k, 0) + v for k, v in counts.items()}
+                counts = Counter(dict(filtered_rows))
+                total_counts = counts + total_counts
         else:
             pipeline.run(self.source, loader_file_format=self.loader_file_format)
             row_counts = pipeline.last_trace.last_normalize_info.row_counts
             filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
-            counts = dict(filtered_rows)
-            total_counts = {k: total_counts.get(k, 0) + v for k, v in counts.items()}
+            counts = Counter(dict(filtered_rows))
+            total_counts = total_counts + counts
 
-        return total_counts
+        return dict(total_counts)
 
     async def run(self) -> Dict[str, int]:
         try:

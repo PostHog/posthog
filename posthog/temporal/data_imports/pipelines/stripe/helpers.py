@@ -61,6 +61,7 @@ async def stripe_pagination(
     endpoint: str,
     team_id: int,
     job_id: str,
+    source_id: str,
     starting_after: Optional[Any] = None,
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
@@ -80,9 +81,10 @@ async def stripe_pagination(
     logger = await bind_temporal_worker_logger(team_id)
     logger.info(f"Stripe: getting {endpoint}")
 
-    # TODO: add source id
     if endpoint in INCREMENTAL_ENDPOINTS:
-        _starting_after_state = dlt.current.resource_state(endpoint).setdefault("starting_after", {"last_value": None})
+        _starting_after_state = dlt.current.resource_state(f"team_{team_id}_{source_id}_{endpoint}").setdefault(
+            "starting_after", {"last_value": None}
+        )
         _starting_after = _starting_after_state.get("last_value", None)
     else:
         _starting_after = starting_after
@@ -126,6 +128,7 @@ def stripe_source(
     endpoints: Tuple[str, ...],
     team_id,
     job_id,
+    source_id,
     starting_after: Optional[str] = None,
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
@@ -141,6 +144,7 @@ def stripe_source(
             endpoint=endpoint,
             team_id=team_id,
             job_id=job_id,
+            source_id=source_id,
             starting_after=starting_after,
             start_date=start_date,
             end_date=end_date,

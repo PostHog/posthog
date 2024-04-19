@@ -62,7 +62,7 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
     logger.info(
-        f"Created external data job with for external data source {inputs.source_id}",
+        f"Created external data job for external data source {inputs.source_id}",
     )
 
     return str(run.id)
