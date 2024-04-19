@@ -175,17 +175,19 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     ) : (
                         <>
                             <div className="SessionRecordingPlayer__main">
-                                {(!noMeta || isFullScreen) && size !== 'tiny' ? <PlayerMeta /> : null}
+                                {(!noMeta || isFullScreen) && size !== 'tiny' ? (
+                                    <PlayerMeta
+                                        inspectorExpanded={inspectorExpanded}
+                                        toggleInspectorExpanded={() => setInspectorExpanded(!inspectorExpanded)}
+                                    />
+                                ) : null}
 
                                 <div className="SessionRecordingPlayer__body" draggable={draggable} {...elementProps}>
                                     <PlayerFrame />
                                     <PlayerFrameOverlay />
                                 </div>
                                 <LemonDivider className="my-0" />
-                                <PlayerController
-                                    inspectorExpanded={inspectorExpanded}
-                                    toggleInspectorExpanded={() => setInspectorExpanded(!inspectorExpanded)}
-                                />
+                                <PlayerController />
                             </div>
                             {!noInspector && inspectorExpanded && (
                                 <PlayerInspector

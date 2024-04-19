@@ -18,7 +18,7 @@ import { NotebookNodeType } from '~/types'
 import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 
-function PinToPlaylistButton(): JSX.Element {
+function PinToPlaylistButton(buttonProps: Partial<LemonButtonProps>): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
@@ -34,6 +34,7 @@ function PinToPlaylistButton(): JSX.Element {
 
     return logicProps.setPinned ? (
         <LemonButton
+            {...buttonProps}
             onClick={() => {
                 if (nodeLogic && !logicProps.pinned) {
                     // If we are in a node, then pinning should persist the recording
@@ -42,13 +43,12 @@ function PinToPlaylistButton(): JSX.Element {
 
                 logicProps.setPinned?.(!logicProps.pinned)
             }}
-            size="small"
             tooltip={tooltip}
             data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
             icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
         />
     ) : (
-        <PlaylistPopoverButton size="small">
+        <PlaylistPopoverButton {...buttonProps}>
             <span>{description}</span>
         </PlaylistPopoverButton>
     )
@@ -86,7 +86,7 @@ export function PlayerMetaLinks(): JSX.Element {
             {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
                     <NotebookSelectButton
-                        size="small"
+                        {...commonProps}
                         icon={<IconComment />}
                         resource={{
                             type: NotebookNodeType.Recording,
@@ -120,8 +120,8 @@ export function PlayerMetaLinks(): JSX.Element {
 
                     {nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
                         <LemonButton
+                            {...commonProps}
                             icon={<IconNotebook />}
-                            size="small"
                             onClick={() => {
                                 nodeLogic.actions.insertAfter({
                                     type: NotebookNodeType.Recording,
@@ -131,7 +131,7 @@ export function PlayerMetaLinks(): JSX.Element {
                         />
                     ) : null}
 
-                    <PinToPlaylistButton />
+                    <PinToPlaylistButton {...commonProps} />
                 </>
             ) : null}
         </div>

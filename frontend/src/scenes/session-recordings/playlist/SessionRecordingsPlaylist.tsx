@@ -200,7 +200,7 @@ function RecordingsLists(): JSX.Element {
                         icon={<IconCollapse className="rotate-90" />}
                         onClick={() => toggleRecordingsListCollapsed()}
                     />
-                    <span className="px-2 py-1 flex flex-1 gap-2">
+                    <span className="py-1 flex flex-1 gap-2">
                         {!notebookNode ? (
                             <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
                                 Recordings

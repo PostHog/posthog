@@ -54,20 +54,21 @@ function TabButtons({
             onChange={(tabId) => setTab(tabId)}
             tabs={tabs.map((tabId) => {
                 const TabIcon = TabToIcon[tabId]
-                return (
-                    <LemonButton
-                        key={tabId}
-                        size="xsmall"
-                        // We want to indicate the tab is loading, but not disable it so we just override the icon here
-                        icon={
-                            TabIcon ? tabsState[tabId] === 'loading' ? <Spinner textColored /> : <TabIcon /> : undefined
-                        }
-                        active={tab === tabId}
-                        onClick={() => setTab(tabId)}
-                    >
-                        {capitalizeFirstLetter(tabId)}
-                    </LemonButton>
-                )
+                return {
+                    key: tabId,
+                    label: (
+                        <div className="flex items-center gap-1">
+                            {TabIcon ? (
+                                tabsState[tabId] === 'loading' ? (
+                                    <Spinner textColored />
+                                ) : (
+                                    <TabIcon />
+                                )
+                            ) : undefined}
+                            <span>{capitalizeFirstLetter(tabId)}</span>
+                        </div>
+                    ),
+                }
             })}
         />
     )
