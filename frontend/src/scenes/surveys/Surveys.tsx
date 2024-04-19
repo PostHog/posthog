@@ -62,7 +62,7 @@ export function Surveys(): JSX.Element {
 
     const { user } = useValues(userLogic)
 
-    const [tab, setSurveyTab] = useState(SurveysTabs.Active)
+    const [tab, setSurveyTab] = useState(filters.archived ? SurveysTabs.Archived : SurveysTabs.Active)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
 
     return (
