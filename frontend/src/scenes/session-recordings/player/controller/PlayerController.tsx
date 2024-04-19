@@ -30,7 +30,7 @@ import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
-export function PlayerController(): JSX.Element {
+export function PlayerController({ size }: { size: 'small' | 'medium' }): JSX.Element {
     const { playingState, isFullScreen, sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
@@ -104,8 +104,8 @@ export function PlayerController(): JSX.Element {
                 </div>
 
                 {sessionRecordingId && (
-                    <div className="flex items-center gap-1">
-                        <PlayerMetaLinks />
+                    <div className="flex items-center gap-0.5">
+                        <PlayerMetaLinks iconsOnly={size === 'small'} />
                         {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
                     </div>
                 )}

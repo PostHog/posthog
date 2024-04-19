@@ -1,7 +1,7 @@
-import { IconNotebook, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconNotebook, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconComment, IconLink } from 'lib/lemon-ui/icons'
+import { IconComment } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -18,7 +18,13 @@ import { NotebookNodeType } from '~/types'
 import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 
-function PinToPlaylistButton(buttonProps: Partial<LemonButtonProps>): JSX.Element {
+function PinToPlaylistButton({
+    buttonContent,
+    ...buttonProps
+}: {
+    buttonContent: (label: string) => JSX.Element
+    buttonProps?: Partial<LemonButtonProps>
+}): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
@@ -48,13 +54,11 @@ function PinToPlaylistButton(buttonProps: Partial<LemonButtonProps>): JSX.Elemen
             icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
         />
     ) : (
-        <PlaylistPopoverButton {...buttonProps}>
-            <span>{description}</span>
-        </PlaylistPopoverButton>
+        <PlaylistPopoverButton {...buttonProps}>{buttonContent(description)}</PlaylistPopoverButton>
     )
 }
 
-export function PlayerMetaLinks(): JSX.Element {
+export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
@@ -79,10 +83,14 @@ export function PlayerMetaLinks(): JSX.Element {
         size: 'small',
     }
 
+    const buttonContent = (label: string): JSX.Element => {
+        return !iconsOnly ? <span>{label}</span> : <span />
+    }
+
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     return (
-        <div className="flex flex-row gap-1 items-center justify-end">
+        <>
             {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
                     <NotebookSelectButton
@@ -111,11 +119,11 @@ export function PlayerMetaLinks(): JSX.Element {
                             personsModalLogic.findMounted()?.actions.closeModal()
                         }}
                     >
-                        Comment
+                        {buttonContent('Comment')}
                     </NotebookSelectButton>
 
-                    <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
-                        <span>Share</span>
+                    <LemonButton icon={<IconShare />} onClick={onShare} {...commonProps}>
+                        {buttonContent('Share')}
                     </LemonButton>
 
                     {nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
@@ -131,9 +139,9 @@ export function PlayerMetaLinks(): JSX.Element {
                         />
                     ) : null}
 
-                    <PinToPlaylistButton {...commonProps} />
+                    <PinToPlaylistButton buttonContent={buttonContent} {...commonProps} />
                 </>
             ) : null}
-        </div>
+        </>
     )
 }

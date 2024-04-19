@@ -128,6 +128,16 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         }
     })
 
+    const { size: davidSize } = useResizeBreakpoints(
+        {
+            0: 'small',
+            750: 'medium',
+        },
+        {
+            ref: playerRef,
+        }
+    )
+
     const { size } = useResizeBreakpoints(
         {
             0: 'tiny',
@@ -187,7 +197,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                     <PlayerFrameOverlay />
                                 </div>
                                 <LemonDivider className="my-0" />
-                                <PlayerController />
+                                <PlayerController size={davidSize} />
                             </div>
                             {!noInspector && inspectorExpanded && (
                                 <PlayerInspector
