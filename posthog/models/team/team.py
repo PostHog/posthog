@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
 import posthoganalytics
 import pydantic
@@ -168,7 +168,8 @@ class WeekStartDay(models.IntegerChoices):
 
 @dataclass
 class PersonOnEventsModeSelector:
-    flag: Tuple[str, Literal["organization", "project"]]  # name, group
+    flag_name: str
+    flag_group_type: Literal["organization", "project"]
     setting_name: str | None = None
     instance_setting_name: str | None = None
 
@@ -180,33 +181,30 @@ class PersonOnEventsModeSelector:
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
-            flag_name, flag_group = self.flag
-            if flag_group == "project":
-                key = str(team.uuid)
-                groups = {"project": str(team.id)}
-                groups_properties = (
-                    {
-                        "project": {
-                            "id": str(team.id),
-                            "created_at": team.created_at,
-                            "uuid": team.uuid,
-                        }
-                    },
-                )
-            elif flag_group == "team":
+            if self.flag_group_type == "organization":
                 key = str(team.organization_id)
                 groups = {"organization": str(team.organization_id)}
-                groups_properties = {
+                groups_properties: dict[str, Any] = {
                     "organization": {
                         "id": str(team.organization_id),
                         "created_at": team.organization.created_at,
+                    }
+                }
+            elif self.flag_group_type == "project":
+                key = str(team.uuid)
+                groups = {"project": str(team.id)}
+                groups_properties = {
+                    "project": {
+                        "id": str(team.id),
+                        "created_at": team.created_at,
+                        "uuid": team.uuid,
                     }
                 }
             else:
                 raise ValueError("invalid flag group")
 
             return posthoganalytics.feature_enabled(
-                flag_name,
+                self.flag_name,
                 key,
                 groups=groups,
                 group_properties=groups_properties,
@@ -224,7 +222,8 @@ class PersonOnEventsModeSelector:
 PERSON_ON_EVENTS_MODES = [
     (
         PersonOnEventsModeSelector(
-            flag=("persons-on-events-person-id-no-override-properties-on-events", "project"),
+            flag_name="persons-on-events-person-id-no-override-properties-on-events",
+            flag_group_type="project",
             setting_name="PERSON_ON_EVENTS_OVERRIDE",
             instance_setting_name="PERSON_ON_EVENTS_ENABLED",
         ),
@@ -232,7 +231,8 @@ PERSON_ON_EVENTS_MODES = [
     ),
     (
         PersonOnEventsModeSelector(
-            flag=("persons-on-events-v2-reads-enabled", "organization"),
+            flag_name="persons-on-events-v2-reads-enabled",
+            flag_group_type="organization",
             setting_name="PERSON_ON_EVENTS_V2_OVERRIDE",
             instance_setting_name="PERSON_ON_EVENTS_V2_ENABLED",
         ),
@@ -240,13 +240,15 @@ PERSON_ON_EVENTS_MODES = [
     ),
     (
         PersonOnEventsModeSelector(
-            flag=("persons-on-events-person-id-override-properties-on-events", "organization"),
+            flag_name="persons-on-events-person-id-override-properties-on-events",
+            flag_group_type="organization",
         ),
         PersonsOnEventsMode.person_id_override_properties_on_events,
     ),
     (
         PersonOnEventsModeSelector(
-            flag=("persons-on-events-person-id-override-properties-joined", "organization"),
+            flag_name="persons-on-events-person-id-override-properties-joined",
+            flag_group_type="organization",
         ),
         PersonsOnEventsMode.person_id_override_properties_joined,
     ),
