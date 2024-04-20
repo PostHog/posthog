@@ -98,7 +98,7 @@ multiIf(
             match({campaign}, '^(.*video.*)$'),
             'Paid Video',
 
-            'Paid Other'
+            'Paid Unknown'
         )
     ),
 
@@ -125,7 +125,7 @@ multiIf(
             match({medium}, 'push$'),
             'Push',
 
-            'Other'
+            'Unknown'
         )
     )
 )""",
