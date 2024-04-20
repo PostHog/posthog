@@ -188,7 +188,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     },
                 })
 
-                actions.reportSurveyCreated(createdSurvey)
+                actions.reportSurveyCreated(createdSurvey, true)
                 return survey
             },
             launchSurvey: async () => {
