@@ -143,7 +143,7 @@ is_initial boolean
 
 def zk_unique_table_engine():
     engine = MergeTreeEngine("performance_events", replication_scheme=ReplicationScheme.SHARDED)
-    # :TRICKY: Zookeeper paths need to be unique - it isn't cleaned up whn we drop tables
+    # :TRICKY: Zookeeper paths need to be unique - it isn't cleaned up when we drop tables
     # in migration 0060 we're dropping and recreating the table
     engine.set_zookeeper_path_key(now().strftime("CHM0060_%Y%m%d%H%M%S"))
     return engine
