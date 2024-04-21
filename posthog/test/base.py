@@ -50,6 +50,11 @@ from posthog.models.event.util import bulk_create_events
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
+from posthog.models.performance.sql import (
+    TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL,
+    PERFORMANCE_EVENTS_TABLE_SQL,
+    DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL,
+)
 from posthog.models.person import Person
 from posthog.models.person.sql import (
     DROP_PERSON_TABLE_SQL,
@@ -904,6 +909,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_SESSION_TABLE_SQL(),
                 DROP_SESSION_MATERIALIZED_VIEW_SQL(),
                 DROP_SESSION_VIEW_SQL(),
+                TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -915,6 +921,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL,
                 SESSIONS_TABLE_SQL(),
+                PERFORMANCE_EVENTS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -926,6 +933,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
+                DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL(),
             ]
         )
 
