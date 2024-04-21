@@ -15,7 +15,8 @@ from posthog.clickhouse.schema import (
 
 def normalize_snapshots(built_query: str) -> str:
     # some zookeeper paths change on each run of a migration
-    # can look for /clickhouse/tables/M0060_date_
+    # if we don't normalize them, the snapshots will be different
+    # and CI will never stop
     built_query = re.sub(
         r"/clickhouse/tables/(CHM0060_\d+_)", "/clickhouse/tables/CHM0060_fixed_for_snapshot_", built_query
     )
