@@ -1,0 +1,79 @@
+#
+# This is a flox environment manifest.
+# Visit flox.dev/docs/concepts/manifest/
+# or see flox-edit(1), manifest.toml(1) for more information.
+#
+
+# List packages you wish to install in your environment inside
+# the `[install]` section.
+[install]
+nodejs.pkg-path = "nodejs"
+nodejs.version = "18.19.1"
+python3.pkg-path = "python310"
+pnpm.pkg-path = "nodePackages.pnpm"
+brotli.pkg-path = "brotli"
+cowsay.pkg-path = "cowsay"
+
+
+# Set environment variables in the `[vars]` section.  These variables may not
+# reference once another, and are added to the environment without first
+# expanding them.  THey are available for use in the `[profile]` and `[hook]`
+# scripts.
+[vars]
+DEBUG = "1"
+
+# Scripts defined in the `[profile]` section are sourced by your shell
+# immediately after entering the environment and provide a way to add shell
+# aliases to the environment or dynamically compute environment variables.  The
+# `profile.common` script is sourced by all shells, so you must write it to be
+# compatible with all shells. The `profile.bash` and `profile.zsh` scripts will
+# only be sourced by the corresponding shell after sourcing the `profile.common`
+# script.
+[profile]
+common = """
+  # Install nodejs depedencies
+  pnpm install
+
+  # Install uv for managing Python dependencies
+  if [ ! command -v uv &> /dev/null ]; then
+    pip install uv
+  fi
+
+  # Set up a Python virtual environment
+  PYTHON_DIR="$FLOX_ENV_CACHE/python-flox"
+  if [ ! -d "$PYTHON_DIR" ]; then
+    echo "Creating uv virtual environment in $PYTHON_DIR"
+    uv virtualenv "$PYTHON_DIR" --seed
+  fi
+
+  source "$PYTHON_DIR/bin/activate"
+
+  uv pip install -r "$FLOX_ENV_PROJECT/requirements.txt" -r "$FLOX_ENV_PROJECT/requirements-dev.txt"
+"""
+
+# The script defined in `hook.on-activate` is run in a non-interactive Bash
+# sub-shell after sourcing the profile scripts. This script inherits all the
+# environment variables set in the `[vars]` and `[profile]` sections, but since
+# it runs in a sub-shell it can't modify them. The output and exit code of the
+# hook script is discarded. The utility of the `hook` script is that it runs in
+# a consistent shell environment so you don't have to worry about shell
+# compatibility during complicated initialization.
+[hook]
+on-activate = """
+  cowsay "I'M READY TO DEVELOP POSTHOG. ARE YOU?";
+  echo "";
+  echo "1. Migrate databases with 'bin/migrate'.";
+  echo "2. Create a user & demo data with './manage.py generate_demo_data'.";
+  echo "3. Start PostHog with 'bin/start'!";
+  echo "";
+"""
+
+# Additional options can be set in the `[options]` section.  Refer to
+# manifest.toml(1) for a list of available options.
+[options]
+
+# An environment that works on one system is guaranteed to work on the same type
+# of system, but other systems may not have the same packages available, etc.
+# In order to use the environment on a system you must explicitly add it to the
+# `options.systems` list.
+systems = ["aarch64-darwin"]

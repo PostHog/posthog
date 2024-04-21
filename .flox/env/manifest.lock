@@ -1,0 +1,226 @@
+{
+  "lockfile-version": 0,
+  "manifest": {
+    "hook": {
+      "on-activate": "  cowsay \"I'M READY TO DEVELOP POSTHOG. ARE YOU?\";\n  echo \"\";\n  echo \"1. Migrate databases with 'bin/migrate'.\";\n  echo \"2. Create a user & demo data with './manage.py generate_demo_data'.\";\n  echo \"3. Start PostHog with 'bin/start'!\";\n  echo \"\";\n"
+    },
+    "install": {
+      "brotli": {
+        "pkg-path": "brotli"
+      },
+      "cowsay": {
+        "pkg-path": "cowsay"
+      },
+      "nodejs": {
+        "pkg-path": "nodejs",
+        "version": "18.19.1"
+      },
+      "pnpm": {
+        "pkg-path": "nodePackages.pnpm"
+      },
+      "python3": {
+        "pkg-path": "python310"
+      }
+    },
+    "options": {
+      "systems": [
+        "aarch64-darwin"
+      ]
+    },
+    "profile": {
+      "common": "  # Install nodejs depedencies\n  pnpm install\n\n  # Install uv for managing Python dependencies\n  if [ ! command -v uv &> /dev/null ]; then\n    pip install uv\n  fi\n\n  # Set up a Python virtual environment\n  PYTHON_DIR=\"$FLOX_ENV_CACHE/python-flox\"\n  if [ ! -d \"$PYTHON_DIR\" ]; then\n    echo \"Creating uv virtual environment in $PYTHON_DIR\"\n    uv virtualenv \"$PYTHON_DIR\" --seed\n  fi\n\n  source \"$PYTHON_DIR/bin/activate\"\n\n  uv pip install -r \"$FLOX_ENV_PROJECT/requirements.txt\" -r \"$FLOX_ENV_PROJECT/requirements-dev.txt\"\n"
+    },
+    "registry": {
+      "defaults": {
+        "subtrees": null
+      },
+      "inputs": {
+        "nixpkgs": {
+          "from": {
+            "owner": "NixOS",
+            "ref": "release-23.11",
+            "repo": "nixpkgs",
+            "type": "github"
+          },
+          "subtrees": [
+            "legacyPackages"
+          ]
+        }
+      },
+      "priority": [
+        "nixpkgs"
+      ]
+    },
+    "vars": {
+      "DEBUG": "1"
+    }
+  },
+  "packages": {
+    "aarch64-darwin": {
+      "brotli": {
+        "attr-path": [
+          "legacyPackages",
+          "aarch64-darwin",
+          "brotli"
+        ],
+        "info": {
+          "broken": false,
+          "description": "A generic-purpose lossless compression algorithm and tool",
+          "license": "MIT",
+          "pname": "brotli",
+          "unfree": false,
+          "version": "1.1.0"
+        },
+        "input": {
+          "attrs": {
+            "lastModified": 1713728923,
+            "narHash": "sha256-D/hNhTWa6pkaR2yDdhTqkDXTaNxXraETsdIKt/7KtWs=",
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9547e21b2e445e063268489ff4a1c2b9e8ce9cc6",
+            "type": "github"
+          },
+          "fingerprint": "af7608fd44274c2bc7e2937f4af9c54954248c907bb9780e891bd0a8cc3d5d82",
+          "url": "github:NixOS/nixpkgs/9547e21b2e445e063268489ff4a1c2b9e8ce9cc6"
+        },
+        "priority": 5
+      },
+      "cowsay": {
+        "attr-path": [
+          "legacyPackages",
+          "aarch64-darwin",
+          "cowsay"
+        ],
+        "info": {
+          "broken": false,
+          "description": "A program which generates ASCII pictures of a cow with a message",
+          "license": "GPL-3.0-only",
+          "pname": "cowsay",
+          "unfree": false,
+          "version": "3.7.0"
+        },
+        "input": {
+          "attrs": {
+            "lastModified": 1713728923,
+            "narHash": "sha256-D/hNhTWa6pkaR2yDdhTqkDXTaNxXraETsdIKt/7KtWs=",
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9547e21b2e445e063268489ff4a1c2b9e8ce9cc6",
+            "type": "github"
+          },
+          "fingerprint": "af7608fd44274c2bc7e2937f4af9c54954248c907bb9780e891bd0a8cc3d5d82",
+          "url": "github:NixOS/nixpkgs/9547e21b2e445e063268489ff4a1c2b9e8ce9cc6"
+        },
+        "priority": 5
+      },
+      "nodejs": {
+        "attr-path": [
+          "legacyPackages",
+          "aarch64-darwin",
+          "nodejs"
+        ],
+        "info": {
+          "broken": false,
+          "description": "Event-driven I/O framework for the V8 JavaScript engine",
+          "license": "MIT",
+          "pname": "nodejs",
+          "unfree": false,
+          "version": "18.19.1"
+        },
+        "input": {
+          "attrs": {
+            "lastModified": 1713728923,
+            "narHash": "sha256-D/hNhTWa6pkaR2yDdhTqkDXTaNxXraETsdIKt/7KtWs=",
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9547e21b2e445e063268489ff4a1c2b9e8ce9cc6",
+            "type": "github"
+          },
+          "fingerprint": "af7608fd44274c2bc7e2937f4af9c54954248c907bb9780e891bd0a8cc3d5d82",
+          "url": "github:NixOS/nixpkgs/9547e21b2e445e063268489ff4a1c2b9e8ce9cc6"
+        },
+        "priority": 5
+      },
+      "pnpm": {
+        "attr-path": [
+          "legacyPackages",
+          "aarch64-darwin",
+          "nodePackages",
+          "pnpm"
+        ],
+        "info": {
+          "broken": false,
+          "description": "Fast, disk space efficient package manager",
+          "license": null,
+          "pname": "pnpm",
+          "unfree": false,
+          "version": "8.10.2"
+        },
+        "input": {
+          "attrs": {
+            "lastModified": 1713728923,
+            "narHash": "sha256-D/hNhTWa6pkaR2yDdhTqkDXTaNxXraETsdIKt/7KtWs=",
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9547e21b2e445e063268489ff4a1c2b9e8ce9cc6",
+            "type": "github"
+          },
+          "fingerprint": "af7608fd44274c2bc7e2937f4af9c54954248c907bb9780e891bd0a8cc3d5d82",
+          "url": "github:NixOS/nixpkgs/9547e21b2e445e063268489ff4a1c2b9e8ce9cc6"
+        },
+        "priority": 5
+      },
+      "python3": {
+        "attr-path": [
+          "legacyPackages",
+          "aarch64-darwin",
+          "python310"
+        ],
+        "info": {
+          "broken": false,
+          "description": "A high-level dynamically-typed programming language",
+          "license": "Python-2.0",
+          "pname": "python3",
+          "unfree": false,
+          "version": "3.10.14"
+        },
+        "input": {
+          "attrs": {
+            "lastModified": 1713728923,
+            "narHash": "sha256-D/hNhTWa6pkaR2yDdhTqkDXTaNxXraETsdIKt/7KtWs=",
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9547e21b2e445e063268489ff4a1c2b9e8ce9cc6",
+            "type": "github"
+          },
+          "fingerprint": "af7608fd44274c2bc7e2937f4af9c54954248c907bb9780e891bd0a8cc3d5d82",
+          "url": "github:NixOS/nixpkgs/9547e21b2e445e063268489ff4a1c2b9e8ce9cc6"
+        },
+        "priority": 5
+      }
+    }
+  },
+  "registry": {
+    "defaults": {
+      "subtrees": null
+    },
+    "inputs": {
+      "nixpkgs": {
+        "from": {
+          "lastModified": 1713728923,
+          "narHash": "sha256-D/hNhTWa6pkaR2yDdhTqkDXTaNxXraETsdIKt/7KtWs=",
+          "owner": "NixOS",
+          "repo": "nixpkgs",
+          "rev": "9547e21b2e445e063268489ff4a1c2b9e8ce9cc6",
+          "type": "github"
+        },
+        "subtrees": [
+          "legacyPackages"
+        ]
+      }
+    },
+    "priority": [
+      "nixpkgs"
+    ]
+  }
+}
