@@ -228,11 +228,11 @@ UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL = lambda: (
 
 
 def insert_single_network_performance_event(
+    team_id: int,
     timestamp: datetime | None = None,
     distinct_id: str | None = None,
     session_id: str | None = None,
     window_id: str | None = None,
-    team_id: int | None = None,
     current_url: str | None = None,
     time_origin: datetime | None = None,
     entry_type: str | None = None,
@@ -276,6 +276,9 @@ def insert_single_network_performance_event(
     method: str | None = None,
     is_initial: bool = False,
 ) -> None:
+    if timestamp is None:
+        timestamp = datetime.now()
+
     sync_execute(
         """
 INSERT INTO sharded_performance_events (
