@@ -1,4 +1,3 @@
-"""https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from datetime import datetime
 
 from posthog import settings
@@ -17,6 +16,10 @@ from posthog.clickhouse.table_engines import (
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 
 """
+see https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry
+
+all of our ingestion is based on this standard because the browser gives it us for free
+
 # expected queries
 
 ## get all performance events for a given team's session
