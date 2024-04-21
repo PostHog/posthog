@@ -46,10 +46,9 @@ def stop_surveys_reached_target() -> None:
     all_surveys = Survey.objects.exclude(responses_limit__isnull=True).only(
         "id", "responses_limit", "team_id", "created_at"
     )
-    if not all_surveys:
-        return
 
-    for team_id, team_surveys in groupby(all_surveys, lambda survey: survey.team_id):
+    all_surveys_sorted = sorted(all_surveys, key=lambda survey: survey.team_id)
+    for team_id, team_surveys in groupby(all_surveys_sorted, lambda survey: survey.team_id):
         team_surveys_list = list(team_surveys)
         surveys_ids = [survey.id for survey in team_surveys_list]
         earliest_survey_start_date = min([survey.created_at for survey in team_surveys_list])

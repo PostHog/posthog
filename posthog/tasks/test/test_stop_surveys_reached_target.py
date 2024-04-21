@@ -42,7 +42,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
                 created_by=self.user,
                 linked_flag=self.flag,
                 responses_limit=1,
-                created_at=now() - relativedelta(hours=12),
+                created_at=now(),
             ),
             Survey.objects.create(
                 name="2",
@@ -50,7 +50,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
                 created_by=self.user,
                 linked_flag=self.flag,
                 responses_limit=1,
-                created_at=now() - relativedelta(hours=12),
+                created_at=now(),
             ),
             Survey.objects.create(
                 name="3",
@@ -58,7 +58,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
                 created_by=self.user,
                 linked_flag=self.flag,
                 responses_limit=1,
-                created_at=now() - relativedelta(hours=12),
+                created_at=now(),
             ),
         ]
 
