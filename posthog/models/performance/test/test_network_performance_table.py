@@ -12,7 +12,7 @@ class TestNetworkPerformanceTable(ClickhouseTestMixin, ClickhouseDestroyTablesMi
         assert len(result) == 1
 
     @parameterized.expand([[None], [0], [123]])
-    def test_transfer_size_can_be_set_as_expected(self, provided_value: int | float | None) -> None:
+    def test_transfer_size_can_be_set_as_expected(self, provided_value: int | None) -> None:
         """
         Transfer size uses None and 0 to mean different things in the performance entry spec
         We need to make sure we store None when it is not provided otherwise - if we default to 0 -

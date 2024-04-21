@@ -61,6 +61,33 @@ the distributed table has the columns but not their definition
 
 for individual recording playback we calculate these values from the blob stored network data
 for analysis we want to be able to offer and aggregate the values so may as well materialize them
+
+# what might we materialize
+
+see https://github.com/PostHog/posthog/blob/6cd02e980ae7d7a93f3da74cbfc8ec634aa86339/frontend/src/scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming.tsx#L128
+
+## we can assert that something was from a cache
+
+we probably don't need to materialize this
+
+`const isFromLocalCache = item.transfer_size === 0 && (item.decoded_body_size || 0) > 0`
+
+## dom processing
+
+if both are present `perfEntry.load_event_end - perfEntry.response_end > 0` are the DOM processsing time
+
+## TTFB
+
+time to first byte is a useful measure
+it is the time between the start of the performance entry and the response_start
+
+in replay display if both are present we use
+`perfEntry.response_start - perfEntry.request_start > 0`
+
+## network timing
+
+if both are present perfEntry.start_time to perfEntry.response_end
+
 """
 
 PERFORMANCE_EVENT_COLUMNS = """
