@@ -1891,7 +1891,7 @@
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/CHM0060_20240421152350_{shard}/posthog.performance_events', '{replica}')
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/CHM0060_20240421193727_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), session_id, timestamp)
   
@@ -2711,7 +2711,7 @@
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/CHM0060_20240421152350_{shard}/posthog.performance_events', '{replica}')
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/CHM0060_20240421193727_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), session_id, timestamp)
   
