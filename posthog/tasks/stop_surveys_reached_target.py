@@ -52,7 +52,7 @@ def stop_surveys_reached_target() -> None:
     for team_id, team_surveys in groupby(all_surveys, lambda survey: survey.team_id):
         team_surveys_list = list(team_surveys)
         surveys_ids = [survey.id for survey in team_surveys_list]
-        earliest_survey_start_date = min(team_surveys_list, key=lambda survey: survey.created_at)
+        earliest_survey_start_date = min([survey.created_at for survey in team_surveys_list])
 
         response_counts = _get_surveys_response_counts(surveys_ids, team_id, earliest_survey_start_date)
         for survey in team_surveys_list:

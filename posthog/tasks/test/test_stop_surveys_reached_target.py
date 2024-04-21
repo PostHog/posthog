@@ -23,7 +23,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             rollout_percentage=100,
         )
 
-    def _create_event_for_survey(self, survey: Survey, event="survey sent") -> None:
+    def _create_event_for_survey(self, survey: Survey, event: str = "survey sent") -> None:
         _create_event(
             distinct_id="0",
             event=event,
