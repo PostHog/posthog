@@ -13,7 +13,7 @@ from posthog.clickhouse.schema import (
 )
 
 
-def normalize_snapshots(built_query):
+def normalize_snapshots(built_query: str) -> str:
     # some zookeeper paths change on each run of a migration
     # can look for /clickhouse/tables/M0060_date_
     built_query = re.sub(
