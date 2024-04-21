@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from django.utils.timezone import now
+
 from posthog import settings
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import (
@@ -111,6 +113,14 @@ method LowCardinality(String),
 is_initial boolean
 """.strip().rstrip(",")
 
+
+def zk_unique_table_engine():
+    engine = MergeTreeEngine("performance_events", replication_scheme=ReplicationScheme.SHARDED)
+    # :TRICKY: Zookeeper paths need to be unique each time we run this migration, so generate a unique prefix.
+    engine.set_zookeeper_path_key(now().strftime("am0005_%Y%m%d%H%M%S"))
+    return engine
+
+
 PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTreeEngine(
     "performance_events", replication_scheme=ReplicationScheme.SHARDED
 )
@@ -138,7 +148,7 @@ ORDER BY (team_id, toDate(timestamp), session_id, timestamp)
     columns=PERFORMANCE_EVENT_COLUMNS,
     table_name=PERFORMANCE_EVENT_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
+    engine=zk_unique_table_engine(),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     ttl_period=ttl_period(field="timestamp"),
     storage_policy=STORAGE_POLICY(),
