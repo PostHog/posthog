@@ -619,10 +619,6 @@ class QueryMatchingTest:
             query,
         )
 
-        # some zookeeper paths change on each run of a migration
-        # can look for /clickhouse/tables/M0060_date_
-        query = re.sub(r"\/clickhouse\/tables/(CHM0060_\d+_)", "/clickhouse/tables/CHM0060_fixed_for_snapshot_", query)
-
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run

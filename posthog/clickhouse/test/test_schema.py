@@ -1,3 +1,4 @@
+import re
 import uuid
 
 import pytest
@@ -14,7 +15,14 @@ from posthog.clickhouse.schema import (
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
 def test_create_table_query(query, snapshot):
-    assert build_query(query) == snapshot
+    built_query = build_query(query)
+    # some zookeeper paths change on each run of a migration
+    # can look for /clickhouse/tables/M0060_date_
+    built_query = re.sub(
+        r"/clickhouse/tables/(CHM0060_\d+_)", "/clickhouse/tables/CHM0060_fixed_for_snapshot_", built_query
+    )
+
+    assert built_query == snapshot
 
 
 @pytest.mark.parametrize("query", CREATE_MERGETREE_TABLE_QUERIES, ids=get_table_name)
