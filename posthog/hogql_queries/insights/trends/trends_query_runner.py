@@ -1,3 +1,5 @@
+import copy
+from natsort import natsorted, ns
 from typing import Union
 from copy import deepcopy
 from datetime import timedelta
@@ -62,7 +64,7 @@ from posthog.schema import (
     DataWarehouseEventsModifier,
 )
 from posthog.warehouse.models import DataWarehouseTable
-from posthog.utils import format_label_date
+from posthog.utils import format_label_date, multisort
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -129,6 +131,7 @@ class TrendsQueryRunner(QueryRunner):
                     series=series.series,
                     timings=self.timings,
                     modifiers=self.modifiers,
+                    limit_context=self.limit_context,
                 )
                 query = query_builder.build_query()
 
@@ -173,6 +176,7 @@ class TrendsQueryRunner(QueryRunner):
                 series=series,
                 timings=self.timings,
                 modifiers=self.modifiers,
+                limit_context=self.limit_context,
             )
 
             query = query_builder.build_actors_query(time_frame=time_frame, breakdown_filter=str(breakdown_value))
@@ -222,6 +226,7 @@ class TrendsQueryRunner(QueryRunner):
                 series=series,
                 timings=self.timings,
                 modifiers=self.modifiers,
+                limit_context=self.limit_context,
             )
 
             breakdown = query_builder._breakdown(is_actors_query=False)
@@ -353,7 +358,7 @@ class TrendsQueryRunner(QueryRunner):
             with self.timings.measure("apply_formula"):
                 res = self.apply_formula(self.query.trendsFilter.formula, res)
 
-        return TrendsQueryResponse(results=res, timings=timings, hogql=response_hogql)
+        return TrendsQueryResponse(results=res, timings=timings, hogql=response_hogql, modifiers=self.modifiers)
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         if response.results is None:
@@ -384,14 +389,18 @@ class TrendsQueryRunner(QueryRunner):
             if series.aggregate_values:
                 series_object = {
                     "data": [],
-                    "days": [
-                        item.strftime(
-                            "%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else "")
-                        )
-                        for item in get_value("date", val)
-                    ]
-                    if response.columns and "date" in response.columns
-                    else [],
+                    "days": (
+                        [
+                            item.strftime(
+                                "%Y-%m-%d{}".format(
+                                    " %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""
+                                )
+                            )
+                            for item in get_value("date", val)
+                        ]
+                        if response.columns and "date" in response.columns
+                        else []
+                    ),
                     "count": 0,
                     "aggregated_value": get_value("total", val),
                     "label": "All events" if series_label is None else series_label,
@@ -630,54 +639,79 @@ class TrendsQueryRunner(QueryRunner):
         return series_with_extras
 
     def apply_formula(self, formula: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
-            sorted_results = sorted(results, key=itemgetter("compare_label"))
-            res = []
-            for _, group in groupby(sorted_results, key=itemgetter("compare_label")):
-                group_list = list(group)
+        has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
+        has_breakdown = bool(self.query.breakdownFilter and self.query.breakdownFilter.breakdown)
+        is_total_value = self._trends_display.should_aggregate_values()
 
-                if self._trends_display.should_aggregate_values():
-                    series_data = [[s["aggregated_value"]] for s in group_list]
-                    new_series_data = FormulaAST(series_data).call(formula)
+        if len(results) == 0:
+            return []
 
-                    new_result = group_list[0]
-                    new_result["aggregated_value"] = float(sum(new_series_data))
-                    new_result["data"] = None
-                    new_result["count"] = 0
-                    new_result["label"] = f"Formula ({formula})"
-                    res.append(new_result)
-                else:
-                    series_data = [s["data"] for s in group_list]
-                    new_series_data = FormulaAST(series_data).call(formula)
+        # we need to apply the formula to a group of results when we have a breakdown or the compare option is enabled
+        if has_compare or has_breakdown:
+            keys = [*(["compare_label"] if has_compare else []), *(["breakdown_value"] if has_breakdown else [])]
+            try:
+                sorted_results = natsorted(
+                    results, key=lambda x: tuple(str(itemgetter(k)(x)) for k in keys), alg=ns.IGNORECASE
+                )
+            except Exception:
+                sorted_results = results
 
-                    new_result = group_list[0]
-                    new_result["data"] = new_series_data
-                    new_result["count"] = float(sum(new_series_data))
-                    new_result["label"] = f"Formula ({formula})"
-                    res.append(new_result)
-            return res
+            computed_results = []
+            for _key, group in groupby(sorted_results, key=itemgetter(*keys)):
+                results_group = list(group)
+                # compare queries are executed separately and some breakdown values might be missing in a group
+                # we need to fill them up so that series are correctly attributed to formula letters
+                if has_compare:
+                    for idx in range(0, len(self.query.series)):
+                        if any(result["action"]["order"] == idx for result in results_group):
+                            continue
 
-        if len(results) > 0:
-            if self._trends_display.should_aggregate_values():
-                series_data = [[s["aggregated_value"]] for s in results]
-                new_series_data = FormulaAST(series_data).call(formula)
+                        # add the missing result
+                        base_result = copy.deepcopy(results_group[0])
+                        base_result["label"] = f"filler for {idx} - {base_result['breakdown_value']}"
+                        if is_total_value:
+                            base_result["aggregated_value"] = 0
+                        else:
+                            base_result["data"] = [0] * len(base_result["data"])
+                        base_result["count"] = 0
+                        base_result["action"]["order"] = idx
+                        results_group.append(base_result)
 
-                new_result = results[0]
-                new_result["aggregated_value"] = float(sum(new_series_data))
-                new_result["data"] = None
-                new_result["count"] = 0
-                new_result["label"] = f"Formula ({formula})"
-            else:
-                series_data = [s["data"] for s in results]
-                new_series_data = FormulaAST(series_data).call(formula)
+                    results_group = sorted(results_group, key=lambda x: x["action"]["order"])
 
-                new_result = results[0]
-                new_result["data"] = new_series_data
-                new_result["count"] = float(sum(new_series_data))
-                new_result["label"] = f"Formula ({formula})"
+                computed_results.append(self.apply_formula_to_results_group(results_group, formula, is_total_value))
 
-            return [new_result]
-        return []
+            if has_compare:
+                return multisort(computed_results, (("compare_label", False), ("count", True)))
+
+            return sorted(computed_results, key=itemgetter("count"), reverse=True)
+        else:
+            return [self.apply_formula_to_results_group(results, formula, aggregate_values=is_total_value)]
+
+    @staticmethod
+    def apply_formula_to_results_group(
+        results_group: List[Dict[str, Any]], formula: str, aggregate_values: Optional[bool] = False
+    ) -> Dict[str, Any]:
+        """
+        Applies the formula to a list of results, resulting in a single, computed result.
+        """
+        base_result = results_group[0]
+        base_result["label"] = f"Formula ({formula})"
+        base_result["action"] = None
+
+        if aggregate_values:
+            series_data = [[s["aggregated_value"]] for s in results_group]
+            new_series_data = FormulaAST(series_data).call(formula)
+            base_result["aggregated_value"] = float(sum(new_series_data))
+            base_result["data"] = None
+            base_result["count"] = 0
+        else:
+            series_data = [s["data"] for s in results_group]
+            new_series_data = FormulaAST(series_data).call(formula)
+            base_result["data"] = new_series_data
+            base_result["count"] = float(sum(new_series_data))
+
+        return base_result
 
     def _is_breakdown_field_boolean(self):
         if not self.query.breakdownFilter or not self.query.breakdownFilter.breakdown_type:

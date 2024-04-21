@@ -32,13 +32,13 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import (
-    CSV_EXPORT_LIMIT,
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     LIMIT,
     OFFSET,
     FunnelVizType,
 )
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User, Team
@@ -224,7 +224,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     scope_object = "person"
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
+    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
@@ -932,21 +932,11 @@ def prepare_actor_query_filter(filter: T) -> T:
     new_group = {
         "type": "OR",
         "values": [
-            {
-                "key": "email",
-                "type": "person",
-                "value": search,
-                "operator": "icontains",
-            },
+            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
             {"key": "name", "type": "person", "value": search, "operator": "icontains"},
-            {
-                "key": "distinct_id",
-                "type": "event",
-                "value": search,
-                "operator": "icontains",
-            },
-        ]
-        + group_properties_filter_group,
+            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
+            *group_properties_filter_group,
+        ],
     }
     prop_group = (
         {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}

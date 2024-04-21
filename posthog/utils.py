@@ -6,6 +6,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+from operator import itemgetter
 import os
 import re
 import secrets
@@ -274,7 +275,7 @@ def get_js_url(request: HttpRequest) -> str:
 def render_template(
     template_name: str,
     request: HttpRequest,
-    context: Dict = {},
+    context: Optional[Dict] = None,
     *,
     team_for_public_context: Optional["Team"] = None,
 ) -> HttpResponse:
@@ -283,6 +284,8 @@ def render_template(
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
     """
 
+    if context is None:
+        context = {}
     template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
@@ -470,7 +473,7 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
     for p in plugin_configs:
         config = p["pluginconfig__config"] or {}
         config_schema = p["config_schema"] or {}
-        secret_fields = {field["key"] for field in config_schema if "secret" in field and field["secret"]}
+        secret_fields = {field["key"] for field in config_schema if field.get("secret")}
         for key in secret_fields:
             if key in config:
                 config[key] = "** SECRET FIELD **"
@@ -1303,13 +1306,6 @@ def patchable(fn):
     return inner
 
 
-class PersonOnEventsMode(str, Enum):
-    DISABLED = "disabled"
-    PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_no_override_properties_on_events"
-    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_override_properties_on_events"
-    PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
-
-
 def label_for_team_id_to_track(team_id: int) -> str:
     team_id_filter: List[str] = settings.DECIDE_TRACK_TEAM_IDS
 
@@ -1335,3 +1331,18 @@ def label_for_team_id_to_track(team_id: int) -> str:
 
 def camel_to_snake_case(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def multisort(xs: list, specs: tuple[tuple[str, bool], ...]):
+    """
+    Takes a list and tuples of field and order to sort them on multiple passes. This
+    is useful to sort a list by multiple fields where some of them are ordered differently
+    than others.
+
+    Example: `multisort(list(student_objects), (('grade', True), ('age', False)))`
+
+    https://docs.python.org/3/howto/sorting.html#sort-stability-and-complex-sorts
+    """
+    for key, reverse in reversed(specs):
+        xs.sort(key=itemgetter(key), reverse=reverse)
+    return xs

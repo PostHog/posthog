@@ -16,6 +16,20 @@ import { Region, SidePanelTab, TeamType, UserType } from '~/types'
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
 
+export function getPublicSupportSnippet(region: Region | null | undefined, user: UserType | null): string {
+    if (!user || !region) {
+        return ''
+    }
+
+    return `Session: ${posthog
+        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
+        .replace(window.location.origin + '/replay/', 'http://go/session/')} ${
+        !window.location.href.includes('settings/project') ? `(at ${window.location.href})` : ''
+    }\n${`Admin: ${`http://go/adminOrg${region}/${user.organization?.id}`} (Project: ${
+        teamLogic.values.currentTeamId
+    })`}\nSentry: ${`http://go/sentry${region}/${user.team?.id}`}`
+}
+
 function getSessionReplayLink(): string {
     const link = posthog
         .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
@@ -40,7 +54,7 @@ function getBillingAdminLink(user: UserType | null): string {
     if (!user) {
         return ''
     }
-    const link = `http://go/billing/customer/${user.organization?.id}`
+    const link = `http://go/billing/${user.organization?.id}`
     return `Billing Admin: ${link} (Organization: '${user.organization?.name}'`
 }
 
@@ -324,7 +338,10 @@ export const supportLogic = kea<supportLogicType>([
             }
         },
         openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {
-            const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
+            let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
+            if (!userLogic.values.user) {
+                area = 'login'
+            }
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({
                 name: name ?? '',

@@ -577,17 +577,16 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
     # Standard aggregate functions
-    "count": HogQLFunctionMeta("count", 0, 1, aggregate=True),
-    "COUNT": HogQLFunctionMeta("count", 0, 1, aggregate=True),
+    "count": HogQLFunctionMeta("count", 0, 1, aggregate=True, case_sensitive=False),
     "countIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
     "countDistinctIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
-    "min": HogQLFunctionMeta("min", 1, 1, aggregate=True),
+    "min": HogQLFunctionMeta("min", 1, 1, aggregate=True, case_sensitive=False),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
-    "max": HogQLFunctionMeta("max", 1, 1, aggregate=True),
+    "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
-    "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True),
+    "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True, case_sensitive=False),
     "sumIf": HogQLFunctionMeta("sumIf", 2, 2, aggregate=True),
-    "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True),
+    "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True, case_sensitive=False),
     "avgIf": HogQLFunctionMeta("avgIf", 2, 2, aggregate=True),
     "any": HogQLFunctionMeta("any", 1, 1, aggregate=True),
     "anyIf": HogQLFunctionMeta("anyIf", 2, 2, aggregate=True),
@@ -749,6 +748,7 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
 }
 HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
+    "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidDomainType": HogQLFunctionMeta("hogql_lookupPaidDomainType", 1, 1),
@@ -781,12 +781,12 @@ FIRST_ARG_DATETIME_FUNCTIONS = (
 )
 
 
-def find_clickhouse_function(name: str) -> Optional[HogQLFunctionMeta]:
-    func = HOGQL_CLICKHOUSE_FUNCTIONS.get(name)
+def _find_function(name: str, functions: Dict[str, HogQLFunctionMeta]) -> Optional[HogQLFunctionMeta]:
+    func = functions.get(name)
     if func is not None:
         return func
 
-    func = HOGQL_CLICKHOUSE_FUNCTIONS.get(name.lower())
+    func = functions.get(name.lower())
     if func is None:
         return None
     # If we haven't found a function with the case preserved, but we have found it in lowercase,
@@ -795,3 +795,15 @@ def find_clickhouse_function(name: str) -> Optional[HogQLFunctionMeta]:
         return None
 
     return func
+
+
+def find_hogql_aggregation(name: str) -> Optional[HogQLFunctionMeta]:
+    return _find_function(name, HOGQL_AGGREGATIONS)
+
+
+def find_hogql_function(name: str) -> Optional[HogQLFunctionMeta]:
+    return _find_function(name, HOGQL_CLICKHOUSE_FUNCTIONS)
+
+
+def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
+    return _find_function(name, HOGQL_POSTHOG_FUNCTIONS)

@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0400_datawarehousetable_row_count"),
+        ("posthog", "0403_plugin_has_private_access"),
     ]
 
     operations = [

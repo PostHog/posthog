@@ -20,6 +20,7 @@ from posthog.schema import (
     HogQLQueryResponse,
     StickinessQuery,
     TrendsQuery,
+    FunnelsQuery,
 )
 from posthog.types import InsightActorsQueryNode
 
@@ -30,7 +31,7 @@ class InsightActorsQueryRunner(QueryRunner):
 
     @cached_property
     def source_runner(self) -> QueryRunner:
-        return get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+        return get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):
@@ -83,6 +84,11 @@ class InsightActorsQueryRunner(QueryRunner):
             assert isinstance(self.query, FunnelCorrelationActorsQuery)
             assert isinstance(self.query.source, FunnelCorrelationQuery)
             return self.query.source.source.source.aggregation_group_type_index
+
+        if isinstance(self.source_runner, FunnelsQueryRunner):
+            assert isinstance(self.query, FunnelsActorsQuery)
+            assert isinstance(self.query.source, FunnelsQuery)
+            return self.query.source.aggregation_group_type_index
 
         if (
             isinstance(self.source_runner, StickinessQueryRunner) and isinstance(self.query.source, StickinessQuery)

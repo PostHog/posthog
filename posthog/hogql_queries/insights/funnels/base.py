@@ -3,8 +3,8 @@ from functools import cached_property
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
-from posthog.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.hogql import ast
+from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -142,7 +142,9 @@ class FunnelBase(ABC):
         else:
             # get query params
             breakdown_expr = self._get_breakdown_expr()
-            breakdown_limit_or_default = breakdownFilter.breakdown_limit or BREAKDOWN_VALUES_LIMIT
+            breakdown_limit_or_default = breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(
+                self.context.limit_context
+            )
             offset = 0
 
             funnel_event_query = FunnelEventQuery(context=self.context)
@@ -727,7 +729,7 @@ class FunnelBase(ABC):
         ):
             events = []
             for i in range(0, max_steps):
-                event_fields = ["latest"] + self.extra_event_fields_and_properties
+                event_fields = ["latest", *self.extra_event_fields_and_properties]
                 event_fields_with_step = ", ".join([f"{field}_{i}" for field in event_fields])
                 event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
                 events.append(parse_expr(event_clause))

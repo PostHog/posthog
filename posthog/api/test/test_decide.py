@@ -73,12 +73,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
         origin="http://127.0.0.1:8000",
         api_version=1,
         distinct_id="example_id",
-        groups={},
+        groups=None,
         geoip_disable=False,
         ip="127.0.0.1",
         disable_flags=False,
         user_agent: Optional[str] = None,
     ):
+        if groups is None:
+            groups = {}
         return self.client.post(
             f"/decide/?v={api_version}",
             {
@@ -3336,10 +3338,12 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         origin="http://127.0.0.1:8000",
         api_version=1,
         distinct_id="example_id",
-        groups={},
+        groups=None,
         geoip_disable=False,
         ip="127.0.0.1",
     ):
+        if groups is None:
+            groups = {}
         return self.client.post(
             f"/decide/?v={api_version}",
             {
@@ -3571,11 +3575,15 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         origin="http://127.0.0.1:8000",
         api_version=3,
         distinct_id="example_id",
-        groups={},
-        person_props={},
+        groups=None,
+        person_props=None,
         geoip_disable=False,
         ip="127.0.0.1",
     ):
+        if person_props is None:
+            person_props = {}
+        if groups is None:
+            groups = {}
         return self.client.post(
             f"/decide/?v={api_version}",
             {
@@ -3656,7 +3664,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # make sure we have the flags in cache
         response = self._post_decide(api_version=3)
 
-        with self.assertNumQueries(2, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3)
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
@@ -3833,7 +3841,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # make sure we have the flags in cache
         response = self._post_decide(api_version=3)
 
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_founder")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
@@ -3851,7 +3859,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="example_id")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
@@ -3869,7 +3877,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_secondary")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
@@ -3962,7 +3970,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # make sure caches are populated
         response = self._post_decide()
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(9, using="replica"), self.assertNumQueries(0, using="default"):
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid"
             #           WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id') AND "posthog_persondistinctid"."team_id" = 1)
@@ -3995,7 +4003,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         )
 
         # new request with hash key overrides but not writes should not go to main database
-        with self.assertNumQueries(7, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(13, using="replica"), self.assertNumQueries(0, using="default"):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. WITH some CTEs,
@@ -4024,7 +4032,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # now main database is down, but does not affect replica
 
         with connections["default"].execute_wrapper(QueryTimeoutWrapper()), self.assertNumQueries(
-            7, using="replica"
+            13, using="replica"
         ), self.assertNumQueries(0, using="default"):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
@@ -4134,7 +4142,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # make sure caches are populated
         response = self._post_decide(api_version=3)
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(9, using="replica"), self.assertNumQueries(0, using="default"):
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid"
             #           WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id') AND "posthog_persondistinctid"."team_id" = 1)
@@ -4153,7 +4161,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         PersonDistinctId.objects.using("default").create(person=person, distinct_id="other_id", team=self.team)
 
         # request with hash key overrides and _new_ writes should go to main database
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
+        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(9, using="default"):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. WITH some CTEs,
@@ -4244,7 +4252,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             version=0,
         )
 
-        with self.assertNumQueries(2, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. SELECT "posthog_grouptypemapping"."id", -- a.k.a. get group type mappings
             response = self._post_decide(distinct_id="example_id")
@@ -4254,7 +4262,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(9, using="replica"), self.assertNumQueries(0, using="default"):
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- a.k.a get group type mappings
 
@@ -4271,7 +4279,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(9, using="replica"), self.assertNumQueries(0, using="default"):
             # E   2. SET LOCAL statement_timeout = 300
             # E   3. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- a.k.a get group type mappings
 
@@ -4317,7 +4325,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # update caches
         self._post_decide(api_version=3)
 
-        with self.assertNumQueries(2, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -4420,7 +4428,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self.client.get(f"/api/feature_flag/local_evaluation")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(3, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(5, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -4661,7 +4669,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
         cache.clear()
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(3, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"
@@ -4931,7 +4939,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         client.logout()
         self.client.logout()
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(3, using="default"):
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
             # Captured queries for write DB:
             # E   1. UPDATE "posthog_personalapikey" SET "last_used_at" = '2023-08-01T11:26:50.728057+00:00'
             # E   2. SELECT "posthog_team"."id", "posthog_team"."uuid", "posthog_team"."organization_id"

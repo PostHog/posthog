@@ -135,10 +135,12 @@ class EmailMessage:
         campaign_key: str,
         subject: str,
         template_name: str,
-        template_context: Dict = {},
+        template_context: Optional[Dict] = None,
         headers: Optional[Dict] = None,
         reply_to: Optional[str] = None,
     ):
+        if template_context is None:
+            template_context = {}
         if not is_email_available():
             raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.")
 

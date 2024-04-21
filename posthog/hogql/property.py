@@ -12,7 +12,7 @@ from posthog.constants import (
 )
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.functions import HOGQL_AGGREGATIONS
+from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.errors import NotImplementedError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -59,7 +59,7 @@ class AggregationFinder(TraversingVisitor):
         pass
 
     def visit_call(self, node: ast.Call):
-        if node.name in HOGQL_AGGREGATIONS:
+        if find_hogql_aggregation(node.name):
             self.has_aggregation = True
         else:
             for arg in node.args:
@@ -69,7 +69,7 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    scope: Literal["event", "person"] = "event",
+    scope: Literal["event", "person", "session"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -139,10 +139,8 @@ def property_to_expr(
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
     ):
-        if scope == "person" and property.type != "person":
-            raise NotImplementedError(
-                f"The '{property.type}' property filter only works in 'event' scope, not in '{scope}' scope"
-            )
+        if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
+            raise NotImplementedError(f"The '{property.type}' property filter does not work in '{scope}' scope")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
         if property.type == "person" and scope != "person":
@@ -157,15 +155,15 @@ def property_to_expr(
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "data_warehouse":
             chain = []
+        elif property.type == "session" and scope == "event":
+            chain = ["session"]
+        elif property.type == "session" and scope == "session":
+            chain = ["sessions"]
         else:
             chain = ["properties"]
 
         properties_field = ast.Field(chain=chain)
-        field = ast.Field(chain=chain + [property.key])
-
-        if property.type == "session" and property.key == "$session_duration":
-            field = ast.Field(chain=["session", "duration"])
-            properties_field = field
+        field = ast.Field(chain=[*chain, property.key])
 
         if isinstance(value, list):
             if len(value) == 0:

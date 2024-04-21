@@ -26,7 +26,7 @@ export function PlayerInspector({
         onToggleClosed: (shouldBeClosed) => setInspectorExpanded(!shouldBeClosed),
     }
 
-    const { desiredWidth } = useValues(resizerLogic(resizerLogicProps))
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     return (
         <div
@@ -37,7 +37,7 @@ export function PlayerInspector({
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: inspectorExpanded ? desiredWidth ?? 'var(--inspector-width)' : undefined,
+                width: inspectorExpanded ? desiredSize ?? 'var(--inspector-width)' : undefined,
             }}
         >
             <Resizer logicKey="player-inspector" placement="left" containerRef={ref} closeThreshold={100} />

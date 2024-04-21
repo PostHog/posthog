@@ -4,7 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
+from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     StringJSONDatabaseField,
@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     SavedQuery,
 )
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
@@ -384,10 +385,12 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
-        if func_meta := HOGQL_POSTHOG_FUNCTIONS.get(node.name):
+        if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
+            if node.name == "matchesAction":
+                return self.visit(matches_action(node=node, args=node.args, context=self.context))
 
         node = super().visit_call(node)
         arg_types: List[ast.ConstantType] = []
@@ -461,7 +464,7 @@ class Resolver(CloningVisitor):
             if table_count > 1:
                 raise QueryError("Cannot use '*' without table name when there are multiple tables in the query")
             table_type = (
-                scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
+                scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else next(iter(scope.tables.values()))
             )
             type = ast.AsteriskType(table_type=table_type)
 

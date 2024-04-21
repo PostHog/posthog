@@ -14,9 +14,9 @@ from posthog.hogql.constants import (
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
-    HOGQL_AGGREGATIONS,
-    HOGQL_POSTHOG_FUNCTIONS,
-    find_clickhouse_function,
+    find_hogql_aggregation,
+    find_hogql_posthog_function,
+    find_hogql_function,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
@@ -41,8 +41,7 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsOnEventsMode
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -236,7 +235,7 @@ class _Printer(Visitor):
                 if where is None:
                     where = extra_where
                 elif isinstance(where, ast.And):
-                    where = ast.And(exprs=[extra_where] + where.exprs)
+                    where = ast.And(exprs=[extra_where, *where.exprs])
                 else:
                     where = ast.And(exprs=[extra_where, where])
             else:
@@ -725,7 +724,7 @@ class _Printer(Visitor):
                     op=op,
                 )
             )
-        elif func_meta := HOGQL_AGGREGATIONS.get(node.name):
+        elif func_meta := find_hogql_aggregation(node.name):
             validate_function_args(
                 node.args,
                 func_meta.min_args,
@@ -747,7 +746,7 @@ class _Printer(Visitor):
 
             # check that we're not running inside another aggregate
             for stack_node in self.stack:
-                if stack_node != node and isinstance(stack_node, ast.Call) and stack_node.name in HOGQL_AGGREGATIONS:
+                if stack_node != node and isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
                     raise QueryError(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
@@ -759,7 +758,7 @@ class _Printer(Visitor):
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
             return f"{func_meta.clickhouse_name}{params_part}{args_part}"
 
-        elif func_meta := find_clickhouse_function(node.name):
+        elif func_meta := find_hogql_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if func_meta.min_params:
                 if node.params is None:
@@ -857,7 +856,7 @@ class _Printer(Visitor):
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
-        elif func_meta := HOGQL_POSTHOG_FUNCTIONS.get(node.name):
+        elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
 
@@ -954,7 +953,7 @@ class _Printer(Visitor):
                 and type.name == "properties"
                 and type.table_type.field == "poe"
             ):
-                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -978,7 +977,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -1028,10 +1027,12 @@ class _Printer(Visitor):
                 or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
             ):
                 # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
-                    materialized_column = self._get_materialized_column("events", type.chain[0], "person_properties")
+                if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
+                    materialized_column = self._get_materialized_column(
+                        "events", str(type.chain[0]), "person_properties"
+                    )
                 else:
-                    materialized_column = self._get_materialized_column("person", type.chain[0], "properties")
+                    materialized_column = self._get_materialized_column("person", str(type.chain[0]), "properties")
                 if materialized_column:
                     materialized_property_sql = self._print_identifier(materialized_column)
 
@@ -1168,7 +1169,7 @@ class _Printer(Visitor):
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: List[str]) -> str:
-        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field] + unsafe_args)}), ''), 'null'), '^\"|\"$', '')"
+        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn

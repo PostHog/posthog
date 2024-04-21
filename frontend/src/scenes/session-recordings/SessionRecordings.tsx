@@ -1,5 +1,5 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconEllipsis, IconGear } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -22,7 +22,6 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
 import { SessionRecordingErrors } from './errors/SessionRecordingErrors'
-import { SessionRecordingFilePlayback } from './file-playback/SessionRecordingFilePlayback'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
@@ -66,6 +65,16 @@ export function SessionsRecordings(): JSX.Element {
                     <>
                         {tab === ReplayTabs.Recent && !recordingsDisabled && (
                             <>
+                                <LemonMenu
+                                    items={[
+                                        {
+                                            label: 'Playback from file',
+                                            to: urls.replayFilePlayback(),
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton icon={<IconEllipsis />} />
+                                </LemonMenu>
                                 <NotebookSelectButton
                                     resource={{
                                         type: NotebookNodeType.RecordingPlaylist,
@@ -175,8 +184,6 @@ export function SessionsRecordings(): JSX.Element {
                     </div>
                 ) : tab === ReplayTabs.Playlists ? (
                     <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
-                ) : tab === ReplayTabs.FilePlayback ? (
-                    <SessionRecordingFilePlayback />
                 ) : tab === ReplayTabs.Errors ? (
                     <SessionRecordingErrors />
                 ) : null}

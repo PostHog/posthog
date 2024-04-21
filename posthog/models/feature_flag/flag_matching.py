@@ -7,7 +7,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 from prometheus_client import Counter
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, OperationalError
+from django.db import DatabaseError, IntegrityError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models import Q, Func, F, CharField
@@ -135,14 +135,22 @@ class FeatureFlagMatcher:
         self,
         feature_flags: List[FeatureFlag],
         distinct_id: str,
-        groups: Dict[GroupTypeName, str] = {},
+        groups: Optional[Dict[GroupTypeName, str]] = None,
         cache: Optional[FlagsMatcherCache] = None,
-        hash_key_overrides: Dict[str, str] = {},
-        property_value_overrides: Dict[str, Union[str, int]] = {},
-        group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+        hash_key_overrides: Optional[Dict[str, str]] = None,
+        property_value_overrides: Optional[Dict[str, Union[str, int]]] = None,
+        group_property_value_overrides: Optional[Dict[str, Dict[str, Union[str, int]]]] = None,
         skip_database_flags: bool = False,
         cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
     ):
+        if group_property_value_overrides is None:
+            group_property_value_overrides = {}
+        if property_value_overrides is None:
+            property_value_overrides = {}
+        if hash_key_overrides is None:
+            hash_key_overrides = {}
+        if groups is None:
+            groups = {}
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
         self.groups = groups
@@ -329,7 +337,7 @@ class FeatureFlagMatcher:
                     )
                 condition_match = all(match_property(property, target_properties) for property in properties)
             else:
-                match_if_entity_doesnt_exist = check_pure_is_not_set_operator_condition(condition)
+                match_if_entity_doesnt_exist = check_pure_is_not_operator_condition(condition)
                 condition_match = self._condition_matches(
                     feature_flag,
                     condition_index,
@@ -425,7 +433,7 @@ class FeatureFlagMatcher:
 
                 person_fields: List[str] = []
 
-                for existence_condition_key in self.has_pure_is_not_set_conditions:
+                for existence_condition_key in self.has_pure_is_not_conditions:
                     if existence_condition_key == PERSON_KEY:
                         person_exists = person_query.exists()
                         all_conditions[f"{ENTITY_EXISTS_PREFIX}{PERSON_KEY}"] = person_exists
@@ -659,11 +667,11 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
     @cached_property
-    def has_pure_is_not_set_conditions(self) -> set[Literal["person"] | GroupTypeIndex]:
+    def has_pure_is_not_conditions(self) -> set[Literal["person"] | GroupTypeIndex]:
         entity_to_condition_check: set[Literal["person"] | GroupTypeIndex] = set()
         for feature_flag in self.feature_flags:
             for condition in feature_flag.conditions:
-                if check_pure_is_not_set_operator_condition(condition):
+                if check_pure_is_not_operator_condition(condition):
                     if feature_flag.aggregation_group_type_index is not None:
                         entity_to_condition_check.add(feature_flag.aggregation_group_type_index)
                     else:
@@ -712,11 +720,17 @@ def _get_all_feature_flags(
     team_id: int,
     distinct_id: str,
     person_overrides: Optional[Dict[str, str]] = None,
-    groups: Dict[GroupTypeName, str] = {},
-    property_value_overrides: Dict[str, Union[str, int]] = {},
-    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+    groups: Optional[Dict[GroupTypeName, str]] = None,
+    property_value_overrides: Optional[Dict[str, Union[str, int]]] = None,
+    group_property_value_overrides: Optional[Dict[str, Dict[str, Union[str, int]]]] = None,
     skip_database_flags: bool = False,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
+    if group_property_value_overrides is None:
+        group_property_value_overrides = {}
+    if property_value_overrides is None:
+        property_value_overrides = {}
+    if groups is None:
+        groups = {}
     cache = FlagsMatcherCache(team_id)
 
     if feature_flags:
@@ -738,11 +752,17 @@ def _get_all_feature_flags(
 def get_all_feature_flags(
     team_id: int,
     distinct_id: str,
-    groups: Dict[GroupTypeName, str] = {},
+    groups: Optional[Dict[GroupTypeName, str]] = None,
     hash_key_override: Optional[str] = None,
-    property_value_overrides: Dict[str, Union[str, int]] = {},
-    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+    property_value_overrides: Optional[Dict[str, Union[str, int]]] = None,
+    group_property_value_overrides: Optional[Dict[str, Dict[str, Union[str, int]]]] = None,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
+    if group_property_value_overrides is None:
+        group_property_value_overrides = {}
+    if property_value_overrides is None:
+        property_value_overrides = {}
+    if groups is None:
+        groups = {}
     property_value_overrides, group_property_value_overrides = add_local_person_and_group_properties(
         distinct_id, groups, property_value_overrides, group_property_value_overrides
     )
@@ -790,7 +810,8 @@ def get_all_feature_flags(
                     distinct_ids = [distinct_id, str(hash_key_override)]
                     query = """
                         WITH target_person_ids AS (
-                            SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                            SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
+                            distinct_id = ANY(%(distinct_ids)s)
                         ),
                         existing_overrides AS (
                             SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
@@ -801,7 +822,7 @@ def get_all_feature_flags(
                     """
                     cursor.execute(
                         query,
-                        {"team_id": team_id, "distinct_ids": tuple(distinct_ids)},  # type: ignore
+                        {"team_id": team_id, "distinct_ids": distinct_ids},  # type: ignore
                     )
                     flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
                     should_write_hash_key_override = len(flags_with_no_overrides) > 0
@@ -902,7 +923,8 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as cursor:
                 query = """
                     WITH target_person_ids AS (
-                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
+                        distinct_id = ANY(%(distinct_ids)s)
                     ),
                     existing_overrides AS (
                         SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
@@ -931,7 +953,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
                     query,
                     {
                         "team_id": team_id,
-                        "distinct_ids": tuple(distinct_ids),  # type: ignore
+                        "distinct_ids": distinct_ids,  # type: ignore
                         "hash_key_override": hash_key_override,
                     },
                 )
@@ -965,13 +987,12 @@ def handle_feature_flag_exception(err: Exception, log_message: str = "", set_hea
 
 def parse_exception_for_error_message(err: Exception):
     reason = "unknown"
-    if isinstance(err, OperationalError):
+    if isinstance(err, DatabaseError):
         if "statement timeout" in str(err):
             reason = "timeout"
         elif "no more connections" in str(err):
             reason = "no_more_connections"
-    elif isinstance(err, DatabaseError):
-        if "Failed to fetch conditions" in str(err):
+        elif "Failed to fetch conditions" in str(err):
             reason = "flag_condition_retry"
         elif "Failed to fetch group" in str(err):
             reason = "group_mapping_retry"
@@ -1035,8 +1056,8 @@ def add_local_person_and_group_properties(distinct_id, groups, person_properties
     return all_person_properties, all_group_properties
 
 
-def check_pure_is_not_set_operator_condition(condition: dict) -> bool:
+def check_pure_is_not_operator_condition(condition: dict) -> bool:
     properties = condition.get("properties", [])
-    if properties and all(prop.get("operator") == "is_not_set" for prop in properties):
+    if properties and all(prop.get("operator") in ("is_not_set", "is_not") for prop in properties):
         return True
     return False

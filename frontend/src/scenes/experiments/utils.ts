@@ -17,3 +17,7 @@ export const transformResultFilters = (filters: Partial<FilterType>): Partial<Fi
         display: ChartDisplayType.ActionsLineGraphCumulative,
     }),
 })
+
+export function formatUnitByQuantity(value: number, unit: string): string {
+    return value === 1 ? unit : unit + 's'
+}

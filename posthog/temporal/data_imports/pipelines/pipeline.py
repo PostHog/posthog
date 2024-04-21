@@ -17,7 +17,7 @@ from dlt.sources import DltSource
 class PipelineInputs:
     source_id: UUID
     run_id: str
-    schemas: list[tuple[str, str]]
+    schema_id: UUID
     dataset_name: str
     job_type: str
     team_id: int
@@ -68,13 +68,6 @@ class DataImportPipeline:
             dataset_name=self.inputs.dataset_name,
         )
 
-    def _get_schemas(self):
-        if not self.inputs.schemas:
-            self.logger.info(f"No schemas found for source id {self.inputs.source_id}")
-            return None
-
-        return self.inputs.schemas
-
     def _run(self) -> Dict[str, int]:
         pipeline = self._create_pipeline()
         pipeline.run(self.source, loader_file_format=self.loader_file_format)
@@ -86,10 +79,6 @@ class DataImportPipeline:
         return dict(filtered_rows)
 
     async def run(self) -> Dict[str, int]:
-        schemas = self._get_schemas()
-        if not schemas:
-            return {}
-
         try:
             return await asyncio.to_thread(self._run)
         except PipelineStepFailed:

@@ -9,7 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ReplayTabs } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import {
     deduplicateSnapshots,
@@ -17,27 +17,8 @@ import {
     sessionRecordingDataLogic,
 } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
-import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
+import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
-
-export const createExportedSessionRecording = (
-    logic: BuiltLogic<sessionRecordingDataLogicType>,
-    // DEBUG signal only, to be removed before release
-    exportUntransformedMobileSnapshotData: boolean
-): ExportedSessionRecordingFileV2 => {
-    const { sessionPlayerMetaData, sessionPlayerSnapshotData } = logic.values
-
-    return {
-        version: '2023-04-28',
-        data: {
-            id: sessionPlayerMetaData?.id ?? '',
-            person: sessionPlayerMetaData?.person,
-            snapshots: exportUntransformedMobileSnapshotData
-                ? sessionPlayerSnapshotData?.untransformed_snapshots || []
-                : sessionPlayerSnapshotData?.snapshots || [],
-        },
-    }
-}
 
 export const parseExportedSessionRecording = (fileData: string): ExportedSessionRecordingFileV2 => {
     const data = JSON.parse(fileData) as ExportedSessionRecordingFileV1 | ExportedSessionRecordingFileV2
@@ -103,8 +84,8 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRe
     throw new Error('Timeout reached: dataLogic is still null after 2 seconds')
 }
 
-export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybackLogicType>([
-    path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackLogic']),
+export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePlaybackSceneLogicType>([
+    path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackSceneLogic']),
     connect({
         actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
         values: [featureFlagLogic, ['featureFlags']],
@@ -163,9 +144,13 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 await parseEncodedSnapshots(values.sessionRecording.snapshots, values.sessionRecording.id)
             )
 
-            dataLogic.actions.loadRecordingSnapshotsSuccess({
-                snapshots,
+            // Simulate a loaded source and sources so that nothing extra gets loaded
+            dataLogic.actions.loadSnapshotsForSourceSuccess({
+                snapshots: snapshots,
+                untransformed_snapshots: snapshots,
+                source: { source: 'file' },
             })
+            dataLogic.actions.loadSnapshotSourcesSuccess([{ source: 'file' }])
 
             dataLogic.actions.loadRecordingMetaSuccess({
                 id: values.sessionRecording.id,
@@ -192,12 +177,13 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             (): Breadcrumb[] => [
                 {
                     key: Scene.Replay,
-                    name: 'Session replay',
+                    name: 'Replay',
                     path: urls.replay(),
                 },
                 {
-                    key: ReplayTabs.FilePlayback,
-                    name: 'Import',
+                    key: Scene.ReplayFilePlayback,
+                    name: 'File playback',
+                    path: urls.replayFilePlayback(),
                 },
             ],
         ],

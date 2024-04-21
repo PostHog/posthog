@@ -127,13 +127,15 @@ def create_person(
     team_id: int,
     version: int,
     uuid: Optional[str] = None,
-    properties: Optional[Dict] = {},
+    properties: Optional[Dict] = None,
     sync: bool = False,
     is_identified: bool = False,
     is_deleted: bool = False,
     timestamp: Optional[Union[datetime.datetime, str]] = None,
     created_at: Optional[datetime.datetime] = None,
 ) -> str:
+    if properties is None:
+        properties = {}
     if uuid:
         uuid = str(uuid)
     else:

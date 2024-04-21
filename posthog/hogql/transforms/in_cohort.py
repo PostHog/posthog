@@ -287,18 +287,19 @@ class InCohortResolver(TraversingVisitor):
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
                 cohorts = Cohort.objects.filter(id=int(arg.value), team_id=self.context.team_id).values_list(
-                    "id", "is_static", "name"
+                    "id", "is_static", "version", "name"
                 )
                 if len(cohorts) == 1:
                     self.context.add_notice(
                         start=arg.start,
                         end=arg.end,
-                        message=f"Cohort #{cohorts[0][0]} can also be specified as {escape_clickhouse_string(cohorts[0][2])}",
-                        fix=escape_clickhouse_string(cohorts[0][2]),
+                        message=f"Cohort #{cohorts[0][0]} can also be specified as {escape_clickhouse_string(cohorts[0][3])}",
+                        fix=escape_clickhouse_string(cohorts[0][3]),
                     )
                     self._add_join_for_cohort(
                         cohort_id=cohorts[0][0],
                         is_static=cohorts[0][1],
+                        version=cohorts[0][2],
                         compare=node,
                         select=self.stack[-1],
                         negative=node.op == ast.CompareOperationOp.NotInCohort,
@@ -307,25 +308,26 @@ class InCohortResolver(TraversingVisitor):
                 raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
             if isinstance(arg.value, str):
-                cohorts = Cohort.objects.filter(name=arg.value, team_id=self.context.team_id).values_list(
-                    "id", "is_static"
+                cohorts2 = Cohort.objects.filter(name=arg.value, team_id=self.context.team_id).values_list(
+                    "id", "is_static", "version"
                 )
-                if len(cohorts) == 1:
+                if len(cohorts2) == 1:
                     self.context.add_notice(
                         start=arg.start,
                         end=arg.end,
-                        message=f"Searching for cohort by name. Replace with numeric ID {cohorts[0][0]} to protect against renaming.",
-                        fix=str(cohorts[0][0]),
+                        message=f"Searching for cohort by name. Replace with numeric ID {cohorts2[0][0]} to protect against renaming.",
+                        fix=str(cohorts2[0][0]),
                     )
                     self._add_join_for_cohort(
-                        cohort_id=cohorts[0][0],
-                        is_static=cohorts[0][1],
+                        cohort_id=cohorts2[0][0],
+                        is_static=cohorts2[0][1],
+                        version=cohorts2[0][2],
                         compare=node,
                         select=self.stack[-1],
                         negative=node.op == ast.CompareOperationOp.NotInCohort,
                     )
                     return
-                elif len(cohorts) > 1:
+                elif len(cohorts2) > 1:
                     raise QueryError(f"Found multiple cohorts with name '{arg.value}'", node=arg)
                 raise QueryError(f"Could not find a cohort with the name '{arg.value}'", node=arg)
         else:
@@ -336,6 +338,7 @@ class InCohortResolver(TraversingVisitor):
         self,
         cohort_id: int,
         is_static: bool,
+        version: Optional[int],
         select: ast.SelectQuery,
         compare: ast.CompareOperation,
         negative: bool,
@@ -354,11 +357,15 @@ class InCohortResolver(TraversingVisitor):
         if must_add_join:
             if is_static:
                 sql = "(SELECT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+            elif version is not None:
+                sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} AND version = {version})"
             else:
                 sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
             subquery = parse_expr(
-                sql, {"cohort_id": ast.Constant(value=cohort_id)}, start=None
-            )  # clear the source start position
+                sql,
+                {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
+                start=None,  # clear the source start position
+            )
 
             new_join = ast.JoinExpr(
                 alias=f"in_cohort__{cohort_id}",

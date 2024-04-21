@@ -13,6 +13,10 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest
 
 
+def mock_ee_email_messages(MockEmailMessage: MagicMock):
+    return mock_email_messages(MockEmailMessage, path="ee/tasks/test/__emails__/")
+
+
 @patch("ee.tasks.subscriptions.email_subscriptions.EmailMessage")
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestEmailSubscriptionsTasks(APIBaseTest):
@@ -32,7 +36,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         self.subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
 
     def test_subscription_delivery(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
 
         send_email_subscription_report("test1@posthog.com", self.subscription, [self.asset])
 
@@ -42,7 +46,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert f"/exporter/export-my-test-subscription.png?token=ey" in mocked_email_messages[0].html_body
 
     def test_new_subscription_delivery(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
 
         send_email_subscription_report(
             "test1@posthog.com",
@@ -60,7 +64,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "My invite message" in mocked_email_messages[0].html_body
 
     def test_should_have_different_text_for_self(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
 
         send_email_subscription_report(
             self.user.email,
@@ -75,7 +79,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "You have been subscribed to a PostHog Insight" == mocked_email_messages[0].subject
 
     def test_sends_dashboard_subscription(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
 
         subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
 
