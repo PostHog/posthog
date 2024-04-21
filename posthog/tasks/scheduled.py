@@ -46,8 +46,8 @@ from posthog.tasks.tasks import (
     update_event_partitions,
     update_quota_limiting,
     verify_persons_data_in_sync,
+    stop_surveys_reached_target,
 )
-from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 from posthog.utils import get_crontab
 
 
@@ -240,7 +240,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         )
 
     sender.add_periodic_task(
-        crontab(minute="0"),
+        crontab(hour="*/12"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
     )
