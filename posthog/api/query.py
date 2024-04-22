@@ -3,6 +3,7 @@ import uuid
 
 from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
+from posthog.hogql_queries.query_runner import ExecutionMode
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotAuthenticated
@@ -75,7 +76,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         tag_queries(query=request.data["query"])
         try:
-            result = process_query_model(self.team, data.query, refresh_requested=data.refresh)
+            result = process_query_model(
+                self.team,
+                data.query,
+                execution_mode=ExecutionMode.CALCULATION_REQUESTED if data.refresh else ExecutionMode.CACHE_ONLY,
+            )
             return Response(result)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
