@@ -12,7 +12,7 @@ import { LemonDialog, LemonMenu, LemonMenuItems, LemonSwitch } from '@posthog/le
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
@@ -31,7 +31,8 @@ import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
 export function PlayerController({ metaIconsOnly }: { metaIconsOnly: boolean }): JSX.Element {
-    const { playingState, isFullScreen, sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { playingState, isFullScreen, endReached, sessionRecordingId, logicProps } =
+        useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
     const { speed, skipInactivitySetting } = useValues(playerSettingsLogic)
@@ -51,13 +52,19 @@ export function PlayerController({ metaIconsOnly }: { metaIconsOnly: boolean }):
                             size="small"
                             onClick={togglePlayPause}
                             tooltip={
-                                <>
-                                    {showPause ? 'Pause' : 'Play'}
+                                <div className="flex gap-1">
+                                    <span>{showPause ? 'Pause' : endReached ? 'Restart' : 'Play'}</span>
                                     <KeyboardShortcut space />
-                                </>
+                                </div>
                             }
                         >
-                            {showPause ? <IconPause className="text-2xl" /> : <IconPlay className="text-2xl" />}
+                            {showPause ? (
+                                <IconPause className="text-2xl" />
+                            ) : endReached ? (
+                                <IconSync className="text-2xl" />
+                            ) : (
+                                <IconPlay className="text-2xl" />
+                            )}
                         </LemonButton>
                         <SeekSkip direction="backward" />
                         <SeekSkip direction="forward" />
