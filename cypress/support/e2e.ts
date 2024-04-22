@@ -34,6 +34,7 @@ beforeEach(() => {
                 'surveys-new-creation-flow': true,
                 'auto-redirect': true,
                 hogql: true,
+                'hogql-insights-preview': true,
                 'data-exploration-insights': true,
                 notebooks: true,
             })
