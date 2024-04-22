@@ -252,6 +252,7 @@ class EventsQueryRunner(QueryRunner):
             types=[t for _, t in query_result.types] if query_result.types else None,
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
+            modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
 

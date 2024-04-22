@@ -428,7 +428,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             APIScopePermission,
             AccessControlPermission,
             PremiumMultiProjectPermissions,
-        ] + self.permission_classes
+            *self.permission_classes,
+        ]
 
         base_permissions = [permission() for permission in common_permissions]
 

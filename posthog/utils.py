@@ -275,7 +275,7 @@ def get_js_url(request: HttpRequest) -> str:
 def render_template(
     template_name: str,
     request: HttpRequest,
-    context: Dict = {},
+    context: Optional[Dict] = None,
     *,
     team_for_public_context: Optional["Team"] = None,
 ) -> HttpResponse:
@@ -284,6 +284,8 @@ def render_template(
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
     """
 
+    if context is None:
+        context = {}
     template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
@@ -481,7 +483,7 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
     for p in plugin_configs:
         config = p["pluginconfig__config"] or {}
         config_schema = p["config_schema"] or {}
-        secret_fields = {field["key"] for field in config_schema if "secret" in field and field["secret"]}
+        secret_fields = {field["key"] for field in config_schema if field.get("secret")}
         for key in secret_fields:
             if key in config:
                 config[key] = "** SECRET FIELD **"
@@ -1312,13 +1314,6 @@ def patchable(fn):
     inner._patch = patch  # type: ignore
 
     return inner
-
-
-class PersonOnEventsMode(str, Enum):
-    DISABLED = "disabled"
-    PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_no_override_properties_on_events"
-    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_override_properties_on_events"
-    PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
 def label_for_team_id_to_track(team_id: int) -> str:

@@ -197,6 +197,11 @@ class Plugin(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     log_level: models.IntegerField = models.IntegerField(null=True, blank=True)
 
+    # Some plugins are private, only certain organizations should be able to access them
+    # Sometimes we want to deprecate plugins, where the first step is limiting access to organizations using them
+    # Sometimes we want to test out new plugins by only enabling them for certain organizations at first
+    has_private_access = models.ManyToManyField(Organization)
+
     objects: PluginManager = PluginManager()
 
     def get_default_config(self) -> Dict[str, Any]:
@@ -421,8 +426,10 @@ def fetch_plugin_log_entries(
     before: Optional[timezone.datetime] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
-    type_filter: List[PluginLogEntryType] = [],
+    type_filter: Optional[List[PluginLogEntryType]] = None,
 ) -> List[PluginLogEntry]:
+    if type_filter is None:
+        type_filter = []
     clickhouse_where_parts: List[str] = []
     clickhouse_kwargs: Dict[str, Any] = {}
     if team_id is not None:

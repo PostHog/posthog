@@ -308,6 +308,7 @@ FROM (
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
             ],
             samplingRate=self._sample_rate,
+            modifiers=self.modifiers,
         )
 
     @cached_property
