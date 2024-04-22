@@ -398,23 +398,25 @@ class DashboardsViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "dashboard"
-    queryset = Dashboard.objects.order_by("name")
+    queryset = Dashboard.objects_including_soft_deleted.order_by("name")
     permission_classes = [CanEditDashboard]
 
     def get_serializer_class(self) -> Type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
     def get_queryset(self) -> QuerySet:
-        if (
+        queryset = super().get_queryset()
+
+        include_deleted = (
             self.action == "partial_update"
             and "deleted" in self.request.data
             and not self.request.data.get("deleted")
             and len(self.request.data) == 1
-        ):
+        )
+
+        if not include_deleted:
             # a dashboard can be un-deleted by patching {"deleted": False}
-            queryset = Dashboard.objects_including_soft_deleted
-        else:
-            queryset = super().get_queryset()
+            queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
             "team__organization",
