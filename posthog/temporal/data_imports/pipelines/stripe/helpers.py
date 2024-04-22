@@ -111,11 +111,14 @@ async def stripe_pagination(
 
         if len(response["data"]) > 0:
             if endpoint in INCREMENTAL_ENDPOINTS:
+                # First pass, store the latest value
                 if _starting_after is None and _ending_before is None:
                     _ending_before_state["last_value"] = response["data"][0]["id"]
 
+                # currently scrolling from past to present
                 if _ending_before is not None:
                     _ending_before = response["data"][0]["id"]
+                # otherwise scrolling from present to past
                 else:
                     _starting_after = response["data"][-1]["id"]
             else:
