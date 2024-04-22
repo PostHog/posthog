@@ -14,7 +14,7 @@ class ZendeskCredentialsBase(CredentialsConfiguration):
     The Base version of all the ZendeskCredential classes.
     """
 
-    subdomain: str  # type: ignore
+    subdomain: str
     __config_gen_annotations__: ClassVar[List[str]] = []
 
 
