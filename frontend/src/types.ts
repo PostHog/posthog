@@ -1445,7 +1445,7 @@ export interface BillingProductV2AddonType {
     contact_support: boolean | null
     unit: string | null
     unit_amount_usd: string | null
-    flat_rate: boolean
+    flat_rate?: boolean
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
