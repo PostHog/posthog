@@ -141,6 +141,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
         updateExperimentExposure: (filters: Partial<FilterType> | null) => ({ filters }),
         updateExperimentSecondaryMetrics: (metrics: SecondaryExperimentMetric[]) => ({ metrics }),
+        changeExperimentStartDate: (startDate: string) => ({ startDate }),
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
@@ -238,6 +239,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 updateExperimentGoal: () => true,
                 updateExperimentExposure: () => true,
+                changeExperimentStartDate: () => true,
                 loadExperimentResults: () => false,
             },
         ],
@@ -445,6 +447,10 @@ export const experimentLogic = kea<experimentLogicType>([
             const startDate = dayjs()
             actions.updateExperiment({ start_date: startDate.toISOString() })
             values.experiment && eventUsageLogic.actions.reportExperimentLaunched(values.experiment, startDate)
+        },
+        changeExperimentStartDate: async ({ startDate }) => {
+            actions.updateExperiment({ start_date: startDate })
+            values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
         },
         endExperiment: async () => {
             const endDate = dayjs()

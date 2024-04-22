@@ -1,6 +1,7 @@
 """
 This module handles how credentials are read in dlt sources
 """
+
 from typing import ClassVar, List, Union
 from dlt.common.configuration import configspec
 from dlt.common.configuration.specs import CredentialsConfiguration

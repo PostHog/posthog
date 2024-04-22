@@ -63,7 +63,7 @@ parser = ResolvingParser(
 openapi_spec = cast(Dict[str, Any], parser.specification)
 
 large_data_array = [
-    {"key": random.choice(string.ascii_letters) for _ in range(512 * 1024)}
+    {"key": "".join(random.choice(string.ascii_letters) for _ in range(512 * 1024))}
 ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
 
 android_json = {
@@ -188,7 +188,7 @@ class TestCapture(BaseTest):
     def _send_original_version_session_recording_event(
         self,
         number_of_events: int = 1,
-        event_data: Dict | None = {},
+        event_data: Dict | None = None,
         snapshot_source=3,
         snapshot_type=1,
         session_id="abc123",
@@ -196,6 +196,8 @@ class TestCapture(BaseTest):
         distinct_id="ghi789",
         timestamp=1658516991883,
     ) -> dict:
+        if event_data is None:
+            event_data = {}
         if event_data is None:
             event_data = {}
 
@@ -1525,8 +1527,8 @@ class TestCapture(BaseTest):
         ]
     )
     def test_cors_allows_tracing_headers(self, _: str, path: str, headers: List[str]) -> None:
-        expected_headers = ",".join(["X-Requested-With", "Content-Type"] + headers)
-        presented_headers = ",".join(headers + ["someotherrandomheader"])
+        expected_headers = ",".join(["X-Requested-With", "Content-Type", *headers])
+        presented_headers = ",".join([*headers, "someotherrandomheader"])
         response = self.client.options(
             path,
             HTTP_ORIGIN="https://localhost",
