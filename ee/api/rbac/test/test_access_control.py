@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 from unittest.mock import MagicMock, patch
 from rest_framework import status
 
@@ -22,21 +23,21 @@ class BaseAccessControlTest(APILicensedTest):
         ]
         self.organization.save()
 
-        self.default_resource_id = self.team.id
-
-    def _put_project_access_control(self, data={}):
+    def _put_project_access_control(self, data=None):
         payload = {"access_level": "admin"}
 
-        payload.update(data)
+        if data:
+            payload.update(data)
 
         return self.client.put(
             "/api/projects/@current/access_controls",
             payload,
         )
 
-    def _put_global_access_control(self, data={}):
+    def _put_global_access_control(self, data=None):
         payload = {"access_level": "editor"}
-        payload.update(data)
+        if data:
+            payload.update(data)
 
         return self.client.put(
             "/api/projects/@current/global_access_controls",
@@ -121,15 +122,16 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
             team=self.team, created_by=self.other_user, short_id="1", title="first notebook"
         )
 
-    def _get_access_controls(self, data={}):
+    def _get_access_controls(self):
         return self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}/access_controls")
 
-    def _put_access_control(self, data={}, notebook_id=None):
+    def _put_access_control(self, data=None, notebook_id=None):
         payload = {
             "access_level": "editor",
         }
 
-        payload.update(data)
+        if data:
+            payload.update(data)
         return self.client.put(
             f"/api/projects/@current/notebooks/{notebook_id or self.notebook.short_id}/access_controls",
             payload,
@@ -245,12 +247,13 @@ class TestAccessControlPermissions(BaseAccessControlTest):
     def _get_notebook(self, id: str):
         return self.client.get(f"/api/projects/@current/notebooks/{id}")
 
-    def _put_notebook_access_control(self, notebook_id: str, data={}):
+    def _put_notebook_access_control(self, notebook_id: str, data=None):
         payload = {
             "access_level": "editor",
         }
 
-        payload.update(data)
+        if data:
+            payload.update(data)
         return self.client.put(
             f"/api/projects/@current/notebooks/{notebook_id}/access_controls",
             payload,
@@ -454,12 +457,13 @@ class TestAccessControlFiltering(BaseAccessControlTest):
 
         self.notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="my notebook")
 
-    def _put_notebook_access_control(self, notebook_id: str, data={}):
+    def _put_notebook_access_control(self, notebook_id: str, data=None):
         payload = {
             "access_level": "editor",
         }
 
-        payload.update(data)
+        if data:
+            payload.update(data)
         return self.client.put(
             f"/api/projects/@current/notebooks/{notebook_id}/access_controls",
             payload,
@@ -532,13 +536,14 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         self.other_team = Team.objects.create(organization=self.organization, name="other team")
         self.other_team_2 = Team.objects.create(organization=self.organization, name="other team 2")
 
-    def _put_project_access_control(self, team_id: str, data={}):
+    def _put_project_access_control_as_admin(self, team_id: int, data=None):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         payload = {
             "access_level": "editor",
         }
 
-        payload.update(data)
+        if data:
+            payload.update(data)
         res = self.client.put(
             f"/api/projects/{team_id}/access_controls",
             payload,
@@ -566,13 +571,13 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         assert len(me_response["organization"]["teams"]) == 3
 
     def test_does_not_list_projects_without_access(self):
-        self._put_project_access_control(self.other_team.id, {"access_level": "none"})
+        self._put_project_access_control_as_admin(self.other_team.id, {"access_level": "none"})
         assert len(self.client.get("/api/projects").json()["results"]) == 2
         me_response = self.client.get("/api/users/@me").json()
         assert len(me_response["organization"]["teams"]) == 2
 
     def test_always_lists_all_projects_if_org_admin(self):
-        self._put_project_access_control(self.other_team.id, {"access_level": "none"})
+        self._put_project_access_control_as_admin(self.other_team.id, {"access_level": "none"})
         self._org_membership(OrganizationMembership.Level.ADMIN)
         assert len(self.client.get("/api/projects").json()["results"]) == 3
         me_response = self.client.get("/api/users/@me").json()
@@ -584,7 +589,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         assert app_context["current_team"]["id"] == self.team.id
         assert app_context["current_team"]["user_access_level"] == "admin"
 
-        self._put_project_access_control(self.team.id, {"access_level": "none"})
+        self._put_project_access_control_as_admin(self.team.id, {"access_level": "none"})
         app_context = self._get_posthog_app_context()
         assert len(app_context["current_user"]["organization"]["teams"]) == 2
         assert app_context["current_team"]["id"] == self.team.id
