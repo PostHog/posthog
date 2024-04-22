@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, key, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -61,7 +61,9 @@ import {
     taxonomicEventFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
-import { EventType } from '~/types'
+import { EventType, InsightLogicProps } from '~/types'
+import { insightVizDataNodeKey } from "~/queries/nodes/InsightViz/InsightViz";
+import { keyForInsightLogicProps } from "scenes/insights/sharedUtils";
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -96,11 +98,15 @@ export function DataTable({
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
-    const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
-
+    //const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
+    const insightProps: InsightLogicProps = context?.insightProps || {
+        dashboardItemId: `new-AdHoc.${dataKey}`,
+        dataNodeCollectionId: dataKey,
+    }
+    const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: dataNodeLogicKey ?? dataKey,
+        key: vizKey,
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
     }
@@ -122,7 +128,7 @@ export function DataTable({
         query,
         vizKey: vizKey,
         dataKey: dataKey,
-        dataNodeLogicKey,
+        dataNodeLogicKey: dataNodeLogicProps.key,
         context,
     }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
