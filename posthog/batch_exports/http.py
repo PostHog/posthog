@@ -97,9 +97,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     pagination_class = RunsCursorPagination
     filter_rewrite_rules = {"team_id": "batch_export__team_id"}
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-
+    def filter_queryset(self, queryset):
         after = self.request.GET.get("after", "-7d")
         before = self.request.GET.get("before", None)
         after_datetime = relative_date_parse(after, self.team.timezone_info)
@@ -324,11 +322,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
 class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
-    queryset = BatchExport.objects.all()
+    queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer
-
-    def get_queryset(self):
-        return super().get_queryset().exclude(deleted=True).order_by("-created_at").prefetch_related("destination")
 
     @action(methods=["POST"], detail=True)
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
