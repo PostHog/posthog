@@ -1240,14 +1240,6 @@ export function IconPlayCircle(props: LemonIconProps): JSX.Element {
     )
 }
 
-export function IconPause(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path d="M6 19H10V5H6V19ZM14 5V19H18V5H14Z" fill="currentColor" />
-        </LemonIconBase>
-    )
-}
-
 export function IconSkipBackward(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>

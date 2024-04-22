@@ -20,6 +20,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -28,6 +29,7 @@ import { isFunnelsQuery } from '~/queries/utils'
 import {
     ActionFilter as ActionFilterType,
     Breadcrumb,
+    CohortType,
     CountPerActorMathType,
     Experiment,
     ExperimentResults,
@@ -109,6 +111,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentCompleted',
                 'reportExperimentArchived',
                 'reportExperimentReset',
+                'reportExperimentExposureCohortCreated',
             ],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
@@ -138,6 +141,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
         updateExperimentExposure: (filters: Partial<FilterType> | null) => ({ filters }),
         updateExperimentSecondaryMetrics: (metrics: SecondaryExperimentMetric[]) => ({ metrics }),
+        changeExperimentStartDate: (startDate: string) => ({ startDate }),
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
@@ -235,6 +239,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 updateExperimentGoal: () => true,
                 updateExperimentExposure: () => true,
+                changeExperimentStartDate: () => true,
                 loadExperimentResults: () => false,
             },
         ],
@@ -391,7 +396,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // the new query with any existing query and that causes validation problems when there are
             // unsupported properties in the now merged query.
             const newQuery = filtersToQueryNode(newInsightFilters)
-            if (filters?.insight === InsightType.FUNNELS) {
+            if (newInsightFilters?.insight === InsightType.FUNNELS) {
                 ;(newQuery as TrendsQuery).trendsFilter = undefined
             } else {
                 ;(newQuery as FunnelsQuery).funnelsFilter = undefined
@@ -442,6 +447,10 @@ export const experimentLogic = kea<experimentLogicType>([
             const startDate = dayjs()
             actions.updateExperiment({ start_date: startDate.toISOString() })
             values.experiment && eventUsageLogic.actions.reportExperimentLaunched(values.experiment, startDate)
+        },
+        changeExperimentStartDate: async ({ startDate }) => {
+            actions.updateExperiment({ start_date: startDate })
+            values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
         },
         endExperiment: async () => {
             const endDate = dayjs()
@@ -592,6 +601,19 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setCurrentFormStep(currentFormStep + 1)
             }
         },
+        createExposureCohortSuccess: ({ exposureCohort }) => {
+            if (exposureCohort && exposureCohort.id !== 'new') {
+                cohortsModel.actions.cohortCreated(exposureCohort)
+                actions.reportExperimentExposureCohortCreated(values.experiment, exposureCohort)
+                actions.setExperiment({ exposure_cohort: exposureCohort.id })
+                lemonToast.success('Exposure cohort created successfully', {
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(exposureCohort.id)),
+                    },
+                })
+            }
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -671,6 +693,17 @@ export const experimentLogic = kea<experimentLogicType>([
                             }
                         })
                     )
+                },
+            },
+        ],
+        exposureCohort: [
+            null as CohortType | null,
+            {
+                createExposureCohort: async () => {
+                    if (props.experimentId && props.experimentId !== 'new') {
+                        return (await api.experiments.createExposureCohort(props.experimentId)).cohort
+                    }
+                    return null
                 },
             },
         ],

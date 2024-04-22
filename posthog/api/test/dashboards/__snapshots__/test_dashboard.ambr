@@ -390,8 +390,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."team_id" = 2
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted"
          AND "posthog_dashboard"."id" = 2)
   LIMIT 21
   '''
@@ -2615,8 +2615,8 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."team_id" = 2)
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted")
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.55
@@ -2738,8 +2738,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."team_id" = 2)
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted")
   ORDER BY "posthog_dashboard"."name" ASC
   LIMIT 300
   '''
@@ -2777,7 +2777,7 @@
                                                           2,
                                                           3,
                                                           4,
-                                                          5 /* ... */) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+                                                          5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.6
@@ -6929,8 +6929,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."team_id" = 2
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted"
          AND "posthog_dashboard"."id" = 2)
   LIMIT 21
   '''
@@ -8505,7 +8505,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.32
@@ -10687,8 +10687,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."team_id" = 2
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted"
          AND "posthog_dashboard"."id" = 2)
   LIMIT 21
   '''
@@ -11797,8 +11797,8 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."team_id" = 2)
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted")
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.3
@@ -11931,8 +11931,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."team_id" = 2)
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted")
   ORDER BY "posthog_dashboard"."name" ASC
   LIMIT 100
   '''

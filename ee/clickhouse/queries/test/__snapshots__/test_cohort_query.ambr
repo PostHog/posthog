@@ -387,7 +387,7 @@
   SELECT behavior_query.person_id AS id
   FROM
     (SELECT pdi.person_id AS person_id,
-            countIf(timestamp > '2024-04-02 13:01:01'
+            countIf(timestamp > 'explicit_timestamp'
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND (has(['something'], replaceRegexpAll(JSONExtractRaw(properties, '$filter_prop'), '^"|"$', '')))) > 0 AS performed_event_condition_None_level_level_0_level_0_0
@@ -401,6 +401,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event IN ['$pageview']
+       AND timestamp <= now()
+       AND timestamp >= now() - INTERVAL 4 day
      GROUP BY person_id) behavior_query
   WHERE 1 = 1
     AND (((performed_event_condition_None_level_level_0_level_0_0)))

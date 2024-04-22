@@ -270,7 +270,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         elif breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
             default_query.select = [
                 ast.Alias(
-                    alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
+                    alias="session_duration",
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
                 ),
                 breakdown.column_expr(),
             ]
@@ -305,7 +306,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         elif self._aggregation_operation.aggregating_on_session_duration():
             default_query.select = [
                 ast.Alias(
-                    alias="session_duration", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "duration"])])
+                    alias="session_duration",
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
                 )
             ]
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
@@ -500,16 +502,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ]
             )
         elif not self._aggregation_operation.requires_query_orchestration():
+            date_range_placeholders = self.query_date_range.to_placeholders()
             filters.extend(
                 [
                     parse_expr(
-                        "timestamp >= {date_from_with_adjusted_start_of_interval}",
-                        placeholders=self.query_date_range.to_placeholders(),
+                        "timestamp >= {date_from_with_adjusted_start_of_interval}", placeholders=date_range_placeholders
                     ),
-                    parse_expr(
-                        "timestamp <= {date_to}",
-                        placeholders=self.query_date_range.to_placeholders(),
-                    ),
+                    parse_expr("timestamp <= {date_to}", placeholders=date_range_placeholders),
                 ]
             )
 
@@ -615,7 +614,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     @cached_property
     def _aggregation_operation(self) -> AggregationOperations:
         return AggregationOperations(
-            self.team, self.series, self.query_date_range, self._trends_display.should_aggregate_values()
+            self.team,
+            self.series,
+            self._trends_display.display_type,
+            self.query_date_range,
+            self._trends_display.should_aggregate_values(),
         )
 
     @cached_property

@@ -119,7 +119,7 @@ class BreakdownValues:
 
         aggregation_expression: ast.Expr
         if self._aggregation_operation.aggregating_on_session_duration():
-            aggregation_expression = ast.Call(name="max", args=[ast.Field(chain=["session", "duration"])])
+            aggregation_expression = ast.Call(name="max", args=[ast.Field(chain=["session", "$session_duration"])])
         elif self.series.math == "dau":
             # When aggregating by (daily) unique users, run the breakdown aggregation on count(e.uuid).
             # This retains legacy compatibility and should be removed once we have the new trends in production.
@@ -228,7 +228,7 @@ class BreakdownValues:
             if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
                 values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
                 if needs_other:
-                    values = [BREAKDOWN_OTHER_STRING_LABEL] + values
+                    values = [BREAKDOWN_OTHER_STRING_LABEL, *values]
 
         if len(values) == 0:
             values.insert(0, None)
@@ -270,6 +270,7 @@ class BreakdownValues:
         return AggregationOperations(
             self.team,
             self.series,
+            self.chart_display_type,
             self.query_date_range,
             should_aggregate_values=True,  # doesn't matter in this case
         )
