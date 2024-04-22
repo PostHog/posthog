@@ -170,7 +170,7 @@ async def generate_test_events_in_clickhouse(
     events: list[EventValues] = []
     while len(events) < count:
         events_to_insert = generate_test_events(
-            count=min(count, batch_size),
+            count=min(count - len(events), batch_size),
             team_id=team_id,
             possible_datetimes=possible_datetimes,
             event_name=event_name,
