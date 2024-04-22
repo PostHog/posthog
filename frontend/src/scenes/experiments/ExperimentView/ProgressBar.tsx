@@ -12,14 +12,11 @@ import { experimentLogic } from '../experimentLogic'
 import { formatUnitByQuantity } from '../utils'
 
 export function ProgressBar(): JSX.Element {
-    const {
-        experiment,
-        experimentInsightType,
-        funnelResultsPersonsTotal,
-        recommendedSampleSize,
-        actualRunningTime,
-        recommendedRunningTime,
-    } = useValues(experimentLogic)
+    const { experiment, experimentInsightType, funnelResultsPersonsTotal, actualRunningTime } =
+        useValues(experimentLogic)
+
+    const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
+    const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS

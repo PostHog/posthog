@@ -132,11 +132,7 @@ export const experimentLogic = kea<experimentLogicType>([
     actions({
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
-        createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
-            draft,
-            runningTime,
-            sampleSize,
-        }),
+        createExperiment: (draft?: boolean) => ({ draft }),
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
@@ -268,6 +264,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFlagImplementationWarning: (_, { warning }) => warning,
             },
         ],
+        // TODO: delete with the old UI
         exposureAndSampleSize: [
             { exposure: 0, sampleSize: 0 } as { exposure: number; sampleSize: number },
             {
@@ -304,7 +301,8 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        createExperiment: async ({ draft, runningTime, sampleSize }) => {
+        createExperiment: async ({ draft }) => {
+            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableChange } = values
             let response: Experiment | null = null
             const isUpdate = !!values.experimentId && values.experimentId !== 'new'
             try {
@@ -315,9 +313,9 @@ export const experimentLogic = kea<experimentLogicType>([
                             ...values.experiment,
                             parameters: {
                                 ...values.experiment?.parameters,
-                                recommended_running_time: runningTime,
-                                recommended_sample_size: sampleSize,
-                                minimum_detectable_effect: values.minimumDetectableChange,
+                                recommended_running_time: recommendedRunningTime,
+                                recommended_sample_size: recommendedSampleSize,
+                                minimum_detectable_effect: minimumDetectableChange,
                             },
                             ...(!draft && { start_date: dayjs() }),
                             // backwards compatibility: Remove any global properties set on the experiment.
@@ -342,9 +340,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         ...values.experiment,
                         parameters: {
                             ...values.experiment?.parameters,
-                            recommended_running_time: runningTime,
-                            recommended_sample_size: sampleSize,
-                            minimum_detectable_effect: values.minimumDetectableChange,
+                            recommended_running_time: recommendedRunningTime,
+                            recommended_sample_size: recommendedSampleSize,
+                            minimum_detectable_effect: minimumDetectableChange,
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
@@ -926,6 +924,23 @@ export const experimentLogic = kea<experimentLogicType>([
                 return ''
             },
         ],
+        recommendedSampleSize: [
+            (s) => [s.conversionMetrics, s.minimumSampleSizePerVariant, s.variants],
+            (conversionMetrics, minimumSampleSizePerVariant, variants): number => {
+                const conversionRate = conversionMetrics.totalRate * 100
+                const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+                const sampleSize = sampleSizePerVariant * variants.length
+                return sampleSize
+            },
+        ],
+        recommendedRunningTime: [
+            (s) => [s.trendResults, s.recommendedExposureForCountData],
+            (trendResults, recommendedExposureForCountData): number => {
+                const trendCount = trendResults[0]?.count
+                const runningTime = recommendedExposureForCountData(trendCount)
+                return runningTime
+            },
+        ],
         recommendedExposureForCountData: [
             (s) => [s.minimumDetectableChange],
             (mde) =>
@@ -1214,10 +1229,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             },
         ],
-        recommendedSampleSize: [
-            (s) => [s.experiment],
-            (experiment: Experiment): number => experiment?.parameters?.recommended_sample_size || 100,
-        ],
         funnelResultsPersonsTotal: [
             (s) => [s.experimentResults, s.experimentInsightType],
             (experimentResults: ExperimentResults['result'], experimentInsightType: InsightType): number => {
@@ -1248,12 +1259,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 return dayjs().diff(experiment.start_date, 'day')
             },
         ],
-        recommendedRunningTime: [
-            (s) => [s.experiment],
-            (experiment: Experiment): number => experiment?.parameters?.recommended_running_time || 1,
-        ],
     }),
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
@@ -1268,10 +1275,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     })),
                 },
             }),
-            submit: () => {
-                const { exposure, sampleSize } = values.exposureAndSampleSize
-                actions.createExperiment(true, exposure, sampleSize)
-            },
+            submit: () => actions.createExperiment(true),
         },
     })),
     urlToAction(({ actions, values }) => ({
