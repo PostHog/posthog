@@ -1,4 +1,5 @@
 from typing import Optional, TYPE_CHECKING
+from abc import ABC
 
 if TYPE_CHECKING:
     from .ast import Expr
@@ -6,9 +7,7 @@ if TYPE_CHECKING:
 # Base
 
 
-class BaseHogQLError(Exception):
-    """Base exception for HogQL. These are exposed to the user."""
-
+class BaseHogQLError(Exception, ABC):
     start: Optional[int]
     end: Optional[int]
 

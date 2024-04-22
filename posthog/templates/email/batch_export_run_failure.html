@@ -1,0 +1,31 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block preheader %}If failures keep occurring we will disable this batch export{% endblock %}
+{% block heading %}PostHog batch export {{ name }} has failed{% endblock %}
+{% block section %}
+<p>
+  There's been a fatal error with your batch export {{ name }} at {{ time }}. Due to the nature of the error, it cannot be retried automatically and requires manual intervention.
+
+  We recommend reviewing the batch export logs for error details:
+</p>
+
+<div class="mb mt text-center">
+  <a href="{% absolute_uri '/project' %}/{{ team.id }}/batch_exports/{{ id }}"
+     target="_blank"><b>Go to the batch export</b></a>
+</div>
+
+<p>
+  After reviewing the logs, and addressing any errors in them, you can retry the batch export run manually. If the batch export continues to fail we will disable it.
+</p>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/me/settings#notifications' %}">Manage these notifications in PostHog</a>
+
+{% endblock %}

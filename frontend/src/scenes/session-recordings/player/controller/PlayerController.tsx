@@ -1,8 +1,8 @@
-import { IconPlay } from '@posthog/icons'
-import { LemonMenu } from '@posthog/lemon-ui'
+import { IconFastForward, IconPause, IconPlay } from '@posthog/icons'
+import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconFullScreen, IconPause, IconSkipInactivity } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
@@ -18,7 +18,7 @@ import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
 export function PlayerController(): JSX.Element {
-    const { playingState, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { playingState, isFullScreen, endReached } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
     const { speed, skipInactivitySetting } = useValues(playerSettingsLogic)
@@ -37,13 +37,19 @@ export function PlayerController(): JSX.Element {
                             size="small"
                             onClick={togglePlayPause}
                             tooltip={
-                                <>
-                                    {showPause ? 'Pause' : 'Play'}
+                                <div className="flex gap-1">
+                                    <span>{showPause ? 'Pause' : endReached ? 'Restart' : 'Play'}</span>
                                     <KeyboardShortcut space />
-                                </>
+                                </div>
                             }
                         >
-                            {showPause ? <IconPause className="text-2xl" /> : <IconPlay className="text-2xl" />}
+                            {showPause ? (
+                                <IconPause className="text-2xl" />
+                            ) : endReached ? (
+                                <IconSync className="text-2xl" />
+                            ) : (
+                                <IconPlay className="text-2xl" />
+                            )}
                         </LemonButton>
                         <SeekSkip direction="backward" />
                         <SeekSkip direction="forward" />
@@ -60,26 +66,20 @@ export function PlayerController(): JSX.Element {
                         </LemonMenu>
                     </div>
                     <div className="flex pl-2">
-                        <LemonButton
+                        <LemonSwitch
                             data-attr="skip-inactivity"
-                            size="small"
-                            onClick={() => {
-                                setSkipInactivitySetting(!skipInactivitySetting)
-                            }}
-                            icon={
-                                <IconSkipInactivity
+                            checked={skipInactivitySetting}
+                            onChange={setSkipInactivitySetting}
+                            tooltip={skipInactivitySetting ? 'Skipping inactivity' : 'Skip inactivity'}
+                            handleContent={
+                                <IconFastForward
                                     className={clsx(
-                                        'text-2xl',
-                                        skipInactivitySetting ? 'text-primary-3000' : 'text-primary-alt'
+                                        'p-0.5',
+                                        skipInactivitySetting ? 'text-primary-3000' : 'text-border-bold'
                                     )}
-                                    enabled={skipInactivitySetting}
                                 />
                             }
-                        >
-                            <span className={skipInactivitySetting ? 'text-primary-3000' : 'text-primary-alt'}>
-                                {skipInactivitySetting ? 'Skipping inactivity' : 'Skip inactivity'}
-                            </span>
-                        </LemonButton>
+                        />
                     </div>
                 </div>
 

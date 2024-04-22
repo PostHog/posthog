@@ -3,8 +3,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { urls } from 'scenes/urls'
 
 import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
 import schema from '~/queries/schema.json'
@@ -45,7 +47,10 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
         <>
             {props.context?.showQueryHelp ? (
                 <div className="mb-2 flex flex-row flex-wrap justify-between items-center">
-                    <div>Insight configurations follow a declarative schema. Edit them as code here.</div>
+                    <div>
+                        Insight configurations follow a declarative schema. Edit them as code here. Open under{' '}
+                        <Link to={urls.debugQuery(queryInput)}>/debug</Link>.
+                    </div>
                 </div>
             ) : null}
             <div
