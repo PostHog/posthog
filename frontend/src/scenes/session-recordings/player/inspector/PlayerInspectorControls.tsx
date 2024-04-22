@@ -101,7 +101,7 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
     }
 
     return (
-        <div className="bg-side border-b">
+        <div className="bg-side border-b pb-2">
             <div className="flex justify-between flex-nowrap">
                 <div className="w-2.5 mb-2 border-b shrink-0" />
                 <TabButtons tabs={tabs} logicProps={logicProps} />
@@ -110,7 +110,24 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                 </div>
             </div>
 
-            <div className="px-2">
+            <div className="flex px-2 gap-x-3 flex-wrap gap-y-1">
+                <div className="flex flex-1 items-center">
+                    <LemonInput
+                        size="xsmall"
+                        onChange={(e) => setSearchQuery(e)}
+                        placeholder="Search..."
+                        type="search"
+                        value={searchQuery}
+                        fullWidth
+                        className="min-w-60"
+                        suffix={
+                            <Tooltip title={<InspectorSearchInfo />}>
+                                <IconInfo />
+                            </Tooltip>
+                        }
+                    />
+                </div>
+
                 <div
                     className="flex items-center gap-1 flex-wrap font-medium text-primary-alt"
                     data-attr="mini-filters"
@@ -132,57 +149,34 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                     ))}
                 </div>
 
-                <div className="flex items-center py-1 gap-8 justify-between">
-                    <div className="flex items-center gap-2 flex-1">
-                        <div className="flex flex-1">
-                            <LemonInput
-                                size="small"
-                                onChange={(e) => setSearchQuery(e)}
-                                placeholder="Search..."
-                                type="search"
-                                value={searchQuery}
-                                fullWidth
-                                suffix={
-                                    <Tooltip title={<InspectorSearchInfo />}>
-                                        <IconInfo />
-                                    </Tooltip>
-                                }
-                            />
-                        </div>
-
-                        {windowIds.length > 1 ? (
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <LemonSelect
-                                    size="small"
-                                    data-attr="player-window-select"
-                                    value={windowIdFilter}
-                                    onChange={(val) => setWindowIdFilter(val || null)}
-                                    options={[
-                                        {
-                                            value: null,
-                                            label: 'All windows',
-                                            icon: <IconWindow size="small" value="A" className="text-muted" />,
-                                        },
-                                        ...windowIds.map((windowId, index) => ({
-                                            value: windowId,
-                                            label: `Window ${index + 1}`,
-                                            icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
-                                        })),
-                                    ]}
-                                />
-                                <Tooltip
-                                    title="Each recording window translates to a distinct browser tab or window."
-                                    className="text-base text-muted-alt"
-                                >
-                                    <IconInfo />
-                                </Tooltip>
-                            </div>
-                        ) : null}
+                {windowIds.length > 1 ? (
+                    <div className="flex items-center gap-2">
+                        <LemonSelect
+                            size="xsmall"
+                            data-attr="player-window-select"
+                            value={windowIdFilter}
+                            onChange={(val) => setWindowIdFilter(val || null)}
+                            options={[
+                                {
+                                    value: null,
+                                    label: 'All windows',
+                                    icon: <IconWindow size="small" value="A" className="text-muted" />,
+                                },
+                                ...windowIds.map((windowId, index) => ({
+                                    value: windowId,
+                                    label: `Window ${index + 1}`,
+                                    icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
+                                })),
+                            ]}
+                            tooltip="Each recording window translates to a distinct browser tab or window."
+                        />
                     </div>
-                </div>
+                ) : null}
+
                 {showMatchingEventsFilter ? (
-                    <div className="flex items-center">
-                        <span className="flex items-center whitespace-nowrap text-xs gap-1">
+                    <div className="flex items-center gap-1">
+                        <LemonCheckbox checked={showOnlyMatching} size="small" onChange={setShowOnlyMatching} />
+                        <span className="flex whitespace-nowrap text-xs gap-1">
                             Only events matching filters
                             <Tooltip
                                 title="Display only the events that match the global filter."
@@ -191,13 +185,6 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                                 <IconInfo />
                             </Tooltip>
                         </span>
-
-                        <LemonCheckbox
-                            className="mx-2"
-                            checked={showOnlyMatching}
-                            size="small"
-                            onChange={setShowOnlyMatching}
-                        />
                     </div>
                 ) : null}
             </div>
