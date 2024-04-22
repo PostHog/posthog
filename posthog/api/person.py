@@ -2,8 +2,9 @@ import json
 import posthoganalytics
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
-from typing import (
+from typing import (  # noqa: UP035
     Any,
+    List,
     Optional,
     TypeVar,
     cast,
@@ -674,7 +675,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    def _respond_with_cached_results(self, results_package: dict[str, tuple[list, Optional[str], Optional[str], int]]):
+    def _respond_with_cached_results(self, results_package: dict[str, tuple[List, Optional[str], Optional[str], int]]):  # noqa: UP006
         if not results_package:
             return response.Response(data=[])
 
@@ -701,7 +702,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_funnel_persons(
         self, request: request.Request
-    ) -> dict[str, tuple[list, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
         funnel_actor_class = get_funnel_actor_class(filter)
@@ -730,7 +731,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_path_persons(
         self, request: request.Request
-    ) -> dict[str, tuple[list, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
 
@@ -765,7 +766,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_trends_persons(
         self, request: request.Request
-    ) -> dict[str, tuple[list, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
         filter = Filter(request=request, team=self.team)
         filter = prepare_actor_query_filter(filter)
         entity = get_target_entity(filter)

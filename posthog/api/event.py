@@ -1,7 +1,7 @@
 import json
 import urllib
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union  # noqa: UP035
 
 from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
@@ -217,7 +217,7 @@ class EventViewSet(
             capture_exception(ex)
             raise ex
 
-    def _get_people(self, query_result: list[dict], team: Team) -> dict[str, Any]:
+    def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
         distinct_ids = [event["distinct_id"] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
         persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
