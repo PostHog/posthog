@@ -10,7 +10,9 @@ use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::health::HealthRegistry;
-use crate::{capture, limiters::billing::BillingLimiter, redis::Client, sinks, time::TimeSource};
+use crate::{
+    limiters::billing::BillingLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint,
+};
 
 use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
@@ -59,16 +61,40 @@ pub fn router<
         .route("/_readiness", get(index))
         .route("/_liveness", get(move || ready(liveness.get_status())))
         .route(
+            "/e",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/e/",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/batch",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
+            "/batch/",
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
+        )
+        .route(
             "/i/v0/e",
-            post(capture::event)
-                .get(capture::event)
-                .options(capture::options),
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
         )
         .route(
             "/i/v0/e/",
-            post(capture::event)
-                .get(capture::event)
-                .options(capture::options),
+            post(v0_endpoint::event)
+                .get(v0_endpoint::event)
+                .options(v0_endpoint::options),
         )
         .layer(TraceLayer::new_for_http())
         .layer(cors)

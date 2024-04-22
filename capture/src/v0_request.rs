@@ -1,15 +1,17 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::prelude::*;
 
 use bytes::{Buf, Bytes};
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
 use tracing::instrument;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
+use crate::token::validate_token;
 
 #[derive(Deserialize, Default)]
 pub enum Compression {
@@ -28,7 +30,25 @@ pub struct EventQuery {
     pub lib_version: Option<String>,
 
     #[serde(alias = "_")]
-    pub sent_at: Option<i64>,
+    sent_at: Option<i64>,
+}
+
+impl EventQuery {
+    /// Returns the parsed value of the sent_at timestamp if present in the query params.
+    /// We only support the format sent by recent posthog-js versions, in milliseconds integer.
+    /// Values in seconds integer (older SDKs will be ignored).
+    pub fn sent_at(&self) -> Option<OffsetDateTime> {
+        if let Some(value) = self.sent_at {
+            let value_nanos: i128 = i128::from(value) * 1_000_000; // Assuming the value is in milliseconds, latest posthog-js releases
+            if let Ok(sent_at) = OffsetDateTime::from_unix_timestamp_nanos(value_nanos) {
+                if sent_at.year() > 2020 {
+                    // Could be lower if the input is in seconds
+                    return Some(sent_at);
+                }
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,30 +84,32 @@ static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 8];
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum RawRequest {
-    /// Batch of events
-    Batch(Vec<RawEvent>),
-    /// Single event
+pub enum RawRequest {
+    /// Array of events (posthog-js)
+    Array(Vec<RawEvent>),
+    /// Batched events (/batch)
+    Batch(BatchedRequest),
+    /// Single event (/capture)
     One(Box<RawEvent>),
 }
 
-impl RawRequest {
-    pub fn events(self) -> Vec<RawEvent> {
-        match self {
-            RawRequest::Batch(events) => events,
-            RawRequest::One(event) => vec![*event],
-        }
-    }
+#[derive(Deserialize)]
+pub struct BatchedRequest {
+    #[serde(alias = "api_key")]
+    pub token: String,
+    pub historical_migration: Option<bool>,
+    pub sent_at: Option<String>,
+    pub batch: Vec<RawEvent>,
 }
 
-impl RawEvent {
-    /// Takes a request payload and tries to decompress and unmarshall it into events.
+impl RawRequest {
+    /// Takes a request payload and tries to decompress and unmarshall it.
     /// While posthog-js sends a compression query param, a sizable portion of requests
     /// fail due to it being missing when the body is compressed.
     /// Instead of trusting the parameter, we peek at the payload's first three bytes to
     /// detect gzip, fallback to uncompressed utf8 otherwise.
     #[instrument(skip_all)]
-    pub fn from_bytes(bytes: Bytes) -> Result<Vec<RawEvent>, CaptureError> {
+    pub fn from_bytes(bytes: Bytes) -> Result<RawRequest, CaptureError> {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
         let payload = if bytes.starts_with(&GZIP_MAGIC_NUMBERS) {
@@ -106,9 +128,66 @@ impl RawEvent {
         };
 
         tracing::debug!(json = payload, "decoded event data");
-        Ok(serde_json::from_str::<RawRequest>(&payload)?.events())
+        Ok(serde_json::from_str::<RawRequest>(&payload)?)
     }
 
+    pub fn events(self) -> Vec<RawEvent> {
+        match self {
+            RawRequest::Array(events) => events,
+            RawRequest::One(event) => vec![*event],
+            RawRequest::Batch(req) => req.batch,
+        }
+    }
+
+    pub fn extract_and_verify_token(&self) -> Result<String, CaptureError> {
+        let token = match self {
+            RawRequest::Batch(req) => req.token.to_string(),
+            RawRequest::One(event) => event.extract_token().ok_or(CaptureError::NoTokenError)?,
+            RawRequest::Array(events) => extract_token(events)?,
+        };
+        validate_token(&token)?;
+        Ok(token)
+    }
+
+    pub fn is_historical(&self) -> bool {
+        match self {
+            RawRequest::Batch(req) => req.historical_migration.unwrap_or_default(),
+            _ => false,
+        }
+    }
+
+    pub fn sent_at(&self) -> Option<OffsetDateTime> {
+        if let RawRequest::Batch(req) = &self {
+            if let Some(value) = &req.sent_at {
+                if let Ok(parsed) = OffsetDateTime::parse(value, &Iso8601::DEFAULT) {
+                    return Some(parsed);
+                }
+            }
+        }
+        None
+    }
+}
+
+#[instrument(skip_all, fields(events = events.len()))]
+pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
+    let distinct_tokens: HashSet<Option<String>> = HashSet::from_iter(
+        events
+            .iter()
+            .map(RawEvent::extract_token)
+            .filter(Option::is_some),
+    );
+
+    return match distinct_tokens.len() {
+        0 => Err(CaptureError::NoTokenError),
+        1 => match distinct_tokens.iter().last() {
+            Some(Some(token)) => Ok(token.clone()),
+            _ => Err(CaptureError::NoTokenError),
+        },
+        _ => Err(CaptureError::MultipleTokensError),
+    };
+}
+
+impl RawEvent {
     pub fn extract_token(&self) -> Option<String> {
         match &self.token {
             Some(value) => Some(value.clone()),
@@ -154,26 +233,9 @@ pub struct ProcessingContext {
     pub client_ip: String,
 }
 
-#[derive(Clone, Default, Debug, Serialize, Eq, PartialEq)]
-pub struct ProcessedEvent {
-    pub uuid: Uuid,
-    pub distinct_id: String,
-    pub ip: String,
-    pub data: String,
-    pub now: String,
-    #[serde(with = "time::serde::rfc3339::option")]
-    pub sent_at: Option<OffsetDateTime>,
-    pub token: String,
-}
-
-impl ProcessedEvent {
-    pub fn key(&self) -> String {
-        format!("{}:{}", self.token, self.distinct_id)
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::token::InvalidTokenReason;
     use base64::Engine as _;
     use bytes::Bytes;
     use rand::distributions::Alphanumeric;
@@ -181,7 +243,7 @@ mod tests {
     use serde_json::json;
 
     use super::CaptureError;
-    use super::RawEvent;
+    use super::RawRequest;
 
     #[test]
     fn decode_uncompressed_raw_event() {
@@ -192,7 +254,9 @@ mod tests {
                 .expect("payload is not base64"),
         );
 
-        let events = RawEvent::from_bytes(compressed_bytes).expect("failed to parse");
+        let events = RawRequest::from_bytes(compressed_bytes)
+            .expect("failed to parse")
+            .events();
         assert_eq!(1, events.len());
         assert_eq!(Some("my_token1".to_string()), events[0].extract_token());
         assert_eq!("my_event1".to_string(), events[0].event);
@@ -212,7 +276,9 @@ mod tests {
                 .expect("payload is not base64"),
         );
 
-        let events = RawEvent::from_bytes(compressed_bytes).expect("failed to parse");
+        let events = RawRequest::from_bytes(compressed_bytes)
+            .expect("failed to parse")
+            .events();
         assert_eq!(1, events.len());
         assert_eq!(Some("my_token2".to_string()), events[0].extract_token());
         assert_eq!("my_event2".to_string(), events[0].event);
@@ -227,7 +293,9 @@ mod tests {
     #[test]
     fn extract_distinct_id() {
         let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
-            let parsed = RawEvent::from_bytes(input.into()).expect("failed to parse");
+            let parsed = RawRequest::from_bytes(input.into())
+                .expect("failed to parse")
+                .events();
             parsed[0].extract_distinct_id()
         };
         // Return MissingDistinctId if not found
@@ -288,10 +356,72 @@ mod tests {
             "distinct_id": distinct_id
         }]);
 
-        let parsed = RawEvent::from_bytes(input.to_string().into()).expect("failed to parse");
+        let parsed = RawRequest::from_bytes(input.to_string().into())
+            .expect("failed to parse")
+            .events();
         assert_eq!(
             parsed[0].extract_distinct_id().expect("failed to extract"),
             expected_distinct_id
         );
+    }
+
+    #[test]
+    fn extract_and_verify_token() {
+        let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
+            RawRequest::from_bytes(input.into())
+                .expect("failed to parse")
+                .extract_and_verify_token()
+        };
+
+        let assert_extracted_token = |input: &'static str, expected: &str| {
+            let id = parse_and_extract(input).expect("failed to extract");
+            assert_eq!(id, expected);
+        };
+
+        // Return NoTokenError if not found
+        assert!(matches!(
+            parse_and_extract(r#"{"event": "e"}"#),
+            Err(CaptureError::NoTokenError)
+        ));
+
+        // Return TokenValidationError if token empty
+        assert!(matches!(
+            parse_and_extract(r#"{"api_key": "", "batch":[{"event": "e"}]}"#),
+            Err(CaptureError::TokenValidationError(
+                InvalidTokenReason::Empty
+            ))
+        ));
+
+        // Return TokenValidationError if personal apikey
+        assert!(matches!(
+            parse_and_extract(r#"[{"event": "e", "token": "phx_hellothere"}]"#),
+            Err(CaptureError::TokenValidationError(
+                InvalidTokenReason::PersonalApiKey
+            ))
+        ));
+
+        // Return MultipleTokensError if tokens don't match in array
+        assert!(matches!(
+            parse_and_extract(
+                r#"[{"event": "e", "token": "token1"},{"event": "e", "token": "token2"}]"#
+            ),
+            Err(CaptureError::MultipleTokensError)
+        ));
+
+        // Return token from array if consistent
+        assert_extracted_token(
+            r#"[{"event":"e","token":"token1"},{"event":"e","token":"token1"}]"#,
+            "token1",
+        );
+
+        // Return token from batch if present
+        assert_extracted_token(
+            r#"{"batch":[{"event":"e","token":"token1"}],"api_key":"batched"}"#,
+            "batched",
+        );
+
+        // Return token from single event if present
+        assert_extracted_token(r#"{"event":"e","$token":"single_token"}"#, "single_token");
+        assert_extracted_token(r#"{"event":"e","api_key":"single_token"}"#, "single_token");
     }
 }

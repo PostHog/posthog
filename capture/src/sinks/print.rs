@@ -2,8 +2,7 @@ use async_trait::async_trait;
 use metrics::{counter, histogram};
 use tracing::log::info;
 
-use crate::api::CaptureError;
-use crate::event::ProcessedEvent;
+use crate::api::{CaptureError, ProcessedEvent};
 use crate::sinks::Event;
 
 pub struct PrintSink {}

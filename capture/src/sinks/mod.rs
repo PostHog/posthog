@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 
-use crate::api::CaptureError;
-use crate::event::ProcessedEvent;
+use crate::api::{CaptureError, ProcessedEvent};
 
 pub mod kafka;
 pub mod print;

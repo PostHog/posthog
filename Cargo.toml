@@ -14,7 +14,7 @@ members = [
 anyhow = "1.0"
 assert-json-diff = "2.0.2"
 async-trait = "0.1.74"
-axum = { version = "0.7.5", features = ["http2", "macros"] }
+axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"
 base64 = "0.22.0"
 bytes = "1"

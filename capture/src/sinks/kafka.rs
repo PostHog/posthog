@@ -10,9 +10,8 @@ use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
 
-use crate::api::CaptureError;
+use crate::api::{CaptureError, ProcessedEvent};
 use crate::config::KafkaConfig;
-use crate::event::ProcessedEvent;
 use crate::health::HealthHandle;
 use crate::limiters::overflow::OverflowLimiter;
 use crate::prometheus::report_dropped_events;
@@ -259,9 +258,8 @@ impl Event for KafkaSink {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::CaptureError;
+    use crate::api::{CaptureError, ProcessedEvent};
     use crate::config;
-    use crate::event::ProcessedEvent;
     use crate::health::HealthRegistry;
     use crate::limiters::overflow::OverflowLimiter;
     use crate::sinks::kafka::KafkaSink;
