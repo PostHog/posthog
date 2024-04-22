@@ -184,12 +184,10 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSearchQuery: (search: string) => ({ search }),
-        setSyncScroll: (enabled: boolean) => ({ enabled }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
-        setShowRecordingListProperties: (enabled: boolean) => ({ enabled }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
     }),
     reducers(() => ({
@@ -232,13 +230,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setSpeed: (_, { speed }) => speed,
-            },
-        ],
-        showRecordingListProperties: [
-            false,
-            { persist: true },
-            {
-                setShowRecordingListProperties: (_, { enabled }) => enabled,
             },
         ],
         timestampFormat: [
@@ -336,14 +327,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             '',
             {
                 setSearchQuery: (_, { search }) => search || '',
-            },
-        ],
-
-        syncScroll: [
-            true,
-            { persist: true },
-            {
-                setSyncScroll: (_, { enabled }) => enabled,
             },
         ],
     })),

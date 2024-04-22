@@ -1,8 +1,8 @@
-import { IconBug, IconDashboard, IconInfo, IconPause, IconTerminal, IconX } from '@posthog/icons'
+import { IconBug, IconDashboard, IconInfo, IconTerminal, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconPlayCircle, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -69,10 +69,10 @@ function TabButtons({
 export function PlayerInspectorControls({ onClose }: { onClose: () => void }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
-    const { tab, windowIdFilter, syncScrollingPaused, windowIds, showMatchingEventsFilter } = useValues(inspectorLogic)
-    const { setWindowIdFilter, setSyncScrollPaused, setTab } = useActions(inspectorLogic)
-    const { showOnlyMatching, miniFilters, syncScroll, searchQuery } = useValues(playerSettingsLogic)
-    const { setShowOnlyMatching, setMiniFilter, setSyncScroll, setSearchQuery } = useActions(playerSettingsLogic)
+    const { tab, windowIdFilter, windowIds, showMatchingEventsFilter } = useValues(inspectorLogic)
+    const { setWindowIdFilter, setTab } = useActions(inspectorLogic)
+    const { showOnlyMatching, miniFilters, searchQuery } = useValues(playerSettingsLogic)
+    const { setShowOnlyMatching, setMiniFilter, setSearchQuery } = useActions(playerSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -178,36 +178,6 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
                                 </Tooltip>
                             </div>
                         ) : null}
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            noPadding
-                            active={syncScroll}
-                            onClick={() => {
-                                // If the user has syncScrolling on, but it is paused due to interacting with the Inspector, we want to resume it
-                                if (syncScroll && syncScrollingPaused) {
-                                    setSyncScrollPaused(false)
-                                } else {
-                                    // Otherwise we are just toggling the setting
-                                    setSyncScroll(!syncScroll)
-                                }
-                            }}
-                            tooltipPlacement="left"
-                            tooltip={
-                                syncScroll && syncScrollingPaused
-                                    ? 'Synced scrolling is paused - click to resume'
-                                    : 'Scroll the list in sync with the recording playback'
-                            }
-                        >
-                            {syncScroll && syncScrollingPaused ? (
-                                <IconPause className="text-lg m-1" />
-                            ) : (
-                                <IconPlayCircle className="text-lg m-1" />
-                            )}
-                        </LemonButton>
                     </div>
                 </div>
                 {showMatchingEventsFilter ? (

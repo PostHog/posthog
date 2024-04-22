@@ -325,7 +325,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             flush_persons_and_events()
 
     def _select_report_by_org_id(self, org_id: str, reports: List[Dict]) -> Dict:
-        return [report for report in reports if report["organization_id"] == org_id][0]
+        return next(report for report in reports if report["organization_id"] == org_id)
 
     def _create_plugin(self, name: str, enabled: bool) -> None:
         plugin = Plugin.objects.create(organization_id=self.team.organization.pk, name=name)

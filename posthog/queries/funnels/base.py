@@ -667,7 +667,7 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.include_recordings:
             events = []
             for i in range(0, max_steps):
-                event_fields = ["latest"] + self.extra_event_fields_and_properties
+                event_fields = ["latest", *self.extra_event_fields_and_properties]
                 event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
                 event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
                 events.append(event_clause)

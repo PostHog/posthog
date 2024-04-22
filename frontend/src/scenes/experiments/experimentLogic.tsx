@@ -396,7 +396,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // the new query with any existing query and that causes validation problems when there are
             // unsupported properties in the now merged query.
             const newQuery = filtersToQueryNode(newInsightFilters)
-            if (filters?.insight === InsightType.FUNNELS) {
+            if (newInsightFilters?.insight === InsightType.FUNNELS) {
                 ;(newQuery as TrendsQuery).trendsFilter = undefined
             } else {
                 ;(newQuery as FunnelsQuery).funnelsFilter = undefined
