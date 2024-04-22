@@ -61,8 +61,8 @@
     .SessionRecordingPlayer__inspector {
         position: relative;
         flex-shrink: 0;
-        min-width: 30rem;
-        max-width: 50%;
+        min-width: 20rem;
+        max-width: 35%;
 
         .PlayerInspectorPreview {
             position: absolute;
@@ -73,13 +73,16 @@
         }
     }
 
-    &--widescreen {
-        .SessionRecordingPlayer__main {
-            padding-right: 0;
-        }
-
+    &--medium {
         .SessionRecordingPlayer__inspector {
-            max-width: 75%;
+            max-width: 35%;
+        }
+    }
+
+    &--wide {
+        .SessionRecordingPlayer__inspector {
+            min-width: 26rem;
+            max-width: 50%;
         }
     }
 
@@ -89,16 +92,6 @@
         .SessionRecordingPlayer__inspector {
             min-width: 100%;
             max-width: 100%;
-        }
-    }
-
-    &--inspector-hidden {
-        .SessionRecordingPlayer__main {
-            padding-right: 0;
-        }
-
-        .SessionRecordingPlayer__inspector {
-            display: none;
         }
     }
 }

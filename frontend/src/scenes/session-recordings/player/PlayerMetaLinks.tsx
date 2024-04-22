@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Fragment } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import {
@@ -84,7 +85,7 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
     }
 
     const buttonContent = (label: string): JSX.Element => {
-        return !iconsOnly ? <span>{label}</span> : <span />
+        return !iconsOnly ? <span>{label}</span> : <Fragment />
     }
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard

@@ -14,13 +14,15 @@ export function PlayerInspector({
 }: {
     isVerticallyStacked: boolean
     onClose: (focus: boolean) => void
-    toggleLayoutStacking: () => void
+    toggleLayoutStacking?: () => void
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
 
+    const logicKey = `player-inspector-${isVerticallyStacked ? 'vertical' : 'horizontal'}`
+
     const resizerLogicProps: ResizerLogicProps = {
+        logicKey,
         containerRef: ref,
-        logicKey: 'player-inspector',
         persistent: true,
         closeThreshold: 100,
         placement: isVerticallyStacked ? 'top' : 'left',
@@ -37,12 +39,16 @@ export function PlayerInspector({
             style={isVerticallyStacked ? { height: desiredSize ?? undefined } : { width: desiredSize ?? undefined }}
         >
             <Resizer
-                logicKey="player-inspector"
+                logicKey={logicKey}
                 placement={isVerticallyStacked ? 'top' : 'left'}
                 containerRef={ref}
                 closeThreshold={100}
             />
-            <PlayerInspectorControls onClose={() => onClose(false)} toggleLayoutStacking={toggleLayoutStacking} />
+            <PlayerInspectorControls
+                onClose={() => onClose(false)}
+                isVerticallyStacked={isVerticallyStacked}
+                toggleLayoutStacking={toggleLayoutStacking}
+            />
             <PlayerInspectorList />
         </div>
     )

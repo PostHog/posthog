@@ -82,7 +82,7 @@ export function PlayerInspectorControls({
 }: {
     onClose: () => void
     isVerticallyStacked: boolean
-    toggleLayoutStacking: () => void
+    toggleLayoutStacking?: () => void
 }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
@@ -124,11 +124,13 @@ export function PlayerInspectorControls({
                 <div className="w-2.5 mb-2 border-b shrink-0" />
                 <TabButtons tabs={tabs} logicProps={logicProps} />
                 <div className="flex flex-1 items-center justify-end gap-1 mb-2 border-b px-1">
-                    <LemonButton
-                        size="xsmall"
-                        icon={isVerticallyStacked ? <IconSidePanel /> : <IconBottomPanel />}
-                        onClick={toggleLayoutStacking}
-                    />
+                    {toggleLayoutStacking && (
+                        <LemonButton
+                            size="xsmall"
+                            icon={isVerticallyStacked ? <IconSidePanel /> : <IconBottomPanel />}
+                            onClick={toggleLayoutStacking}
+                        />
+                    )}
                     <LemonButton size="xsmall" icon={<IconX />} onClick={onClose} />
                 </div>
             </div>

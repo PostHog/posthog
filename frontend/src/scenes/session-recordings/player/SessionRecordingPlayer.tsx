@@ -35,6 +35,11 @@ export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogic
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 
+enum InspectorStacking {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
+}
+
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
     return PLAYBACK_SPEEDS.map((x, i) => ({ key: `${i}`, value: x })).reduce(
         (acc, x) => ({ ...acc, [x.key]: { action: () => action(x.value) } }),
@@ -128,31 +133,25 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         }
     })
 
-    const { size: davidSize } = useResizeBreakpoints(
-        {
-            0: 'small',
-            750: 'medium',
-        },
-        {
-            ref: playerRef,
-        }
-    )
-
     const { size } = useResizeBreakpoints(
         {
-            0: 'tiny',
-            400: 'small',
-            1000: 'medium',
+            0: 'small',
+            1050: 'medium',
+            1500: 'wide',
         },
         {
             ref: playerRef,
         }
     )
 
-    const isWidescreen = !isFullScreen && size === 'medium'
+    const isWidescreen = !isFullScreen && size === 'wide'
 
     const [inspectorExpanded, setInspectorExpanded] = useState(isWidescreen)
-    const [isVerticallyStacked, setIsVerticallyStacked] = useState(false)
+    const [preferredInspectorStacking, setPreferredInspectorStacking] = useState(InspectorStacking.Horizontal)
+
+    const compactLayout = size === 'small'
+    const layoutStacking = compactLayout ? InspectorStacking.Vertical : preferredInspectorStacking
+    const isVerticallyStacked = layoutStacking === InspectorStacking.Vertical
 
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
 
@@ -168,15 +167,16 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
             <div
                 ref={playerRef}
-                className={clsx('SessionRecordingPlayer', {
-                    'SessionRecordingPlayer--fullscreen': isFullScreen,
-                    'SessionRecordingPlayer--no-border': noBorder,
-                    'SessionRecordingPlayer--widescreen': isWidescreen,
-                    'SessionRecordingPlayer--inspector-focus': inspectorExpanded || isWidescreen,
-                    'SessionRecordingPlayer--inspector-hidden': noInspector || size === 'tiny',
-                    'SessionRecordingPlayer--buffering': isBuffering,
-                    'SessionRecordingPlayer--stacked-vertically': isVerticallyStacked,
-                })}
+                className={clsx(
+                    'SessionRecordingPlayer',
+                    {
+                        'SessionRecordingPlayer--fullscreen': isFullScreen,
+                        'SessionRecordingPlayer--no-border': noBorder,
+                        'SessionRecordingPlayer--buffering': isBuffering,
+                        'SessionRecordingPlayer--stacked-vertically': isVerticallyStacked,
+                    },
+                    `SessionRecordingPlayer--${size}`
+                )}
                 onClick={incrementClickCount}
             >
                 <FloatingContainerContext.Provider value={playerRef}>
@@ -185,7 +185,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     ) : (
                         <>
                             <div className="SessionRecordingPlayer__main">
-                                {(!noMeta || isFullScreen) && size !== 'tiny' ? (
+                                {!noMeta || isFullScreen ? (
                                     <PlayerMeta
                                         inspectorExpanded={inspectorExpanded}
                                         toggleInspectorExpanded={() => setInspectorExpanded(!inspectorExpanded)}
@@ -197,13 +197,22 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                     <PlayerFrameOverlay />
                                 </div>
                                 <LemonDivider className="my-0" />
-                                <PlayerController size={davidSize} />
+                                <PlayerController metaIconsOnly={compactLayout} />
                             </div>
                             {!noInspector && inspectorExpanded && (
                                 <PlayerInspector
-                                    isVerticallyStacked={isVerticallyStacked}
                                     onClose={setInspectorExpanded}
-                                    toggleLayoutStacking={() => setIsVerticallyStacked(!isVerticallyStacked)}
+                                    isVerticallyStacked={isVerticallyStacked}
+                                    toggleLayoutStacking={
+                                        compactLayout
+                                            ? undefined
+                                            : () =>
+                                                  setPreferredInspectorStacking(
+                                                      preferredInspectorStacking === InspectorStacking.Vertical
+                                                          ? InspectorStacking.Horizontal
+                                                          : InspectorStacking.Vertical
+                                                  )
+                                    }
                                 />
                             )}
                         </>
