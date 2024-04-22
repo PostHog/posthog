@@ -40,7 +40,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
 from posthog.hogql.database.schema.person_overrides import (
     PersonOverridesTable,
     RawPersonOverridesTable,
@@ -52,7 +52,7 @@ from posthog.hogql.database.schema.session_replay_events import (
 )
 from posthog.hogql.database.schema.sessions import RawSessionsTable, SessionsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
@@ -117,7 +117,7 @@ class Database(BaseModel):
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
-            raise HogQLException(f"Unknown timezone: '{str(timezone)}'")
+            raise ValueError(f"Unknown timezone: '{str(timezone)}'")
         self._week_start_day = week_start_day
 
     def get_timezone(self) -> str:
@@ -132,7 +132,7 @@ class Database(BaseModel):
     def get_table(self, table_name: str) -> Table:
         if self.has_table(table_name):
             return getattr(self, table_name)
-        raise HogQLException(f'Table "{table_name}" not found in database')
+        raise QueryError(f'Unknown table "{table_name}".')
 
     def get_all_tables(self) -> List[str]:
         return self._table_names + self._warehouse_table_names
@@ -141,6 +141,41 @@ class Database(BaseModel):
         for f_name, f_def in field_definitions.items():
             setattr(self, f_name, f_def)
             self._warehouse_table_names.append(f_name)
+
+
+def _use_person_properties_from_events(database: Database) -> None:
+    database.events.fields["person"] = FieldTraverser(chain=["poe"])
+
+
+def _use_person_id_from_person_overrides(database: Database, use_distinct_id_overrides: bool) -> None:
+    database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
+    if use_distinct_id_overrides:
+        database.events.fields["override"] = LazyJoin(
+            from_field=["distinct_id"],
+            join_table=PersonDistinctIdOverridesTable(),
+            join_function=join_with_person_distinct_id_overrides_table,
+        )
+        database.events.fields["person_id"] = ExpressionField(
+            name="person_id",
+            expr=parse_expr(
+                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
+                start=None,
+            ),
+        )
+    else:
+        database.events.fields["override"] = LazyJoin(
+            from_field=["event_person_id"],
+            join_table=PersonOverridesTable(),
+            join_function=join_with_person_overrides_table,
+        )
+        database.events.fields["person_id"] = ExpressionField(
+            name="person_id",
+            expr=parse_expr(
+                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
+                start=None,
+            ),
+        )
 
 
 def create_hogql_database(
@@ -163,52 +198,22 @@ def create_hogql_database(
         database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
         database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_mixed:
-        # person.id via a join, person.properties on events
-        database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
-        database.events.fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
-        database.events.fields["poe"].fields["created_at"] = FieldTraverser(chain=["..", "pdi", "person", "created_at"])
-        database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(name="person_properties")
-
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled:
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+        _use_person_properties_from_events(database)
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled:
-        database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-        database.events.fields["override"] = LazyJoin(
-            from_field=["event_person_id"],
-            join_table=PersonOverridesTable(),
-            join_function=join_with_person_overrides_table,
-        )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                "ifNull(nullIf(override.override_person_id, '00000000-0000-0000-0000-000000000000'), event_person_id)",
-                start=None,
-            ),
-        )
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events:
+        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=False)
+        _use_person_properties_from_events(database)
         database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.v3_enabled:
-        database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-        database.events.fields["override"] = LazyJoin(
-            from_field=["distinct_id"],  # ???
-            join_table=PersonDistinctIdOverridesTable(),
-            join_function=join_with_person_distinct_id_overrides_table,
+    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_joined:
+        _use_person_id_from_person_overrides(database, use_distinct_id_overrides=True)
+        database.events.fields["person"] = LazyJoin(
+            from_field=["person_id"],
+            join_table=PersonsTable(),
+            join_function=join_with_persons_table,
         )
-        database.events.fields["person_id"] = ExpressionField(
-            name="person_id",
-            expr=parse_expr(
-                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
-                start=None,
-            ),
-        )
-        database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
-        database.events.fields["person"] = FieldTraverser(chain=["poe"])
 
     database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
         "$virt_initial_referring_domain_type"
@@ -275,12 +280,12 @@ def create_hogql_database(
 
             field = parse_expr(join.source_table_key)
             if not isinstance(field, ast.Field):
-                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
             from_field = field.chain
 
             field = parse_expr(join.joining_table_key)
             if not isinstance(field, ast.Field):
-                raise HogQLException("Data Warehouse Join HogQL expression should be a Field node")
+                raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
             to_field = field.chain
 
             source_table.fields[join.field_name] = LazyJoin(
@@ -352,14 +357,14 @@ class _SerializedFieldBase(TypedDict):
 class SerializedField(_SerializedFieldBase, total=False):
     fields: List[str]
     table: str
-    chain: List[str]
+    chain: List[str | int]
 
 
 def serialize_database(context: HogQLContext) -> Dict[str, List[SerializedField]]:
     tables: Dict[str, List[SerializedField]] = {}
 
     if context.database is None:
-        raise HogQLException("Must provide database to serialize_database")
+        raise ResolutionError("Must provide database to serialize_database")
 
     for table_key in context.database.model_fields.keys():
         field_input: Dict[str, Any] = {}

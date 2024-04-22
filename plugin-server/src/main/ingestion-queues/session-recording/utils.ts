@@ -4,7 +4,6 @@ import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartitio
 import path from 'path'
 import { Counter } from 'prom-client'
 
-import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../utils/status'
@@ -12,7 +11,13 @@ import { cloneObject } from '../../../utils/utils'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
-import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
+import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
+
+const counterKafkaMessageReceived = new Counter({
+    name: 'recording_blob_ingestion_kafka_message_received',
+    help: 'The number of messages we have received from Kafka',
+    labelNames: ['partition'],
+})
 
 const counterLibVersionWarning = new Counter({
     name: 'lib_version_warning_counter',
@@ -36,6 +41,7 @@ export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-f
 
 export const queryWatermarkOffsets = (
     kafkaConsumer: KafkaConsumer | undefined,
+    topic: string,
     partition: number,
     timeout = 10000
 ): Promise<[number, number]> => {
@@ -44,20 +50,15 @@ export const queryWatermarkOffsets = (
             return reject('Not connected')
         }
 
-        kafkaConsumer.queryWatermarkOffsets(
-            KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-            partition,
-            timeout,
-            (err, offsets) => {
-                if (err) {
-                    captureException(err)
-                    status.error('🔥', 'Failed to query kafka watermark offsets', err)
-                    return reject(err)
-                }
-
-                resolve([partition, offsets.highOffset])
+        kafkaConsumer.queryWatermarkOffsets(topic, partition, timeout, (err, offsets) => {
+            if (err) {
+                captureException(err)
+                status.error('🔥', 'Failed to query kafka watermark offsets', err)
+                return reject(err)
             }
-        )
+
+            resolve([partition, offsets.highOffset])
+        })
     })
 }
 
@@ -89,7 +90,7 @@ export const queryCommittedOffsets = (
 
 export const getPartitionsForTopic = (
     kafkaConsumer: KafkaConsumer | undefined,
-    topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+    topic: string
 ): Promise<PartitionMetadata[]> => {
     return new Promise<PartitionMetadata[]>((resolve, reject) => {
         if (!kafkaConsumer) {
@@ -298,6 +299,69 @@ export const parseKafkaMessage = async (
     }
 }
 
+export const parseKafkaBatch = async (
+    /**
+     * Parses and validates a batch of Kafka messages, merges messages for the same session into a single
+     * IncomingRecordingMessage to amortize processing and computes per-partition statistics.
+     */
+    messages: Message[],
+    getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>,
+    ingestionWarningProducer: KafkaProducerWrapper | undefined
+): Promise<ParsedBatch> => {
+    const lastMessageForPartition: Map<number, Message> = new Map()
+    const parsedSessions: Map<string, IncomingRecordingMessage> = new Map()
+
+    for (const message of messages) {
+        const partition = message.partition
+        lastMessageForPartition.set(partition, message) // We can assume messages for a single partition are ordered
+        counterKafkaMessageReceived.inc({ partition })
+
+        const parsedMessage = await parseKafkaMessage(message, getTeamFn, ingestionWarningProducer)
+        if (!parsedMessage) {
+            continue
+        }
+
+        const session_key = `${parsedMessage.team_id}:${parsedMessage.session_id}`
+        const existingMessage = parsedSessions.get(session_key)
+        if (existingMessage === undefined) {
+            // First message for this session key, store it and continue looping for more
+            parsedSessions.set(session_key, parsedMessage)
+            continue
+        }
+
+        for (const [windowId, events] of Object.entries(parsedMessage.eventsByWindowId)) {
+            if (existingMessage.eventsByWindowId[windowId]) {
+                existingMessage.eventsByWindowId[windowId].push(...events)
+            } else {
+                existingMessage.eventsByWindowId[windowId] = events
+            }
+        }
+        existingMessage.metadata.rawSize += parsedMessage.metadata.rawSize
+
+        // Update the events ranges
+        existingMessage.metadata.lowOffset = Math.min(
+            existingMessage.metadata.lowOffset,
+            parsedMessage.metadata.lowOffset
+        )
+        existingMessage.metadata.highOffset = Math.max(
+            existingMessage.metadata.highOffset,
+            parsedMessage.metadata.highOffset
+        )
+
+        // Update the events ranges
+        existingMessage.eventsRange.start = Math.min(existingMessage.eventsRange.start, parsedMessage.eventsRange.start)
+        existingMessage.eventsRange.end = Math.max(existingMessage.eventsRange.end, parsedMessage.eventsRange.end)
+    }
+
+    return {
+        sessions: Array.from(parsedSessions.values()),
+        partitionStats: Array.from(lastMessageForPartition.values()), // Just cast the last message into the small BatchStats interface
+    }
+}
+
+/**
+ * @deprecated Delete when removing session-recordings-consumer-v3
+ */
 export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): IncomingRecordingMessage[] => {
     /**
      * It can happen that a single batch contains all messages for the same session.

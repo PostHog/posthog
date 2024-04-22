@@ -680,7 +680,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
                               icon: IconDatabase,
-                              display: 'Debug ClickHouse Queries',
+                              display: 'Debug ClickHouse queries',
                               executor: () => openCHQueriesDebugModal(),
                           }
                         : [],

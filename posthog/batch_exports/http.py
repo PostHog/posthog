@@ -95,35 +95,21 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     queryset = BatchExportRun.objects.all()
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
+    filter_rewrite_rules = {"team_id": "batch_export__team_id"}
 
-    def get_queryset(self, date_range: tuple[dt.datetime, dt.datetime] | None = None):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
+    def get_queryset(self):
+        queryset = super().get_queryset()
 
-        if date_range:
-            return self.queryset.filter(
-                batch_export_id=self.kwargs["parent_lookup_batch_export_id"],
-                created_at__range=date_range,
-            ).order_by("-created_at")
-        else:
-            return self.queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"]).order_by(
-                "-created_at"
-            )
-
-    def list(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Get all BatchExportRuns for a BatchExport."""
-        if not isinstance(request.user, User) or request.user.team is None:
-            raise NotAuthenticated()
-
-        after = self.request.query_params.get("after", "-7d")
-        before = self.request.query_params.get("before", None)
-        after_datetime = relative_date_parse(after, request.user.team.timezone_info)
-        before_datetime = relative_date_parse(before, request.user.team.timezone_info) if before else now()
+        after = self.request.GET.get("after", "-7d")
+        before = self.request.GET.get("before", None)
+        after_datetime = relative_date_parse(after, self.team.timezone_info)
+        before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
         date_range = (after_datetime, before_datetime)
 
-        page = self.paginate_queryset(self.get_queryset(date_range=date_range))
-        serializer = self.get_serializer(page, many=True)
-        return self.get_paginated_response(serializer.data)
+        queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
+        queryset = queryset.filter(created_at__range=date_range)
+
+        return queryset.order_by("-created_at")
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
@@ -163,8 +149,8 @@ class HogQLSelectQueryField(serializers.Field):
                     dialect="hogql",
                 ),
             )
-        except errors.ResolverException:
-            raise serializers.ValidationError("Invalid HogQL query")
+        except errors.ExposedHogQLError as e:
+            raise serializers.ValidationError(f"Invalid HogQL query: {e}")
 
         return prepared_select_query
 
@@ -259,7 +245,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 "values": {},
                 "hogql_query": print_prepared_ast(hogql_query, context=context, dialect="hogql"),
             }
-        except errors.HogQLException:
+        except errors.ExposedHogQLError:
             raise serializers.ValidationError("Unsupported HogQL query")
 
         for field in hogql_query.select:
@@ -342,9 +328,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = BatchExportSerializer
 
     def get_queryset(self):
-        if not isinstance(self.request.user, User):
-            raise NotAuthenticated()
-
         return super().get_queryset().exclude(deleted=True).order_by("-created_at").prefetch_related("destination")
 
     @action(methods=["POST"], detail=True)

@@ -98,7 +98,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        self.assertEqual({"p_notset", "p_null"}, set(row[0]["distinct_id"] for row in results))
+        self.assertEqual({"p_notset", "p_null"}, {row[0]["distinct_id"] for row in results})
 
     def test_is_set_boolean(self):
         self._create_boolean_field_test_events()
@@ -112,7 +112,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        self.assertEqual({"p_true", "p_false"}, set(row[0]["distinct_id"] for row in results))
+        self.assertEqual({"p_true", "p_false"}, {row[0]["distinct_id"] for row in results})
 
     def test_person_id_expands_to_distinct_ids(self):
         _create_person(

@@ -95,9 +95,12 @@ export class PropertyDefinitionsManager {
         }
 
         const timer = new Date()
-        const timeout = timeoutGuard('Still running "updateEventNamesAndProperties". Timeout warning after 30 sec!', {
-            event: event,
-        })
+        const timeout = timeoutGuard(
+            'Still running "updateEventNamesAndProperties". Timeout warning after 30 sec!',
+            () => ({
+                event: event,
+            })
+        )
 
         try {
             const team: Team | null = await this.teamManager.fetchTeam(teamId)

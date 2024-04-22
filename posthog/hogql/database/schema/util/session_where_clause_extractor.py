@@ -154,6 +154,26 @@ class SessionMinTimestampWhereClauseExtractor(CloningVisitor):
             return self.visit_and(ast.And(exprs=node.args))
         elif node.name == "or":
             return self.visit_or(ast.Or(exprs=node.args))
+        elif node.name == "greaterOrEquals":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.GtEq, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "greater":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Gt, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "lessOrEquals":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.LtEq, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "less":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Lt, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "equals":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Eq, left=node.args[0], right=node.args[1])
+            )
         return ast.Constant(value=True)
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
@@ -218,6 +238,9 @@ def is_time_or_interval_constant(expr: ast.Expr) -> bool:
 class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_constant(self, node: ast.Constant) -> bool:
         return True
+
+    def visit_select_query(self, node: ast.SelectQuery) -> bool:
+        return False
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
         return self.visit(node.left) and self.visit(node.right)
@@ -286,13 +309,16 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_constant(self, node: ast.Constant) -> bool:
         return False
 
+    def visit_select_query(self, node: ast.SelectQuery) -> bool:
+        return False
+
     def visit_field(self, node: ast.Field) -> bool:
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
             if resolved_field and isinstance(resolved_field, DatabaseField) and resolved_field:
-                return resolved_field.name in ["min_timestamp", "timestamp"]
+                return resolved_field.name in ["$start_timestamp", "min_timestamp", "timestamp"]
         # no type information, so just use the name of the field
-        return node.chain[-1] in ["min_timestamp", "timestamp"]
+        return node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp"]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
         # only allow the min_timestamp field to be used on one side of the arithmetic operation
@@ -353,6 +379,8 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
             table_type = node.type.resolve_table_type(self.context)
             if not table_type:
                 return False
+            if isinstance(table_type, ast.TableAliasType):
+                table_type = table_type.table_type
             return (
                 isinstance(table_type, ast.TableType)
                 and isinstance(table_type.table, EventsTable)
@@ -360,7 +388,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
             ) or (
                 isinstance(table_type, ast.LazyTableType)
                 and isinstance(table_type.table, SessionsTable)
-                and resolved_field.name == "min_timestamp"
+                and resolved_field.name == "$start_timestamp"
             )
 
         return self.visit(node.expr)
@@ -383,14 +411,17 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
 
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
-            table = node.type.resolve_table_type(self.context).table
+            table_type = node.type.resolve_table_type(self.context)
+            if isinstance(table_type, ast.TableAliasType):
+                table_type = table_type.table_type
+            table = table_type.table
             if resolved_field and isinstance(resolved_field, DatabaseField):
                 if (isinstance(table, EventsTable) and resolved_field.name == "timestamp") or (
-                    isinstance(table, SessionsTable) and resolved_field.name == "min_timestamp"
+                    isinstance(table, SessionsTable) and resolved_field.name == "$start_timestamp"
                 ):
                     return ast.Field(chain=["raw_sessions", "min_timestamp"])
         # no type information, so just use the name of the field
-        if node.chain[-1] in ["min_timestamp", "timestamp"]:
+        if node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp"]:
             return ast.Field(chain=["raw_sessions", "min_timestamp"])
         return node
 

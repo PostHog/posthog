@@ -2825,9 +2825,9 @@
                                     "group": "support"
                                 },
                                 {
-                                    "key": "support_slas",
-                                    "name": "Support SLAs",
-                                    "description": "Support SLAs",
+                                    "key": "support_response_time",
+                                    "name": "Support response time",
+                                    "description": "Get help from our team!",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,

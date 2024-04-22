@@ -18,34 +18,38 @@ import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
-    const { currentTab } = useValues(pipelineLogic)
+    const { currentTab, canEnableNewDestinations, canGloballyManagePlugins } = useValues(pipelineLogic)
 
-    const tabToContent: Record<PipelineTab, JSX.Element> = {
+    let tabToContent: Partial<Record<PipelineTab, JSX.Element>> = {
         [PipelineTab.Overview]: <Overview />,
         [PipelineTab.Transformations]: <Transformations />,
         [PipelineTab.Destinations]: <Destinations />,
         [PipelineTab.SiteApps]: <FrontendApps />,
-        [PipelineTab.ImportApps]: <ImportApps />,
-        [PipelineTab.AppsManagement]: <AppsManagement />,
+        [PipelineTab.ImportApps]: <ImportApps />, // TODO: only show if some enabled
+    }
+    if (canGloballyManagePlugins) {
+        tabToContent = {
+            ...tabToContent,
+            [PipelineTab.AppsManagement]: <AppsManagement />,
+        }
     }
 
     const maybeKind = PIPELINE_TAB_TO_NODE_STAGE[currentTab]
+    const showNewButton = maybeKind && (currentTab !== PipelineTab.Destinations || canEnableNewDestinations)
 
     return (
         <div className="pipeline-scene">
             <PageHeader
-                caption="Add filters or transformations to the events sent to PostHog or export them to other tools."
-                buttons={maybeKind ? <NewButton stage={maybeKind} /> : undefined}
+                caption="Add transformations to the events sent to PostHog or export them to other tools."
+                buttons={showNewButton ? <NewButton stage={maybeKind} /> : undefined}
             />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTab))}
-                tabs={Object.values(PipelineTab).map((tab) => ({
-                    // TODO: Hide admin management based on `canGloballyManagePlugins` permission
-                    // TODO: Hide import apps if there aren't any configs
-                    label: humanFriendlyTabName(tab),
+                tabs={Object.entries(tabToContent).map(([tab, content]) => ({
+                    label: humanFriendlyTabName(tab as PipelineTab),
                     key: tab,
-                    content: tabToContent[tab],
+                    content: content,
                 }))}
             />
         </div>

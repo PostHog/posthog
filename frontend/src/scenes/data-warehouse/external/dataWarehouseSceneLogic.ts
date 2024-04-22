@@ -24,7 +24,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             userLogic,
             ['user'],
             databaseTableListLogic,
-            ['filteredTables', 'dataWarehouse', 'dataWarehouseLoading'],
+            ['filteredTables', 'dataWarehouse', 'dataWarehouseLoading', 'databaseLoading'],
             dataWarehouseSavedQueriesLogic,
             ['savedQueries', 'dataWarehouseSavedQueriesLoading'],
             featureFlagLogic,
@@ -32,23 +32,22 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         ],
         actions: [
             dataWarehouseSavedQueriesLogic,
-            ['deleteDataWarehouseSavedQuery'],
+            [
+                'loadDataWarehouseSavedQueries',
+                'deleteDataWarehouseSavedQuery',
+                'updateDataWarehouseSavedQuery',
+                'updateDataWarehouseSavedQuerySuccess',
+            ],
             databaseTableListLogic,
             ['loadDataWarehouse', 'deleteDataWarehouseTable'],
         ],
     })),
     actions({
-        toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
         selectRow: (row: DataWarehouseTableType | null) => ({ row }),
         setSceneTab: (tab: DataWarehouseSceneTab) => ({ tab }),
+        setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
     }),
     reducers({
-        isSourceModalOpen: [
-            false,
-            {
-                toggleSourceModal: (state, { isOpen }) => (isOpen != undefined ? isOpen : !state),
-            },
-        ],
         selectedRow: [
             null as DataWarehouseTableType | null,
             {
@@ -59,6 +58,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             DataWarehouseSceneTab.Tables as DataWarehouseSceneTab,
             {
                 setSceneTab: (_state, { tab }) => tab,
+            },
+        ],
+        isEditingSavedQuery: [
+            false,
+            {
+                setIsEditingSavedQuery: (_, { isEditingSavedQuery }) => isEditingSavedQuery,
             },
         ],
     }),
@@ -167,6 +172,13 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         deleteDataWarehouseTable: async (table) => {
             actions.selectRow(null)
             lemonToast.success(`${table.name} successfully deleted`)
+        },
+        selectRow: () => {
+            actions.setIsEditingSavedQuery(false)
+        },
+        updateDataWarehouseSavedQuerySuccess: async (_, view) => {
+            actions.setIsEditingSavedQuery(false)
+            lemonToast.success(`${view.name} successfully updated`)
         },
     })),
     afterMount(({ actions, values }) => {

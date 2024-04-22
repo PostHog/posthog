@@ -3,7 +3,13 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { isOtherBreakdown } from 'scenes/insights/utils'
+import {
+    BREAKDOWN_NULL_NUMERIC_LABEL,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_NUMERIC_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    isOtherBreakdown,
+} from 'scenes/insights/utils'
 
 import { EntityNode } from '~/queries/schema'
 import {
@@ -118,7 +124,13 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     display &&
                     (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
                 ) {
-                    indexedResults.sort((a, b) => b.aggregated_value - a.aggregated_value)
+                    indexedResults.sort((a, b) =>
+                        a.label === BREAKDOWN_OTHER_STRING_LABEL
+                            ? BREAKDOWN_OTHER_NUMERIC_LABEL
+                            : a.label === BREAKDOWN_NULL_STRING_LABEL
+                            ? BREAKDOWN_NULL_NUMERIC_LABEL
+                            : b.aggregated_value - a.aggregated_value
+                    )
                 } else if (lifecycleFilter) {
                     if (lifecycleFilter.toggledLifecycles) {
                         indexedResults = indexedResults.filter((result) =>

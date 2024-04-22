@@ -22,6 +22,7 @@ import { DateMappingOption, PropertyOperator } from '~/types'
 import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'
 import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
+import { DateOption } from './rollingDateRangeFilterLogic'
 
 export interface DateFilterProps {
     showCustom?: boolean
@@ -41,6 +42,7 @@ interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | null | dayjs.Dayjs
     dateTo?: string | null | dayjs.Dayjs
     max?: number | null
+    allowedRollingDateOptions?: DateOption[]
 }
 
 export function DateFilter({
@@ -58,6 +60,7 @@ export function DateFilter({
     dropdownPlacement = 'bottom-start',
     max,
     isFixedDateMode = false,
+    allowedRollingDateOptions,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -183,7 +186,11 @@ export function DateFilter({
                             ref: rollingDateRangeRef,
                         }}
                         max={max}
-                        allowedDateOptions={isFixedDateMode ? ['hours', 'days', 'weeks', 'months', 'years'] : undefined}
+                        allowedDateOptions={
+                            isFixedDateMode && !allowedRollingDateOptions
+                                ? ['hours', 'days', 'weeks', 'months', 'years']
+                                : allowedRollingDateOptions
+                        }
                         fullWidth
                     />
                 )}

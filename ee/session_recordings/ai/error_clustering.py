@@ -80,7 +80,7 @@ def construct_response(df: pd.DataFrame, team: Team):
         sample = rows.sample(n=1)[["session_id", "error"]].to_dict("records")[0]
 
         date_series = (
-            df.groupby([df["timestamp"].dt.date])
+            rows.groupby([rows["timestamp"].dt.date])
             .size()
             .reindex(pd.date_range(end=date.today(), periods=7), fill_value=0)
         )

@@ -6,7 +6,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import get_person_properties_mode
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 class FunnelEventQuery(EventQuery):
@@ -49,7 +49,7 @@ class FunnelEventQuery(EventQuery):
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
 
-        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
+        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
             _fields += [f"{self._person_id_alias} as person_id"]
 
             _fields.extend(
@@ -95,7 +95,7 @@ class FunnelEventQuery(EventQuery):
 
         null_person_filter = (
             f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
-            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+            if self._person_on_events_mode != PersonsOnEventsMode.disabled
             else ""
         )
 
@@ -131,9 +131,9 @@ class FunnelEventQuery(EventQuery):
         )
         is_using_cohort_propertes = self._column_optimizer.is_using_cohort_propertes
 
-        if self._person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
             self._should_join_distinct_ids = True
-        elif self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED or (
+        elif self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events or (
             non_person_id_aggregation and not is_using_cohort_propertes
         ):
             self._should_join_distinct_ids = False
@@ -142,7 +142,7 @@ class FunnelEventQuery(EventQuery):
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
+        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
             self._should_join_persons = False
 
     def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
@@ -160,4 +160,4 @@ class FunnelEventQuery(EventQuery):
         if None in events:
             return "AND 1 = 1", {}
 
-        return f"AND event IN %({entity_name})s", {entity_name: sorted(list(events))}
+        return f"AND event IN %({entity_name})s", {entity_name: sorted(events)}

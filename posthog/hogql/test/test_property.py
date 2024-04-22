@@ -46,7 +46,7 @@ class TestProperty(BaseTest):
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
 
-    def _parse_expr(self, expr: str, placeholders: Dict[str, Any] = None):
+    def _parse_expr(self, expr: str, placeholders: Optional[Dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_has_aggregation(self):
@@ -622,7 +622,7 @@ class TestProperty(BaseTest):
             )
         self.assertEqual(
             str(e.exception),
-            "The 'event' property filter only works in 'event' scope, not in 'person' scope",
+            "The 'event' property filter does not work in 'person' scope",
         )
 
     def test_entity_to_expr_actions_type_with_id(self):
@@ -663,5 +663,5 @@ class TestProperty(BaseTest):
                 {"type": "session", "key": "$session_duration", "value": 10, "operator": "exact"},
                 scope="event",
             ),
-            self._parse_expr("session.duration = 10"),
+            self._parse_expr("session.$session_duration = 10"),
         )

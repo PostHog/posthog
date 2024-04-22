@@ -6,8 +6,9 @@ import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
+import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
-import { generateEventDeadLetterQueueMessage } from '../utils'
+import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
 import {
     eventProcessedAndIngestedCounter,
@@ -17,6 +18,7 @@ import {
     pipelineStepMsSummary,
     pipelineStepThrowCounter,
 } from './metrics'
+import { normalizeEventStep } from './normalizeEventStep'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
@@ -117,22 +119,111 @@ export class EventPipelineRunner {
             // ingestion pipeline is working well for all teams.
             this.poEEmbraceJoin = true
         }
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
 
-        if (processedEvent == null) {
-            return this.registerLastStep('pluginsProcessEventStep', [event])
+        const kafkaAcks: Promise<void>[] = []
+
+        let processPerson = true // The default.
+        if (event.properties && '$process_person_profile' in event.properties) {
+            const propValue = event.properties.$process_person_profile
+            if (propValue === true) {
+                // This is the default, and `true` is one of the two valid values.
+            } else if (propValue === false) {
+                // Only a boolean `false` disables person processing.
+                processPerson = false
+
+                if (['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'].includes(event.event)) {
+                    kafkaAcks.push(
+                        captureIngestionWarning(
+                            this.hub.db.kafkaProducer,
+                            event.team_id,
+                            'invalid_event_when_process_person_profile_is_false',
+                            {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                            { alwaysSend: true }
+                        )
+                    )
+
+                    return this.registerLastStep('invalidEventForProvidedFlags', [event], kafkaAcks)
+                }
+
+                // If person processing is disabled, go ahead and remove person related keys before
+                // any plugins have a chance to see them.
+                event = normalizeProcessPerson(event, processPerson)
+            } else {
+                // Anything other than `true` or `false` is invalid, and the default (true) will be
+                // used.
+                kafkaAcks.push(
+                    captureIngestionWarning(
+                        this.hub.db.kafkaProducer,
+                        event.team_id,
+                        'invalid_process_person_profile',
+                        {
+                            eventUuid: event.uuid,
+                            event: event.event,
+                            distinctId: event.distinct_id,
+                            $process_person_profile: propValue,
+                            message: 'Only a boolean value is valid for the $process_person_profile property',
+                        },
+                        { alwaysSend: false }
+                    )
+                )
+            }
         }
-        const [normalizedEvent, person] = await this.runStep(processPersonsStep, [this, processedEvent], event.team_id)
 
-        const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent], event.team_id)
+        if (event.event === '$$client_ingestion_warning') {
+            kafkaAcks.push(
+                captureIngestionWarning(
+                    this.hub.db.kafkaProducer,
+                    event.team_id,
+                    'client_ingestion_warning',
+                    {
+                        eventUuid: event.uuid,
+                        event: event.event,
+                        distinctId: event.distinct_id,
+                        message: event.properties?.$$client_ingestion_warning_message,
+                    },
+                    { alwaysSend: true }
+                )
+            )
 
-        const [rawClickhouseEvent, eventAck] = await this.runStep(
-            createEventStep,
-            [this, preparedEvent, person],
+            return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
+        }
+
+        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
+        if (processedEvent == null) {
+            // A plugin dropped the event.
+            return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
+        }
+
+        const [normalizedEvent, timestamp] = await this.runStep(
+            normalizeEventStep,
+            [processedEvent, processPerson],
             event.team_id
         )
 
-        return this.registerLastStep('createEventStep', [rawClickhouseEvent, person], [eventAck])
+        const [postPersonEvent, person] = await this.runStep(
+            processPersonsStep,
+            [this, normalizedEvent, timestamp, processPerson],
+            event.team_id
+        )
+
+        const preparedEvent = await this.runStep(
+            prepareEventStep,
+            [this, postPersonEvent, processPerson],
+            event.team_id
+        )
+
+        const [rawClickhouseEvent, eventAck] = await this.runStep(
+            createEventStep,
+            [this, preparedEvent, person, processPerson],
+            event.team_id
+        )
+
+        kafkaAcks.push(eventAck)
+        return this.registerLastStep('createEventStep', [rawClickhouseEvent], kafkaAcks)
     }
 
     registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {
@@ -156,12 +247,12 @@ export class EventPipelineRunner {
                 const sendToSentry = false
                 const timeout = timeoutGuard(
                     `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
-                    {
+                    () => ({
                         step: step.name,
                         event: JSON.stringify(this.originalEvent),
                         teamId: teamId,
                         distinctId: this.originalEvent.distinct_id,
-                    },
+                    }),
                     this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
                     sendToSentry
                 )

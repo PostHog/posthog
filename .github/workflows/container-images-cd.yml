@@ -15,8 +15,6 @@ on:
             - master
     workflow_dispatch:
 
-concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
-
 jobs:
     posthog_build:
         name: Build and push PostHog
@@ -76,6 +74,12 @@ jobs:
                   app_id: ${{ secrets.DEPLOYER_APP_ID }}
                   private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
 
+            - name: get PR labels
+              id: labels
+              uses: ./.github/actions/get-pr-labels
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Trigger PostHog Cloud deployment from Charts
               uses: mvasigh/dispatch-action@main
               with:
@@ -86,7 +90,8 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}",
-                        "context": ${{ toJson(github) }}
+                        "context": ${{ toJson(github) }},
+                        "github_labels": ${{ toJson(steps.labels.outputs.labels) }}
                       }
 
             - name: Check for changes in plugins directory

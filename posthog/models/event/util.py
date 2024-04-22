@@ -1,9 +1,9 @@
 import datetime as dt
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Set, Union
-
+from typing import Any, Dict, List, Literal, Optional, Set, Union
 from zoneinfo import ZoneInfo
+
 from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
@@ -31,7 +31,7 @@ def create_event(
     team: Team,
     distinct_id: str,
     timestamp: Optional[Union[timezone.datetime, str]] = None,
-    properties: Optional[Dict] = {},
+    properties: Optional[Dict] = None,
     elements: Optional[List[Element]] = None,
     person_id: Optional[uuid.UUID] = None,
     person_properties: Optional[Dict] = None,
@@ -46,7 +46,10 @@ def create_event(
     group2_created_at: Optional[Union[timezone.datetime, str]] = None,
     group3_created_at: Optional[Union[timezone.datetime, str]] = None,
     group4_created_at: Optional[Union[timezone.datetime, str]] = None,
+    person_mode: Literal["full", "propertyless"] = "full",
 ) -> str:
+    if properties is None:
+        properties = {}
     if not timestamp:
         timestamp = timezone.now()
     assert timestamp is not None
@@ -79,7 +82,7 @@ def create_event(
         "group2_created_at": format_clickhouse_timestamp(group2_created_at, ZERO_DATE),
         "group3_created_at": format_clickhouse_timestamp(group3_created_at, ZERO_DATE),
         "group4_created_at": format_clickhouse_timestamp(group4_created_at, ZERO_DATE),
-        "person_mode": "full",
+        "person_mode": person_mode,
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
@@ -101,7 +104,10 @@ def format_clickhouse_timestamp(
     return parsed_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
-def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Dict[str, Person]] = None) -> None:
+def bulk_create_events(
+    events: List[Dict[str, Any]],
+    person_mapping: Optional[Dict[str, Person]] = None,
+) -> None:
     """
     TEST ONLY
     Insert events in bulk. List of dicts:
@@ -163,6 +169,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
 
         #  use person properties mapping to populate person properties in given event
         team_id = event["team"].pk
+        person_mode = event.get("person_mode", "full")
         if person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]
             person_properties = person.properties
@@ -228,30 +235,30 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             "created_at": timestamp,
             "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
             "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
-            "person_created_at": event["person_created_at"]
-            if event.get("person_created_at")
-            else datetime64_default_timestamp,
+            "person_created_at": (
+                event["person_created_at"] if event.get("person_created_at") else datetime64_default_timestamp
+            ),
             "group0_properties": json.dumps(event["group0_properties"]) if event.get("group0_properties") else "{}",
             "group1_properties": json.dumps(event["group1_properties"]) if event.get("group1_properties") else "{}",
             "group2_properties": json.dumps(event["group2_properties"]) if event.get("group2_properties") else "{}",
             "group3_properties": json.dumps(event["group3_properties"]) if event.get("group3_properties") else "{}",
             "group4_properties": json.dumps(event["group4_properties"]) if event.get("group4_properties") else "{}",
-            "group0_created_at": event["group0_created_at"]
-            if event.get("group0_created_at")
-            else datetime64_default_timestamp,
-            "group1_created_at": event["group1_created_at"]
-            if event.get("group1_created_at")
-            else datetime64_default_timestamp,
-            "group2_created_at": event["group2_created_at"]
-            if event.get("group2_created_at")
-            else datetime64_default_timestamp,
-            "group3_created_at": event["group3_created_at"]
-            if event.get("group3_created_at")
-            else datetime64_default_timestamp,
-            "group4_created_at": event["group4_created_at"]
-            if event.get("group4_created_at")
-            else datetime64_default_timestamp,
-            "person_mode": "full",
+            "group0_created_at": (
+                event["group0_created_at"] if event.get("group0_created_at") else datetime64_default_timestamp
+            ),
+            "group1_created_at": (
+                event["group1_created_at"] if event.get("group1_created_at") else datetime64_default_timestamp
+            ),
+            "group2_created_at": (
+                event["group2_created_at"] if event.get("group2_created_at") else datetime64_default_timestamp
+            ),
+            "group3_created_at": (
+                event["group3_created_at"] if event.get("group3_created_at") else datetime64_default_timestamp
+            ),
+            "group4_created_at": (
+                event["group4_created_at"] if event.get("group4_created_at") else datetime64_default_timestamp
+            ),
+            "person_mode": person_mode,
         }
 
         params = {
@@ -280,9 +287,11 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-def parse_properties(properties: str, allow_list: Set[str] = set()) -> Dict:
+def parse_properties(properties: str, allow_list: Optional[Set[str]] = None) -> Dict:
     # parse_constants gets called for any NaN, Infinity etc values
     # we just want those to be returned as None
+    if allow_list is None:
+        allow_list = set()
     props = json.loads(properties or "{}", parse_constant=lambda x: None)
     return {
         key: value.strip('"') if isinstance(value, str) else value

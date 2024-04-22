@@ -2945,7 +2945,7 @@
                 {
                     "plan_key": "paid-20240208",
                     "product_key": "platform_and_support",
-                    "name": "With subscription",
+                    "name": "Pay-per-use",
                     "description": "SSO, permission management, and support.",
                     "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
                     "docs_url": "https://posthog.com/docs",
@@ -3648,9 +3648,9 @@
                     "type": null
                 },
                 {
-                    "key": "support_slas",
-                    "name": "Support SLAs",
-                    "description": "Support SLAs",
+                    "key": "support_response_time",
+                    "name": "Support response time",
+                    "description": "Get help from our team!",
                     "images": null,
                     "icon_key": null,
                     "type": null

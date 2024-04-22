@@ -35,6 +35,7 @@ export type LemonInputSelectProps = Pick<
     onBlur?: () => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
+    popoverClassName?: string
 }
 
 export function LemonInputSelect({
@@ -50,6 +51,7 @@ export function LemonInputSelect({
     disableFiltering = false,
     allowCustomValues = false,
     autoFocus = false,
+    popoverClassName,
     ...props
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
@@ -91,7 +93,11 @@ export function LemonInputSelect({
                 res.unshift({ key: value, label: value })
             })
         }
-        return res
+
+        // :HACKY: This is a quick fix to make the select dropdown work for large values,
+        // as it was getting slow when we'd load more than ~10k entries. Ideally we'd
+        // make this a virtualized list.
+        return res.slice(0, 100)
     }, [options, inputValue, values])
 
     // Reset the selected index when the visible options change
@@ -265,6 +271,7 @@ export function LemonInputSelect({
                 popoverFocusRef.current = true
                 e.stopPropagation()
             }}
+            className={popoverClassName}
             overlay={
                 <div className="space-y-px overflow-y-auto">
                     {visibleOptions.length ? (

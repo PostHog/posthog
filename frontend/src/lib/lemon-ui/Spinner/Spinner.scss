@@ -57,7 +57,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 6rem;
+    min-height: min(100%, 6rem);
     text-align: center;
     transition: opacity 0.2s ease;
 

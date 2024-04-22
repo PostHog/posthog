@@ -216,11 +216,13 @@ export function formatAggregationValue(
     return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
-// NB! Sync this with breakdown.py
+// NB! Sync this with breakdown_values.py
 export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
 export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
+export const BREAKDOWN_OTHER_DISPLAY = 'Other (i.e. all remaining values)'
 export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
+export const BREAKDOWN_NULL_DISPLAY = 'None (i.e. no value)'
 
 export function isOtherBreakdown(breakdown_value: string | number | null | undefined | ReactNode): boolean {
     return (
@@ -277,17 +279,17 @@ export function formatBreakdownLabel(
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
         return isOtherBreakdown(breakdown_value)
-            ? 'Other (Groups all remaining values)'
+            ? BREAKDOWN_OTHER_DISPLAY
             : isNullBreakdown(breakdown_value)
-            ? 'None'
+            ? BREAKDOWN_NULL_DISPLAY
             : formatPropertyValueForDisplay
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
             : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
-            ? 'Other (Groups all remaining values)'
+            ? BREAKDOWN_OTHER_DISPLAY
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
-            ? 'None'
+            ? BREAKDOWN_NULL_DISPLAY
             : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
         return breakdown_value

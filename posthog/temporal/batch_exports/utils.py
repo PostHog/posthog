@@ -2,7 +2,6 @@ import asyncio
 import collections.abc
 import typing
 import uuid
-
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import update_batch_export_run
 
@@ -10,7 +9,7 @@ T = typing.TypeVar("T")
 
 
 def peek_first_and_rewind(
-    gen: collections.abc.Generator[T, None, None]
+    gen: collections.abc.Generator[T, None, None],
 ) -> tuple[T, collections.abc.Generator[T, None, None]]:
     """Peek into the first element in a generator and rewind the advance.
 

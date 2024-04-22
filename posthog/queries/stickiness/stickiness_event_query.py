@@ -8,7 +8,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_person_properties_mode, get_start_of_interval_sql
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 class StickinessEventsQuery(EventQuery):
@@ -43,7 +43,7 @@ class StickinessEventsQuery(EventQuery):
 
         null_person_filter = (
             f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
-            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+            if self._person_on_events_mode != PersonsOnEventsMode.disabled
             else ""
         )
 
@@ -82,14 +82,14 @@ class StickinessEventsQuery(EventQuery):
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+        if self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
+        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
             self._should_join_persons = False
 
     def aggregation_target(self):

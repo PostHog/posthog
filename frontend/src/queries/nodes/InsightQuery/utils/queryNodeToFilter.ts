@@ -123,6 +123,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_to: query.dateRange?.date_to,
         // TODO: not used by retention queries
         date_from: query.dateRange?.date_from,
+        explicit_date: query.dateRange?.explicitDate,
         entity_type: 'events',
         sampling_factor: query.samplingFactor,
     })
@@ -266,8 +267,14 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedPathsProps.local_path_cleaning_filters = queryCopy.pathsFilter?.localPathCleaningFilters
         camelCasedPathsProps.min_edge_weight = queryCopy.pathsFilter?.minEdgeWeight
         camelCasedPathsProps.max_edge_weight = queryCopy.pathsFilter?.maxEdgeWeight
-        camelCasedPathsProps.funnel_paths = queryCopy.pathsFilter?.funnelPaths
-        camelCasedPathsProps.funnel_filter = queryCopy.pathsFilter?.funnelFilter
+        camelCasedPathsProps.funnel_paths = queryCopy.funnelPathsFilter?.funnelPathType
+        camelCasedPathsProps.funnel_filter =
+            queryCopy.funnelPathsFilter !== undefined
+                ? {
+                      ...queryNodeToFilter(queryCopy.funnelPathsFilter.funnelSource),
+                      funnel_step: queryCopy.funnelPathsFilter.funnelStep,
+                  }
+                : undefined
         delete queryCopy.pathsFilter?.edgeLimit
         delete queryCopy.pathsFilter?.pathsHogQLExpression
         delete queryCopy.pathsFilter?.includeEventTypes
@@ -280,8 +287,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.pathsFilter?.localPathCleaningFilters
         delete queryCopy.pathsFilter?.minEdgeWeight
         delete queryCopy.pathsFilter?.maxEdgeWeight
-        delete queryCopy.pathsFilter?.funnelPaths
-        delete queryCopy.pathsFilter?.funnelFilter
+        delete queryCopy.funnelPathsFilter
     } else if (isStickinessQuery(queryCopy)) {
         camelCasedStickinessProps.show_legend = queryCopy.stickinessFilter?.showLegend
         camelCasedStickinessProps.show_values_on_series = queryCopy.stickinessFilter?.showValuesOnSeries

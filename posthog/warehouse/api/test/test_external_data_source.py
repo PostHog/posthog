@@ -1,3 +1,4 @@
+from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 import uuid
@@ -128,7 +129,8 @@ class TestSavedQuery(APIBaseTest):
         self.assertFalse(ExternalDataSource.objects.filter(pk=source.pk).exists())
         self.assertFalse(ExternalDataSchema.objects.filter(pk=schema.pk).exists())
 
-    @patch("posthog.warehouse.api.external_data_source.trigger_external_data_workflow")
+    # TODO: update this test
+    @patch("posthog.warehouse.api.external_data_source.trigger_external_data_source_workflow")
     def test_reload_external_data_source(self, mock_trigger):
         source = self._create_external_data_source()
 
@@ -164,6 +166,7 @@ class TestSavedQuery(APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/external_data_sources/database_schema/",
             data={
+                "source_type": "Postgres",
                 "host": settings.PG_HOST,
                 "port": int(settings.PG_PORT),
                 "dbname": settings.PG_DATABASE,
@@ -189,6 +192,21 @@ class TestSavedQuery(APIBaseTest):
 
         postgres_connection.close()
 
+    def test_database_schema_non_postgres_source(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/external_data_sources/database_schema/",
+            data={
+                "source_type": "Stripe",
+            },
+        )
+        results = response.json()
+
+        self.assertEqual(response.status_code, 200)
+
+        table_names = [table["table"] for table in results]
+        for table in ENDPOINTS:
+            assert table in table_names
+
     @patch("posthog.warehouse.api.external_data_source.get_postgres_schemas")
     def test_internal_postgres(self, patch_get_postgres_schemas):
         patch_get_postgres_schemas.return_value = ["table_1"]
@@ -198,6 +216,7 @@ class TestSavedQuery(APIBaseTest):
             response = self.client.post(
                 f"/api/projects/{team_2.id}/external_data_sources/database_schema/",
                 data={
+                    "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
                     "dbname": settings.PG_DATABASE,
@@ -214,6 +233,7 @@ class TestSavedQuery(APIBaseTest):
             response = self.client.post(
                 f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
                 data={
+                    "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
                     "dbname": settings.PG_DATABASE,
@@ -230,6 +250,7 @@ class TestSavedQuery(APIBaseTest):
             response = self.client.post(
                 f"/api/projects/{team_1.id}/external_data_sources/database_schema/",
                 data={
+                    "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
                     "dbname": settings.PG_DATABASE,
@@ -246,6 +267,7 @@ class TestSavedQuery(APIBaseTest):
             response = self.client.post(
                 f"/api/projects/{new_team.id}/external_data_sources/database_schema/",
                 data={
+                    "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
                     "dbname": settings.PG_DATABASE,

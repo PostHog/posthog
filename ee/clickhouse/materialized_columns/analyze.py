@@ -58,7 +58,7 @@ class TeamManager:
 
     def _get_properties(self, query, team_id) -> Set[str]:
         rows = sync_execute(query, {"team_id": team_id})
-        return set(name for name, _ in rows)
+        return {name for name, _ in rows}
 
 
 class Query:

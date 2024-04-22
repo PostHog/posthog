@@ -57,7 +57,7 @@ def funnel_window_interval_unit_to_sql(
     elif funnelWindowIntervalUnit == "day":
         return "DAY"
     else:
-        raise ValidationError("{funnelWindowIntervalUnit} not supported")
+        raise ValidationError(f"{funnelWindowIntervalUnit} not supported")
 
 
 def get_breakdown_expr(

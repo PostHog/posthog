@@ -50,12 +50,13 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'insightDataLoading',
                 'insightDataError',
                 'pathsFilter',
+                'funnelPathsFilter',
                 'dateRange',
             ],
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
 
     actions({

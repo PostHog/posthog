@@ -11,7 +11,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ResolutionError
 from posthog.schema import HogQLQueryModifiers
 
 PERSON_OVERRIDES_FIELDS: Dict[str, FieldOrTable] = {
@@ -43,7 +43,7 @@ def join_with_person_overrides_table(
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise HogQLException("No fields requested from person_distinct_ids")
+        raise ResolutionError("No fields requested from person_distinct_ids")
 
     join_expr = ast.JoinExpr(table=select_from_person_overrides_table(requested_fields))
     join_expr.join_type = "LEFT OUTER JOIN"

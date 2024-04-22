@@ -122,7 +122,7 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": "",
         "subrows": {
             "columns": ["Metric", "Value", "Description"],
-            "rows": list(sorted(system_metrics)),
+            "rows": sorted(system_metrics),
         },
     }
 

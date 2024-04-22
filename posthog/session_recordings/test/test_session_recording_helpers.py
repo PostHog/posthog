@@ -23,7 +23,7 @@ def create_activity_data(timestamp: datetime, is_active: bool):
     return SessionRecordingEventSummary(
         timestamp=round(timestamp.timestamp() * 1000),
         type=3,
-        data=dict(source=1 if is_active else -1),
+        data={"source": 1 if is_active else -1},
     )
 
 
@@ -280,7 +280,6 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                 "distinct_id": "abc123",
             },
         },
-    ] + [
         {
             "event": "$snapshot",
             "properties": {

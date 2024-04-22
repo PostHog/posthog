@@ -104,7 +104,6 @@ export enum AvailableFeature {
     SECURITY_ASSESSMENT = 'security_assessment',
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
-    SUPPORT_SLAS = 'support_slas',
     BOOLEAN_FLAGS = 'boolean_flags',
     FEATURE_FLAGS_DATA_RETENTION = 'feature_flags_data_retention',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
@@ -148,6 +147,7 @@ export enum AvailableFeature {
     CUSTOMM_MSA = 'custom_msa',
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
+    SUPPORT_RESPONSE_TIME = 'support_response_time',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -596,7 +596,6 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
-    FilePlayback = 'file-playback',
     Errors = 'errors',
 }
 
@@ -652,6 +651,7 @@ export enum PropertyFilterType {
     Group = 'group',
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
+    DataWarehousePersonProperty = 'data_warehouse_person_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -679,6 +679,11 @@ export interface DataWarehousePropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.DataWarehousePersonProperty
+    operator: PropertyOperator
+}
+
 /** Sync with plugin-server/src/types.ts */
 export interface ElementPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Element
@@ -688,7 +693,6 @@ export interface ElementPropertyFilter extends BasePropertyFilter {
 
 export interface SessionPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Session
-    key: '$session_duration'
     operator: PropertyOperator
 }
 
@@ -735,6 +739,7 @@ export type AnyPropertyFilter =
     | HogQLPropertyFilter
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -797,6 +802,7 @@ export type EncodedRecordingSnapshot = {
 export const SnapshotSourceType = {
     blob: 'blob',
     realtime: 'realtime',
+    file: 'file',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
@@ -806,7 +812,12 @@ export interface SessionRecordingSnapshotSource {
     start_timestamp?: string
     end_timestamp?: string
     blob_key?: string
-    loaded: boolean
+}
+
+export interface SessionRecordingSnapshotSourceResponse {
+    source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    snapshots?: RecordingSnapshot[]
+    untransformed_snapshots?: RecordingSnapshot[]
 }
 
 export interface SessionRecordingSnapshotResponse {
@@ -1071,6 +1082,7 @@ export interface CohortCriteriaType {
     operator_value?: PropertyFilterValue
     time_value?: number | string | null
     time_interval?: TimeUnitType | null
+    explicit_datetime?: string | null
     total_periods?: number | null
     min_periods?: number | null
     seq_event_type?: TaxonomicFilterGroupType | null
@@ -1079,6 +1091,7 @@ export interface CohortCriteriaType {
     seq_time_interval?: TimeUnitType | null
     negation?: boolean
     value_property?: string | null // Transformed into 'value' for api calls
+    event_filters?: AnyPropertyFilter[] | null
 }
 
 export type EmptyCohortGroupType = Partial<CohortGroupType>
@@ -1108,6 +1121,7 @@ export interface CohortType {
     filters: {
         properties: CohortCriteriaGroupFilter
     }
+    experiment_set?: number[]
 }
 
 export interface InsightHistory {
@@ -1439,6 +1453,7 @@ export interface BillingProductV2AddonType {
     usage_key?: string
     free_allocation?: number | null
     percentage_usage?: number
+    features: BillingV2FeatureType[]
 }
 export interface BillingV2Type {
     customer_id: string
@@ -1939,6 +1954,8 @@ export interface FilterType {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_hide_other_aggregation?: boolean | null
+    /** @asType integer */
+    breakdown_limit?: number | null
     aggregation_group_type_index?: number // Groups aggregation
 }
 
@@ -2536,7 +2553,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
-    experiment_set: string[] | null
+    experiment_set: number[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
@@ -2698,6 +2715,7 @@ export interface PreflightStatus {
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
     object_storage: boolean
+    public_egress_ip_addresses?: string[]
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -2854,6 +2872,7 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
+    exposure_cohort?: number
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
@@ -2922,7 +2941,7 @@ export interface FunnelExperimentResults {
 
 export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
-export type SecondaryMetricResults = Partial<ExperimentResults['result']> & {
+export type SecondaryMetricResults = ExperimentResults['result'] & {
     result?: Record<string, number>
 }
 export interface SecondaryExperimentMetric {
@@ -3000,6 +3019,8 @@ export interface AppContext {
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
     year_in_hog_url?: string
+    /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
+    suggested_users_with_access?: UserBasicType[]
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3569,7 +3590,7 @@ export interface SimpleExternalDataSourceSchema {
     last_synced_at?: Dayjs
 }
 
-export interface ExternalDataPostgresSchema {
+export interface ExternalDataSourceSyncSchema {
     table: string
     should_sync: boolean
 }
@@ -3582,6 +3603,7 @@ export interface SimpleDataWarehouseTable {
     id: string
     name: string
     columns: DatabaseSchemaQueryResponseField[]
+    row_count: number
 }
 
 export type BatchExportDestinationS3 = {
@@ -3743,34 +3765,43 @@ export type SDK = {
 }
 
 export enum SDKKey {
-    JS_WEB = 'javascript_web',
-    REACT = 'react',
-    NEXT_JS = 'nextjs',
-    GATSBY = 'gatsby',
-    IOS = 'ios',
     ANDROID = 'android',
-    FLUTTER = 'flutter',
-    REACT_NATIVE = 'react_native',
-    NODE_JS = 'nodejs',
-    RUBY = 'ruby',
-    PYTHON = 'python',
-    PHP = 'php',
-    GO = 'go',
-    ELIXIR = 'elixir',
+    ANGULAR = 'angular',
+    ASTRO = 'astro',
     API = 'api',
-    JAVA = 'java',
-    RUST = 'rust',
-    GOOGLE_TAG_MANAGER = 'google_tag_manager',
-    NUXT_JS = 'nuxtjs',
-    VUE_JS = 'vuejs',
-    SEGMENT = 'segment',
-    RUDDERSTACK = 'rudderstack',
+    BUBBLE = 'bubble',
+    DJANGO = 'django',
     DOCUSAURUS = 'docusaurus',
-    SHOPIFY = 'shopify',
-    WORDPRESS = 'wordpress',
-    SENTRY = 'sentry',
-    RETOOL = 'retool',
+    ELIXIR = 'elixir',
+    FRAMER = 'framer',
+    FLUTTER = 'flutter',
+    GATSBY = 'gatsby',
+    GO = 'go',
+    GOOGLE_TAG_MANAGER = 'google_tag_manager',
     HTML_SNIPPET = 'html',
+    IOS = 'ios',
+    JAVA = 'java',
+    JS_WEB = 'javascript_web',
+    LARAVEL = 'laravel',
+    NEXT_JS = 'nextjs',
+    NODE_JS = 'nodejs',
+    NUXT_JS = 'nuxtjs',
+    PHP = 'php',
+    PYTHON = 'python',
+    REACT = 'react',
+    REACT_NATIVE = 'react_native',
+    REMIX = 'remix',
+    RETOOL = 'retool',
+    RUBY = 'ruby',
+    RUDDERSTACK = 'rudderstack',
+    RUST = 'rust',
+    SEGMENT = 'segment',
+    SENTRY = 'sentry',
+    SHOPIFY = 'shopify',
+    SVELTE = 'svelte',
+    VUE_JS = 'vuejs',
+    WEBFLOW = 'webflow',
+    WORDPRESS = 'wordpress',
 }
 
 export enum SDKTag {
@@ -3812,4 +3843,19 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
+}
+
+export interface SourceFieldConfig {
+    name: string
+    label: string
+    type: string
+    required: boolean
+    placeholder: string
+}
+
+export interface SourceConfig {
+    name: ExternalDataSourceType
+    caption: string | React.ReactNode
+    fields: SourceFieldConfig[]
+    disabledReason?: string | null
 }

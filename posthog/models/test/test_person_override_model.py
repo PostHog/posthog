@@ -394,7 +394,7 @@ def test_person_override_allows_duplicate_override_person_id(team, oldest_event)
         created.append(person_override)
 
     assert all(p.override_person_id == override_mapping for p in created)
-    assert len(set(p.old_person_id.uuid for p in created)) == n_person_overrides
+    assert len({p.old_person_id.uuid for p in created}) == n_person_overrides
 
 
 @contextlib.contextmanager

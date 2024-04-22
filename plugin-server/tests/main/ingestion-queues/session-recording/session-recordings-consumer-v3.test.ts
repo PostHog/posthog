@@ -6,6 +6,7 @@ import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
+import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../../src/config/kafka-topics'
 import {
     SessionManagerBufferContext,
     SessionManagerContext,
@@ -76,6 +77,7 @@ describe('ingester', () => {
     let teamToken = ''
     let mockOffsets: Record<number, number> = {}
     let mockCommittedOffsets: Record<number, number> = {}
+    const consumedTopic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
 
     beforeAll(async () => {
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
@@ -120,7 +122,7 @@ describe('ingester', () => {
         ingester = new SessionRecordingIngesterV3(config, hub.postgres, hub.objectStorage)
         await ingester.start()
 
-        mockConsumer.assignments.mockImplementation(() => [createTP(0), createTP(1)])
+        mockConsumer.assignments.mockImplementation(() => [createTP(0, consumedTopic), createTP(1, consumedTopic)])
     })
 
     afterEach(async () => {
@@ -139,6 +141,7 @@ describe('ingester', () => {
         mockOffsets[partition]++
 
         return createKafkaMessage(
+            consumedTopic,
             teamToken,
             {
                 partition,
@@ -223,7 +226,7 @@ describe('ingester', () => {
 
         describe('batch event processing', () => {
             it('should batch parse incoming events and batch them to reduce writes', async () => {
-                mockConsumer.assignments.mockImplementation(() => [createTP(1)])
+                mockConsumer.assignments.mockImplementation(() => [createTP(1, consumedTopic)])
                 await ingester.handleEachBatch(
                     [
                         createMessage('session_id_1', 1),
@@ -279,7 +282,11 @@ describe('ingester', () => {
                 const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
                 const partitionMsgs2 = [createMessage('session_id_3', 2), createMessage('session_id_4', 2)]
 
-                mockConsumer.assignments.mockImplementation(() => [createTP(1), createTP(2), createTP(3)])
+                mockConsumer.assignments.mockImplementation(() => [
+                    createTP(1, consumedTopic),
+                    createTP(2, consumedTopic),
+                    createTP(3, consumedTopic),
+                ])
                 await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2], noop)
 
                 expect(getSessions(ingester)).toMatchObject([
@@ -291,12 +298,15 @@ describe('ingester', () => {
 
                 // Call handleEachBatch with both consumers - we simulate the assignments which
                 // is what is responsible for the actual syncing of the sessions
-                mockConsumer.assignments.mockImplementation(() => [createTP(2), createTP(3)])
+                mockConsumer.assignments.mockImplementation(() => [
+                    createTP(2, consumedTopic),
+                    createTP(3, consumedTopic),
+                ])
                 await otherIngester.handleEachBatch(
                     [createMessage('session_id_4', 2), createMessage('session_id_5', 2)],
                     noop
                 )
-                mockConsumer.assignments.mockImplementation(() => [createTP(1)])
+                mockConsumer.assignments.mockImplementation(() => [createTP(1, consumedTopic)])
                 await ingester.handleEachBatch([createMessage('session_id_1', 1)], noop)
 
                 // Should still have the partition 1 sessions that didnt move with added events
@@ -317,8 +327,8 @@ describe('ingester', () => {
                 // non-zero offset because the code can't commit offset 0
                 await ingester.handleEachBatch(
                     [
-                        createKafkaMessage('invalid_token', { offset: 12 }),
-                        createKafkaMessage('invalid_token', { offset: 13 }),
+                        createKafkaMessage(consumedTopic, 'invalid_token', { offset: 12 }),
+                        createKafkaMessage(consumedTopic, 'invalid_token', { offset: 13 }),
                     ],
                     noop
                 )

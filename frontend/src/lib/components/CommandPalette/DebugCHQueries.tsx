@@ -1,3 +1,4 @@
+import { IconCodeInsert, IconCopy } from '@posthog/icons'
 import { actions, afterMount, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -7,6 +8,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
 import { CodeSnippet, Language } from '../CodeSnippet'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
@@ -24,6 +27,7 @@ export interface Query {
     /** @example '2023-07-27T10:06:11' */
     timestamp: string
     query: string
+    queryJson: string
     exception: string
     /**
      * 1 means running, 2 means finished, 3 means errored before execution, 4 means errored during execution.
@@ -91,40 +95,40 @@ function DebugCHQueries(): JSX.Element {
 
     return (
         <>
-            {!!paths?.length && (
-                <div className="flex gap-4 items-end justify-between mb-4">
-                    <div className="flex flex-wrap gap-2">
-                        {paths.map(([path, count]) => (
-                            <LemonButton
-                                key={path}
-                                type={pathFilter === path ? 'primary' : 'tertiary'}
-                                size="small"
-                                onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
-                            >
-                                {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
-                            </LemonButton>
-                        ))}
-                    </div>
-                    <LemonButton
-                        icon={<IconRefresh />}
-                        disabledReason={queriesLoading ? 'Loading…' : null}
-                        onClick={() => loadQueries()}
-                        size="small"
-                        type="secondary"
-                    >
-                        Refresh
-                    </LemonButton>
+            <div className="flex gap-4 items-end justify-between mb-4">
+                <div className="flex flex-wrap gap-2">
+                    {paths?.map(([path, count]) => (
+                        <LemonButton
+                            key={path}
+                            type={pathFilter === path ? 'primary' : 'tertiary'}
+                            size="small"
+                            onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
+                        >
+                            {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
+                        </LemonButton>
+                    ))}
                 </div>
-            )}
+                <LemonButton
+                    icon={<IconRefresh />}
+                    disabledReason={queriesLoading ? 'Loading…' : null}
+                    onClick={() => loadQueries()}
+                    size="small"
+                    type="secondary"
+                >
+                    Refresh
+                </LemonButton>
+            </div>
 
             <LemonTable
                 columns={[
                     {
                         title: 'Timestamp',
                         render: (_, item) => (
-                            <span className="font-mono whitespace-pre">
-                                {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
-                            </span>
+                            <div className="space-y-2">
+                                <span className="font-mono whitespace-pre">
+                                    {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
+                                </span>
+                            </div>
                         ),
                         width: 160,
                     },
@@ -132,9 +136,9 @@ function DebugCHQueries(): JSX.Element {
                         title: 'Query',
                         render: function query(_, item) {
                             return (
-                                <div className="max-w-200">
+                                <div className="max-w-200 py-1 space-y-2">
                                     {item.exception && (
-                                        <LemonBanner type="error" className="text-xs font-mono mb-2">
+                                        <LemonBanner type="error" className="text-xs font-mono">
                                             {item.exception}
                                         </LemonBanner>
                                     )}
@@ -142,10 +146,29 @@ function DebugCHQueries(): JSX.Element {
                                         language={Language.SQL}
                                         thing="query"
                                         maxLinesWithoutExpansion={5}
-                                        style={{ fontSize: 12 }}
+                                        style={{ fontSize: 12, maxWidth: '60vw' }}
                                     >
                                         {item.query}
                                     </CodeSnippet>
+                                    {item.queryJson ? (
+                                        <LemonButton
+                                            type="primary"
+                                            size="small"
+                                            fullWidth
+                                            center
+                                            icon={<IconCodeInsert />}
+                                            to={urls.debugQuery(item.queryJson)}
+                                            targetBlank
+                                            sideAction={{
+                                                icon: <IconCopy />,
+                                                onClick: () => void copyToClipboard(item.queryJson, 'query JSON'),
+                                                tooltip: 'Copy query JSON to clipboard',
+                                            }}
+                                            className="my-0"
+                                        >
+                                            Debug {JSON.parse(item.queryJson).kind || 'query'} in new tab
+                                        </LemonButton>
+                                    ) : null}
                                 </div>
                             )
                         },

@@ -684,6 +684,48 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.session_recording_api.requests")
+    def test_validates_blob_keys(
+        self,
+        _mock_requests,
+        mock_presigned_url,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid.uuid4())
+        """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
+        blob_key = f"../try/to/escape/into/other/directories"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?version=2&source=blob&blob_key={blob_key}"
+
+        # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        def presigned_url_sideeffect(key: str, **kwargs):
+            if key == f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{blob_key}":
+                return f"https://test.com/"
+            else:
+                return None
+
+        mock_presigned_url.side_effect = presigned_url_sideeffect
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        # we don't generate a pre-signed url if the blob key is invalid
+        assert mock_presigned_url.call_count == 0
+        # we don't try to load the data if the blob key is invalid
+        assert _mock_requests.call_count == 0
+        # we do check the session before validating input
+        # TODO it would be maybe cheaper to validate the input first
+        assert mock_get_session_recording.call_count == 1
+        assert _mock_exists.call_count == 1
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
     @patch("posthog.session_recordings.session_recording_api.requests")
     def test_can_get_session_recording_realtime(
@@ -738,7 +780,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
-        annoying_data_from_javascript = "\uD801\uDC37 probably from console logs"
+        annoying_data_from_javascript = "\ud801\udc37 probably from console logs"
 
         mock_realtime_snapshots.return_value = [
             {"some": annoying_data_from_javascript},

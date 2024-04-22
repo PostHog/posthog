@@ -132,7 +132,7 @@ def test_batch_export_temporary_file_write_records_to_csv(records):
             quoting=csv.QUOTE_NONE,
         )
 
-        rows = [row for row in reader]
+        rows = list(reader)
         assert len(rows) == len(records)
 
         for row_index, csv_record in enumerate(rows):
@@ -185,7 +185,7 @@ def test_batch_export_temporary_file_write_records_to_tsv(records):
             quoting=csv.QUOTE_NONE,
         )
 
-        rows = [row for row in reader]
+        rows = list(reader)
         assert len(rows) == len(records)
 
         for row_index, csv_record in enumerate(rows):

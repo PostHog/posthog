@@ -19,7 +19,13 @@ import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SEVERITY_LEVEL_TO_NAME, supportLogic, SupportTicketKind, TARGET_AREA_TO_NAME } from './supportLogic'
+import {
+    SEVERITY_LEVEL_TO_NAME,
+    SUPPORT_TICKET_TEMPLATES,
+    supportLogic,
+    SupportTicketKind,
+    TARGET_AREA_TO_NAME,
+} from './supportLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
     {
@@ -51,6 +57,7 @@ export function SupportForm(): JSX.Element | null {
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
     const { user } = useValues(userLogic)
+    // only allow authentication issues for logged out users
 
     const dropRef = useRef<HTMLDivElement>(null)
 
@@ -63,7 +70,32 @@ export function SupportForm(): JSX.Element | null {
         },
     })
 
+    const handleReportTypeChange = (kind: string = supportLogic.values.sendSupportRequest.kind ?? ''): void => {
+        const message = supportLogic.values.sendSupportRequest.message
+
+        // do not overwrite modified message
+        if (
+            !(
+                message === SUPPORT_TICKET_TEMPLATES.bug ||
+                message === SUPPORT_TICKET_TEMPLATES.feedback ||
+                message === SUPPORT_TICKET_TEMPLATES.support ||
+                !message
+            )
+        ) {
+            return
+        }
+
+        if (kind === 'bug') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.bug
+        } else if (kind === 'feedback') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
+        } else if (kind === 'support') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.support
+        }
+    }
+
     useEffect(() => {
+        handleReportTypeChange()
         if (sendSupportRequest.kind === 'bug') {
             setSendSupportRequestValue('severity_level', 'medium')
         } else {
@@ -93,7 +125,15 @@ export function SupportForm(): JSX.Element | null {
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
             <LemonField name="target_area" label="Topic">
-                <LemonSelect fullWidth options={TARGET_AREA_TO_NAME} />
+                <LemonSelect
+                    disabledReason={
+                        !user
+                            ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
+                            : null
+                    }
+                    fullWidth
+                    options={TARGET_AREA_TO_NAME}
+                />
             </LemonField>
             <LemonField
                 name="message"
@@ -119,21 +159,21 @@ export function SupportForm(): JSX.Element | null {
                     </div>
                 )}
             </LemonField>
-            <LemonField name="severity_level">
-                <>
-                    <div className="flex justify-between items-center">
-                        <label className="LemonLabel">
-                            Severity level
-                            <Tooltip title="Severity levels help us prioritize your request.">
-                                <span>
-                                    <IconInfo className="opacity-75" />
-                                </span>
-                            </Tooltip>
-                        </label>
-                        <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
-                            Definitions
-                        </Link>
-                    </div>
+            <div className="flex gap-2 flex-col">
+                <div className="flex justify-between items-center">
+                    <label className="LemonLabel">
+                        Severity level
+                        <Tooltip title="Severity levels help us prioritize your request.">
+                            <span>
+                                <IconInfo className="opacity-75" />
+                            </span>
+                        </Tooltip>
+                    </label>
+                    <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
+                        Definitions
+                    </Link>
+                </div>
+                <LemonField name="severity_level">
                     <LemonSelect
                         fullWidth
                         options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
@@ -141,8 +181,8 @@ export function SupportForm(): JSX.Element | null {
                             value: key,
                         }))}
                     />
-                </>
-            </LemonField>
+                </LemonField>
+            </div>
         </Form>
     )
 }

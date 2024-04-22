@@ -32,8 +32,11 @@ export function TopHeading({ insight }: { insight: InsightModel }): JSX.Element 
         }
     }
 
-    const defaultDateRange = query == undefined || isInsightQueryNode(query) ? 'Last 7 days' : null
-    const dateText = dateFilterToText(date_from, date_to, defaultDateRange)
+    let dateText: string | null = null
+    if (insightType?.name !== 'Retention') {
+        const defaultDateRange = query == undefined || isInsightQueryNode(query) ? 'Last 7 days' : null
+        dateText = dateFilterToText(date_from, date_to, defaultDateRange)
+    }
     return (
         <>
             <span title={insightType?.description}>{insightType?.name}</span>

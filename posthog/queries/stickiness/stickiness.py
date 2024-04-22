@@ -85,7 +85,7 @@ class Stickiness:
 
         return {
             "labels": labels,
-            "days": [day for day in range(1, filter.total_intervals)],
+            "days": list(range(1, filter.total_intervals)),
             "data": data,
             "count": sum(data),
             "filter": filter_params,

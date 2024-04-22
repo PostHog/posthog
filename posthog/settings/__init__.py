@@ -96,7 +96,6 @@ PERSON_ON_EVENTS_OVERRIDE = get_from_env("PERSON_ON_EVENTS_OVERRIDE", optional=T
 
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_V2_OVERRIDE = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", optional=True, type_cast=str_to_bool)
-PERSON_ON_EVENTS_V3_OVERRIDE = get_from_env("PERSON_ON_EVENTS_V3_OVERRIDE", optional=True, type_cast=str_to_bool)
 
 # Wether to use insight queries converted to HogQL.
 HOGQL_INSIGHTS_OVERRIDE = get_from_env("HOGQL_INSIGHTS_OVERRIDE", optional=True, type_cast=str_to_bool)

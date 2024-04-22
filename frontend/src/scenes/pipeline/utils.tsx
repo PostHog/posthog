@@ -75,7 +75,7 @@ const GLOBAL_EXPORT_PLUGINS = [
     'https://github.com/PostHog/rudderstack-posthog-plugin',
     'https://github.com/PostHog/salesforce-plugin',
     'https://github.com/PostHog/sendgrid-plugin',
-    'https://github.com/posthog/posthog-plugin-replicator',
+    'https://github.com/PostHog/posthog-loops-plugin',
 ]
 export const GLOBAL_PLUGINS = new Set([...PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR, ...GLOBAL_EXPORT_PLUGINS])
 
@@ -320,21 +320,15 @@ export function pipelinePluginBackedNodeMenuCommonItems(
     const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
 
     return [
-        ...(!inOverview
-            ? [
-                  {
-                      label: node.enabled ? 'Disable app' : 'Enable app',
-                      onClick: () =>
-                          toggleEnabled({
-                              enabled: !node.enabled,
-                              id: node.id,
-                          }),
-                      disabledReason: canConfigurePlugins
-                          ? undefined
-                          : 'You do not have permission to enable/disable apps.',
-                  },
-              ]
-            : []),
+        {
+            label: node.enabled ? 'Disable app' : 'Enable app',
+            onClick: () =>
+                toggleEnabled({
+                    enabled: !node.enabled,
+                    id: node.id,
+                }),
+            disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to enable/disable apps.',
+        },
         ...pipelineNodeMenuCommonItems(node),
         ...(!inOverview
             ? [

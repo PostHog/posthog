@@ -2,33 +2,27 @@ import '../Experiment.scss'
 
 import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { VariantTag } from './components'
 
 export function DistributionTable(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, experimentResults } = useValues(experimentLogic)
 
     const columns: LemonTableColumns<MultivariateFlagVariant> = [
         {
             className: 'w-1/3',
             key: 'key',
             title: 'Variant',
-            render: function Key(_, item, index): JSX.Element {
-                return (
-                    <div className="flex items-center">
-                        <div
-                            className="w-2 h-2 rounded-full mr-2"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ backgroundColor: getSeriesColor(index + 1) }}
-                        />
-                        <span className="font-semibold">{capitalizeFirstLetter(item.key)}</span>
-                    </div>
-                )
+            render: function Key(_, item): JSX.Element {
+                if (!experimentResults || !experimentResults.insight) {
+                    return <span className="font-semibold">{capitalizeFirstLetter(item.key)}</span>
+                }
+                return <VariantTag variantKey={item.key} />
             },
         },
         {
@@ -60,7 +54,11 @@ export function DistributionTable(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <LemonTable loading={false} columns={columns} dataSource={experiment.parameters.feature_flag_variants} />
+            <LemonTable
+                loading={false}
+                columns={columns}
+                dataSource={experiment.feature_flag?.filters.multivariate?.variants || []}
+            />
         </div>
     )
 }

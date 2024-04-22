@@ -15,6 +15,11 @@ export type SharedListMiniFilter = {
     enabled?: boolean
 }
 
+export enum TimestampFormat {
+    Absolute = 'absolute',
+    Relative = 'relative',
+}
+
 const MiniFilters: SharedListMiniFilter[] = [
     {
         tab: SessionRecordingPlayerTab.ALL,
@@ -180,11 +185,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSearchQuery: (search: string) => ({ search }),
-        setSyncScroll: (enabled: boolean) => ({ enabled }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
+        setTimestampFormat: (format: TimestampFormat) => ({ format }),
     }),
     reducers(() => ({
         showFilters: [
@@ -226,6 +231,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setSpeed: (_, { speed }) => speed,
+            },
+        ],
+        timestampFormat: [
+            TimestampFormat.Relative as TimestampFormat,
+            { persist: true },
+            {
+                setTimestampFormat: (_, { format }) => format,
             },
         ],
         skipInactivitySetting: [
@@ -324,14 +336,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             '',
             {
                 setSearchQuery: (_, { search }) => search || '',
-            },
-        ],
-
-        syncScroll: [
-            true,
-            { persist: true },
-            {
-                setSyncScroll: (_, { enabled }) => enabled,
             },
         ],
     })),

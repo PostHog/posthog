@@ -11,7 +11,7 @@
 # ---
 # name: TestEventQuery.test_account_filters.1
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2

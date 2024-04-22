@@ -1,6 +1,6 @@
 from typing import List, Optional, Union, Any
-from posthog.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders
 from posthog.hogql.query import execute_hogql_query
@@ -21,8 +21,10 @@ from functools import cached_property
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
 BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compatibility
+BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 
 
 class BreakdownValues:
@@ -36,9 +38,10 @@ class BreakdownValues:
     group_type_index: Optional[int]
     hide_other_aggregation: Optional[bool]
     normalize_url: Optional[bool]
-    breakdown_limit: Optional[int]
+    breakdown_limit: int
     query_date_range: QueryDateRange
     modifiers: HogQLQueryModifiers
+    limit_context: LimitContext
 
     def __init__(
         self,
@@ -49,6 +52,7 @@ class BreakdownValues:
         breakdown_filter: BreakdownFilter,
         query_date_range: QueryDateRange,
         modifiers: HogQLQueryModifiers,
+        limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.team = team
         self.series = series
@@ -68,7 +72,7 @@ class BreakdownValues:
         )
         self.hide_other_aggregation = breakdown_filter.breakdown_hide_other_aggregation
         self.normalize_url = breakdown_filter.breakdown_normalize_url
-        self.breakdown_limit = breakdown_filter.breakdown_limit
+        self.breakdown_limit = breakdown_filter.breakdown_limit or get_breakdown_limit_for_context(limit_context)
         self.query_date_range = query_date_range
         self.modifiers = modifiers
 
@@ -111,11 +115,11 @@ class BreakdownValues:
         if self.chart_display_type == ChartDisplayType.WorldMap:
             breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
         else:
-            breakdown_limit = int(self.breakdown_limit) if self.breakdown_limit is not None else BREAKDOWN_VALUES_LIMIT
+            breakdown_limit = int(self.breakdown_limit)
 
         aggregation_expression: ast.Expr
         if self._aggregation_operation.aggregating_on_session_duration():
-            aggregation_expression = ast.Call(name="max", args=[ast.Field(chain=["session", "duration"])])
+            aggregation_expression = ast.Call(name="max", args=[ast.Field(chain=["session", "$session_duration"])])
         elif self.series.math == "dau":
             # When aggregating by (daily) unique users, run the breakdown aggregation on count(e.uuid).
             # This retains legacy compatibility and should be removed once we have the new trends in production.
@@ -224,7 +228,7 @@ class BreakdownValues:
             if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
                 values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
                 if needs_other:
-                    values = [BREAKDOWN_OTHER_STRING_LABEL] + values
+                    values = [BREAKDOWN_OTHER_STRING_LABEL, *values]
 
         if len(values) == 0:
             values.insert(0, None)
@@ -266,6 +270,7 @@ class BreakdownValues:
         return AggregationOperations(
             self.team,
             self.series,
+            self.chart_display_type,
             self.query_date_range,
             should_aggregate_values=True,  # doesn't matter in this case
         )

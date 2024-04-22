@@ -101,6 +101,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Omit<
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
     [PropertyFilterType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
     [PropertyFilterType.DataWarehouse]: TaxonomicFilterGroupType.DataWarehouse,
+    [PropertyFilterType.DataWarehousePersonProperty]: TaxonomicFilterGroupType.DataWarehousePersonProperties,
 }
 
 export function formatPropertyLabel(
@@ -332,7 +333,19 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.DataWarehouse
     }
 
+    if (filterType == TaxonomicFilterGroupType.DataWarehousePersonProperties) {
+        return PropertyFilterType.DataWarehousePersonProperty
+    }
+
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
         | PropertyFilterType
         | undefined
+}
+
+export function isEmptyProperty(property: AnyPropertyFilter): boolean {
+    return (
+        property.value === null ||
+        property.value === undefined ||
+        (Array.isArray(property.value) && property.value.length === 0)
+    )
 }

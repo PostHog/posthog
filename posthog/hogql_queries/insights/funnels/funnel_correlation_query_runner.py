@@ -207,7 +207,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         for us to calculate the odds ratio.
         """
         if not self.funnels_query.series:
-            return FunnelCorrelationResponse(results=FunnelCorrelationResult(events=[], skewed=False))
+            return FunnelCorrelationResponse(
+                results=FunnelCorrelationResult(events=[], skewed=False), modifiers=self.modifiers
+            )
 
         events, skewed_totals, hogql, response = self._calculate()
 
@@ -223,6 +225,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             hasMore=response.hasMore,
             limit=response.limit,
             offset=response.offset,
+            modifiers=self.modifiers,
         )
 
     def _calculate(self) -> tuple[List[EventOddsRatio], bool, str, HogQLQueryResponse]:
@@ -242,9 +245,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         # Get the total success/failure counts from the results
         results = [result for result in response.results if result[0] != self.TOTAL_IDENTIFIER]
-        _, success_total, failure_total = [result for result in response.results if result[0] == self.TOTAL_IDENTIFIER][
-            0
-        ]
+        _, success_total, failure_total = next(
+            result for result in response.results if result[0] == self.TOTAL_IDENTIFIER
+        )
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
@@ -832,7 +835,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             else:
                 raise ValidationError("Data warehouse nodes are not supported here")
 
-        return sorted(list(events))
+        return sorted(events)
 
     @property
     def properties_to_include(self) -> List[str]:

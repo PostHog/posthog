@@ -38,6 +38,7 @@ import {
     isInsightQueryWithSeries,
     isInsightVizNode,
     isLifecycleQuery,
+    isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
@@ -383,6 +384,11 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     // breakdown filter
     if (isInsightQueryWithBreakdown(mergedQuery) && cache.breakdownFilter) {
         mergedQuery.breakdownFilter = cache.breakdownFilter
+    }
+
+    // funnel paths filter
+    if (isPathsQuery(mergedQuery) && cache.funnelPathsFilter) {
+        mergedQuery.funnelPathsFilter = cache.funnelPathsFilter
     }
 
     // insight specific filter

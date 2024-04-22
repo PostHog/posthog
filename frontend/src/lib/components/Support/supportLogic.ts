@@ -16,6 +16,20 @@ import { Region, SidePanelTab, TeamType, UserType } from '~/types'
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
 
+export function getPublicSupportSnippet(region: Region | null | undefined, user: UserType | null): string {
+    if (!user || !region) {
+        return ''
+    }
+
+    return `Session: ${posthog
+        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
+        .replace(window.location.origin + '/replay/', 'http://go/session/')} ${
+        !window.location.href.includes('settings/project') ? `(at ${window.location.href})` : ''
+    }\n${`Admin: ${`http://go/adminOrg${region}/${user.organization?.id}`} (Project: ${
+        teamLogic.values.currentTeamId
+    })`}\nSentry: ${`http://go/sentry${region}/${user.team?.id}`}`
+}
+
 function getSessionReplayLink(): string {
     const link = posthog
         .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
@@ -34,6 +48,14 @@ function getDjangoAdminLink(
     }
     const link = `http://go/admin${cloudRegion}/${user.email}`
     return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
+}
+
+function getBillingAdminLink(user: UserType | null): string {
+    if (!user) {
+        return ''
+    }
+    const link = `http://go/billing/${user.organization?.id}`
+    return `Billing Admin: ${link} (Organization: '${user.organization?.name}'`
 }
 
 function getSentryLink(user: UserType | null, cloudRegion: Region | null | undefined): string {
@@ -207,6 +229,14 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     web: 'web_analytics',
 }
 
+export const SUPPORT_TICKET_TEMPLATES = {
+    bug: 'Please describe the bug you saw, and how to reproduce it.\n\nIf the bug appeared on a specific insight or dashboard, please include a link to it.',
+    feedback:
+        "If your request is due to a problem, please describe the problem as best you can.\n\nPlease also describe the solution you'd like to see, and any alternatives you considered.\n\nYou can add images below to help illustrate your request, if needed!",
+    support:
+        "Please explain as fully as possible what it is you're trying to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
+}
+
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const first_part = pathname.split('/')[1]
     return URL_PATH_TO_TARGET_AREA[first_part] ?? null
@@ -264,7 +294,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind: 'support',
                 severity_level: null,
                 target_area: null,
-                message: '',
+                message: SUPPORT_TICKET_TEMPLATES.support,
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
@@ -308,7 +338,10 @@ export const supportLogic = kea<supportLogicType>([
             }
         },
         openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {
-            const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
+            let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
+            if (!userLogic.values.user) {
+                area = 'login'
+            }
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({
                 name: name ?? '',
@@ -316,7 +349,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? '',
+                message: message ?? SUPPORT_TICKET_TEMPLATES[kind],
             })
 
             if (values.sidePanelAvailable) {
@@ -367,6 +400,9 @@ export const supportLogic = kea<supportLogicType>([
                             '\n' +
                             getDjangoAdminLink(userLogic.values.user, cloudRegion, teamLogic.values.currentTeamId) +
                             '\n' +
+                            (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
+                                ? getBillingAdminLink(userLogic.values.user) + '\n'
+                                : '') +
                             getSentryLink(userLogic.values.user, cloudRegion)
                         ).trim(),
                     },

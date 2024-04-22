@@ -12,6 +12,7 @@ from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person
 from posthog.models.filters import SessionRecordingsFilter
+from posthog.schema import PersonsOnEventsMode
 from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
 )
@@ -24,7 +25,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     _create_event,
 )
-from posthog.utils import PersonOnEventsMode
 
 
 @freeze_time("2021-01-01T13:46:23")
@@ -63,7 +63,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 True,
                 False,
                 False,
-                PersonOnEventsMode.V1_ENABLED,
+                PersonsOnEventsMode.person_id_no_override_properties_on_events,
                 {
                     "kperson_filter_pre__0": "rgInternal",
                     "kpersonquery_person_filter_fin__0": "rgInternal",
@@ -79,7 +79,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 False,
                 False,
                 False,
-                PersonOnEventsMode.DISABLED,
+                PersonsOnEventsMode.disabled,
                 {
                     "kperson_filter_pre__0": "rgInternal",
                     "kpersonquery_person_filter_fin__0": "rgInternal",
@@ -95,7 +95,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 False,
                 True,
                 False,
-                PersonOnEventsMode.V2_ENABLED,
+                PersonsOnEventsMode.person_id_override_properties_on_events,
                 {
                     "event_names": [],
                     "event_start_time": mock.ANY,
@@ -111,7 +111,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 False,
                 True,
                 True,
-                PersonOnEventsMode.V2_ENABLED,
+                PersonsOnEventsMode.person_id_override_properties_on_events,
                 {
                     "event_end_time": mock.ANY,
                     "event_names": [],
@@ -130,7 +130,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         poe_v1: bool,
         poe_v2: bool,
         allow_denormalized_props: bool,
-        expected_poe_mode: PersonOnEventsMode,
+        expected_poe_mode: PersonsOnEventsMode,
         expected_query_params: Dict,
         unmaterialized_person_column_used: bool,
         materialized_event_column_used: bool,

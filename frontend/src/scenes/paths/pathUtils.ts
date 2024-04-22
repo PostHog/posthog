@@ -1,6 +1,6 @@
 import { RGBColor } from 'd3'
 
-import { PathsFilter } from '~/queries/schema'
+import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
 import { FunnelPathType } from '~/types'
 
 export interface PathTargetLink {
@@ -114,16 +114,22 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
         : name
 }
 
-export const isSelectedPathStartOrEnd = (pathsFilter: PathsFilter, pathItemCard: PathNodeData): boolean => {
+export const isSelectedPathStartOrEnd = (
+    pathsFilter: PathsFilter,
+    funnelPathsFilter: FunnelPathsFilter,
+    pathItemCard: PathNodeData
+): boolean => {
     const cardName = pageUrl(pathItemCard)
     const isPathStart = pathItemCard.targetLinks.length === 0
     const isPathEnd = pathItemCard.sourceLinks.length === 0
-    const { startPoint, endPoint, funnelPaths, funnelFilter } = pathsFilter
+    const { startPoint, endPoint } = pathsFilter
+    const { funnelPathType, funnelSource, funnelStep } = funnelPathsFilter || {}
+
     return (
         (startPoint === cardName && isPathStart) ||
         (endPoint === cardName && isPathEnd) ||
-        (funnelPaths === FunnelPathType.between &&
-            ((cardName === funnelFilter?.events[funnelFilter.funnel_step - 1].name && isPathEnd) ||
-                (cardName === funnelFilter?.events[funnelFilter.funnel_step - 2].name && isPathStart)))
+        (funnelPathType === FunnelPathType.between &&
+            ((cardName === funnelSource?.series[funnelStep! - 1].name && isPathEnd) ||
+                (cardName === funnelSource?.series[funnelStep! - 2].name && isPathStart)))
     )
 }

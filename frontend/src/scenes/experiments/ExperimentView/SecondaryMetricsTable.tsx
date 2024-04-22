@@ -1,12 +1,14 @@
 import '../Experiment.scss'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 import { InsightType } from '~/types'
 
@@ -14,100 +16,46 @@ import { SECONDARY_METRIC_INSIGHT_ID } from '../constants'
 import { experimentLogic, TabularSecondaryMetricResults } from '../experimentLogic'
 import { MetricSelector } from '../MetricSelector'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from '../secondaryMetricsLogic'
-import { getExperimentInsightColour } from '../utils'
+import { ResultsQuery, VariantTag } from './components'
 
-export function SecondaryMetricsTable({
+export function SecondaryMetricsModal({
     onMetricsChange,
     initialMetrics,
     experimentId,
     defaultAggregationType,
 }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId, defaultAggregationType })
-    const { metrics, isModalOpen, isSecondaryMetricModalSubmitting, existingModalSecondaryMetric, metricIdx } =
-        useValues(logic)
-
     const {
-        deleteMetric,
-        openModalToCreateSecondaryMetric,
-        openModalToEditSecondaryMetric,
-        closeModal,
-        saveSecondaryMetric,
-        setPreviewInsight,
-    } = useActions(logic)
+        secondaryMetricModal,
+        isModalOpen,
+        showResults,
+        isSecondaryMetricModalSubmitting,
+        existingModalSecondaryMetric,
+        metricIdx,
+    } = useValues(logic)
 
-    const {
-        secondaryMetricResultsLoading,
-        isExperimentRunning,
-        getIndexForVariant,
-        experiment,
-        experimentResults,
-        tabularSecondaryMetricResults,
-    } = useValues(experimentLogic({ experimentId }))
-
-    const columns: LemonTableColumns<TabularSecondaryMetricResults> = [
-        {
-            key: 'variant',
-            title: 'Variant',
-            render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
-                return (
-                    <div className="flex items-center">
-                        <div
-                            className="w-2 h-2 rounded-full mr-2"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                backgroundColor: getExperimentInsightColour(
-                                    getIndexForVariant(experimentResults, item.variant)
-                                ),
-                            }}
-                        />
-                        <span className="font-semibold">{capitalizeFirstLetter(item.variant)}</span>
-                    </div>
-                )
-            },
-        },
-    ]
-
-    experiment.secondary_metrics?.forEach((metric, idx) => {
-        columns.push({
-            key: `results_${idx}`,
-            title: (
-                <span className="inline-flex py-2">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconAreaChart />}
-                        onClick={() => openModalToEditSecondaryMetric(metric, idx)}
-                    >
-                        <b>{capitalizeFirstLetter(metric.name)}</b>
-                    </LemonButton>
-                </span>
-            ),
-            render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
-                return (
-                    <div>
-                        {item.results?.[idx].result ? (
-                            item.results[idx].insightType === InsightType.FUNNELS ? (
-                                <>{((item.results[idx].result as number) * 100).toFixed(1)}%</>
-                            ) : (
-                                <>{humanFriendlyNumber(item.results[idx].result as number)}</>
-                            )
-                        ) : (
-                            <>--</>
-                        )}
-                    </div>
-                )
-            },
-        })
-    })
+    const { deleteMetric, closeModal, saveSecondaryMetric, setPreviewInsight } = useActions(logic)
+    const { secondaryMetricResults, isExperimentRunning } = useValues(experimentLogic({ experimentId }))
+    const targetResults = secondaryMetricResults && secondaryMetricResults[metricIdx]
 
     return (
-        <>
-            <LemonModal
-                isOpen={isModalOpen}
-                onClose={closeModal}
-                width={1000}
-                title={existingModalSecondaryMetric ? 'Edit secondary metric' : 'New secondary metric'}
-                footer={
+        <LemonModal
+            isOpen={isModalOpen}
+            onClose={closeModal}
+            width={1000}
+            title={
+                showResults
+                    ? secondaryMetricModal.name
+                    : existingModalSecondaryMetric
+                    ? 'Edit secondary metric'
+                    : 'New secondary metric'
+            }
+            footer={
+                showResults ? (
+                    <LemonButton form="secondary-metric-modal-form" type="secondary" onClick={closeModal}>
+                        Close
+                    </LemonButton>
+                ) : (
                     <>
                         {existingModalSecondaryMetric && (
                             <LemonButton
@@ -135,8 +83,25 @@ export function SecondaryMetricsTable({
                             </LemonButton>
                         </div>
                     </>
-                }
-            >
+                )
+            }
+        >
+            {showResults ? (
+                <div>
+                    {targetResults && targetResults.insight ? (
+                        <ResultsQuery targetResults={targetResults} showTable={false} />
+                    ) : (
+                        <div className="bg-bg-light pt-6 pb-8 text-muted">
+                            <div className="flex flex-col items-center mx-auto">
+                                <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+                                <h2 className="text-xl font-semibold leading-tight">
+                                    There are no results for this metric yet
+                                </h2>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            ) : (
                 <Form
                     logic={secondaryMetricsLogic}
                     props={{ onMetricsChange, initialMetrics, experimentId, defaultAggregationType }}
@@ -155,19 +120,182 @@ export function SecondaryMetricsTable({
                         />
                     </LemonField>
                 </Form>
-            </LemonModal>
+            )}
+        </LemonModal>
+    )
+}
+
+export function SecondaryMetricsTable({
+    onMetricsChange,
+    initialMetrics,
+    experimentId,
+    defaultAggregationType,
+}: SecondaryMetricsProps): JSX.Element {
+    const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId, defaultAggregationType })
+    const { metrics } = useValues(logic)
+
+    const { openModalToCreateSecondaryMetric, openModalToEditSecondaryMetric } = useActions(logic)
+
+    const {
+        experimentResults,
+        secondaryMetricResultsLoading,
+        experiment,
+        secondaryMetricResults,
+        tabularSecondaryMetricResults,
+        countDataForVariant,
+        exposureCountDataForVariant,
+        conversionRateForVariant,
+        experimentMathAggregationForTrends,
+        getHighestProbabilityVariant,
+    } = useValues(experimentLogic({ experimentId }))
+
+    const columns: LemonTableColumns<any> = [
+        {
+            children: [
+                {
+                    title: <div className="py-2">Variant</div>,
+                    render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                        if (!experimentResults || !experimentResults.insight) {
+                            return <span className="font-semibold">{capitalizeFirstLetter(item.variant)}</span>
+                        }
+                        return (
+                            <div className="flex items-center py-2">
+                                <VariantTag variantKey={item.variant} />
+                            </div>
+                        )
+                    },
+                },
+            ],
+        },
+    ]
+
+    experiment.secondary_metrics?.forEach((metric, idx) => {
+        const Header = (): JSX.Element => (
+            <div className="">
+                <div className="flex">
+                    <div className="w-3/4 truncate">{capitalizeFirstLetter(metric.name)}</div>
+                    <div className="w-1/4 flex flex-col justify-end">
+                        <div className="ml-auto space-x-2 pb-1 inline-flex">
+                            <LemonButton
+                                className="max-w-72"
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconAreaChart />}
+                                onClick={() => openModalToEditSecondaryMetric(metric, idx, true)}
+                            />
+                            <LemonButton
+                                className="max-w-72"
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconPencil />}
+                                onClick={() => openModalToEditSecondaryMetric(metric, idx, false)}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )
+
+        const targetResults = secondaryMetricResults?.[idx]
+        const targetResultFilters = targetResults?.filters
+        const winningVariant = getHighestProbabilityVariant(targetResults || null)
+
+        if (metric.filters.insight === InsightType.TRENDS) {
+            columns.push({
+                title: <Header />,
+                children: [
+                    {
+                        title: (
+                            <div className="flex">
+                                [
+                                {targetResults &&
+                                    targetResults.insight?.[0] &&
+                                    'action' in targetResults.insight[0] && (
+                                        <EntityFilterInfo filter={targetResults.insight[0].action} />
+                                    )}
+                                ]
+                                <span className="pl-1">
+                                    {experimentMathAggregationForTrends(targetResultFilters) ? 'metric' : 'count'}
+                                </span>
+                            </div>
+                        ),
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const { variant } = item
+                            return <div>{targetResults ? countDataForVariant(targetResults, variant) : '--'}</div>
+                        },
+                    },
+                    {
+                        title: 'Exposure',
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const { variant } = item
+                            return (
+                                <div>{targetResults ? exposureCountDataForVariant(targetResults, variant) : '--'}</div>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Win probability',
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const { variant } = item
+                            return (
+                                <div className={variant === winningVariant ? 'text-success' : ''}>
+                                    <b>
+                                        {targetResults?.probability?.[variant] != undefined
+                                            ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
+                                            : '--'}
+                                    </b>
+                                </div>
+                            )
+                        },
+                    },
+                ],
+            })
+        } else {
+            columns.push({
+                title: <Header />,
+                children: [
+                    {
+                        title: 'Conversion rate',
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const { variant } = item
+                            const conversionRate = conversionRateForVariant(targetResults || null, variant)
+                            return <div>{conversionRate === '--' ? conversionRate : `${conversionRate}%`}</div>
+                        },
+                    },
+                    {
+                        title: 'Win probability',
+                        render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                            const { variant } = item
+                            return (
+                                <div className={variant === winningVariant ? 'text-success' : ''}>
+                                    <b>
+                                        {targetResults?.probability?.[variant] != undefined
+                                            ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
+                                            : '--'}
+                                    </b>
+                                </div>
+                            )
+                        },
+                    },
+                ],
+            })
+        }
+    })
+
+    return (
+        <>
             <div>
                 <div className="flex">
                     <div className="w-1/2">
                         <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
                         {metrics.length > 0 && (
-                            <div className="mb-2">Click a metric name to compare variants on a graph.</div>
+                            <div className="text-muted text-xs mb-2">Monitor side effects of your experiment.</div>
                         )}
                     </div>
 
                     <div className="w-1/2 flex flex-col justify-end">
                         <div className="ml-auto">
-                            {metrics && metrics.length > 0 && metrics.length < 3 && isExperimentRunning && (
+                            {metrics && metrics.length > 0 && metrics.length < 3 && (
                                 <div className="mb-2 mt-4 justify-end">
                                     <LemonButton
                                         type="secondary"
@@ -183,6 +311,7 @@ export function SecondaryMetricsTable({
                 </div>
                 {metrics && metrics.length > 0 ? (
                     <LemonTable
+                        className="secondary-metrics-table"
                         loading={secondaryMetricResultsLoading}
                         columns={columns}
                         dataSource={tabularSecondaryMetricResults}
@@ -192,7 +321,7 @@ export function SecondaryMetricsTable({
                         <div className="flex flex-col items-center mx-auto space-y-3">
                             <IconAreaChart fontSize="30" />
                             <div className="text-sm text-center text-balance">
-                                Add up to 3 secondary metrics to gauge side effects of your experiment.
+                                Add up to 3 secondary metrics to monitor side effects of your experiment.
                             </div>
                             <LemonButton
                                 icon={<IconPlus />}
@@ -206,6 +335,12 @@ export function SecondaryMetricsTable({
                     </div>
                 )}
             </div>
+            <SecondaryMetricsModal
+                onMetricsChange={onMetricsChange}
+                initialMetrics={initialMetrics}
+                experimentId={experimentId}
+                defaultAggregationType={defaultAggregationType}
+            />
         </>
     )
 }

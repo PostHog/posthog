@@ -4,8 +4,6 @@ from typing import Optional, Literal, TypeAlias, Tuple, List
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
 
-from posthog.hogql.errors import HogQLException
-
 ConstantDataType: TypeAlias = Literal[
     "int",
     "float",
@@ -27,7 +25,7 @@ ConstantSupportedData: TypeAlias = (
 KEYWORDS = ["true", "false", "null"]
 
 # Keywords you can't alias to
-RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
+RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
@@ -35,6 +33,13 @@ DEFAULT_RETURNED_ROWS = 100
 MAX_SELECT_RETURNED_ROWS = 10000  # sync with CSV_EXPORT_LIMIT
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
+
+CSV_EXPORT_LIMIT = 10000
+CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
+CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
+
+BREAKDOWN_VALUES_LIMIT = 25
+BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 
 
 class LimitContext(str, Enum):
@@ -52,7 +57,7 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
     else:
-        raise HogQLException(f"Unexpected LimitContext value: {limit_context}")
+        raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
 
 def get_default_limit_for_context(limit_context: LimitContext) -> int:
@@ -64,7 +69,15 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
     else:
-        raise HogQLException(f"Unexpected LimitContext value: {limit_context}")
+        raise ValueError(f"Unexpected LimitContext value: {limit_context}")
+
+
+def get_breakdown_limit_for_context(limit_context: LimitContext) -> int:
+    """Limit used for breakdowns"""
+    if limit_context == LimitContext.EXPORT:
+        return CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
+
+    return BREAKDOWN_VALUES_LIMIT
 
 
 # Settings applied at the SELECT level

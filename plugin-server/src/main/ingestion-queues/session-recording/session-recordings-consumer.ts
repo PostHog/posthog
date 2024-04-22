@@ -3,10 +3,13 @@ import crypto from 'crypto'
 import { Redis } from 'ioredis'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
-import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
+import {
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+} from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer } from '../../../kafka/producer'
@@ -33,9 +36,8 @@ import {
     bufferFileDir,
     getPartitionsForTopic,
     now,
-    parseKafkaMessage,
+    parseKafkaBatch,
     queryWatermarkOffsets,
-    reduceRecordingMessages,
 } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -43,6 +45,7 @@ require('@sentry/tracing')
 
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
+const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'session-recordings-blob-overflow'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
@@ -99,12 +102,6 @@ const histogramKafkaBatchSizeKb = new Histogram({
     buckets: BUCKETS_KB_WRITTEN,
 })
 
-const counterKafkaMessageReceived = new Counter({
-    name: 'recording_blob_ingestion_kafka_message_received',
-    help: 'The number of messages we have received from Kafka',
-    labelNames: ['partition'],
-})
-
 const counterCommitSkippedDueToPotentiallyBlockingSession = new Counter({
     name: 'recording_blob_ingestion_commit_skipped_due_to_potentially_blocking_session',
     help: 'The number of times we skipped committing due to a potentially blocking session',
@@ -114,6 +111,12 @@ const histogramActiveSessionsWhenCommitIsBlocked = new Histogram({
     name: 'recording_blob_ingestion_active_sessions_when_commit_is_blocked',
     help: 'The number of active sessions on a partition when we skip committing due to a potentially blocking session',
     buckets: [0, 1, 2, 3, 4, 5, 10, 20, 50, 100, 1000, 10000, Infinity],
+})
+
+export const sessionInfoSummary = new Summary({
+    name: 'recording_blob_ingestion_session_info_bytes',
+    help: 'Size of aggregated session information being processed',
+    percentiles: [0.1, 0.25, 0.5, 0.9, 0.99],
 })
 
 type PartitionMetrics = {
@@ -141,7 +144,8 @@ export class SessionRecordingIngester {
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     latestOffsetsRefresher: BackgroundRefresher<Record<number, number | undefined>>
     config: PluginsServerConfig
-    topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+    topic: string
+    consumerGroupId: string
     totalNumPartitions = 0
     isStopping = false
 
@@ -156,11 +160,16 @@ export class SessionRecordingIngester {
         private globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage,
+        private consumeOverflow: boolean,
         captureRedis: Redis | undefined
     ) {
         this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
             ? parseInt(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION)
             : undefined
+        this.topic = consumeOverflow
+            ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
+            : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
 
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
@@ -169,7 +178,7 @@ export class SessionRecordingIngester {
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 
-        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis) {
+        if (globalServerConfig.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis && !consumeOverflow) {
             this.overflowDetection = new OverflowManager(
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
                 globalServerConfig.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
@@ -207,7 +216,7 @@ export class SessionRecordingIngester {
         this.latestOffsetsRefresher = new BackgroundRefresher(async () => {
             const results = await Promise.all(
                 this.assignedTopicPartitions.map(({ partition }) =>
-                    queryWatermarkOffsets(this.connectedBatchConsumer, partition).catch((err) => {
+                    queryWatermarkOffsets(this.connectedBatchConsumer, this.topic, partition).catch((err) => {
                         // NOTE: This can error due to a timeout or the consumer being disconnected, not stop the process
                         // as it is currently only used for reporting lag.
                         captureException(err)
@@ -259,8 +268,6 @@ export class SessionRecordingIngester {
 
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
-        // TODO: use this for session key too if it's safe to do so
-        const overflowKey = `${team_id}:${session_id}`
 
         const { partition, highOffset } = event.metadata
         const isDebug = this.debugPartition === partition
@@ -285,11 +292,7 @@ export class SessionRecordingIngester {
 
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
         if (
-            await this.persistentHighWaterMarker.isBelowHighWaterMark(
-                event.metadata,
-                KAFKA_CONSUMER_GROUP_ID,
-                highOffset
-            )
+            await this.persistentHighWaterMarker.isBelowHighWaterMark(event.metadata, this.consumerGroupId, highOffset)
         ) {
             dropEvent('high_water_mark_partition')
             return
@@ -316,9 +319,11 @@ export class SessionRecordingIngester {
             )
         }
 
+        sessionInfoSummary.observe(event.metadata.rawSize)
+
         await Promise.allSettled([
             this.sessions[key]?.add(event),
-            this.overflowDetection?.observe(overflowKey, event.metadata.rawSize, event.metadata.timestamp),
+            this.overflowDetection?.observe(session_id, event.metadata.rawSize, event.metadata.timestamp),
         ])
     }
 
@@ -335,47 +340,30 @@ export class SessionRecordingIngester {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
-                let recordingMessages: IncomingRecordingMessage[] = []
+                let recordingMessages: IncomingRecordingMessage[]
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
-                        const parsedMessages: IncomingRecordingMessage[] = []
-                        for (const message of messages) {
-                            const { partition, offset, timestamp } = message
-
-                            this.partitionMetrics[partition] = this.partitionMetrics[partition] || {}
-                            const metrics = this.partitionMetrics[partition]
-
-                            // If we don't have a last known commit then set it to the offset before as that must be the last commit
-                            metrics.lastMessageOffset = offset
-                            // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-                            metrics.lastMessageTimestamp = timestamp || metrics.lastMessageTimestamp
-
-                            counterKafkaMessageReceived.inc({ partition })
-
-                            const recordingMessage = await parseKafkaMessage(
-                                message,
-                                (token) =>
-                                    this.teamsRefresher.get().then((teams) => ({
-                                        teamId: teams[token]?.teamId || null,
-                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                    })),
-                                this.sharedClusterProducerWrapper
-                            )
-
-                            if (recordingMessage) {
-                                parsedMessages.push(recordingMessage)
+                        const { sessions, partitionStats } = await parseKafkaBatch(
+                            messages,
+                            (token) =>
+                                this.teamsRefresher.get().then((teams) => ({
+                                    teamId: teams[token]?.teamId || null,
+                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                })),
+                            this.sharedClusterProducerWrapper
+                        )
+                        recordingMessages = sessions
+                        for (const partitionStat of partitionStats) {
+                            const metrics = this.partitionMetrics[partitionStat.partition] ?? {}
+                            metrics.lastMessageOffset = partitionStat.offset
+                            if (partitionStat.timestamp) {
+                                // Could be empty on Kafka versions before KIP-32
+                                metrics.lastMessageTimestamp = partitionStat.timestamp
                             }
+                            this.partitionMetrics[partitionStat.partition] = metrics
                         }
-
-                        recordingMessages = reduceRecordingMessages(parsedMessages)
-
-                        // TODO: Track metric for how many messages we reduced
-                        status.info('🔁', `blob_ingester_consumer - reduced batch`, {
-                            originalSize: messages.length,
-                            reducedSize: recordingMessages.length,
-                        })
                     },
                 })
                 heartbeat()
@@ -486,8 +474,8 @@ export class SessionRecordingIngester {
         const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
         this.batchConsumer = await startBatchConsumer({
             connectionConfig: replayClusterConnectionConfig,
-            groupId: KAFKA_CONSUMER_GROUP_ID,
-            topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+            groupId: this.consumerGroupId,
+            topic: this.topic,
             autoCommit: false,
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
@@ -510,7 +498,7 @@ export class SessionRecordingIngester {
             debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
         })
 
-        this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer)).length
+        this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer, this.topic)).length
 
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
@@ -591,20 +579,22 @@ export class SessionRecordingIngester {
         for (let partition = 0; partition < this.totalNumPartitions; partition++) {
             if (assignedPartitions.includes(partition)) {
                 const metrics = this.partitionMetrics[partition] || {}
-                if (metrics.lastMessageTimestamp) {
-                    gaugeLagMilliseconds
-                        .labels({
-                            partition: partition.toString(),
-                        })
-                        .set(now() - metrics.lastMessageTimestamp)
-                }
-
                 const highOffset = offsetsByPartition[partition]
 
                 if (highOffset && metrics.lastMessageOffset) {
-                    metrics.offsetLag = highOffset - metrics.lastMessageOffset
+                    // High watermark is reported as highest message offset plus one
+                    metrics.offsetLag = Math.max(0, highOffset - 1 - metrics.lastMessageOffset)
                     // NOTE: This is an important metric used by the autoscaler
-                    gaugeLag.set({ partition }, Math.max(0, metrics.offsetLag))
+                    gaugeLag.set({ partition }, metrics.offsetLag)
+                }
+
+                if (metrics.offsetLag === 0) {
+                    // Consumer caught up, let's not report lag.
+                    // Code path active on overflow when sessions end and the partition is empty.
+                    gaugeLagMilliseconds.labels({ partition }).set(0)
+                } else if (metrics.lastMessageTimestamp) {
+                    // Not caught up, compute the processing lag based on the latest message we read.
+                    gaugeLagMilliseconds.labels({ partition }).set(now() - metrics.lastMessageTimestamp)
                 }
             } else {
                 delete this.partitionMetrics[partition]
@@ -820,7 +810,7 @@ export class SessionRecordingIngester {
                 })
 
                 // Store the committed offset to the persistent store to avoid rebalance issues
-                await this.persistentHighWaterMarker.add(tp, KAFKA_CONSUMER_GROUP_ID, highestOffsetToCommit)
+                await this.persistentHighWaterMarker.add(tp, this.consumerGroupId, highestOffsetToCommit)
                 // Clear all session offsets below the committed offset (as we know they have been flushed)
                 await this.sessionHighWaterMarker.clear(tp, highestOffsetToCommit)
                 gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)

@@ -312,11 +312,20 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_2_team_3,
             )
+            _create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$propertyless_event",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+                person_mode="propertyless",
+            )
 
             flush_persons_and_events()
 
     def _select_report_by_org_id(self, org_id: str, reports: List[Dict]) -> Dict:
-        return [report for report in reports if report["organization_id"] == org_id][0]
+        return next(report for report in reports if report["organization_id"] == org_id)
 
     def _create_plugin(self, name: str, enabled: bool) -> None:
         plugin = Plugin.objects.create(organization_id=self.team.organization.pk, name=name)
@@ -367,9 +376,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 55,
-                    "event_count_in_period": 22,
-                    "event_count_in_month": 42,
+                    "event_count_lifetime": 56,
+                    "event_count_in_period": 23,
+                    "enhanced_persons_event_count_in_period": 22,
+                    "event_count_in_month": 43,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
                     "recording_count_total": 16,
@@ -409,9 +419,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_lifetime": 44,
-                            "event_count_in_period": 12,
-                            "event_count_in_month": 32,
+                            "event_count_lifetime": 45,
+                            "event_count_in_period": 13,
+                            "enhanced_persons_event_count_in_period": 12,
+                            "event_count_in_month": 33,
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
@@ -447,6 +458,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_1_team_2.id): {
                             "event_count_lifetime": 11,
                             "event_count_in_period": 10,
+                            "enhanced_persons_event_count_in_period": 10,
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 5,
@@ -506,6 +518,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "instance_tag": "none",
                     "event_count_lifetime": 11,
                     "event_count_in_period": 10,
+                    "enhanced_persons_event_count_in_period": 10,
                     "event_count_in_month": 10,
                     "event_count_with_groups_in_period": 0,
                     "recording_count_in_period": 0,
@@ -548,6 +561,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_2_team_3.id): {
                             "event_count_lifetime": 11,
                             "event_count_in_period": 10,
+                            "enhanced_persons_event_count_in_period": 10,
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
                             "recording_count_in_period": 0,

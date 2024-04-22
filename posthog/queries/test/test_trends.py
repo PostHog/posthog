@@ -59,7 +59,11 @@ from posthog.utils import generate_cache_key
 def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
     ret_dict: Dict[str, Optional[Union[str, int]]] = {}
     if not value or not isinstance(value, str) or "cohort_" not in value:
-        label = value if (value or isinstance(value, bool)) and value != "None" and value != "nan" else "Other"
+        label = (
+            value
+            if (value or isinstance(value, bool)) and value != "None (i.e. no value)" and value != "nan"
+            else "Other (i.e. all remaining values)"
+        )
         ret_dict["label"] = f"{entity.name} - {label}"
         ret_dict["breakdown_value"] = label
     else:
@@ -475,7 +479,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "none")
+        self.assertEqual(response[0]["label"], "None (i.e. no value)")
         self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
         self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
 
@@ -3287,10 +3291,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(string_label, {"label": "$pageview - Chrome", "breakdown_value": "Chrome"})
 
         nan_label = breakdown_label(entity, "nan")
-        self.assertEqual(nan_label, {"label": "$pageview - Other", "breakdown_value": "Other"})
+        self.assertEqual(
+            nan_label,
+            {
+                "label": "$pageview - Other (i.e. all remaining values)",
+                "breakdown_value": "Other (i.e. all remaining values)",
+            },
+        )
 
-        none_label = breakdown_label(entity, "None")
-        self.assertEqual(none_label, {"label": "$pageview - Other", "breakdown_value": "Other"})
+        none_label = breakdown_label(entity, "None (i.e. no value)")
+        self.assertEqual(
+            none_label,
+            {
+                "label": "$pageview - Other (i.e. all remaining values)",
+                "breakdown_value": "Other (i.e. all remaining values)",
+            },
+        )
 
         cohort_all_label = breakdown_label(entity, "cohort_all")
         self.assertEqual(
@@ -4670,7 +4686,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(daily_response[0]["data"][0], 2)
             self.assertEqual(daily_response[0]["label"], "some_val")
             self.assertEqual(daily_response[1]["data"][0], 1)
-            self.assertEqual(daily_response[1]["label"], "none")
+            self.assertEqual(daily_response[1]["label"], "None (i.e. no value)")
 
             # MAU
             with freeze_time("2019-12-31T13:00:01Z"):
@@ -4737,7 +4753,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             assert len(response) == 26
-            assert response[0]["label"] == "Other"
+            assert response[0]["label"] == "Other (i.e. all remaining values)"
             assert response[0]["breakdown_value"] == BREAKDOWN_OTHER_STRING_LABEL
 
             response = Trends().run(
@@ -4760,7 +4776,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             assert len(response) == 51
-            assert response[0]["label"] == "Other"
+            assert response[0]["label"] == "Other (i.e. all remaining values)"
             assert response[0]["breakdown_value"] == BREAKDOWN_OTHER_STRING_LABEL
 
             response = Trends().run(
@@ -4857,10 +4873,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "sign up - none")
+        self.assertEqual(response[0]["label"], "sign up - None (i.e. no value)")
         self.assertEqual(response[1]["label"], "sign up - value")
         self.assertEqual(response[2]["label"], "sign up - other_value")
-        self.assertEqual(response[3]["label"], "no events - none")
+        self.assertEqual(response[3]["label"], "no events - None (i.e. no value)")
 
         self.assertEqual(sum(response[0]["data"]), 2)
         self.assertEqual(sum(response[1]["data"]), 2)
@@ -4918,7 +4934,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["label"], "none")
+        self.assertEqual(response[0]["label"], "None (i.e. no value)")
         self.assertEqual(response[1]["label"], "test@gmail.com")
         self.assertEqual(response[2]["label"], "test@posthog.com")
 
@@ -4976,7 +4992,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["label"], "none")
+        self.assertEqual(response[0]["label"], "None (i.e. no value)")
         self.assertEqual(response[1]["label"], "test@gmail.com")
         self.assertEqual(response[2]["label"], "test@posthog.com")
 
@@ -5877,7 +5893,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         data = {
             "date_from": "2020-01-01",
-            "date_to": "2020-01-08",
+            "date_to": "2020-01-18",
             "display": TRENDS_TABLE,
             "events": [
                 {
@@ -5891,7 +5907,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
-        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        # Only p0 was active on 2020-01-18 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
 
     @snapshot_clickhouse_queries
@@ -5901,7 +5917,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         data = {
             "sampling_factor": 1,
             "date_from": "2020-01-01",
-            "date_to": "2020-01-08",
+            "date_to": "2020-01-18",
             "display": TRENDS_TABLE,
             "events": [
                 {
@@ -5915,7 +5931,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
-        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        # Only p0 was active on 2020-01-18 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
 
     @snapshot_clickhouse_queries
@@ -7699,11 +7715,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         assert len(daily_response) == 3
         assert daily_response[0]["breakdown_value"] == "red"
-        assert daily_response[1]["breakdown_value"] == "blue"
-        assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
+        assert daily_response[1]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
+        assert daily_response[2]["breakdown_value"] == "blue"
         assert daily_response[0]["aggregated_value"] == 2.0  # red
-        assert daily_response[1]["aggregated_value"] == 1.0  # blue
-        assert daily_response[2]["aggregated_value"] == 1.0  # none
+        assert daily_response[1]["aggregated_value"] == 1.0  # none
+        assert daily_response[2]["aggregated_value"] == 1.0  # blue
 
     @snapshot_clickhouse_queries
     def test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling(self):
@@ -7726,11 +7742,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         assert len(daily_response) == 3
         assert daily_response[0]["breakdown_value"] == "red"
-        assert daily_response[1]["breakdown_value"] == "blue"
-        assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
+        assert daily_response[1]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
+        assert daily_response[2]["breakdown_value"] == "blue"
         assert daily_response[0]["aggregated_value"] == 2.0  # red
-        assert daily_response[1]["aggregated_value"] == 1.0  # blue
-        assert daily_response[2]["aggregated_value"] == 1.0  # none
+        assert daily_response[1]["aggregated_value"] == 1.0  # none
+        assert daily_response[2]["aggregated_value"] == 1.0  # blue
 
     @snapshot_clickhouse_queries
     def test_trends_count_per_group_average_daily(self):

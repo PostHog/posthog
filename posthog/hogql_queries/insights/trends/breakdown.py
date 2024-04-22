@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional, Tuple, Union, cast
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import (
@@ -30,6 +31,7 @@ class Breakdown:
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
     breakdown_values_override: Optional[List[str]]
+    limit_context: LimitContext
 
     def __init__(
         self,
@@ -41,6 +43,7 @@ class Breakdown:
         modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
         breakdown_values_override: Optional[List[str]] = None,
+        limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.team = team
         self.query = query
@@ -50,6 +53,7 @@ class Breakdown:
         self.modifiers = modifiers
         self.events_filter = events_filter
         self.breakdown_values_override = breakdown_values_override
+        self.limit_context = limit_context
 
     @cached_property
     def enabled(self) -> bool:
@@ -204,7 +208,7 @@ class Breakdown:
         # TODO: add this only if needed
         values.append('["",""]')
 
-        return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), values)))
+        return ast.Array(exprs=[ast.Constant(value=v) for v in values])
 
     @property
     def _breakdown_values_ast(self) -> ast.Array:
@@ -234,6 +238,7 @@ class Breakdown:
                 breakdown_filter=self.query.breakdownFilter,
                 query_date_range=self.query_date_range,
                 modifiers=self.modifiers,
+                limit_context=self.limit_context,
             )
             return cast(List[str | int | None], breakdown.get_breakdown_values())
 

@@ -3,12 +3,13 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
-import { canGloballyManagePlugins, canInstallPlugins } from 'scenes/plugins/access'
+import { canInstallPlugins } from 'scenes/plugins/access'
 import { userLogic } from 'scenes/userLogic'
 
 import { PluginInstallationType, PluginType } from '~/types'
 
 import type { appsManagementLogicType } from './appsManagementLogicType'
+import { pipelineLogic } from './pipelineLogic'
 import { getInitialCode, SourcePluginKind } from './sourceAppInitialCode'
 import { GLOBAL_PLUGINS, loadPaginatedResults } from './utils'
 
@@ -30,7 +31,7 @@ export interface PluginUpdateStatusType {
 export const appsManagementLogic = kea<appsManagementLogicType>([
     path(['scenes', 'pipeline', 'appsManagementLogic']),
     connect({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], pipelineLogic, ['canGloballyManagePlugins']],
     }),
     actions({
         setPluginUrl: (pluginUrl: string) => ({ pluginUrl }),
@@ -177,7 +178,6 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
     }),
     selectors({
         canInstallPlugins: [(s) => [s.user], (user) => canInstallPlugins(user?.organization)],
-        canGloballyManagePlugins: [(s) => [s.user], (user) => canGloballyManagePlugins(user?.organization)],
         globalPlugins: [(s) => [s.plugins], (plugins) => Object.values(plugins).filter((plugin) => plugin.is_global)],
         localPlugins: [(s) => [s.plugins], (plugins) => Object.values(plugins).filter((plugin) => !plugin.is_global)],
         missingGlobalPlugins: [

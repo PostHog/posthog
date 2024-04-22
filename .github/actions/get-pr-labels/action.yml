@@ -1,0 +1,47 @@
+name: 'Get merged pull request labels'
+shell: bash
+description: 'Get the labels of the PR that was merged to create this push event'
+inputs:
+    token:
+        description: 'GH token'
+        required: true
+outputs:
+    labels:
+        description: 'JSON array labels of the PR that was merged (if any)'
+        value: ${{ steps.labels.outputs.labels }}
+runs:
+    using: 'composite'
+    steps:
+        - name: Get PR associated with the last commit
+          id: pr-info
+          uses: octokit/request-action@v2.x
+          with:
+              route: GET /repos/${{ github.repository }}/commits/${{ github.sha }}/pulls
+          env:
+              GITHUB_TOKEN: ${{ inputs.token }}
+
+        - name: Extract PR number
+          shell: bash
+          if: steps.pr-info.outputs.data
+          id: extract-pr
+          run: |
+              echo "PR_NUMBER=$(cat | jq -r '.[-1].number' <<EOF
+                ${{ steps.pr-info.outputs.data }}
+              EOF
+              )" >> $GITHUB_OUTPUT
+
+        - name: Fetch PR Labels
+          shell: bash
+          if: steps.extract-pr.outputs.PR_NUMBER
+          id: labels
+          run: |
+              PR_NUMBER=${{ steps.extract-pr.outputs.PR_NUMBER }}
+              LABELS=$(curl \
+                -H "Authorization: Bearer ${{ inputs.token }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/labels | jq -rc '[.[].name]')
+              echo "Labels of PR #$PR_NUMBER: $LABELS"
+
+              echo labels="$LABELS" >> $GITHUB_OUTPUT
+          env:
+              GITHUB_TOKEN: ${{ inputs.token }}

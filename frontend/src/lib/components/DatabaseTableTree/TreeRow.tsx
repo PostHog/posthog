@@ -23,9 +23,9 @@ export function TreeRow({ item, onClick, selected }: TreeRowProps): JSX.Element 
 
     return (
         <li>
-            <div className={clsx('TreeRow', selected ? 'TreeRow__selected' : '')} onClick={_onClick}>
+            <div className={clsx('TreeRow text-ellipsis', selected ? 'TreeRow__selected' : '')} onClick={_onClick}>
                 <span className="mr-2">{item.icon}</span>
-                {item.table.name}
+                <div className="overflow-hidden text-ellipsis whitespace-nowrap">{item.table.name}</div>
             </div>
         </li>
     )
