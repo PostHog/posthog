@@ -1,5 +1,6 @@
 from functools import cached_property
 import json
+from django.contrib.auth.models import AnonymousUser
 from django.db.models import Model, Q, QuerySet
 from rest_framework import serializers
 from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, cast, get_args
@@ -454,7 +455,7 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
     )
 
     @cached_property
-    def user_access_control(self) -> UserAccessControl:
+    def user_access_control(self) -> Optional[UserAccessControl]:
         # NOTE: The user_access_control is typically on the view but in specific cases such as the posthog_app_context it is set at the context level
         if "user_access_control" in self.context:
             # Get it directly from the context
@@ -463,10 +464,20 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             # Otherwise from the view (the default case)
             return self.context["view"].user_access_control
         else:
-            user = cast(User, self.context["request"].user)
+            user = cast(User | AnonymousUser, self.context["request"].user)
+            # The user could be anonymous - if so there is no access control to be used
+
+            if user.is_anonymous:
+                return None
+
+            user = cast(User, user)
+
             return UserAccessControl(user, organization_id=str(user.current_organization_id))
 
     def get_user_access_level(self, obj: Model) -> Optional[str]:
+        if not self.user_access_control:
+            return None
+
         # Check if self.instance is a list - if so we want to preload the user access controls
         if not self._preloaded_access_controls and isinstance(self.instance, list):
             self.user_access_control.preload_object_access_controls(self.instance)
