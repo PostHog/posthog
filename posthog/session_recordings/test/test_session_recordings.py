@@ -780,7 +780,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
-        annoying_data_from_javascript = "\uD801\uDC37 probably from console logs"
+        annoying_data_from_javascript = "\ud801\udc37 probably from console logs"
 
         mock_realtime_snapshots.return_value = [
             {"some": annoying_data_from_javascript},
