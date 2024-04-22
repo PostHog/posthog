@@ -674,29 +674,25 @@ export function LineGraph_({
                 y: {
                     display: true,
                     beforeFit: (scale) => {
-                        if (inSurveyView) {
-                            scale.ticks = scale.ticks.map((tick) => {
-                                if (typeof tick.label === 'string') {
-                                    return { ...tick, label: truncateString(tick.label, 50) }
-                                }
-                                return tick
-                            })
+                        scale.ticks = scale.ticks.map((tick) => {
+                            if (typeof tick.label === 'string') {
+                                return { ...tick, label: truncateString(tick.label, 50) }
+                            }
+                            return tick
+                        })
 
-                            const ROW_HEIGHT = 60
-                            const dynamicHeight = scale.ticks.length * ROW_HEIGHT
-                            const height = dynamicHeight
-                            const parentNode: any = scale.chart?.canvas?.parentNode
-                            parentNode.style.height = `${height}px`
-                        } else {
-                            // display only as many bars, as we can fit labels
-                            scale.max = scale.ticks.length
-                        }
+                        const ROW_HEIGHT = 20
+                        const dynamicHeight = scale.ticks.length * ROW_HEIGHT
+                        const height = dynamicHeight
+                        const parentNode: any = scale.chart?.canvas?.parentNode
+                        parentNode.style.height = `${height}px`
                     },
                     beginAtZero: true,
                     ticks: {
                         ...tickOptions,
                         precision,
-                        autoSkip: true,
+                        stepSize: 1,
+                        autoSkip: false,
                         callback: function _renderYLabel(_, i) {
                             const d = datasets?.[0]
                             if (!d) {
@@ -738,10 +734,7 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValueOnSeries, showPercentStackView])
 
     return (
-        <div
-            className={clsx('LineGraph w-full h-full overflow-hidden', { absolute: !inSurveyView })}
-            data-attr={dataAttr}
-        >
+        <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
             <canvas ref={canvasRef} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
