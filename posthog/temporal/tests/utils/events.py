@@ -166,7 +166,7 @@ async def generate_test_events_in_clickhouse(
     possible_datetimes = list(date_range(start_time, end_time, dt.timedelta(minutes=1)))
 
     # Base events
-    events = []
+    events: list[EventValues] = []
     while len(events) < count:
         events_to_insert = generate_test_events(
             count=min(count, batch_size),
