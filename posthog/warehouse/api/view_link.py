@@ -84,16 +84,5 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
-
-        if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .exclude(deleted=True)
-                .prefetch_related("created_by")
-                .order_by(self.ordering)
-            )
-
-        return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+    def filter_queryset(self, queryset):
+        return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)

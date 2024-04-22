@@ -127,20 +127,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
-
-        if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .prefetch_related("created_by", "schemas")
-                .order_by(self.ordering)
-            )
-
-        return (
-            self.queryset.filter(team_id=self.team_id).prefetch_related("created_by", "schemas").order_by(self.ordering)
-        )
+    def filter_queryset(self, queryset):
+        return queryset.prefetch_related("created_by", "schemas").order_by(self.ordering)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
