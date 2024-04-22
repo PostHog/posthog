@@ -14,9 +14,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, to_printed_hogql
 from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
+from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion, PersonsOnEventsMode
 from posthog.test.base import BaseTest
-from posthog.utils import PersonOnEventsMode
 
 
 class TestPrinter(BaseTest):
@@ -140,7 +139,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
-                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonOnEventsMode.DISABLED),
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.disabled),
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
@@ -157,7 +156,7 @@ class TestPrinter(BaseTest):
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
                 modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                    personsOnEventsMode=PersonsOnEventsMode.person_id_no_override_properties_on_events
                 ),
             )
             self.assertEqual(

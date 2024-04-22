@@ -163,7 +163,7 @@ def property_to_expr(
             chain = ["properties"]
 
         properties_field = ast.Field(chain=chain)
-        field = ast.Field(chain=chain + [property.key])
+        field = ast.Field(chain=[*chain, property.key])
 
         if isinstance(value, list):
             if len(value) == 0:
