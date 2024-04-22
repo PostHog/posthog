@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+./bin/load-vault-env
 ./bin/migrate-check
 
 # To ensure we are able to expose metrics from multiple processes, we need to

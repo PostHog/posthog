@@ -1,0 +1,9 @@
+#!/bin/bash
+set -e
+
+# Load environment variables from all files in /vault/secrets, if any exist
+if compgen -G "/vault/secrets/*" > /dev/null; then
+    for f in /vault/secrets/*; do
+        if [ -f "$f" ]; then source "$f"; fi
+    done
+fi
