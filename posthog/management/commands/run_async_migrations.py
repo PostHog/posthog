@@ -1,5 +1,5 @@
 import logging
-from typing import List, Sequence
+from collections.abc import Sequence
 
 import structlog
 from django.core.exceptions import ImproperlyConfigured
@@ -31,7 +31,7 @@ logger.setLevel(logging.INFO)
 
 
 def get_necessary_migrations() -> Sequence[AsyncMigration]:
-    necessary_migrations: List[AsyncMigration] = []
+    necessary_migrations: list[AsyncMigration] = []
     for migration_name, definition in sorted(ALL_ASYNC_MIGRATIONS.items()):
         if is_async_migration_complete(migration_name):
             continue

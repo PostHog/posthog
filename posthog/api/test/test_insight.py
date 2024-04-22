@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from unittest import mock
 from unittest.case import skip
 from unittest.mock import patch
@@ -332,7 +332,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_listing_insights_does_not_nplus1(self) -> None:
-        query_counts: List[int] = []
+        query_counts: list[int] = []
         queries = []
 
         for i in range(5):
@@ -1881,7 +1881,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def _create_one_person_cohort(self, properties: List[Dict[str, Any]]) -> int:
+    def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -2248,7 +2248,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # assert that undeletes end up in the activity log
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
         # we will have three logged activities (in reverse order) undelete, delete, create
         assert [a["activity"] for a in activity] == ["updated", "updated", "created"]
         undelete_change_log = activity[0]["detail"]["changes"][0]
@@ -2300,10 +2300,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         query_params = f"?events={json.dumps([{'id': '$pageview', }])}&client_query_id={client_query_id}"
         self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
 
-    def assert_insight_activity(self, insight_id: Optional[int], expected: List[Dict]):
+    def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
 
         self.maxDiff = None
         assert activity == expected

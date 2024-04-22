@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, List, Optional
+from typing import Optional
 from unittest.mock import call, patch
 
 from django.core.cache import cache
@@ -3497,10 +3497,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
-    def assert_feature_flag_activity(self, flag_id: Optional[int], expected: List[Dict]):
+    def assert_feature_flag_activity(self, flag_id: Optional[int], expected: list[dict]):
         activity_response = self._get_feature_flag_activity(flag_id)
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
         self.maxDiff = None
         assert activity == expected
 
@@ -3828,8 +3828,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         flush_persons_and_events()
 
-        with snapshot_postgres_queries_context(self), self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
+        with (
+            snapshot_postgres_queries_context(self),
+            self.settings(
+                CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
+            ),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/{flag.id}/create_static_cohort_for_flag",
@@ -5168,9 +5171,13 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is slow and times out
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-            500,
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(slow_query),
+            patch(
+                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+                500,
+            ),
         ):
             mock_postgres_check.return_value = False
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
@@ -5263,10 +5270,15 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertTrue(errors)
 
         # db is slow and times out, but shouldn't matter to us
-        with self.assertNumQueries(0), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-            500,
-        ), self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True):
+        with (
+            self.assertNumQueries(0),
+            connection.execute_wrapper(slow_query),
+            patch(
+                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+                500,
+            ),
+            self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True),
+        ):
             mock_postgres_check.return_value = False
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
@@ -5376,10 +5388,15 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is slow and times out
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-            500,
-        ), self.assertNumQueries(4):
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(slow_query),
+            patch(
+                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+                500,
+            ),
+            self.assertNumQueries(4),
+        ):
             # no extra queries to get person properties for the second flag after first one failed
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
@@ -5467,9 +5484,13 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is slow
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-            500,
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(slow_query),
+            patch(
+                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+                500,
+            ),
         ):
             with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
@@ -5577,9 +5598,13 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # db is slow and times out
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-            500,
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(slow_query),
+            patch(
+                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+                500,
+            ),
         ):
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
 

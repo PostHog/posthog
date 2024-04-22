@@ -2,7 +2,7 @@
 This module handles how credentials are read in dlt sources
 """
 
-from typing import ClassVar, List, Union
+from typing import ClassVar, Union
 from dlt.common.configuration import configspec
 from dlt.common.configuration.specs import CredentialsConfiguration
 from dlt.common.typing import TSecretValue
@@ -15,7 +15,7 @@ class ZendeskCredentialsBase(CredentialsConfiguration):
     """
 
     subdomain: str = ""
-    __config_gen_annotations__: ClassVar[List[str]] = []
+    __config_gen_annotations__: ClassVar[list[str]] = []
 
 
 @configspec

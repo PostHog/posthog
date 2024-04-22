@@ -1,4 +1,4 @@
-from typing import Union, Optional, Dict
+from typing import Union, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -22,7 +22,7 @@ def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]]
 
 def parse(
     s: str,
-    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
 ) -> ast.SelectQuery:
     parsed = parse_select(s, placeholders=placeholders)
     assert isinstance(parsed, ast.SelectQuery)

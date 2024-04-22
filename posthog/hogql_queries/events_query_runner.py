@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Dict, List, Optional
+from typing import Optional
 
 from dateutil.parser import isoparse
 from django.db.models import Prefetch
@@ -53,8 +53,8 @@ class EventsQueryRunner(QueryRunner):
         with self.timings.measure("build_ast"):
             # columns & group_by
             with self.timings.measure("columns"):
-                select_input: List[str] = []
-                person_indices: List[int] = []
+                select_input: list[str] = []
+                person_indices: list[int] = []
                 for index, col in enumerate(self.select_input_raw()):
                     # Selecting a "*" expands the list of columns, resulting in a table that's not what we asked for.
                     # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
@@ -66,11 +66,11 @@ class EventsQueryRunner(QueryRunner):
                         person_indices.append(index)
                     else:
                         select_input.append(col)
-                select: List[ast.Expr] = [parse_expr(column, timings=self.timings) for column in select_input]
+                select: list[ast.Expr] = [parse_expr(column, timings=self.timings) for column in select_input]
 
             with self.timings.measure("aggregations"):
-                group_by: List[ast.Expr] = [column for column in select if not has_aggregation(column)]
-                aggregations: List[ast.Expr] = [column for column in select if has_aggregation(column)]
+                group_by: list[ast.Expr] = [column for column in select if not has_aggregation(column)]
+                aggregations: list[ast.Expr] = [column for column in select if has_aggregation(column)]
                 has_any_aggregation = len(aggregations) > 0
 
             # filters
@@ -210,7 +210,7 @@ class EventsQueryRunner(QueryRunner):
                         ).data
                     self.paginator.results[index][star_idx] = new_result
 
-        person_indices: List[int] = []
+        person_indices: list[int] = []
         for index, col in enumerate(self.select_input_raw()):
             if col.split("--")[0].strip() == "person":
                 person_indices.append(index)
@@ -222,7 +222,7 @@ class EventsQueryRunner(QueryRunner):
                 distinct_ids = list({event[person_idx] for event in self.paginator.results})
                 persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
                 persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-                distinct_to_person: Dict[str, Person] = {}
+                distinct_to_person: dict[str, Person] = {}
                 for person in persons:
                     if person:
                         for person_distinct_id in person.distinct_ids:
@@ -256,7 +256,7 @@ class EventsQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
-    def select_input_raw(self) -> List[str]:
+    def select_input_raw(self) -> list[str]:
         return ["*"] if len(self.query.select) == 0 else self.query.select
 
     def _is_stale(self, cached_result_package):

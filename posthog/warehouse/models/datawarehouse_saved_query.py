@@ -1,5 +1,4 @@
 import re
-from typing import Dict
 from sentry_sdk import capture_exception
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -47,7 +46,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             )
         ]
 
-    def get_columns(self) -> Dict[str, str]:
+    def get_columns(self) -> dict[str, str]:
         from posthog.api.services.query import process_query
 
         # TODO: catch and raise error

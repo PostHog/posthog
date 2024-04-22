@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 import structlog
 from django.conf import settings
@@ -72,7 +72,7 @@ class UploadedMedia(UUIDModel):
 
 
 def save_content_to_object_storage(uploaded_media: UploadedMedia, content: bytes) -> None:
-    path_parts: List[str] = [
+    path_parts: list[str] = [
         settings.OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER,
         f"team-{uploaded_media.team.pk}",
         f"media-{uploaded_media.pk}",

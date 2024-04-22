@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from time import perf_counter
-from typing import Any, List, Optional, Tuple, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 import structlog
@@ -49,7 +49,7 @@ def schedule_cache_updates():
         logger.warn("No caches were found to be updated")
 
 
-def fetch_states_in_need_of_updating(limit: int) -> List[Tuple[int, str, UUID]]:
+def fetch_states_in_need_of_updating(limit: int) -> list[tuple[int, str, UUID]]:
     current_time = now()
     with connection.cursor() as cursor:
         cursor.execute(
@@ -163,7 +163,7 @@ def update_cached_state(
     )
 
 
-def _extract_insight_dashboard(caching_state: InsightCachingState) -> Tuple[Insight, Optional[Dashboard]]:
+def _extract_insight_dashboard(caching_state: InsightCachingState) -> tuple[Insight, Optional[Dashboard]]:
     if caching_state.dashboard_tile is not None:
         assert caching_state.dashboard_tile.insight is not None
 

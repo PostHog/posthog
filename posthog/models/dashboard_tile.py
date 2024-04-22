@@ -1,5 +1,3 @@
-from typing import List
-
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q, QuerySet, UniqueConstraint
@@ -139,7 +137,7 @@ class DashboardTile(models.Model):
         )
 
 
-def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> List[DashboardTile]:
+def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> list[DashboardTile]:
     tiles = list(
         dashboard.tiles.select_related("insight", "text")
         .exclude(insight__deleted=True)

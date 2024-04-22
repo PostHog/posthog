@@ -1,5 +1,3 @@
-from typing import List
-
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
@@ -250,7 +248,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
         )
 
-        created_insights: List[Insight] = list(Insight.objects.all())
+        created_insights: list[Insight] = list(Insight.objects.all())
         assert len(created_insights) == 2
 
         listed_insights = self.dashboard_api.list_insights(query_params={"include_query_insights": False})
@@ -280,7 +278,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
         )
 
-        created_insights: List[Insight] = list(Insight.objects.all())
+        created_insights: list[Insight] = list(Insight.objects.all())
         assert len(created_insights) == 2
 
         listed_insights = self.dashboard_api.list_insights(query_params={"include_query_insights": True})

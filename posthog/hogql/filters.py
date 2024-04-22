@@ -1,4 +1,4 @@
-from typing import List, Optional, TypeVar
+from typing import Optional, TypeVar
 
 from dateutil.parser import isoparse
 
@@ -24,7 +24,7 @@ class ReplaceFilters(CloningVisitor):
         super().__init__()
         self.filters = filters
         self.team = team
-        self.selects: List[ast.SelectQuery] = []
+        self.selects: list[ast.SelectQuery] = []
 
     def visit_select_query(self, node):
         self.selects.append(node)
@@ -52,7 +52,7 @@ class ReplaceFilters(CloningVisitor):
                     "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events table."
                 )
 
-            exprs: List[ast.Expr] = []
+            exprs: list[ast.Expr] = []
             if self.filters.properties is not None:
                 exprs.append(property_to_expr(self.filters.properties, self.team))
 

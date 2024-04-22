@@ -34,7 +34,6 @@ from posthog.warehouse.models import (
     ExternalDataSource,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from typing import Dict
 
 
 @dataclasses.dataclass
@@ -67,7 +66,7 @@ class ValidateSchemaInputs:
     team_id: int
     schema_id: uuid.UUID
     table_schema: TSchemaTables
-    table_row_counts: Dict[str, int]
+    table_row_counts: dict[str, int]
 
 
 @activity.defn

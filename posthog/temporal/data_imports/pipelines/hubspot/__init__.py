@@ -23,7 +23,8 @@ python
 >>> resources = hubspot(api_key="hubspot_access_code")
 """
 
-from typing import Literal, Sequence, Iterator, Iterable
+from typing import Literal
+from collections.abc import Sequence, Iterator, Iterable
 
 import dlt
 from dlt.common.typing import TDataItems

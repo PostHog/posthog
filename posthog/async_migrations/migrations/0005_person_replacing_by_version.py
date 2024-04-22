@@ -1,6 +1,5 @@
 import json
 from functools import cached_property
-from typing import Dict, List, Tuple
 
 import structlog
 from django.conf import settings
@@ -238,9 +237,9 @@ class Migration(AsyncMigrationDefinition):
         )
         return True
 
-    def _persons_insert_query(self, persons: List[Person]) -> Tuple[str, Dict]:
+    def _persons_insert_query(self, persons: list[Person]) -> tuple[str, dict]:
         values = []
-        params: Dict = {}
+        params: dict = {}
         for i, person in enumerate(persons):
             created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S")
             # :TRICKY: We use a custom _timestamp to identify rows migrated during this migration

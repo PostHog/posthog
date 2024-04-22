@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional, Union, cast, Literal
+from typing import Optional, Union, cast, Literal
 
 from pydantic import BaseModel
 
@@ -360,7 +360,7 @@ def action_to_expr(action: Action) -> ast.Expr:
 
     or_queries = []
     for step in steps:
-        exprs: List[ast.Expr] = []
+        exprs: list[ast.Expr] = []
         if step.event:
             exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=step.event)}))
 

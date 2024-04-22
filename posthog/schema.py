@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
@@ -1752,7 +1752,7 @@ class WebTopClicksQuery(BaseModel):
 class AnyResponseType(
     RootModel[
         Union[
-            Dict[str, Any],
+            dict[str, Any],
             HogQLQueryResponse,
             HogQLMetadataResponse,
             HogQLAutocompleteResponse,
@@ -2318,7 +2318,7 @@ class QueryResponseAlternative(
     RootModel[
         Union[
             QueryResponseAlternative1,
-            Dict[str, Any],
+            dict[str, Any],
             QueryResponseAlternative2,
             QueryResponseAlternative3,
             QueryResponseAlternative4,
@@ -2333,7 +2333,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative13,
             QueryResponseAlternative14,
             QueryResponseAlternative17,
-            Dict[str, List[DatabaseSchemaQueryResponseField]],
+            dict[str, list[DatabaseSchemaQueryResponseField]],
         ]
     ]
 ):

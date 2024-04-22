@@ -1,4 +1,4 @@
-from typing import Any, Dict, Set, Tuple, Union
+from typing import Any, Union
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.hogql.hogql import translate_hogql
@@ -17,7 +17,7 @@ class FunnelEventQuery(EventQuery):
         entities=None,
         entity_name="events",
         skip_entity_filter=False,
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         # Aggregating by group
         if self._filter.aggregation_group_type_index is not None:
             aggregation_target = get_aggregation_target_field(
@@ -81,7 +81,7 @@ class FunnelEventQuery(EventQuery):
 
         if skip_entity_filter:
             entity_query = ""
-            entity_params: Dict[str, Any] = {}
+            entity_params: dict[str, Any] = {}
         else:
             entity_query, entity_params = self._get_entity_query(entities, entity_name)
 
@@ -145,8 +145,8 @@ class FunnelEventQuery(EventQuery):
         if self._person_on_events_mode != PersonsOnEventsMode.disabled:
             self._should_join_persons = False
 
-    def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
-        events: Set[Union[int, str, None]] = set()
+    def _get_entity_query(self, entities=None, entity_name="events") -> tuple[str, dict[str, Any]]:
+        events: set[Union[int, str, None]] = set()
         entities_to_use = entities or self._filter.entities
 
         for entity in entities_to_use:

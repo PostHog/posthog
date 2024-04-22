@@ -1,6 +1,6 @@
 from dataclasses import asdict, dataclass
 from hashlib import md5
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -11,7 +11,7 @@ class WebJsSource:
     id: int
     source: str
     token: str
-    config_schema: List[dict]
+    config_schema: list[dict]
     config: dict
 
 
@@ -48,7 +48,7 @@ def get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
     return WebJsSource(*(list(response)))  # type: ignore
 
 
-def get_decide_site_apps(team: "Team", using_database: str = "default") -> List[dict]:
+def get_decide_site_apps(team: "Team", using_database: str = "default") -> list[dict]:
     from posthog.models import PluginConfig, PluginSourceFile
 
     sources = (
@@ -76,7 +76,7 @@ def get_decide_site_apps(team: "Team", using_database: str = "default") -> List[
     return [asdict(WebJsUrl(source[0], site_app_url(source))) for source in sources]
 
 
-def get_site_config_from_schema(config_schema: Optional[List[dict]], config: Optional[dict]):
+def get_site_config_from_schema(config_schema: Optional[list[dict]], config: Optional[dict]):
     if not config or not config_schema:
         return {}
     return {

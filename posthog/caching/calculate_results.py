@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import structlog
 from sentry_sdk import capture_exception
@@ -77,7 +77,7 @@ def get_cache_type_for_filter(cacheable: FilterType) -> CacheType:
         return CacheType.TRENDS
 
 
-def get_cache_type_for_query(cacheable: Dict) -> CacheType:
+def get_cache_type_for_query(cacheable: dict) -> CacheType:
     cache_type = None
 
     if cacheable.get("source"):
@@ -92,7 +92,7 @@ def get_cache_type_for_query(cacheable: Dict) -> CacheType:
     return cache_type
 
 
-def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheType:
+def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheType:
     if isinstance(cacheable, dict):
         return get_cache_type_for_query(cacheable)
     elif cacheable is not None:
@@ -108,7 +108,7 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
 
 def calculate_result_by_insight(
     team: Team, insight: Insight, dashboard: Optional[Dashboard]
-) -> Tuple[str, str, List | Dict]:
+) -> tuple[str, str, list | dict]:
     """
     Calculates the result for an insight. If the insight is query based,
     it will use the query to calculate the result. Even if there is a filter present on the insight
@@ -124,7 +124,7 @@ def calculate_result_by_insight(
 
 def calculate_for_query_based_insight(
     team: Team, insight: Insight, dashboard: Optional[Dashboard]
-) -> Tuple[str, str, List | Dict]:
+) -> tuple[str, str, list | dict]:
     cache_key = generate_insight_cache_key(insight, dashboard)
     cache_type = get_cache_type(insight.query)
 
@@ -144,7 +144,7 @@ def calculate_for_query_based_insight(
 
 def calculate_for_filter_based_insight(
     team: Team, insight: Insight, dashboard: Optional[Dashboard]
-) -> Tuple[str, str, List | Dict]:
+) -> tuple[str, str, list | dict]:
     filter = get_filter(data=insight.dashboard_filters(dashboard), team=team)
     cache_key = generate_insight_cache_key(insight, dashboard)
     cache_type = get_cache_type(filter)
@@ -159,7 +159,7 @@ def calculate_for_filter_based_insight(
     return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, team)
 
 
-def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> list[dict[str, Any]]:
     if cache_type == CacheType.FUNNEL:
         return _calculate_funnel(filter, team)
     else:
@@ -167,7 +167,7 @@ def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: 
 
 
 @timed("update_cache_item_timer.calculate_by_filter")
-def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) -> List[Dict[str, Any]]:
+def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) -> list[dict[str, Any]]:
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
     if cache_type == CacheType.PATHS:
@@ -178,7 +178,7 @@ def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) 
 
 
 @timed("update_cache_item_timer.calculate_funnel")
-def _calculate_funnel(filter: Filter, team: Team) -> List[Dict[str, Any]]:
+def _calculate_funnel(filter: Filter, team: Team) -> list[dict[str, Any]]:
     if filter.funnel_viz_type == FunnelVizType.TRENDS:
         result = ClickhouseFunnelTrends(team=team, filter=filter).run()
     elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
@@ -191,7 +191,7 @@ def _calculate_funnel(filter: Filter, team: Team) -> List[Dict[str, Any]]:
 
 
 def cache_includes_latest_events(
-    payload: Dict, filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]
+    payload: dict, filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]
 ) -> bool:
     """
     event_definition has last_seen_at timestamp
@@ -216,7 +216,7 @@ def cache_includes_latest_events(
     return False
 
 
-def _events_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]) -> List[str]:
+def _events_from_filter(filter: Union[RetentionFilter, StickinessFilter, PathFilter, Filter]) -> list[str]:
     """
     If a filter only represents a set of events
     then we can use their last_seen_at to determine if the cache is up-to-date

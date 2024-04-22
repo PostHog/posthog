@@ -4,16 +4,13 @@ from collections import Counter
 from datetime import datetime
 from typing import (
     Any,
-    Dict,
-    List,
     Literal,
     Optional,
-    Sequence,
-    Tuple,
     TypedDict,
     Union,
     cast,
 )
+from collections.abc import Sequence
 
 import requests
 import structlog
@@ -140,13 +137,13 @@ class InstanceMetadata:
     product: str
     helm: Optional[dict]
     clickhouse_version: Optional[str]
-    users_who_logged_in: Optional[List[Dict[str, Union[str, int]]]]
+    users_who_logged_in: Optional[list[dict[str, Union[str, int]]]]
     users_who_logged_in_count: Optional[int]
-    users_who_signed_up: Optional[List[Dict[str, Union[str, int]]]]
+    users_who_signed_up: Optional[list[dict[str, Union[str, int]]]]
     users_who_signed_up_count: Optional[int]
     table_sizes: Optional[TableSizes]
-    plugins_installed: Optional[Dict]
-    plugins_enabled: Optional[Dict]
+    plugins_installed: Optional[dict]
+    plugins_enabled: Optional[dict]
     instance_tag: str
 
 
@@ -158,7 +155,7 @@ class OrgReport(UsageReportCounters):
     organization_created_at: str
     organization_user_count: int
     team_count: int
-    teams: Dict[str, UsageReportCounters]
+    teams: dict[str, UsageReportCounters]
 
 
 @dataclasses.dataclass
@@ -170,7 +167,7 @@ def fetch_table_size(table_name: str) -> int:
     return fetch_sql("SELECT pg_total_relation_size(%s) as size", (table_name,))[0].size
 
 
-def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
+def fetch_sql(sql_: str, params: tuple[Any, ...]) -> list[Any]:
     with connection.cursor() as cursor:
         cursor.execute(sql.SQL(sql_), params)
         return namedtuplefetchall(cursor)
@@ -185,7 +182,7 @@ def get_product_name(realm: str, has_license: bool) -> str:
         return "unknown"
 
 
-def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata:
+def get_instance_metadata(period: tuple[datetime, datetime]) -> InstanceMetadata:
     has_license = False
 
     if settings.EE_AVAILABLE:
@@ -295,7 +292,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
-def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
+def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
 
@@ -347,7 +344,7 @@ def capture_event(
     pha_client: Client,
     name: str,
     organization_id: str,
-    properties: Dict[str, Any],
+    properties: dict[str, Any],
     timestamp: Optional[Union[datetime, str]] = None,
 ) -> None:
     if timestamp and isinstance(timestamp, str):
@@ -380,7 +377,7 @@ def capture_event(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
+def get_teams_with_event_count_lifetime() -> list[tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(1) as count
@@ -397,7 +394,7 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
-) -> List[Tuple[int, int]]:
+) -> list[tuple[int, int]]:
     # count only unique events
     # Duplicate events will be eventually removed by ClickHouse and likely came from our library or pipeline.
     # We shouldn't bill for these. However counting unique events is more expensive, and likely to fail on longer time ranges.
@@ -427,7 +424,7 @@ def get_teams_with_billable_event_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_enhanced_persons_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
-) -> List[Tuple[int, int]]:
+) -> list[tuple[int, int]]:
     # count only unique events
     # Duplicate events will be eventually removed by ClickHouse and likely came from our library or pipeline.
     # We shouldn't bill for these. However counting unique events is more expensive, and likely to fail on longer time ranges.
@@ -455,7 +452,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(1) as count
@@ -473,7 +470,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
+def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> list[tuple[int, str, int]]:
     results = sync_execute(
         """
         SELECT team_id, JSONExtractString(properties, '$lib') as lib, COUNT(1) as count
@@ -490,7 +487,7 @@ def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tu
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
+def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> list[tuple[int, str, int]]:
     results = sync_execute(
         """
         SELECT team_id, event, COUNT(1) as count
@@ -507,7 +504,7 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     previous_begin = begin - (end - begin)
 
     result = sync_execute(
@@ -538,7 +535,7 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
+def get_teams_with_recording_count_total() -> list[tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(distinct session_id) as count
@@ -556,10 +553,10 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
 def get_teams_with_hogql_metric(
     begin: datetime,
     end: datetime,
-    query_types: List[str],
+    query_types: list[str],
     access_method: str = "",
     metric: Literal["read_bytes", "read_rows", "query_duration_ms"] = "read_bytes",
-) -> List[Tuple[int, int]]:
+) -> list[tuple[int, int]]:
     if metric not in ["read_bytes", "read_rows", "query_duration_ms"]:
         # :TRICKY: Inlined into the query below.
         raise ValueError(f"Invalid metric {metric}")
@@ -593,7 +590,7 @@ def get_teams_with_hogql_metric(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_feature_flag_requests_count_in_period(
     begin: datetime, end: datetime, request_type: FlagRequestType
-) -> List[Tuple[int, int]]:
+) -> list[tuple[int, int]]:
     # depending on the region, events are stored in different teams
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
@@ -627,7 +624,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
 def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
-) -> List[Tuple[int, int]]:
+) -> list[tuple[int, int]]:
     results = sync_execute(
         """
         SELECT team_id, COUNT() as count
@@ -645,7 +642,7 @@ def get_teams_with_survey_responses_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     team_to_query = 1 if get_instance_region() == "EU" else 2
 
     # dedup by job id incase there were duplicates sent
@@ -675,7 +672,7 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> List
 def capture_report(
     capture_event_name: str,
     org_id: str,
-    full_report_dict: Dict[str, Any],
+    full_report_dict: dict[str, Any],
     at_date: Optional[datetime] = None,
 ) -> None:
     pha_client = Client("sTMFPsFhdP1Ssg")
@@ -702,7 +699,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
     )
 
 
-def convert_team_usage_rows_to_dict(rows: List[Union[dict, Tuple[int, int]]]) -> Dict[int, int]:
+def convert_team_usage_rows_to_dict(rows: list[Union[dict, tuple[int, int]]]) -> dict[int, int]:
     team_id_map = {}
     for row in rows:
         if isinstance(row, dict) and "team_id" in row:
@@ -715,7 +712,7 @@ def convert_team_usage_rows_to_dict(rows: List[Union[dict, Tuple[int, int]]]) ->
     return team_id_map
 
 
-def _get_all_usage_data(period_start: datetime, period_end: datetime) -> Dict[str, Any]:
+def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """
     Gets all usage data for the specified period. Clickhouse is good at counting things so
     we count across all teams rather than doing it one by one
@@ -874,7 +871,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> Dict[st
     }
 
 
-def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetime) -> Dict[str, Any]:
+def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """
     Gets all usage data for the specified period as a map of team_id -> value. This makes it faster
     to access the data than looping over all_data to find what we want.
@@ -894,7 +891,7 @@ def _get_teams_for_usage_reports() -> Sequence[Team]:
     )
 
 
-def _get_team_report(all_data: Dict[str, Any], team: Team) -> UsageReportCounters:
+def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounters:
     decide_requests_count_in_month = all_data["teams_with_decide_requests_count_in_month"].get(team.id, 0)
     decide_requests_count_in_period = all_data["teams_with_decide_requests_count_in_period"].get(team.id, 0)
     local_evaluation_requests_count_in_period = all_data["teams_with_local_evaluation_requests_count_in_period"].get(
@@ -949,7 +946,7 @@ def _get_team_report(all_data: Dict[str, Any], team: Team) -> UsageReportCounter
 
 
 def _add_team_report_to_org_reports(
-    org_reports: Dict[str, OrgReport],
+    org_reports: dict[str, OrgReport],
     team: Team,
     team_report: UsageReportCounters,
     period_start: datetime,
@@ -982,12 +979,12 @@ def _add_team_report_to_org_reports(
                 )
 
 
-def _get_all_org_reports(period_start: datetime, period_end: datetime) -> Dict[str, OrgReport]:
+def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
 
     teams = _get_teams_for_usage_reports()
 
-    org_reports: Dict[str, OrgReport] = {}
+    org_reports: dict[str, OrgReport] = {}
 
     print("Generating reports for teams...")  # noqa T201
     time_now = datetime.now()
@@ -1007,7 +1004,7 @@ def _get_full_org_usage_report(org_report: OrgReport, instance_metadata: Instanc
     )
 
 
-def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> Dict[str, Any]:
+def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str, Any]:
     return dataclasses.asdict(full_report)
 
 

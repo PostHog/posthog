@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import List, Optional, Any, cast, Literal
+from typing import Optional, Any, cast, Literal
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -58,7 +58,7 @@ def resolve_types(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    scopes: Optional[List[ast.SelectQueryType]] = None,
+    scopes: Optional[list[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
@@ -66,7 +66,7 @@ def resolve_types(
 class AliasCollector(TraversingVisitor):
     def __init__(self):
         super().__init__()
-        self.aliases: List[str] = []
+        self.aliases: list[str] = []
 
     def visit_alias(self, node: ast.Alias):
         self.aliases.append(node.alias)
@@ -80,11 +80,11 @@ class Resolver(CloningVisitor):
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
-        scopes: Optional[List[ast.SelectQueryType]] = None,
+        scopes: Optional[list[ast.SelectQueryType]] = None,
     ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
-        self.scopes: List[ast.SelectQueryType] = scopes or []
+        self.scopes: list[ast.SelectQueryType] = scopes or []
         self.current_view_depth: int = 0
         self.context = context
         self.dialect = dialect
@@ -214,7 +214,7 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> List[ast.Expr]:
+    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> list[ast.Expr]:
         """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table(self.context)
@@ -393,13 +393,13 @@ class Resolver(CloningVisitor):
                 return self.visit(matches_action(node=node, args=node.args, context=self.context))
 
         node = super().visit_call(node)
-        arg_types: List[ast.ConstantType] = []
+        arg_types: list[ast.ConstantType] = []
         for arg in node.args:
             if arg.type:
                 arg_types.append(arg.type.resolve_constant_type(self.context) or ast.UnknownType())
             else:
                 arg_types.append(ast.UnknownType())
-        param_types: Optional[List[ast.ConstantType]] = None
+        param_types: Optional[list[ast.ConstantType]] = None
         if node.params is not None:
             param_types = []
             for param in node.params:

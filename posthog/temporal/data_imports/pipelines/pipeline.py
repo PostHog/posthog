@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Literal
+from typing import Literal
 from uuid import UUID
 
 import dlt
@@ -68,7 +68,7 @@ class DataImportPipeline:
             dataset_name=self.inputs.dataset_name,
         )
 
-    def _run(self) -> Dict[str, int]:
+    def _run(self) -> dict[str, int]:
         pipeline = self._create_pipeline()
         pipeline.run(self.source, loader_file_format=self.loader_file_format)
 
@@ -78,7 +78,7 @@ class DataImportPipeline:
 
         return dict(filtered_rows)
 
-    async def run(self) -> Dict[str, int]:
+    async def run(self) -> dict[str, int]:
         try:
             return await asyncio.to_thread(self._run)
         except PipelineStepFailed:

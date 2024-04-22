@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, List, Optional, cast, Literal
+from typing import Optional, cast, Literal
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -13,7 +13,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 def resolve_lazy_tables(
     node: ast.Expr,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     context: HogQLContext = None,
 ):
     LazyTableResolver(stack=stack, context=context, dialect=dialect).visit(node)
@@ -21,7 +21,7 @@ def resolve_lazy_tables(
 
 @dataclasses.dataclass
 class JoinToAdd:
-    fields_accessed: Dict[str, List[str | int]]
+    fields_accessed: dict[str, list[str | int]]
     lazy_join: LazyJoin
     from_table: str
     to_table: str
@@ -29,7 +29,7 @@ class JoinToAdd:
 
 @dataclasses.dataclass
 class TableToAdd:
-    fields_accessed: Dict[str, List[str | int]]
+    fields_accessed: dict[str, list[str | int]]
     lazy_table: LazyTable
 
 
@@ -37,13 +37,13 @@ class TableToAdd:
 class ConstraintOverride:
     alias: str
     table_name: str
-    chain_to_replace: List[str | int]
+    chain_to_replace: list[str | int]
 
 
 class FieldChainReplacer(TraversingVisitor):
-    overrides: List[ConstraintOverride] = {}
+    overrides: list[ConstraintOverride] = {}
 
-    def __init__(self, overrides: List[ConstraintOverride]) -> None:
+    def __init__(self, overrides: list[ConstraintOverride]) -> None:
         super().__init__()
         self.overrides = overrides
 
@@ -58,7 +58,7 @@ class LazyFinder(TraversingVisitor):
     max_type_visits: int = 3
 
     def __init__(self) -> None:
-        self.visited_field_type_counts: Dict[int, int] = {}
+        self.visited_field_type_counts: dict[int, int] = {}
 
     def visit_lazy_join_type(self, node: ast.LazyJoinType):
         self.found_lazy = True
@@ -80,11 +80,11 @@ class LazyTableResolver(TraversingVisitor):
     def __init__(
         self,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[List[ast.SelectQuery]] = None,
+        stack: Optional[list[ast.SelectQuery]] = None,
         context: HogQLContext = None,
     ):
         super().__init__()
-        self.stack_of_fields: List[List[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
+        self.stack_of_fields: list[list[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
         self.dialect: Literal["hogql", "clickhouse"] = dialect
 
@@ -129,30 +129,30 @@ class LazyTableResolver(TraversingVisitor):
         assert select_type is not None
 
         # Collect each `ast.Field` with `ast.LazyJoinType`
-        field_collector: List[ast.FieldType | ast.PropertyType] = []
+        field_collector: list[ast.FieldType | ast.PropertyType] = []
         self.stack_of_fields.append(field_collector)
 
         # Collect all visited fields on lazy tables into field_collector
         super().visit_select_query(node)
 
         # Collect all the joins we need to add to the select query
-        joins_to_add: Dict[str, JoinToAdd] = {}
-        tables_to_add: Dict[str, TableToAdd] = {}
+        joins_to_add: dict[str, JoinToAdd] = {}
+        tables_to_add: dict[str, TableToAdd] = {}
 
         # First properties, then fields. This way we always get the smallest units to query first.
-        matched_properties: List[ast.PropertyType | ast.FieldType] = [
+        matched_properties: list[ast.PropertyType | ast.FieldType] = [
             property for property in field_collector if isinstance(property, ast.PropertyType)
         ]
-        matched_fields: List[ast.PropertyType | ast.FieldType] = [
+        matched_fields: list[ast.PropertyType | ast.FieldType] = [
             field for field in field_collector if isinstance(field, ast.FieldType)
         ]
-        sorted_properties: List[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
+        sorted_properties: list[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
 
         # Look for tables without requested fields to support cases like `select count() from table`
         join = node.select_from
         while join:
             if join.table is not None and isinstance(join.table.type, ast.LazyTableType):
-                fields: List[ast.FieldType | ast.PropertyType] = []
+                fields: list[ast.FieldType | ast.PropertyType] = []
                 for field_or_property in field_collector:
                     if isinstance(field_or_property, ast.FieldType):
                         if isinstance(field_or_property.table_type, ast.TableAliasType):
@@ -186,7 +186,7 @@ class LazyTableResolver(TraversingVisitor):
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
             # Usually there's just one or two.
-            table_types: List[ast.LazyJoinType | ast.LazyTableType | ast.TableAliasType] = []
+            table_types: list[ast.LazyJoinType | ast.LazyTableType | ast.TableAliasType] = []
             while (
                 isinstance(table_type, ast.TableAliasType)
                 or isinstance(table_type, ast.LazyJoinType)
@@ -217,7 +217,7 @@ class LazyTableResolver(TraversingVisitor):
                         )
                     new_join = joins_to_add[to_table]
                     if table_type == field.table_type:
-                        chain: List[str | int] = []
+                        chain: list[str | int] = []
                         chain.append(field.name)
                         if property is not None:
                             chain.extend(property.chain)
@@ -259,7 +259,7 @@ class LazyTableResolver(TraversingVisitor):
                             )
                         new_join = joins_to_add[to_table]
                         if table_type == field.table_type:
-                            chain: List[str | int] = []
+                            chain: list[str | int] = []
                             chain.append(field.name)
                             if property is not None:
                                 chain.extend(property.chain)
@@ -291,9 +291,9 @@ class LazyTableResolver(TraversingVisitor):
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
-        join_constraint_overrides: Dict[str, List[ConstraintOverride]] = {}
+        join_constraint_overrides: dict[str, list[ConstraintOverride]] = {}
 
-        def create_override(table_name: str, field_chain: List[str | int]) -> None:
+        def create_override(table_name: str, field_chain: list[str | int]) -> None:
             alias = f"{table_name}___{'___'.join(str(x) for x in field_chain)}"
 
             if table_name in tables_to_add:
@@ -387,7 +387,7 @@ class LazyTableResolver(TraversingVisitor):
                     node.select_from = join_to_add
 
             # Collect any fields or properties that may have been added from the join_function with the LazyJoinType
-            join_field_collector: List[ast.FieldType | ast.PropertyType] = []
+            join_field_collector: list[ast.FieldType | ast.PropertyType] = []
             self.stack_of_fields.append(join_field_collector)
             super().visit(join_to_add)
             self.stack_of_fields.pop()

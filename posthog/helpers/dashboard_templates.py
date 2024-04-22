@@ -1,4 +1,5 @@
-from typing import Callable, Dict, List, Optional
+from typing import Optional
+from collections.abc import Callable
 
 import structlog
 
@@ -28,7 +29,7 @@ from posthog.models.dashboard_tile import DashboardTile, Text
 from posthog.models.insight import Insight
 from posthog.models.tag import Tag
 
-DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
+DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 
 logger = structlog.get_logger(__name__)
 
@@ -444,7 +445,7 @@ def _create_default_app_items(dashboard: Dashboard) -> None:
     create_from_template(dashboard, template)
 
 
-DASHBOARD_TEMPLATES: Dict[str, Callable] = {
+DASHBOARD_TEMPLATES: dict[str, Callable] = {
     "DEFAULT_APP": _create_default_app_items,
     "WEBSITE_TRAFFIC": _create_website_dashboard,
 }
@@ -491,7 +492,7 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> N
             logger.error("dashboard_templates.creation.unknown_type", template=template)
 
 
-def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: Dict, color: Optional[str]) -> None:
+def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: dict, color: Optional[str]) -> None:
     text = Text.objects.create(
         team=dashboard.team,
         body=body,
@@ -507,11 +508,11 @@ def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: Dict, color:
 def _create_tile_for_insight(
     dashboard: Dashboard,
     name: str,
-    filters: Dict,
+    filters: dict,
     description: str,
-    layouts: Dict,
+    layouts: dict,
     color: Optional[str],
-    query: Optional[Dict] = None,
+    query: Optional[dict] = None,
 ) -> None:
     filter_test_accounts = filters.get("filter_test_accounts", True)
     insight = Insight.objects.create(

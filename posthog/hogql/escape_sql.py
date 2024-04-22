@@ -1,6 +1,6 @@
 import re
 from datetime import datetime, date
-from typing import Optional, Any, Literal, List, Tuple
+from typing import Optional, Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -126,8 +126,8 @@ class SQLValueEscaper:
     def visit_date(self, value: date):
         return f"toDate({self.visit(value.strftime('%Y-%m-%d'))})"
 
-    def visit_list(self, value: List):
+    def visit_list(self, value: list):
         return f"[{', '.join(str(self.visit(x)) for x in value)}]"
 
-    def visit_tuple(self, value: Tuple):
+    def visit_tuple(self, value: tuple):
         return f"({', '.join(str(self.visit(x)) for x in value)})"

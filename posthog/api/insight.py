@@ -1,6 +1,6 @@
 import json
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Type, Union, cast
+from typing import Any, Optional, Union, cast
 
 import structlog
 from django.db import transaction
@@ -122,7 +122,7 @@ def log_insight_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[List[Change]] = None,
+    changes: Optional[list[Change]] = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
@@ -201,7 +201,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
 
     def to_representation(self, instance):
@@ -310,7 +310,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_cached",
         )
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
@@ -349,8 +349,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return insight
 
-    def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
-        dashboards_before_change: List[Union[str, Dict]] = []
+    def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
+        dashboards_before_change: list[Union[str, dict]] = []
         try:
             # since it is possible to be undeleting a soft deleted insight
             # the state captured before the update has to include soft deleted insights
@@ -415,7 +415,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 changes=changes,
             )
 
-    def _synthetic_dashboard_changes(self, dashboards_before_change: List[Dict]) -> List[Change]:
+    def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
         artificial_dashboard_changes = self.context.get("after_dashboard_changes", [])
         if artificial_dashboard_changes:
             return [
@@ -430,7 +430,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return []
 
-    def _update_insight_dashboards(self, dashboards: List[Dashboard], instance: Insight) -> None:
+    def _update_insight_dashboards(self, dashboards: list[Dashboard], instance: Insight) -> None:
         old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
         new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
 
@@ -583,14 +583,14 @@ class InsightViewSet(
 
     parser_classes = (QuerySchemaParser,)
 
-    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0")
         ):
             return InsightBasicSerializer
         return super().get_serializer_class()
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
@@ -838,12 +838,12 @@ Using the correct cache and enriching the response with dashboard specific confi
                 export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
 
             response = HttpResponse(export)
-            response["Content-Disposition"] = (
-                'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
-                    name=slugify(request.GET.get("export_name", "export")),
-                    date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
-                    date_to=filter.date_to.strftime("%Y-%m-%d"),
-                )
+            response[
+                "Content-Disposition"
+            ] = 'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
+                name=slugify(request.GET.get("export_name", "export")),
+                date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
+                date_to=filter.date_to.strftime("%Y-%m-%d"),
             )
             return response
 
@@ -852,7 +852,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response({**result, "next": next})
 
     @cached_by_filters
-    def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_trends(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=self.team)
 
@@ -904,7 +904,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response(funnel)
 
     @cached_by_filters
-    def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_funnel(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
@@ -944,7 +944,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response(result)
 
     @cached_by_filters
-    def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_retention(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         data = {}
         if not request.GET.get("date_from") and not request.data.get("date_from"):
@@ -974,7 +974,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response(result)
 
     @cached_by_filters
-    def calculate_path(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_path(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
 

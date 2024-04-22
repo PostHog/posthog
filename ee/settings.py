@@ -3,14 +3,13 @@ Django settings for PostHog Enterprise Edition.
 """
 
 import os
-from typing import Dict, List
 
 from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, SITE_URL, DEBUG
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
 
 # Zapier REST hooks
-HOOK_EVENTS: Dict[str, str] = {
+HOOK_EVENTS: dict[str, str] = {
     # "event_name": "App.Model.Action" (created/updated/deleted)
     "action_performed": "posthog.Action.performed",
 }
@@ -43,7 +42,7 @@ SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
 if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
-    SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: List[str] = os.environ[
+    SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: list[str] = os.environ[
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
     ].split(",")
 elif DEMO:

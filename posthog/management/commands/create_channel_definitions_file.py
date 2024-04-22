@@ -4,7 +4,7 @@ import subprocess
 from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Optional
 
 from django.core.management.base import BaseCommand
 
@@ -59,7 +59,7 @@ class Command(BaseCommand):
             base_type, type_if_paid, type_if_organic = types[raw_type]
             return (domain, EntryKind.source), SourceEntry(base_type, type_if_paid, type_if_organic)
 
-        entries: OrderedDict[Tuple[str, str], SourceEntry] = OrderedDict(map(handle_entry, split_items))
+        entries: OrderedDict[tuple[str, str], SourceEntry] = OrderedDict(map(handle_entry, split_items))
 
         # add google domains to this, from https://www.google.com/supported_domains
         for google_domain in [

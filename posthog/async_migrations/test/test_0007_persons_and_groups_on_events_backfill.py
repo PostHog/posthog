@@ -1,5 +1,4 @@
 import json
-from typing import Dict, List
 from uuid import uuid4
 
 import pytest
@@ -44,7 +43,7 @@ def run_migration():
     return start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
 
 
-def query_events() -> List[Dict]:
+def query_events() -> list[dict]:
     return query_with_columns(
         """
         SELECT

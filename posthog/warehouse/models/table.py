@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Optional
 from django.db import models
 
 from posthog.client import sync_execute
@@ -111,7 +111,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             prefix = ""
         return self.name[len(prefix) :]
 
-    def get_columns(self, safe_expose_ch_error=True) -> Dict[str, str]:
+    def get_columns(self, safe_expose_ch_error=True) -> dict[str, str]:
         try:
             result = sync_execute(
                 """DESCRIBE TABLE (
@@ -139,7 +139,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         if not self.columns:
             raise Exception("Columns must be fetched and saved to use in HogQL.")
 
-        fields: Dict[str, FieldOrTable] = {}
+        fields: dict[str, FieldOrTable] = {}
         structure = []
         for column, type in self.columns.items():
             # Support for 'old' style columns

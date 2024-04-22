@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, List, Optional, Union
+from typing import Any, Optional, Union
 
 from django.utils.timezone import now
 from prometheus_client import Counter
@@ -30,7 +30,7 @@ class InsightResult:
     is_cached: bool
     timezone: Optional[str]
     next_allowed_client_refresh: Optional[datetime] = None
-    timings: Optional[List[QueryTiming]] = None
+    timings: Optional[list[QueryTiming]] = None
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,5 @@
 import re
-from typing import Dict, get_args
+from typing import get_args
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -215,7 +215,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
 
 def custom_postprocessing_hook(result, generator, request, public):
     all_tags = []
-    paths: Dict[str, Dict] = {}
+    paths: dict[str, dict] = {}
 
     for path, methods in result["paths"].items():
         paths[path] = {}
