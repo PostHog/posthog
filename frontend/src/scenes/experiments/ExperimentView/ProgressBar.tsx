@@ -1,5 +1,7 @@
 import '../Experiment.scss'
 
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -23,6 +25,12 @@ export function ProgressBar(): JSX.Element {
         experimentInsightType === InsightType.FUNNELS
             ? (funnelResultsPersonsTotal / recommendedSampleSize) * 100
             : (actualRunningTime / recommendedRunningTime) * 100
+
+    const goalTooltipText =
+        experiment?.parameters?.minimum_detectable_effect &&
+        `Based on the recommended Minimum Acceptable Improvement of ${experiment.parameters.minimum_detectable_effect}%`
+
+    const hasHighRunningTime = recommendedRunningTime > 62
 
     return (
         <div>
@@ -51,12 +59,30 @@ export function ProgressBar(): JSX.Element {
                             <b>{actualRunningTime}</b> {formatUnitByQuantity(actualRunningTime, 'day')} running
                         </div>
                     )}
-                    <div>
-                        Goal: <b>{recommendedRunningTime}</b> {formatUnitByQuantity(recommendedRunningTime, 'day')}
-                    </div>
+                    <span className="inline-flex space-x-1">
+                        <Tooltip title={goalTooltipText}>
+                            <div className="cursor-pointer">
+                                {hasHighRunningTime ? (
+                                    <>
+                                        Goal: <b> &gt; 2</b> months
+                                    </>
+                                ) : (
+                                    <>
+                                        Goal: <b>{recommendedRunningTime}</b>{' '}
+                                        {formatUnitByQuantity(recommendedRunningTime, 'day')}
+                                    </>
+                                )}
+                            </div>
+                        </Tooltip>
+                        {hasHighRunningTime && (
+                            <Tooltip title="Based on the current data, this experiment might take a while to reach statistical significance. Please make sure events are being tracked correctly and consider if this timeline works for you.">
+                                <IconInfo className="text-muted-alt text-lg" />
+                            </Tooltip>
+                        )}
+                    </span>
                 </div>
             )}
-            {experimentInsightType === InsightType.FUNNELS && (
+            {experimentInsightType === InsightType.FUNNELS && experiment.start_date && (
                 <div className="flex justify-between mt-2">
                     {experiment.end_date ? (
                         <div>
@@ -69,10 +95,12 @@ export function ProgressBar(): JSX.Element {
                             {formatUnitByQuantity(funnelResultsPersonsTotal, 'participant')} seen
                         </div>
                     )}
-                    <div>
-                        Goal: <b>{humanFriendlyNumber(recommendedSampleSize)}</b>{' '}
-                        {formatUnitByQuantity(recommendedSampleSize, 'participant')}
-                    </div>
+                    <Tooltip title={goalTooltipText}>
+                        <div className="cursor-pointer">
+                            Goal: <b>{humanFriendlyNumber(recommendedSampleSize)}</b>{' '}
+                            {formatUnitByQuantity(recommendedSampleSize, 'participant')}
+                        </div>
+                    </Tooltip>
                 </div>
             )}
         </div>

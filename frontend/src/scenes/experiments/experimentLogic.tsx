@@ -12,12 +12,14 @@ import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ReactElement } from 'react'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -99,6 +101,10 @@ export const experimentLogic = kea<experimentLogicType>([
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
             sceneLogic,
             ['activeScene'],
+            funnelDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
+            ['conversionMetrics'],
+            trendsDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
+            ['results as trendResults'],
         ],
         actions: [
             experimentsLogic,
@@ -311,6 +317,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 ...values.experiment?.parameters,
                                 recommended_running_time: runningTime,
                                 recommended_sample_size: sampleSize,
+                                minimum_detectable_effect: values.minimumDetectableChange,
                             },
                             ...(!draft && { start_date: dayjs() }),
                             // backwards compatibility: Remove any global properties set on the experiment.
@@ -337,6 +344,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             ...values.experiment?.parameters,
                             recommended_running_time: runningTime,
                             recommended_sample_size: sampleSize,
+                            minimum_detectable_effect: values.minimumDetectableChange,
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
@@ -784,10 +792,49 @@ export const experimentLogic = kea<experimentLogicType>([
                     return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
                 },
         ],
+        // TODO: unify naming (Minimum detectable change/Minimum detectable effect/Minimum acceptable improvement)
         minimumDetectableChange: [
-            (s) => [s.experiment],
-            (newexperiment): number => {
-                return newexperiment?.parameters?.minimum_detectable_effect || 5
+            (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
+            (newexperiment, experimentInsightType, conversionMetrics, trendResults): number => {
+                if (newexperiment?.parameters?.minimum_detectable_effect) {
+                    return newexperiment?.parameters?.minimum_detectable_effect
+                }
+
+                // TRENDS
+                // Given current count of the Trend metric, what percentage increase are we targeting?
+                if (experimentInsightType === InsightType.TRENDS) {
+                    const baselineCount = trendResults[0]?.count
+
+                    if (baselineCount <= 200) {
+                        return 100
+                    } else if (baselineCount <= 1000) {
+                        return 20
+                    } else {
+                        return 5
+                    }
+                }
+
+                // FUNNELS
+                // Given current CR, find a realistic target CR increase and return MDE based on it
+                const currentConversionRate = conversionMetrics.totalRate * 100
+
+                // CR = 50% requires a high running time
+                // CR = 1% or 99% requires a low running time
+                const midpointDistance = Math.abs(50 - currentConversionRate)
+
+                let targetConversionRateIncrease
+                if (midpointDistance <= 20) {
+                    targetConversionRateIncrease = 0.1
+                } else if (midpointDistance <= 35) {
+                    targetConversionRateIncrease = 0.2
+                } else {
+                    targetConversionRateIncrease = 0.5
+                }
+
+                const targetConversionRate = currentConversionRate * (1 + targetConversionRateIncrease)
+                const mde = Math.ceil(targetConversionRate - currentConversionRate)
+
+                return mde || 5
             },
         ],
         minimumSampleSizePerVariant: [
