@@ -32,8 +32,11 @@ class DataImportPipeline:
     ):
         self.inputs = inputs
         self.logger = logger
-        # Assuming each page is 100 items for now so bound each run at 50_000 items
-        self.source = source.add_limit(500)
+        if incremental:
+            # Incremental syncs: Assuming each page is 100 items for now so bound each run at 50_000 items
+            self.source = source.add_limit(500)
+        else:
+            self.source = source
 
         self._incremental = incremental
 
