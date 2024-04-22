@@ -502,16 +502,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ]
             )
         elif not self._aggregation_operation.requires_query_orchestration():
+            date_range_placeholders = self.query_date_range.to_placeholders()
             filters.extend(
                 [
                     parse_expr(
-                        "timestamp >= {date_from_with_adjusted_start_of_interval}",
-                        placeholders=self.query_date_range.to_placeholders(),
+                        "timestamp >= {date_from_with_adjusted_start_of_interval}", placeholders=date_range_placeholders
                     ),
-                    parse_expr(
-                        "timestamp <= {date_to}",
-                        placeholders=self.query_date_range.to_placeholders(),
-                    ),
+                    parse_expr("timestamp <= {date_to}", placeholders=date_range_placeholders),
                 ]
             )
 
@@ -617,7 +614,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     @cached_property
     def _aggregation_operation(self) -> AggregationOperations:
         return AggregationOperations(
-            self.team, self.series, self.query_date_range, self._trends_display.should_aggregate_values()
+            self.team,
+            self.series,
+            self._trends_display.display_type,
+            self.query_date_range,
+            self._trends_display.should_aggregate_values(),
         )
 
     @cached_property

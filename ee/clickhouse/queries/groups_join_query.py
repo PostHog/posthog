@@ -9,7 +9,7 @@ from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.util import PersonPropertiesMode
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 class GroupsJoinQuery:
@@ -27,7 +27,7 @@ class GroupsJoinQuery:
         team_id: int,
         column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
         join_key: Optional[str] = None,
-        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
@@ -38,7 +38,7 @@ class GroupsJoinQuery:
     def get_join_query(self) -> Tuple[str, Dict]:
         join_queries, params = [], {}
 
-        if self._person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
+        if self._person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
             return "", {}
 
         for group_type_index in self._column_optimizer.group_types_to_query:
