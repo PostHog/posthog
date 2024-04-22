@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Dict, Literal
 from uuid import UUID
 
 import dlt
@@ -9,23 +10,23 @@ import asyncio
 import os
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
-from dlt.sources import DltResource
+from dlt.sources import DltSource
 
 
 @dataclass
 class PipelineInputs:
     source_id: UUID
     run_id: str
-    schemas: list[tuple[str, str]]
+    schema_id: UUID
     dataset_name: str
     job_type: str
     team_id: int
 
 
 class DataImportPipeline:
-    loader_file_format = "parquet"
+    loader_file_format: Literal["parquet"] = "parquet"
 
-    def __init__(self, inputs: PipelineInputs, source: DltResource, logger: FilteringBoundLogger):
+    def __init__(self, inputs: PipelineInputs, source: DltSource, logger: FilteringBoundLogger):
         self.inputs = inputs
         self.logger = logger
         self.source = source
@@ -47,6 +48,7 @@ class DataImportPipeline:
             credentials = {
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+                "region_name": settings.AIRBYTE_BUCKET_REGION,
             }
 
         return dlt.destinations.filesystem(
@@ -66,24 +68,19 @@ class DataImportPipeline:
             dataset_name=self.inputs.dataset_name,
         )
 
-    def _get_schemas(self):
-        if not self.inputs.schemas:
-            self.logger.info(f"No schemas found for source id {self.inputs.source_id}")
-            return None
-
-        return self.inputs.schemas
-
-    def _run(self):
+    def _run(self) -> Dict[str, int]:
         pipeline = self._create_pipeline()
         pipeline.run(self.source, loader_file_format=self.loader_file_format)
 
-    async def run(self) -> None:
-        schemas = self._get_schemas()
-        if not schemas:
-            return
+        row_counts = pipeline.last_trace.last_normalize_info.row_counts
+        # Remove any DLT tables from the counts
+        filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
 
+        return dict(filtered_rows)
+
+    async def run(self) -> Dict[str, int]:
         try:
-            await asyncio.to_thread(self._run)
+            return await asyncio.to_thread(self._run)
         except PipelineStepFailed:
             self.logger.error(f"Data import failed for endpoint")
             raise

@@ -1,30 +1,21 @@
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, cast
 
-from dateutil.relativedelta import relativedelta
 from django.db.models import Count, Prefetch
-from django.utils.timezone import now
 from rest_framework import request, serializers, viewsets
-from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import get_target_entity
 from posthog.auth import (
     TemporaryTokenAuthentication,
 )
-from posthog.client import sync_execute
-from posthog.constants import LIMIT, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
-from posthog.hogql.hogql import HogQLContext
-from posthog.models import Action, ActionStep, Filter, Person
-from posthog.models.action.util import format_action_filter
-from posthog.queries.trends.trends_actors import TrendsActors
+from posthog.models import Action, ActionStep
 
 from .forbid_destroy_model import ForbidDestroyModel
-from .person import get_person_name
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 
 
@@ -174,7 +165,7 @@ class ActionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "action"
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
+    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
     authentication_classes = [TemporaryTokenAuthentication]
@@ -195,75 +186,3 @@ class ActionViewSet(
             actions, many=True, context={"request": request}
         ).data  # type: ignore
         return Response({"results": actions_list})
-
-    # NOTE: Deprecated in favour of `persons/trends` endpoint
-    # Once the old way of exporting CSVs is removed, this endpoint can be removed
-    @action(methods=["GET"], detail=False)
-    def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        team = self.team
-        filter = Filter(request=request, team=self.team)
-        if not filter.limit:
-            filter = filter.shallow_clone({LIMIT: 100})
-
-        entity = get_target_entity(filter)
-
-        actors, serialized_actors, raw_count = TrendsActors(team, entity, filter).get_actors()
-
-        current_url = request.get_full_path()
-        next_url: Optional[str] = request.get_full_path()
-        limit = filter.limit or 100
-        offset = filter.offset
-        if raw_count >= limit and next_url:
-            if "offset" in next_url:
-                next_url = next_url[1:]
-                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + limit))
-            else:
-                next_url = f"{next_url}{'&' if '?' in next_url else '?'}offset={offset+limit}"
-        else:
-            next_url = None
-
-        if request.accepted_renderer.format == "csv":
-            content = [
-                {
-                    "Name": get_person_name(team, person),
-                    "Distinct ID": person.distinct_ids[0] if person.distinct_ids else "",
-                    "Internal ID": str(person.uuid),
-                    "Email": person.properties.get("email"),
-                    "Properties": person.properties,
-                }
-                for person in actors
-                if isinstance(person, Person)
-            ]
-            return Response(content)
-
-        return Response(
-            {
-                "results": [{"people": serialized_actors, "count": len(serialized_actors)}],
-                "next": next_url,
-                "previous": current_url[1:],
-                "missing_persons": raw_count - len(serialized_actors),
-            }
-        )
-
-    @action(methods=["GET"], detail=True)
-    def count(self, request: request.Request, **kwargs) -> Response:
-        action = self.get_object()
-        # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
-        hogql_context = HogQLContext(within_non_hogql_query=True, team_id=action.team_id)
-        query, params = format_action_filter(team_id=action.team_id, action=action, hogql_context=hogql_context)
-        if query == "":
-            return Response({"count": 0})
-
-        results = sync_execute(
-            "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND timestamp < %(before)s AND timestamp > %(after)s AND {}".format(
-                query
-            ),
-            {
-                "team_id": action.team_id,
-                "before": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "after": (now() - relativedelta(months=3)).strftime("%Y-%m-%d %H:%M:%S.%f"),
-                **params,
-                **hogql_context.values,
-            },
-        )
-        return Response({"count": results[0][0]})

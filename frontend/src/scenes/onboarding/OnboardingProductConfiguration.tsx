@@ -1,6 +1,6 @@
 import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 import { OnboardingStepKey } from './onboardingLogic'
@@ -51,6 +51,12 @@ export const OnboardingProductConfiguration = ({
     const { setConfigOptions, saveConfiguration } = useActions(onboardingProductConfigurationLogic)
     const { toggleEnabled } = useActions(pluginsLogic)
 
+    const configOptionsRef = useRef(configOptions)
+
+    useEffect(() => {
+        configOptionsRef.current = configOptions
+    }, [configOptions])
+
     useEffect(() => {
         setConfigOptions(options)
     }, [])
@@ -63,9 +69,12 @@ export const OnboardingProductConfiguration = ({
             selectOptions: option.selectOptions,
             value: option.value,
             onChange: (newValue: boolean | string | number) => {
-                setConfigOptions(
-                    configOptions.map((o) => (o.teamProperty === option.teamProperty ? { ...o, value: newValue } : o))
+                // Use the current value from the ref to ensure that onChange always accesses
+                // the latest state of configOptions, preventing the closure from using stale data.
+                const updatedConfigOptions = configOptionsRef.current.map((o) =>
+                    o.teamProperty === option.teamProperty ? { ...o, value: newValue } : o
                 )
+                setConfigOptions(updatedConfigOptions)
             },
         })),
         ...defaultEnabledPlugins.map((plugin) => {

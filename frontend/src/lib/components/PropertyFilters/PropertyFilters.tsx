@@ -121,10 +121,6 @@ export function PropertyFilters({
                                             disablePopover={disablePopover || orFiltering}
                                             addText={addText}
                                             hasRowOperator={hasRowOperator}
-                                            selectProps={{
-                                                delayBeforeAutoOpen: 150,
-                                                placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
-                                            }}
                                             propertyAllowList={propertyAllowList}
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                             allowRelativeDateOptions={allowRelativeDateOptions}

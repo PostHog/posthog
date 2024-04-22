@@ -37,6 +37,9 @@ export function TrendsSeries(): JSX.Element | null {
         ...(isTrends ? [TaxonomicFilterGroupType.Sessions] : []),
         TaxonomicFilterGroupType.HogQLExpression,
         TaxonomicFilterGroupType.DataWarehouseProperties,
+        ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS]
+            ? [TaxonomicFilterGroupType.DataWarehousePersonProperties]
+            : []),
     ]
 
     if (!isInsightQueryNode(querySource)) {
@@ -78,7 +81,8 @@ export function TrendsSeries(): JSX.Element | null {
                 mathAvailability={mathAvailability}
                 propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
                 actionsTaxonomicGroupTypes={
-                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] &&
+                    (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS])
                         ? [
                               TaxonomicFilterGroupType.Events,
                               TaxonomicFilterGroupType.Actions,

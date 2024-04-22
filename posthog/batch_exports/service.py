@@ -89,6 +89,8 @@ class S3BatchExportInputs:
     encryption: str | None = None
     kms_key_id: str | None = None
     batch_export_schema: BatchExportSchema | None = None
+    endpoint_url: str | None = None
+    file_format: str = "JSONLines"
 
 
 @dataclass
@@ -415,6 +417,7 @@ def create_batch_export_run(
     data_interval_start: str,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
+    records_total_count: int | None = None,
 ) -> BatchExportRun:
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -432,25 +435,49 @@ def create_batch_export_run(
         status=status,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start),
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
+        records_total_count=records_total_count,
     )
     run.save()
 
     return run
 
 
-def update_batch_export_run_status(run_id: UUID, status: str, latest_error: str | None) -> BatchExportRun:
-    """Update the status of an BatchExportRun with given id.
+def update_batch_export_run(
+    run_id: UUID,
+    **kwargs,
+) -> BatchExportRun:
+    """Update the BatchExportRun with given run_id and provided **kwargs.
 
     Arguments:
-        id: The id of the BatchExportRun to update.
+        run_id: The id of the BatchExportRun to update.
     """
     model = BatchExportRun.objects.filter(id=run_id)
-    updated = model.update(status=status, latest_error=latest_error)
+    update_at = dt.datetime.now()
+
+    updated = model.update(
+        **kwargs,
+        last_updated_at=update_at,
+    )
 
     if not updated:
         raise ValueError(f"BatchExportRun with id {run_id} not found.")
 
     return model.get()
+
+
+def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
+    """Count failed batch export runs in the 'last_n' runs."""
+    count_of_failures = (
+        BatchExportRun.objects.filter(
+            id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
+            .order_by("-last_updated_at")
+            .values("id")[:last_n]
+        )
+        .filter(status=BatchExportRun.Status.FAILED)
+        .count()
+    )
+
+    return count_of_failures
 
 
 def sync_batch_export(batch_export: BatchExport, created: bool):
@@ -460,7 +487,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         paused=batch_export.paused,
     )
 
-    destination_config_fields = set(field.name for field in fields(workflow_inputs))
+    destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
 
     temporal = sync_connect()

@@ -16,9 +16,9 @@ import { InsightType } from '~/types'
 
 import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
 import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogic'
-import { getExperimentInsightColour } from './ExperimentResult'
 import { MetricSelector } from './MetricSelector'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
+import { getExperimentInsightColour } from './utils'
 
 export function SecondaryMetricsTable({
     onMetricsChange,
@@ -254,7 +254,7 @@ export function SecondaryMetricsTable({
                     ) : (
                         <></>
                     )}
-                    {metrics && !(metrics.length > 2) && isExperimentRunning && (
+                    {metrics && !(metrics.length > 2) && (
                         <div className="mb-2 mt-4 justify-end">
                             <LemonButton type="secondary" size="small" onClick={openModalToCreateSecondaryMetric}>
                                 Add metric

@@ -54,7 +54,7 @@ def create_insight_caching_state(
 
 # Reaching into the internals of LocMemCache
 def cache_keys(cache):
-    return set(key.split(":", 2)[-1] for key in cache._cache.keys())
+    return {key.split(":", 2)[-1] for key in cache._cache.keys()}
 
 
 @pytest.mark.django_db

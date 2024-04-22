@@ -14,7 +14,7 @@ class TestMultiPropertyBreakdown(TestCase):
         try:
             protect_old_clients_from_multi_property_default(data, result)
         except KeyError:
-            assert False, "should not raise any KeyError"
+            raise AssertionError("should not raise any KeyError")
 
     def test_handles_empty_breakdowns_array(self):
         data: Dict[str, Any] = {
@@ -27,7 +27,7 @@ class TestMultiPropertyBreakdown(TestCase):
         try:
             protect_old_clients_from_multi_property_default(data, result)
         except KeyError:
-            assert False, "should not raise any KeyError"
+            raise AssertionError("should not raise any KeyError")
 
     def test_keeps_multi_property_breakdown_for_multi_property_requests(self):
         data: Dict[str, Any] = {

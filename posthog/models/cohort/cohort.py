@@ -194,7 +194,7 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people_ch(self, pending_version):
+    def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
         from posthog.tasks.calculate_cohort import clear_stale_cohort
 
@@ -207,7 +207,7 @@ class Cohort(models.Model):
         start_time = time.monotonic()
 
         try:
-            count = recalculate_cohortpeople(self, pending_version)
+            count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
 
             self.last_calculation = timezone.now()
@@ -273,7 +273,7 @@ class Cohort(models.Model):
                     .exclude(cohort__id=self.id)
                 )
                 insert_static_cohort(
-                    [p for p in persons_query.values_list("uuid", flat=True)],
+                    list(persons_query.values_list("uuid", flat=True)),
                     self.pk,
                     self.team,
                 )
@@ -315,7 +315,7 @@ class Cohort(models.Model):
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
-                        [p for p in persons_query.values_list("uuid", flat=True)],
+                        list(persons_query.values_list("uuid", flat=True)),
                         self.pk,
                         self.team,
                     )

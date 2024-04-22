@@ -1,6 +1,6 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import api, { ApiMethodOptions } from 'lib/api'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { colonDelimitedDuration } from 'lib/utils'
@@ -44,18 +44,6 @@ export type FormatPropertyValueForDisplayFunction = (
 /** Update cached property definition metadata */
 export const updatePropertyDefinitions = (propertyDefinitions: PropertyDefinitionStorage): void => {
     propertyDefinitionsModel.findMounted()?.actions.updatePropertyDefinitions(propertyDefinitions)
-}
-
-export const updateListOfPropertyDefinitions = (
-    results: PropertyDefinition[],
-    groupType: TaxonomicFilterGroupType
-): void => {
-    const propertyDefinitions: PropertyDefinition[] = results
-    const apiType = groupType === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
-    const newPropertyDefinitions = Object.fromEntries(
-        propertyDefinitions.map((propertyDefinition) => [`${apiType}/${propertyDefinition.name}`, propertyDefinition])
-    )
-    updatePropertyDefinitions(newPropertyDefinitions)
 }
 
 export type PropValue = {

@@ -15,7 +15,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
 from posthog.plugins.test.mock import mocked_plugin_requests_get
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 from .base import BaseTest
 
@@ -138,7 +138,9 @@ class TestTeam(BaseTest):
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
+                self.assertEqual(
+                    team.person_on_events_mode, PersonsOnEventsMode.person_id_override_properties_on_events
+                )
                 # called more than once when evaluating hogql
                 mock_feature_enabled.assert_called_with(
                     "persons-on-events-v2-reads-enabled",
@@ -159,12 +161,14 @@ class TestTeam(BaseTest):
         with self.is_cloud(False):
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
+                self.assertEqual(
+                    team.person_on_events_mode, PersonsOnEventsMode.person_id_override_properties_on_events
+                )
                 mock_feature_enabled.assert_not_called()
 
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.DISABLED)
+                self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.disabled)
                 mock_feature_enabled.assert_not_called()
 
     def test_each_team_gets_project_with_default_name_and_same_id(self):

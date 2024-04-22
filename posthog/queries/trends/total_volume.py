@@ -38,16 +38,9 @@ from posthog.queries.trends.util import (
     parse_response,
     process_math,
 )
-from posthog.queries.util import (
-    TIME_IN_SECONDS,
-    get_interval_func_ch,
-    get_start_of_interval_sql,
-)
-from posthog.utils import (
-    PersonOnEventsMode,
-    encode_get_request_params,
-    generate_short_id,
-)
+from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_start_of_interval_sql
+from posthog.schema import PersonsOnEventsMode
+from posthog.utils import encode_get_request_params, generate_short_id
 
 
 class TrendsTotalVolume:
@@ -59,9 +52,9 @@ class TrendsTotalVolume:
         interval_func = get_interval_func_ch(filter.interval)
 
         person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        if team.person_on_events_mode == PersonOnEventsMode.V2_ENABLED:
+        if team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
             person_id_alias = f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
-        elif team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+        elif team.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
             person_id_alias = f"{self.EVENT_TABLE_ALIAS}.person_id"
 
         aggregate_operation, join_condition, math_params = process_math(

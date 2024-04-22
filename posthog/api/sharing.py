@@ -122,12 +122,12 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         insight = context.get("insight")
         recording = context.get("recording")
 
-        config_kwargs = dict(
-            team_id=self.team_id,
-            insight=insight,
-            dashboard=dashboard,
-            recording=recording,
-        )
+        config_kwargs = {
+            "team_id": self.team_id,
+            "insight": insight,
+            "dashboard": dashboard,
+            "recording": recording,
+        }
 
         try:
             instance = SharingConfiguration.objects.get(**config_kwargs)

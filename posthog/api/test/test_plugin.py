@@ -804,7 +804,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
         try:
             PluginSourceFile.objects.get(plugin_id=id)
-            assert False, "Should have thrown DoesNotExist"
+            raise AssertionError("Should have thrown DoesNotExist")
         except PluginSourceFile.DoesNotExist:
             assert True
 

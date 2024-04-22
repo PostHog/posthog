@@ -1,8 +1,12 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Union
+from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from freezegun import freeze_time
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
 from posthog.models.action.action import Action
 from posthog.models.action_step import ActionStep
@@ -197,6 +201,7 @@ class TestStickinessQueryRunner(APIBaseTest):
         properties: Optional[StickinessProperties] = None,
         filters: Optional[StickinessFilter] = None,
         filter_test_accounts: Optional[bool] = False,
+        limit_context: Optional[LimitContext] = None,
     ):
         query_series: List[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query_date_from = date_from or self.default_date_from
@@ -211,7 +216,7 @@ class TestStickinessQueryRunner(APIBaseTest):
             stickinessFilter=filters,
             filterTestAccounts=filter_test_accounts,
         )
-        return StickinessQueryRunner(team=self.team, query=query).calculate()
+        return StickinessQueryRunner(team=self.team, query=query, limit_context=limit_context).calculate()
 
     def test_stickiness_runs(self):
         self._create_test_events()
@@ -580,3 +585,10 @@ class TestStickinessQueryRunner(APIBaseTest):
             1,
             0,
         ]
+
+    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
+        self._run_query(limit_context=LimitContext.QUERY_ASYNC)
+
+        mock_sync_execute.assert_called_once()
+        self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])

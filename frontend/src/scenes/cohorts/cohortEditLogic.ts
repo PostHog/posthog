@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { ENTITY_MATCH_TYPE, FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {
     applyAllCriteriaGroup,
@@ -43,6 +44,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
+        actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
     })),
 
     actions({
@@ -177,6 +179,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                               ],
                           },
                           full: true,
+                          showPropertyFilter: false,
+                          showEventFilter: false,
                       }
                     : {
                           kind: NodeKind.DataTableNode,
@@ -185,6 +189,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                               cohort: props.id,
                           },
                           columns: undefined,
+                          showPropertyFilter: false,
+                          showEventFilter: true,
                           full: true,
                       }) as any as DataTableNode,
             {
@@ -232,12 +238,18 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
                 saveCohort: async ({ cohortParams }, breakpoint) => {
                     let cohort = { ...cohortParams }
+                    const existingCohort = values.cohort
                     const cohortFormData = createCohortFormData(cohort)
 
                     try {
                         if (cohort.id !== 'new') {
                             cohort = await api.cohorts.update(cohort.id, cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.updateCohort(cohort)
+
+                            if (cohort.experiment_set && cohort.experiment_set.length > 0) {
+                                // someone edited an exposure cohort. Track what kind of updates were made
+                                actions.reportExperimentExposureCohortEdited(existingCohort, cohort)
+                            }
                         } else {
                             cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.cohortCreated(cohort)
@@ -312,7 +324,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, key }) => ({
+    listeners(({ actions, values }) => ({
         deleteCohort: () => {
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
@@ -339,14 +351,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 if (values.pollTimeout) {
                     clearTimeout(values.pollTimeout)
                     actions.setPollTimeout(null)
-                }
-                if ((cohort.errors_calculating ?? 0) > 0) {
-                    lemonToast.error(
-                        'Cohort error. There was an error calculating this cohort. Make sure the cohort filters are correct.',
-                        {
-                            toastId: `cohort-calculation-error-${key}`,
-                        }
-                    )
                 }
             }
         },

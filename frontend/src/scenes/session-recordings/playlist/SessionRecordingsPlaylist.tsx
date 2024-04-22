@@ -6,9 +6,9 @@ import clsx from 'clsx'
 import { range } from 'd3'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -16,19 +16,20 @@ import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
 import {
     DEFAULT_RECORDING_FILTERS,
-    defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
@@ -58,20 +59,18 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                 <Link to="https://posthog.com/docs/libraries/js" target="_blank">
                     the Web SDK
                 </Link>
-                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE} match={true}>
-                    ,{' '}
-                    <Link to="https://posthog.com/docs/libraries/android" target="_blank">
-                        the Android SDK
-                    </Link>
-                </FlaggedFeature>
+                ,{' '}
+                <Link to="https://posthog.com/docs/libraries/android" target="_blank">
+                    the Android SDK
+                </Link>
             </p>
         </LemonBanner>
     )
 }
 
 function PinnedRecordingsList(): JSX.Element | null {
-    const { setSelectedRecordingId, setAdvancedFilters } = useActions(sessionRecordingsPlaylistLogic)
-    const { activeSessionRecordingId, filters, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
+    const { setSelectedRecordingId } = useActions(sessionRecordingsPlaylistLogic)
+    const { activeSessionRecordingId, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -92,9 +91,6 @@ function PinnedRecordingsList(): JSX.Element | null {
                     <SessionRecordingPreview
                         recording={rec}
                         onClick={() => setSelectedRecordingId(rec.id)}
-                        onPropertyClick={(property, value) =>
-                            setAdvancedFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
-                        }
                         isActive={activeSessionRecordingId === rec.id}
                         pinned={true}
                     />
@@ -136,13 +132,11 @@ function RecordingsLists(): JSX.Element {
         toggleShowOtherRecordings,
         summarizeSession,
     } = useActions(sessionRecordingsPlaylistLogic)
+    const { showRecordingListProperties } = useValues(playerSettingsLogic)
+    const { setShowRecordingListProperties } = useActions(playerSettingsLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
-    }
-
-    const onPropertyClick = (property: string, value?: string): void => {
-        setAdvancedFilters(defaultPageviewPropertyEntityFilter(advancedFilters, property, value))
     }
 
     const onSummarizeClick = (recording: SessionRecordingType): void => {
@@ -151,6 +145,17 @@ function RecordingsLists(): JSX.Element {
 
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const [isHovering, setIsHovering] = useState<boolean | null>(null)
+
+    useKeyboardHotkeys(
+        {
+            p: {
+                action: () => setShowRecordingListProperties(!showRecordingListProperties),
+                disabled: !isHovering,
+            },
+        },
+        [isHovering]
+    )
 
     const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
         // If we are scrolling down then check if we are at the bottom of the list
@@ -253,7 +258,11 @@ function RecordingsLists(): JSX.Element {
                 ) : null}
 
                 {pinnedRecordings.length || otherRecordings.length ? (
-                    <ul>
+                    <ul onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
+                        <div className="flex gap-1 items-center justify-center px-3 py-2 bg-bg-3000 border-b text-xs">
+                            <b>Hint:</b> Hover list and press <KeyboardShortcut p /> to preview
+                        </div>
+
                         <PinnedRecordingsList />
 
                         {pinnedRecordings.length ? (
@@ -272,7 +281,6 @@ function RecordingsLists(): JSX.Element {
                                           <SessionRecordingPreview
                                               recording={rec}
                                               onClick={() => onRecordingClick(rec)}
-                                              onPropertyClick={onPropertyClick}
                                               isActive={activeSessionRecordingId === rec.id}
                                               pinned={false}
                                               summariseFn={onSummarizeClick}

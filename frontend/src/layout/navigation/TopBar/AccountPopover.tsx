@@ -182,7 +182,7 @@ function SignOutButton(): JSX.Element {
 
     return (
         <LemonButton onClick={logout} icon={<IconLeave />} fullWidth data-attr="top-menu-item-logout">
-            Sign out
+            Log out
         </LemonButton>
     )
 }

@@ -1,8 +1,7 @@
 import './PropertiesTable.scss'
 
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonDialog, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { Dropdown, Input, Menu } from 'antd'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
@@ -39,20 +38,24 @@ interface ValueDisplayType extends BasePropertyType {
 }
 
 function EditTextValueComponent({
-    value,
+    initialValue,
     onChange,
 }: {
-    value: any
-    onChange: (newValue: any, save: boolean) => void
+    initialValue: any
+    onChange: (newValue: any) => void
 }): JSX.Element {
+    const [value, setValue] = useState(initialValue)
+
     return (
-        <Input
-            defaultValue={value}
+        <LemonInput
             autoFocus
-            onBlur={() => onChange(null, false)}
-            onPressEnter={(e) => onChange((e.target as HTMLInputElement).value, true)}
+            value={value}
+            onChange={setValue}
+            onBlur={() => onChange(initialValue)}
+            onPressEnter={() => onChange(value)}
             autoComplete="off"
             autoCapitalize="off"
+            size="xsmall"
         />
     )
 }
@@ -82,9 +85,9 @@ function ValueDisplay({
 
     const valueString: string = value === null ? 'null' : String(value) // typeof null returns 'object' ¯\_(ツ)_/¯
 
-    const handleValueChange = (newValue: any, save: boolean): void => {
+    const handleValueChange = (newValue: any): void => {
         setEditing(false)
-        if (rootKey !== undefined && save && onEdit && newValue != value) {
+        if (rootKey !== undefined && onEdit && newValue != value) {
             onEdit(rootKey, newValue, value)
         }
     }
@@ -117,29 +120,25 @@ function ValueDisplay({
             {!editing ? (
                 <>
                     {canEdit && boolNullTypes.includes(valueType) ? (
-                        <Dropdown
-                            overlay={
-                                <Menu
-                                    onClick={({ key }) => {
-                                        let val = null
-                                        if (key === 't') {
-                                            val = true
-                                        } else if (key === 'f') {
-                                            val = false
-                                        }
-                                        handleValueChange(val, true)
-                                    }}
-                                >
-                                    <Menu.Item key="t">true</Menu.Item>
-                                    <Menu.Item key="f">false</Menu.Item>
-                                    <Menu.Item key="n" danger>
-                                        null
-                                    </Menu.Item>
-                                </Menu>
-                            }
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'true',
+                                    onClick: () => handleValueChange(true),
+                                },
+                                {
+                                    label: 'false',
+                                    onClick: () => handleValueChange(false),
+                                },
+                                {
+                                    label: 'null',
+                                    onClick: () => handleValueChange(null),
+                                    status: 'danger',
+                                },
+                            ]}
                         >
                             {valueComponent}
-                        </Dropdown>
+                        </LemonMenu>
                     ) : (
                         valueComponent
                     )}
@@ -170,7 +169,7 @@ function ValueDisplay({
                     </Tooltip>
                 </>
             ) : (
-                <EditTextValueComponent value={value} onChange={handleValueChange} />
+                <EditTextValueComponent initialValue={value} onChange={handleValueChange} />
             )}
         </div>
     )

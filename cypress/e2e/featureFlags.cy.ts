@@ -4,13 +4,7 @@ describe('Feature Flags', () => {
     let name
 
     beforeEach(() => {
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'new-feature-flag-operators': true,
-                })
-            )
-        )
+        cy.intercept('**/decide/*', (req) => req.reply(decideResponse({})))
 
         cy.intercept('/api/projects/*/property_definitions?type=person*', {
             fixture: 'api/feature-flags/property_definition',
@@ -116,7 +110,7 @@ describe('Feature Flags', () => {
         cy.get('.Toastify').contains('Undo').should('be.visible')
     })
 
-    it.only('Move between property types smoothly, and support relative dates', () => {
+    it('Move between property types smoothly, and support relative dates', () => {
         // ensure unique names to avoid clashes
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
         cy.get('[data-attr=new-feature-flag]').click()
@@ -125,8 +119,9 @@ describe('Feature Flags', () => {
         // select "add filter" and "property"
         cy.get('[data-attr=property-select-toggle-0').click()
 
-        // select the third property
+        // select the first property
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').type('is_demo')
         cy.get('[data-attr=taxonomic-tab-person_properties]').click()
         // select numeric $browser_version
         cy.get('[data-attr=prop-filter-person_properties-2]').click({ force: true })

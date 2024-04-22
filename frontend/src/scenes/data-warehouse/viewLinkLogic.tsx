@@ -206,8 +206,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             },
         ],
         selectedSourceTable: [
-            (s) => [s.selectedSourceTableName, s.tables],
-            (selectedSourceTableName, tables) => tables.find((row) => row.name === selectedSourceTableName),
+            (s) => [s.selectedSourceTableName, s.tables, s.savedQueries],
+            (selectedSourceTableName, tables, savedQueries) =>
+                [...tables, ...savedQueries].find((row) => row.name === selectedSourceTableName),
         ],
         selectedJoiningTable: [
             (s) => [s.selectedJoiningTableName, s.tables],
@@ -234,12 +235,17 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             },
         ],
         tableOptions: [
-            (s) => [s.tables],
-            (tables) =>
-                tables.map((table) => ({
+            (s) => [s.tables, s.savedQueries],
+            (tables, savedQueries) => [
+                ...tables.map((table) => ({
                     value: table.name,
                     label: table.name,
                 })),
+                ...savedQueries.map((query) => ({
+                    value: query.name,
+                    label: query.name,
+                })),
+            ],
         ],
         sourceTableKeys: [
             (s) => [s.selectedSourceTable],

@@ -1,12 +1,14 @@
 import './PlanComparison.scss'
 
 import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
+import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { getProductIcon } from 'scenes/products/Products'
@@ -119,6 +121,7 @@ export const PlanComparison = ({
     const { billing, redirectPath } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
     const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
@@ -131,7 +134,7 @@ export const PlanComparison = ({
     const upgradeButtons = plans?.map((plan, i) => {
         return (
             <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
-                <LemonButton
+                <BillingUpgradeCTA
                     to={
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
@@ -171,6 +174,7 @@ export const PlanComparison = ({
                             reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                         }
                     }}
+                    data-attr={`upgrade-${plan.name}`}
                 >
                     {plan.current_plan
                         ? 'Current plan'
@@ -182,8 +186,18 @@ export const PlanComparison = ({
                           i >= currentPlanIndex &&
                           !billing?.has_active_subscription
                         ? 'View products'
-                        : 'Subscribe'}
-                </LemonButton>
+                        : plan.free_allocation && !plan.tiers
+                        ? 'Select' // Free plan
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                        ? 'Subscribe'
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                          !billing?.has_active_subscription
+                        ? 'Add credit card'
+                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                          billing?.has_active_subscription
+                        ? 'Add paid plan'
+                        : 'Upgrade'}
+                </BillingUpgradeCTA>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
@@ -191,7 +205,17 @@ export const PlanComparison = ({
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
-                            or subscribe without addons
+                            or{' '}
+                            {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                                ? 'subscribe'
+                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                  !billing?.has_active_subscription
+                                ? 'add credit card'
+                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                  !billing?.has_active_subscription
+                                ? 'add paid plan'
+                                : 'upgrade'}{' '}
+                            without addons
                         </Link>
                     </p>
                 )}
@@ -264,6 +288,7 @@ export const PlanComparison = ({
                 )}
                 {includeAddons &&
                     product.addons?.map((addon) => {
+                        // TODO: integrated_persons addon will show up here when we add a price plan. Make sure this can handle it.
                         return addon.tiered ? (
                             <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
                                 <th scope="row">

@@ -11,7 +11,7 @@ aiobotocore[boto3]==2.7.0
     #   aioboto3
     #   aiobotocore
     #   s3fs
-aiohttp==3.9.2
+aiohttp==3.9.3
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -145,7 +145,7 @@ distro==1.9.0
     # via openai
 dj-database-url==0.5.0
     # via -r requirements.in
-django==4.1.13
+django==4.2.11
     # via
     #   -r requirements.in
     #   django-axes
@@ -215,7 +215,7 @@ djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.2.0
     # via -r requirements.in
-dlt==0.4.3
+dlt==0.4.7
     # via -r requirements.in
 dnspython==2.2.1
     # via -r requirements.in
@@ -264,8 +264,6 @@ google-cloud-bigquery==3.11.4
     # via -r requirements.in
 google-cloud-core==2.3.3
     # via google-cloud-bigquery
-google-cloud-sqlcommenter==2.0.0
-    # via -r requirements.in
 google-crc32c==1.5.0
     # via google-resumable-media
 google-resumable-media==2.5.0
@@ -291,7 +289,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.3
+hogql-parser==1.0.7
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
@@ -350,7 +348,7 @@ kombu==5.3.2
     #   celery
 lazy-object-proxy==1.10.0
     # via openapi-spec-validator
-lxml==4.9.1
+lxml==4.9.4
     # via
     #   python3-saml
     #   toronado
@@ -373,6 +371,8 @@ multidict==6.0.2
     #   yarl
 mypy-boto3-s3==1.26.127
     # via boto3-stubs
+natsort==8.4.0
+    # via -r requirements.in
 nh3==0.2.14
     # via -r requirements.in
 numpy==1.23.3
@@ -394,7 +394,7 @@ openapi-spec-validator==0.7.1
     # via -r requirements.in
 openpyxl==3.1.2
     # via -r requirements.in
-orjson==3.9.15
+orjson==3.9.10
     # via
     #   -r requirements.in
     #   dlt
@@ -448,8 +448,12 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
-psycopg==3.1.13
-    # via -r requirements.in
+psycopg[binary]==3.1.13
+    # via
+    #   -r requirements.in
+    #   psycopg
+psycopg-binary==3.1.13
+    # via psycopg
 psycopg2-binary==2.9.7
     # via -r requirements.in
 ptyprocess==0.6.0
@@ -623,7 +627,7 @@ sortedcontainers==2.4.0
     #   snowflake-connector-python
     #   trio
 sqlalchemy==2.0.23
-    # via dlt
+    # via -r requirements.in
 sqlparse==0.4.4
     # via
     #   -r requirements.in

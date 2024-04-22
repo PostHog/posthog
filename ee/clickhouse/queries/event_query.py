@@ -12,7 +12,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyName
 from posthog.models.team import Team
 from posthog.queries.event_query.event_query import EventQuery
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 class EnterpriseEventQuery(EventQuery):
@@ -33,13 +33,19 @@ class EnterpriseEventQuery(EventQuery):
         should_join_distinct_ids=False,
         should_join_persons=False,
         # Extra events/person table columns to fetch since parent query needs them
-        extra_fields: List[ColumnName] = [],
-        extra_event_properties: List[PropertyName] = [],
-        extra_person_fields: List[ColumnName] = [],
+        extra_fields: Optional[List[ColumnName]] = None,
+        extra_event_properties: Optional[List[PropertyName]] = None,
+        extra_person_fields: Optional[List[ColumnName]] = None,
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
         **kwargs,
     ) -> None:
+        if extra_person_fields is None:
+            extra_person_fields = []
+        if extra_event_properties is None:
+            extra_event_properties = []
+        if extra_fields is None:
+            extra_fields = []
         super().__init__(
             filter=filter,
             team=team,

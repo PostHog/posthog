@@ -5,9 +5,9 @@ from posthog.temporal.batch_exports.backfill_batch_export import (
 )
 from posthog.temporal.batch_exports.batch_exports import (
     create_batch_export_backfill_model,
-    create_export_run,
+    finish_batch_export_run,
+    start_batch_export_run,
     update_batch_export_backfill_model_status,
-    update_export_run_status,
 )
 from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
@@ -59,9 +59,10 @@ WORKFLOWS = [
 ACTIVITIES = [
     backfill_schedule,
     create_batch_export_backfill_model,
-    create_export_run,
+    start_batch_export_run,
     create_table,
     drop_table,
+    finish_batch_export_run,
     get_schedule_frequency,
     insert_into_bigquery_activity,
     insert_into_http_activity,
@@ -73,7 +74,6 @@ ACTIVITIES = [
     optimize_person_distinct_id_overrides,
     submit_mutation,
     update_batch_export_backfill_model_status,
-    update_export_run_status,
     wait_for_mutation,
     wait_for_table,
 ]

@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`sessionRecordingDataLogic prepareRecordingSnapshots should match snapshot 1`] = `
+exports[`sessionRecordingDataLogic deduplicateSnapshots should match snapshot 1`] = `
 [
   {
     "data": {

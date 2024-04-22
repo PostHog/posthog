@@ -29,6 +29,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
 
+                'api/projects/:team/property_definitions/seen_together': { $pageview: true },
+
                 '/api/projects/:team/session_recordings': (req) => {
                     const { searchParams } = req.url
                     if (

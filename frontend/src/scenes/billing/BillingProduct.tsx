@@ -2,7 +2,8 @@ import { IconCheckCircle, IconChevronDown, IconDocument, IconInfo, IconPlus } fr
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
+import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -211,6 +212,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     } = useActions(billingProductLogic({ product, productRef }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
     const downgradePlan = currentAndUpgradePlans?.downgradePlan
@@ -584,9 +586,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="pb-8">
                             <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
-                                {product.addons.map((addon, i) => {
-                                    return <BillingProductAddon key={i} addon={addon} />
-                                })}
+                                {product.addons
+                                    .filter((addon) => !addon.inclusion_only)
+                                    .map((addon, i) => {
+                                        return <BillingProductAddon key={i} addon={addon} />
+                                    })}
                             </div>
                         </div>
                     )}
@@ -609,8 +613,18 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
                                 <>
                                     <p className="ml-0 max-w-200">
-                                        {!upgradePlan ? 'You now' : `Upgrade to the ${upgradePlan.name} plan to`} get
-                                        sweet features such as:
+                                        {!upgradePlan && product.subscribed
+                                            ? 'You now'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                                            ? 'Subscribe to'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                              !billing?.has_active_subscription
+                                            ? 'Add a credit card to'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                              billing?.has_active_subscription
+                                            ? 'Add paid plan'
+                                            : 'Upgrade to'}{' '}
+                                        get sweet features such as:
                                     </p>
                                     <div>
                                         {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
@@ -682,7 +696,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     ) : (
                                         upgradePlan.included_if !== 'has_subscription' &&
                                         !upgradePlan.unit_amount_usd && (
-                                            <LemonButton
+                                            <BillingUpgradeCTA
+                                                data-attr={`${product.type}-upgrade-cta`}
                                                 to={getUpgradeProductLink(
                                                     product,
                                                     upgradeToPlanKey || '',
@@ -698,8 +713,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 className="grow"
                                                 center
                                             >
-                                                Upgrade
-                                            </LemonButton>
+                                                {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                                                    ? 'Subscribe'
+                                                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] ===
+                                                          'credit_card' && !billing?.has_active_subscription
+                                                    ? 'Add credit card'
+                                                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] ===
+                                                          'credit_card' && billing?.has_active_subscription
+                                                    ? 'Add paid plan'
+                                                    : 'Upgrade'}
+                                            </BillingUpgradeCTA>
                                         )
                                     )}
                                 </div>

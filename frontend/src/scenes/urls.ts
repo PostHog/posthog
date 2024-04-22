@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 import { toParams } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
 import { HogQLFilters } from '~/queries/schema'
@@ -16,6 +17,7 @@ import {
     PipelineTab,
     ProductKey,
     ReplayTabs,
+    SDKKey,
 } from '~/types'
 
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -32,9 +34,12 @@ import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
  *
  * Sync the paths with AutoProjectMiddleware!
  */
+
 export const urls = {
+    absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
+    currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -105,6 +110,7 @@ export const urls = {
         combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
+    replayFilePlayback: (): string => combineUrl('/replay/file-playback').url,
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
@@ -175,8 +181,10 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
-    onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
-        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
+    onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
+        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
+            sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
+        }`,
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,

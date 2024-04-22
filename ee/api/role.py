@@ -7,6 +7,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from ee.models.organization_resource_access import OrganizationResourceAccess
 from ee.models.role import Role, RoleMembership
+from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
@@ -105,20 +106,24 @@ class RoleViewSet(
 
 class RoleMembershipSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
+    organization_member = OrganizationMemberSerializer(read_only=True)
     role_id = serializers.UUIDField(read_only=True)
     user_uuid = serializers.UUIDField(required=True, write_only=True)
 
     class Meta:
         model = RoleMembership
-        fields = ["id", "role_id", "user", "joined_at", "updated_at", "user_uuid"]
-
-        read_only_fields = ["id", "role_id", "user"]
+        fields = ["id", "role_id", "organization_member", "user", "joined_at", "updated_at", "user_uuid"]
+        read_only_fields = ["id", "role_id", "organization_member", "user", "joined_at", "updated_at"]
 
     def create(self, validated_data):
         user_uuid = validated_data.pop("user_uuid")
         try:
-            validated_data["user"] = User.objects.filter(is_active=True).get(uuid=user_uuid)
-        except User.DoesNotExist:
+            validated_data["organization_member"] = OrganizationMembership.objects.select_related("user").get(
+                organization_id=self.context["organization_id"], user__uuid=user_uuid, user__is_active=True
+            )
+
+            validated_data["user"] = validated_data["organization_member"].user
+        except OrganizationMembership.DoesNotExist:
             raise serializers.ValidationError("User does not exist.")
         validated_data["role_id"] = self.context["role_id"]
         try:

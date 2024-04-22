@@ -1,7 +1,8 @@
 import copy
 from enum import Enum
 import json
-from typing import List, Dict, Literal
+from typing import Any, List, Dict, Literal
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.models.entity.entity import Entity as LegacyEntity
 from posthog.schema import (
     ActionsNode,
@@ -12,21 +13,23 @@ from posthog.schema import (
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
     LifecycleFilter,
     LifecycleQuery,
     PathsFilter,
     PathsQuery,
-    PropertyGroupFilter,
     RetentionFilter,
     RetentionQuery,
     StickinessFilter,
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
+    FunnelVizType,
 )
 from posthog.types import InsightQueryNode
+from posthog.utils import str_to_bool
 
 
 class MathAvailability(str, Enum):
@@ -42,88 +45,6 @@ actors_only_math_types = [
     "unique_group",
     "hogql",
 ]
-
-
-def is_property_with_operator(property: Dict):
-    return property.get("type") not in ("cohort", "hogql")
-
-
-def clean_property(property: Dict):
-    cleaned_property = {**property}
-
-    # fix type typo
-    if cleaned_property.get("type") == "events":
-        cleaned_property["type"] = "event"
-
-    # fix value key typo
-    if cleaned_property.get("values") is not None and cleaned_property.get("value") is None:
-        cleaned_property["value"] = cleaned_property.pop("values")
-
-    # convert precalculated and static cohorts to cohorts
-    if cleaned_property.get("type") in ("precalculated-cohort", "static-cohort"):
-        cleaned_property["type"] = "cohort"
-
-    # fix invalid property key for cohorts
-    if cleaned_property.get("type") == "cohort" and cleaned_property.get("key") != "id":
-        cleaned_property["key"] = "id"
-
-    # set a default operator for properties that support it, but don't have an operator set
-    if is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is None:
-        cleaned_property["operator"] = "exact"
-
-    # remove the operator for properties that don't support it, but have it set
-    if not is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is not None:
-        del cleaned_property["operator"]
-
-    # remove none from values
-    if isinstance(cleaned_property.get("value"), List):
-        cleaned_property["value"] = list(filter(lambda x: x is not None, cleaned_property.get("value")))
-
-    # remove keys without concrete value
-    cleaned_property = {key: value for key, value in cleaned_property.items() if value is not None}
-
-    return cleaned_property
-
-
-# old style dict properties
-def is_old_style_properties(properties):
-    return isinstance(properties, Dict) and len(properties) == 1 and properties.get("type") not in ("AND", "OR")
-
-
-def transform_old_style_properties(properties):
-    key = list(properties.keys())[0]
-    value = list(properties.values())[0]
-    key_split = key.split("__")
-    return [
-        {
-            "key": key_split[0],
-            "value": value,
-            "operator": key_split[1] if len(key_split) > 1 else "exact",
-            "type": "event",
-        }
-    ]
-
-
-def clean_entity_properties(properties: List[Dict] | None):
-    if properties is None:
-        return None
-    elif is_old_style_properties(properties):
-        return transform_old_style_properties(properties)
-    else:
-        return list(map(clean_property, properties))
-
-
-def clean_property_group_filter_value(value: Dict):
-    if value.get("type") in ("AND", "OR"):
-        value["values"] = map(clean_property_group_filter_value, value.get("values"))
-        return value
-    else:
-        return clean_property(value)
-
-
-def clean_properties(properties: Dict):
-    properties["values"] = map(clean_property_group_filter_value, properties.get("values"))
-    return properties
 
 
 def clean_display(display: str):
@@ -220,7 +141,11 @@ INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "
 
 
 def _date_range(filter: Dict):
-    date_range = DateRange(date_from=filter.get("date_from"), date_to=filter.get("date_to"))
+    date_range = DateRange(
+        date_from=filter.get("date_from"),
+        date_to=filter.get("date_to"),
+        explicitDate=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,
+    )
 
     if len(date_range.model_dump(exclude_defaults=True)) == 0:
         return {}
@@ -298,29 +223,13 @@ def _sampling_factor(filter: Dict):
         return {"samplingFactor": filter.get("sampling_factor")}
 
 
-def _filter_test_accounts(filter: Dict):
-    return {"filterTestAccounts": filter.get("filter_test_accounts")}
-
-
 def _properties(filter: Dict):
     raw_properties = filter.get("properties", None)
-    if raw_properties is None or len(raw_properties) == 0:
-        return {}
-    elif isinstance(raw_properties, list):
-        raw_properties = {
-            "type": "AND",
-            "values": [{"type": "AND", "values": raw_properties}],
-        }
-        return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
-    elif is_old_style_properties(raw_properties):
-        raw_properties = transform_old_style_properties(raw_properties)
-        raw_properties = {
-            "type": "AND",
-            "values": [{"type": "AND", "values": raw_properties}],
-        }
-        return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
-    else:
-        return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
+    return {"properties": clean_global_properties(raw_properties)}
+
+
+def _filter_test_accounts(filter: Dict):
+    return {"filterTestAccounts": filter.get("filter_test_accounts")}
 
 
 def _breakdown_filter(_filter: Dict):
@@ -392,9 +301,15 @@ def _insight_filter(filter: Dict):
             )
         }
     elif _insight_type(filter) == "FUNNELS":
+        funnel_viz_type = filter.get("funnel_viz_type")
+        # Backwards compatibility
+        # Before Filter.funnel_viz_type funnel trends were indicated by Filter.display being TRENDS_LINEAR
+        if funnel_viz_type is None and filter.get("display") == "ActionsLineGraph":
+            funnel_viz_type = FunnelVizType.trends
+
         insight_filter = {
             "funnelsFilter": FunnelsFilter(
-                funnelVizType=filter.get("funnel_viz_type"),
+                funnelVizType=funnel_viz_type,
                 funnelOrderType=filter.get("funnel_order_type"),
                 funnelFromStep=filter.get("funnel_from_step"),
                 funnelToStep=filter.get("funnel_to_step"),
@@ -416,12 +331,16 @@ def _insight_filter(filter: Dict):
                 retentionType=filter.get("retention_type"),
                 retentionReference=filter.get("retention_reference"),
                 totalIntervals=filter.get("total_intervals"),
-                returningEntity=to_base_entity_dict(filter.get("returning_entity"))
-                if filter.get("returning_entity") is not None
-                else None,
-                targetEntity=to_base_entity_dict(filter.get("target_entity"))
-                if filter.get("target_entity") is not None
-                else None,
+                returningEntity=(
+                    to_base_entity_dict(filter.get("returning_entity"))
+                    if filter.get("returning_entity") is not None
+                    else None
+                ),
+                targetEntity=(
+                    to_base_entity_dict(filter.get("target_entity"))
+                    if filter.get("target_entity") is not None
+                    else None
+                ),
                 period=filter.get("period"),
             )
         }
@@ -440,9 +359,8 @@ def _insight_filter(filter: Dict):
                 edgeLimit=filter.get("edge_limit"),
                 minEdgeWeight=filter.get("min_edge_weight"),
                 maxEdgeWeight=filter.get("max_edge_weight"),
-                funnelPaths=filter.get("funnel_paths"),
-                funnelFilter=filter.get("funnel_filter"),
-            )
+            ),
+            "funnelPathsFilter": filters_to_funnel_paths_query(filter),  # type: ignore
         }
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {
@@ -463,10 +381,27 @@ def _insight_filter(filter: Dict):
     else:
         raise Exception(f"Invalid insight type {filter.get('insight')}.")
 
-    if len(list(insight_filter.values())[0].model_dump(exclude_defaults=True)) == 0:
+    if len(next(iter(insight_filter.values())).model_dump(exclude_defaults=True)) == 0:
         return {}
 
     return insight_filter
+
+
+def filters_to_funnel_paths_query(filter: Dict[str, Any]) -> FunnelPathsFilter | None:
+    funnel_paths = filter.get("funnel_paths")
+    funnel_filter = filter.get("funnel_filter")
+
+    if funnel_paths is None or funnel_filter is None:
+        return None
+
+    funnel_query = filter_to_query(funnel_filter)
+    assert isinstance(funnel_query, FunnelsQuery)
+
+    return FunnelPathsFilter(
+        funnelPathType=funnel_paths,
+        funnelSource=funnel_query,
+        funnelStep=funnel_filter["funnel_step"],
+    )
 
 
 def _insight_type(filter: Dict) -> INSIGHT_TYPE:

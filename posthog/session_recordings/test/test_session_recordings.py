@@ -61,6 +61,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
     @snapshot_postgres_queries
+    # we can't take snapshots of the CH queries
+    # because we use `now()` in the CH queries which don't know about any frozen time
+    # @snapshot_clickhouse_queries
     def test_get_session_recordings(self):
         twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
 
@@ -78,8 +81,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         session_id_one = f"test_get_session_recordings-1"
         self.create_snapshot("user_one_0", session_id_one, base_time)
-        self.create_snapshot("user_one_1", session_id_one, base_time + relativedelta(seconds=10))
-        self.create_snapshot("user_one_2", session_id_one, base_time + relativedelta(seconds=30))
+        self.create_snapshot("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
+        self.create_snapshot("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
         session_id_two = f"test_get_session_recordings-2"
         self.create_snapshot("user2", session_id_two, base_time + relativedelta(seconds=20))
 
@@ -120,6 +123,44 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 1,  # even though the user has many distinct ids we don't load them
             ),
         ]
+
+        # user distinct id varies because we're adding more than one
+        assert results_[0]["distinct_id"] == "user2"
+        assert results_[1]["distinct_id"] in twelve_distinct_ids
+
+    def test_can_list_recordings_even_when_the_person_has_multiple_distinct_ids(self):
+        # almost duplicate of test_get_session_recordings above
+        # but if we have multiple distinct ids on a recording the snapshot
+        # varies which makes the snapshot useless
+        twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=twelve_distinct_ids,  # that's too many! we should limit them
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user2"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        )
+
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        session_id_one = f"test_get_session_recordings-1"
+        self.create_snapshot("user_one_0", session_id_one, base_time)
+        self.create_snapshot("user_one_1", session_id_one, base_time + relativedelta(seconds=10))
+        self.create_snapshot("user_one_2", session_id_one, base_time + relativedelta(seconds=30))
+        session_id_two = f"test_get_session_recordings-2"
+        self.create_snapshot("user2", session_id_two, base_time + relativedelta(seconds=20))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        results_ = response_data["results"]
+        assert results_ is not None
+        # detailed assertion is in the other test
+        assert len(results_) == 2
 
         # user distinct id varies because we're adding more than one
         assert results_[0]["distinct_id"] == "user2"
@@ -643,6 +684,48 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.session_recording_api.requests")
+    def test_validates_blob_keys(
+        self,
+        _mock_requests,
+        mock_presigned_url,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid.uuid4())
+        """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
+        blob_key = f"../try/to/escape/into/other/directories"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?version=2&source=blob&blob_key={blob_key}"
+
+        # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        def presigned_url_sideeffect(key: str, **kwargs):
+            if key == f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{blob_key}":
+                return f"https://test.com/"
+            else:
+                return None
+
+        mock_presigned_url.side_effect = presigned_url_sideeffect
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        # we don't generate a pre-signed url if the blob key is invalid
+        assert mock_presigned_url.call_count == 0
+        # we don't try to load the data if the blob key is invalid
+        assert _mock_requests.call_count == 0
+        # we do check the session before validating input
+        # TODO it would be maybe cheaper to validate the input first
+        assert mock_get_session_recording.call_count == 1
+        assert _mock_exists.call_count == 1
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
     @patch("posthog.session_recordings.session_recording_api.requests")
     def test_can_get_session_recording_realtime(
@@ -697,7 +780,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
-        annoying_data_from_javascript = "\uD801\uDC37 probably from console logs"
+        annoying_data_from_javascript = "\ud801\udc37 probably from console logs"
 
         mock_realtime_snapshots.return_value = [
             {"some": annoying_data_from_javascript},

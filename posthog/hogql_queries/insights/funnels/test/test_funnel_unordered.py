@@ -1620,3 +1620,57 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(results[0]["count"], 1)
         self.assertEqual(results[1]["count"], 1)
+
+    def test_funnel_window_ignores_dst_transition(self):
+        _create_person(
+            distinct_ids=[f"user_1"],
+            team=self.team,
+        )
+
+        events_by_person = {
+            "user_1": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 1, 15, 10),  # 1st March 15:10
+                },
+                {
+                    "event": "user signed up",
+                    "timestamp": datetime(
+                        2024, 3, 15, 14, 27
+                    ),  # 15th March 14:27 (within 14 day conversion window that ends at 15:10)
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        filters = {
+            "events": [
+                {"id": "$pageview", "type": "events", "order": 0},
+                {"id": "user signed up", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
+            "date_from": "2024-02-17",
+            "date_to": "2024-03-18",
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(results[1]["name"], "Completed 2 steps")
+        self.assertEqual(results[1]["count"], 1)
+        self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
+        self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
+
+        # there is a PST -> PDT transition on 10th of March
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        # we still should have the user here, as the conversion window should not be affected by DST
+        self.assertEqual(results[1]["name"], "Completed 2 steps")
+        self.assertEqual(results[1]["count"], 1)
+        self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
+        self.assertEqual(results[1]["median_conversion_time"], 1_207_020)

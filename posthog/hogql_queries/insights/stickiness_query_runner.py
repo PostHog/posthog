@@ -212,6 +212,7 @@ class StickinessQueryRunner(QueryRunner):
                 team=self.team,
                 timings=self.timings,
                 modifiers=self.modifiers,
+                limit_context=self.limit_context,
             )
 
             if response.timings is not None:
@@ -247,7 +248,7 @@ class StickinessQueryRunner(QueryRunner):
 
                 res.append(series_object)
 
-        return StickinessQueryResponse(results=res, timings=timings)
+        return StickinessQueryResponse(results=res, timings=timings, modifiers=self.modifiers)
 
     def where_clause(self, series_with_extra: SeriesWithExtras) -> ast.Expr:
         date_range = self.date_range(series_with_extra)

@@ -169,7 +169,11 @@ export const getUpgradeProductLink = (
     url += `${product.type}:${upgradeToPlanKey},`
     if (includeAddons && product.addons?.length) {
         for (const addon of product.addons) {
-            if (addon.plans?.[0]?.plan_key) {
+            if (
+                // TODO: this breaks if we support multiple plans per addon due to just grabbing the first plan
+                addon.plans?.[0]?.plan_key &&
+                !addon.inclusion_only
+            ) {
                 url += `${addon.type}:${addon.plans[0].plan_key},`
             }
         }

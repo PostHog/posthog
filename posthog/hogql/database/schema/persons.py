@@ -15,7 +15,7 @@ from posthog.hogql.database.models import (
     LazyJoin,
     FieldOrTable,
 )
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ResolutionError
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
 from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
 
@@ -92,7 +92,7 @@ def join_with_persons_table(
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise HogQLException("No fields requested from persons table")
+        raise ResolutionError("No fields requested from persons table")
     join_expr = ast.JoinExpr(table=select_from_persons_table(requested_fields, context.modifiers))
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
@@ -123,8 +123,8 @@ class RawPersonsTable(Table):
 class PersonsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = PERSONS_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
-        return select_from_persons_table(requested_fields, modifiers)
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
+        return select_from_persons_table(requested_fields, context.modifiers)
 
     def to_printed_clickhouse(self, context):
         return "person"

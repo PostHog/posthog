@@ -15,7 +15,6 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
-from posthog.schema import HogQLQueryModifiers
 
 RAW_ONLY_FIELDS = ["min_first_timestamp", "max_last_timestamp"]
 
@@ -97,8 +96,8 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
         if name in aggregate_fields:
             select_fields.append(ast.Alias(alias=name, expr=aggregate_fields[name]))
         else:
-            select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name] + chain)))
-            group_by_fields.append(ast.Field(chain=[table_name] + chain))
+            select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])))
+            group_by_fields.append(ast.Field(chain=[table_name, *chain]))
 
     return ast.SelectQuery(
         select=select_fields,
@@ -115,7 +114,7 @@ class SessionReplayEventsTable(LazyTable):
         "first_url": StringDatabaseField(name="first_url"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
         return select_from_session_replay_events_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

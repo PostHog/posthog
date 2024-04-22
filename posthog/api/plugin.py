@@ -63,7 +63,11 @@ def _update_plugin_attachments(request: request.Request, plugin_config: PluginCo
             _update_plugin_attachment(request, plugin_config, match.group(1), None, user)
 
 
-def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, Any], secret_fields=[]) -> List[Change]:
+def get_plugin_config_changes(
+    old_config: Dict[str, Any], new_config: Dict[str, Any], secret_fields=None
+) -> List[Change]:
+    if secret_fields is None:
+        secret_fields = []
     config_changes = dict_changes_between("Plugin", old_config, new_config)
 
     for i, change in enumerate(config_changes):
@@ -79,8 +83,10 @@ def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, 
 
 
 def log_enabled_change_activity(
-    new_plugin_config: PluginConfig, old_enabled: bool, user: User, was_impersonated: bool, changes=[]
+    new_plugin_config: PluginConfig, old_enabled: bool, user: User, was_impersonated: bool, changes=None
 ):
+    if changes is None:
+        changes = []
     if old_enabled != new_plugin_config.enabled:
         log_activity(
             organization_id=new_plugin_config.team.organization.id,
@@ -646,11 +652,15 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team_id"] = self.context["team_id"]
         _fix_formdata_config_json(self.context["request"], validated_data)
-        existing_config = PluginConfig.objects.filter(
-            team_id=validated_data["team_id"], plugin_id=validated_data["plugin"]
-        )
-        if existing_config.exists():
-            return self.update(existing_config.first(), validated_data)  # type: ignore
+        # Legacy pipeline UI doesn't show multiple plugin configs per plugin, so we don't allow it
+        # pipeline 3000 UI does, but to keep things simple we for now pass this flag to not break old users
+        # name field is something that only the new UI sends
+        if "config" not in validated_data or "name" not in validated_data["config"]:
+            existing_config = PluginConfig.objects.filter(
+                team_id=validated_data["team_id"], plugin_id=validated_data["plugin"]
+            )
+            if existing_config.exists():
+                return self.update(existing_config.first(), validated_data)  # type: ignore
 
         validated_data["web_token"] = generate_random_token()
         plugin_config = super().create(validated_data)
@@ -860,7 +870,7 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
     # A set of keys for config fields that have secret = true
-    secret_fields = {field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]}
+    secret_fields = {field["key"] for field in plugin.config_schema if isinstance(field, dict) and field.get("secret")}
     return secret_fields
 
 

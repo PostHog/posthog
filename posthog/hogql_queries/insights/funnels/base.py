@@ -3,8 +3,8 @@ from functools import cached_property
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
-from posthog.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.hogql import ast
+from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -142,7 +142,9 @@ class FunnelBase(ABC):
         else:
             # get query params
             breakdown_expr = self._get_breakdown_expr()
-            breakdown_limit_or_default = breakdownFilter.breakdown_limit or BREAKDOWN_VALUES_LIMIT
+            breakdown_limit_or_default = breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(
+                self.context.limit_context
+            )
             offset = 0
 
             funnel_event_query = FunnelEventQuery(context=self.context)
@@ -284,6 +286,7 @@ class FunnelBase(ABC):
             properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "hogql":
+            assert isinstance(breakdown, list)
             return ast.Alias(
                 alias="value",
                 expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
@@ -530,6 +533,7 @@ class FunnelBase(ABC):
             # so just select that. Except for the empty case, where we select the default.
 
             if self._query_has_array_breakdown():
+                assert isinstance(breakdown, list)
                 default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
                 # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
                 breakdown_selector = parse_expr(
@@ -613,7 +617,7 @@ class FunnelBase(ABC):
             event_expr = ast.Constant(value=True)
         else:
             # event
-            event_expr = parse_expr(f"event = '{entity.event}'")
+            event_expr = parse_expr("event = {event}", {"event": ast.Constant(value=entity.event)})
 
         if entity.properties is not None and entity.properties != []:
             # add property filters
@@ -648,7 +652,7 @@ class FunnelBase(ABC):
             conditions.append(parse_expr(f"steps IN {funnelCustomSteps}"))
         elif funnelStep is not None:
             if funnelStep >= 0:
-                step_nums = [i for i in range(funnelStep, max_steps + 1)]
+                step_nums = list(range(funnelStep, max_steps + 1))
                 conditions.append(parse_expr(f"steps IN {step_nums}"))
             else:
                 step_num = abs(funnelStep) - 1
@@ -657,11 +661,15 @@ class FunnelBase(ABC):
             raise ValueError("Missing both funnelStep and funnelCustomSteps")
 
         if funnelStepBreakdown is not None:
-            breakdown_prop_value = funnelStepBreakdown
-            if isinstance(breakdown_prop_value, int) and breakdownType != "cohort":
-                breakdown_prop_value = str(breakdown_prop_value)
+            if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
+                funnelStepBreakdown = str(funnelStepBreakdown)
 
-            conditions.append(parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array({breakdown_prop_value}))"))
+            conditions.append(
+                parse_expr(
+                    "arrayFlatten(array(prop)) = arrayFlatten(array({funnelStepBreakdown}))",
+                    {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                )
+            )
 
         return ast.And(exprs=conditions)
 
@@ -721,7 +729,7 @@ class FunnelBase(ABC):
         ):
             events = []
             for i in range(0, max_steps):
-                event_fields = ["latest"] + self.extra_event_fields_and_properties
+                event_fields = ["latest", *self.extra_event_fields_and_properties]
                 event_fields_with_step = ", ".join([f"{field}_{i}" for field in event_fields])
                 event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
                 events.append(parse_expr(event_clause))
@@ -830,7 +838,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
                 ),
             )
 
@@ -898,7 +906,12 @@ class FunnelBase(ABC):
                 BreakdownType.group,
             ]:
                 breakdown_values = self._get_breakdown_conditions()
-                return [parse_expr(f"if(has({breakdown_values}, prop), prop, {other_aggregation}) as prop")]
+                return [
+                    parse_expr(
+                        f"if(has({{breakdown_values}}, prop), prop, {other_aggregation}) as prop",
+                        {"breakdown_values": ast.Constant(value=breakdown_values)},
+                    )
+                ]
             else:
                 # Cohorts don't have "Other" aggregation
                 return [ast.Field(chain=["prop"])]
@@ -959,7 +972,7 @@ class FunnelBase(ABC):
             to_time = f"latest_{exclusion.funnelToStep}"
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
             condition = parse_expr(
-                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), {from_time} + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 
@@ -988,7 +1001,11 @@ class FunnelBase(ABC):
             duplicate_event = is_equal(series[i], series[i - 1]) or is_superset(series[i], series[i - 1])
 
             conditions.append(parse_expr(f"latest_{i - 1} {'<' if duplicate_event else '<='} latest_{i}"))
-            conditions.append(parse_expr(f"latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}"))
+            conditions.append(
+                parse_expr(
+                    f"latest_{i} <= toTimeZone(latest_0, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}"
+                )
+            )
 
         return ast.Call(
             name="if",

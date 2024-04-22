@@ -1,9 +1,9 @@
-from typing import List, Optional
+from typing import List, Optional, TypeVar
 
 from dateutil.parser import isoparse
 
 from posthog.hogql import ast
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import CloningVisitor
@@ -12,7 +12,10 @@ from posthog.schema import HogQLFilters
 from posthog.utils import relative_date_parse
 
 
-def replace_filters(node: ast.Expr, filters: Optional[HogQLFilters], team: Team) -> ast.Expr:
+T = TypeVar("T", bound=ast.Expr)
+
+
+def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team) -> T:
     return ReplaceFilters(filters, team).visit(node)
 
 
@@ -45,7 +48,7 @@ class ReplaceFilters(CloningVisitor):
                 last_join = last_join.next_join
 
             if not found_events:
-                raise HogQLException(
+                raise QueryError(
                     "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events table."
                 )
 

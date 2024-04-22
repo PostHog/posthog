@@ -15,6 +15,11 @@ export type SharedListMiniFilter = {
     enabled?: boolean
 }
 
+export enum TimestampFormat {
+    Absolute = 'absolute',
+    Relative = 'relative',
+}
+
 const MiniFilters: SharedListMiniFilter[] = [
     {
         tab: SessionRecordingPlayerTab.ALL,
@@ -175,7 +180,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSpeed: (speed: number) => ({ speed }),
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
         setHideViewedRecordings: (hideViewedRecordings: boolean) => ({ hideViewedRecordings }),
-        toggleAutoplayDirection: true,
+        setAutoplayDirection: (autoplayDirection: AutoplayDirection) => ({ autoplayDirection }),
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
@@ -185,6 +190,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
+        setShowRecordingListProperties: (enabled: boolean) => ({ enabled }),
+        setTimestampFormat: (format: TimestampFormat) => ({ format }),
     }),
     reducers(() => ({
         showFilters: [
@@ -228,6 +235,20 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setSpeed: (_, { speed }) => speed,
             },
         ],
+        showRecordingListProperties: [
+            false,
+            { persist: true },
+            {
+                setShowRecordingListProperties: (_, { enabled }) => enabled,
+            },
+        ],
+        timestampFormat: [
+            TimestampFormat.Relative as TimestampFormat,
+            { persist: true },
+            {
+                setTimestampFormat: (_, { format }) => format,
+            },
+        ],
         skipInactivitySetting: [
             true,
             { persist: true },
@@ -246,9 +267,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             'older' as AutoplayDirection,
             { persist: true },
             {
-                toggleAutoplayDirection: (state) => {
-                    return !state ? 'older' : state === 'older' ? 'newer' : null
-                },
+                setAutoplayDirection: (_, { autoplayDirection }) => autoplayDirection,
             },
         ],
         hideViewedRecordings: [

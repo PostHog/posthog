@@ -85,7 +85,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         hogQLInsightsFunnelsFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
+                return !!(
+                    featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
+                )
             },
         ],
         querySource: [

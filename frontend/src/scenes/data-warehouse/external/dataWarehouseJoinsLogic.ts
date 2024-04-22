@@ -11,9 +11,6 @@ import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
 export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'dataWarehouseJoinsLogic']),
-    connect(() => ({
-        values: [dataWarehouseSceneLogic, ['externalTablesMap']],
-    })),
     loaders({
         joins: [
             [] as DataWarehouseViewLink[],
@@ -25,6 +22,9 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
             },
         ],
     }),
+    connect(() => ({
+        values: [dataWarehouseSceneLogic, ['externalTablesMap']],
+    })),
     selectors({
         personTableJoins: [(s) => [s.joins], (joins) => joins.filter((join) => join.source_table_name === 'persons')],
         tablesJoinedToPersons: [
@@ -47,7 +47,7 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
                     if (table) {
                         acc.push(
                             ...table.columns.map((column: DatabaseSchemaQueryResponseField) => ({
-                                id: column.key,
+                                id: join.field_name + ': ' + column.key,
                                 name: join.field_name + ': ' + column.key,
                                 table: join.field_name,
                                 property_type: capitalizeFirstLetter(column.type) as PropertyType,

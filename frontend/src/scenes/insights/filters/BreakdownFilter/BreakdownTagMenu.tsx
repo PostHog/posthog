@@ -1,7 +1,7 @@
 import './BreakdownTagMenu.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -120,26 +120,21 @@ export const BreakdownTagMenu = (): JSX.Element => {
                             }
                         />
                     )}
-                    <div>
-                        <LemonButton
-                            onClick={() => {
-                                updateBreakdownFilter({ breakdown_limit: breakdownLimit })
+                    <div className="px-2 flex gap-2 items-baseline">
+                        <LemonLabel className="font-medium" htmlFor="breakdown-limit">
+                            Breakdown limit
+                        </LemonLabel>
+                        <LemonInput
+                            id="breakdown-limit"
+                            min={1}
+                            value={breakdownLimit}
+                            onChange={(newValue) => {
+                                setBreakdownLimit(newValue ?? 25)
                             }}
-                            active={histogramBinsUsed}
-                            fullWidth
-                        >
-                            Breakdown limit:{' '}
-                            <LemonInput
-                                min={1}
-                                value={breakdownLimit}
-                                onChange={(newValue) => {
-                                    setBreakdownLimit(newValue ?? 25)
-                                }}
-                                fullWidth={false}
-                                className="w-20 ml-2"
-                                type="number"
-                            />
-                        </LemonButton>
+                            fullWidth={false}
+                            className="w-20 ml-2"
+                            type="number"
+                        />
                     </div>
                 </>
             )}

@@ -1,5 +1,4 @@
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
-import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -36,7 +35,6 @@ export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBasePro
 export interface PropertyFilterInternalProps {
     pageKey?: string
     index: number
-    selectProps: Partial<SelectGradientOverflowProps>
     onComplete: () => void
     disablePopover: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]

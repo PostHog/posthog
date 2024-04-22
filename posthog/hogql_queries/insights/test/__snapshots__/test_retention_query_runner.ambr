@@ -50,13 +50,6 @@
   SELECT groups.key AS key,
          source.appearances AS appearances
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT actor_activity.actor_id AS actor_id,
             groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
             arraySort(appearance_intervals) AS appearances,
@@ -99,7 +92,14 @@
               FROM events
               WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
         WHERE and(or(0, ifNull(equals(breakdown_values, [0]), 0)), or(1, isNull(intervals_from_base)))) AS actor_activity
-     GROUP BY actor_activity.actor_id) AS source ON equals(groups.key, source.actor_id)
+     GROUP BY actor_activity.actor_id) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY length(source.appearances) DESC, source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -204,13 +204,6 @@
   SELECT groups.key AS key,
          source.appearances AS appearances
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT actor_activity.actor_id AS actor_id,
             groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
             arraySort(appearance_intervals) AS appearances,
@@ -253,7 +246,14 @@
               FROM events
               WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
         WHERE and(or(0, ifNull(equals(breakdown_values, [0]), 0)), or(1, isNull(intervals_from_base)))) AS actor_activity
-     GROUP BY actor_activity.actor_id) AS source ON equals(groups.key, source.actor_id)
+     GROUP BY actor_activity.actor_id) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY length(source.appearances) DESC, source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,

@@ -4,6 +4,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
+import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
@@ -13,10 +14,8 @@ import { timeoutGuard } from '../../utils/db/utils'
 import { PeriodicTask } from '../../utils/periodic-task'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
-import { castTimestampOrNow, UUIDT } from '../../utils/utils'
+import { castTimestampOrNow } from '../../utils/utils'
 import { captureIngestionWarning } from './utils'
-
-const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -34,6 +33,15 @@ export const mergeTxnSuccessCounter = new Counter({
     help: 'Number of person merges that succeeded.',
     labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
 })
+
+// UUIDv5 requires a namespace, which is itself a UUID. This was a randomly generated UUIDv4
+// that must be used to deterministrically generate UUIDv5s for Person rows.
+const PERSON_UUIDV5_NAMESPACE = parseUuid('932979b4-65c3-4424-8467-0b66ec27bc22')
+
+function uuidFromDistinctId(teamId: number, distinctId: string): string {
+    // Deterministcally create a UUIDv5 based on the (team_id, distinct_id) pair.
+    return uuidv5(`${teamId}:${distinctId}`, PERSON_UUIDV5_NAMESPACE)
+}
 
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
@@ -82,36 +90,20 @@ const isDistinctIdIllegal = (id: string): boolean => {
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
 export class PersonState {
-    event: PluginEvent
-    distinctId: string
-    teamId: number
-    eventProperties: Properties
-    timestamp: DateTime
-    newUuid: string
-    maxMergeAttempts: number
+    private eventProperties: Properties
 
-    private db: DB
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
 
     constructor(
-        event: PluginEvent,
-        teamId: number,
-        distinctId: string,
-        timestamp: DateTime,
-        db: DB,
-        private personOverrideWriter?: DeferredPersonOverrideWriter,
-        uuid: UUIDT | undefined = undefined,
-        maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
+        private event: PluginEvent,
+        private teamId: number,
+        private distinctId: string,
+        private timestamp: DateTime,
+        private processPerson: boolean, // $process_person_profile flag from the event
+        private db: DB,
+        private personOverrideWriter?: DeferredPersonOverrideWriter
     ) {
-        this.event = event
-        this.distinctId = distinctId
-        this.teamId = teamId
         this.eventProperties = event.properties!
-        this.timestamp = timestamp
-        this.newUuid = (uuid || new UUIDT()).toString()
-        this.maxMergeAttempts = maxMergeAttempts
-
-        this.db = db
 
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
@@ -119,6 +111,21 @@ export class PersonState {
     }
 
     async update(): Promise<Person> {
+        if (!this.processPerson) {
+            // We don't need to handle any properties for `processPerson=false` events, so we can
+            // short circuit by just finding or creating a person and returning early.
+            //
+            // In the future, we won't even get or create a real Person for these events, and so
+            // the `processPerson` boolean can be removed from this class altogether, as this class
+            // shouldn't even need to be invoked.
+            const [person, _] = await promiseRetry(() => this.createOrGetPerson(), 'get_person_personless')
+
+            // Ensure person properties don't propagate elsewhere, such as onto the event itself.
+            person.properties = {}
+
+            return person
+        }
+
         const person: Person | undefined = await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
         if (person) {
             // try to shortcut if we have the person from identify or alias
@@ -157,8 +164,13 @@ export class PersonState {
             return [person, false]
         }
 
-        const properties = this.eventProperties['$set'] || {}
-        const propertiesOnce = this.eventProperties['$set_once'] || {}
+        let properties = {}
+        let propertiesOnce = {}
+        if (this.processPerson) {
+            properties = this.eventProperties['$set']
+            propertiesOnce = this.eventProperties['$set_once']
+        }
+
         person = await this.createPerson(
             this.timestamp,
             properties || {},
@@ -167,7 +179,6 @@ export class PersonState {
             null,
             // :NOTE: This should never be set in this branch, but adding this for logical consistency
             this.updateIsIdentified,
-            this.newUuid,
             this.event.uuid,
             [this.distinctId]
         )
@@ -181,10 +192,14 @@ export class PersonState {
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
-        uuid: string,
         creatorEventUuid: string,
-        distinctIds?: string[]
+        distinctIds: string[]
     ): Promise<Person> {
+        if (distinctIds.length < 1) {
+            throw new Error('at least 1 distinctId is required in `createPerson`')
+        }
+        const uuid = uuidFromDistinctId(teamId, distinctIds[0])
+
         const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
         const propertiesLastOperation: Record<string, any> = {}
         const propertiesLastUpdatedAt: Record<string, any> = {}
@@ -323,19 +338,31 @@ export class PersonState {
             return undefined
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
-            await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
-                illegalDistinctId: mergeIntoDistinctId,
-                otherDistinctId: otherPersonDistinctId,
-                eventUuid: this.event.uuid,
-            })
+            await captureIngestionWarning(
+                this.db.kafkaProducer,
+                teamId,
+                'cannot_merge_with_illegal_distinct_id',
+                {
+                    illegalDistinctId: mergeIntoDistinctId,
+                    otherDistinctId: otherPersonDistinctId,
+                    eventUuid: this.event.uuid,
+                },
+                { alwaysSend: true }
+            )
             return undefined
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
-            await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
-                illegalDistinctId: otherPersonDistinctId,
-                otherDistinctId: mergeIntoDistinctId,
-                eventUuid: this.event.uuid,
-            })
+            await captureIngestionWarning(
+                this.db.kafkaProducer,
+                teamId,
+                'cannot_merge_with_illegal_distinct_id',
+                {
+                    illegalDistinctId: otherPersonDistinctId,
+                    otherDistinctId: mergeIntoDistinctId,
+                    eventUuid: this.event.uuid,
+                },
+                { alwaysSend: true }
+            )
             return undefined
         }
         return promiseRetry(
@@ -372,6 +399,7 @@ export class PersonState {
                 otherPersonDistinctId: otherPersonDistinctId,
             })
         }
+
         //  The last case: (!oldPerson && !newPerson)
         return await this.createPerson(
             // TODO: in this case we could skip the properties updates later
@@ -381,7 +409,6 @@ export class PersonState {
             teamId,
             null,
             true,
-            this.newUuid,
             this.event.uuid,
             [mergeIntoDistinctId, otherPersonDistinctId]
         )
@@ -403,12 +430,17 @@ export class PersonState {
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
         if (!mergeAllowed) {
-            // TODO: add event UUID to the ingestion warning
-            await captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
-                sourcePersonDistinctId: otherPersonDistinctId,
-                targetPersonDistinctId: mergeIntoDistinctId,
-                eventUuid: this.event.uuid,
-            })
+            await captureIngestionWarning(
+                this.db.kafkaProducer,
+                this.teamId,
+                'cannot_merge_already_identified',
+                {
+                    sourcePersonDistinctId: otherPersonDistinctId,
+                    targetPersonDistinctId: mergeIntoDistinctId,
+                    eventUuid: this.event.uuid,
+                },
+                { alwaysSend: true }
+            )
             status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
             return mergeInto // We're returning the original person tied to distinct_id used for the event
         }
@@ -436,7 +468,7 @@ export class PersonState {
             olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
             properties
         )
-        await this.db.kafkaProducer.queueMessages(kafkaMessages)
+        await this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
         return mergedPerson
     }
 
@@ -750,7 +782,7 @@ export class DeferredPersonOverrideWorker {
                 // Postgres for some reason -- the same row state should be
                 // generated each call, and the receiving ReplacingMergeTree will
                 // ensure we keep only the latest version after all writes settle.)
-                await this.kafkaProducer.queueMessages(messages, true)
+                await this.kafkaProducer.queueMessages({ kafkaMessages: messages, waitForAck: true })
 
                 return rows.length
             }

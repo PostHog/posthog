@@ -707,7 +707,7 @@ export class DB {
             })
         }
 
-        await this.kafkaProducer.queueMessages(kafkaMessages)
+        await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
         return person
     }
 
@@ -759,7 +759,7 @@ export class DB {
         if (tx) {
             kafkaMessages.push(message)
         } else {
-            await this.kafkaProducer.queueMessage(message)
+            await this.kafkaProducer.queueMessage({ kafkaMessage: message, waitForAck: true })
         }
 
         status.debug(
@@ -829,7 +829,7 @@ export class DB {
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
         if (kafkaMessages.length) {
-            await this.kafkaProducer.queueMessages(kafkaMessages)
+            await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
         }
     }
 
@@ -1072,15 +1072,15 @@ export class DB {
         pluginLogEntryCounter.labels({ plugin_id: String(pluginConfig.plugin_id), source }).inc()
 
         try {
-            await this.kafkaProducer.queueSingleJsonMessage(
-                KAFKA_PLUGIN_LOG_ENTRIES,
-                parsedEntry.id,
-                parsedEntry,
+            await this.kafkaProducer.queueSingleJsonMessage({
+                topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                key: parsedEntry.id,
+                object: parsedEntry,
                 // For logs, we relax our durability requirements a little and
                 // do not wait for acks that Kafka has persisted the message to
                 // disk.
-                false
-            )
+                waitForAck: false,
+            })
         } catch (e) {
             captureException(e, { tags: { team_id: entry.pluginConfig.team_id } })
             console.error('Failed to produce message', e, parsedEntry)
@@ -1409,19 +1409,22 @@ export class DB {
         version: number
     ): Promise<void> {
         await this.kafkaProducer.queueMessage({
-            topic: KAFKA_GROUPS,
-            messages: [
-                {
-                    value: JSON.stringify({
-                        group_type_index: groupTypeIndex,
-                        group_key: groupKey,
-                        team_id: teamId,
-                        group_properties: JSON.stringify(properties),
-                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                        version,
-                    }),
-                },
-            ],
+            kafkaMessage: {
+                topic: KAFKA_GROUPS,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            group_type_index: groupTypeIndex,
+                            group_key: groupKey,
+                            team_id: teamId,
+                            group_properties: JSON.stringify(properties),
+                            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                            version,
+                        }),
+                    },
+                ],
+            },
+            waitForAck: true,
         })
     }
 

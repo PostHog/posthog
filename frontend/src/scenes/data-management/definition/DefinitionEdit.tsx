@@ -93,7 +93,7 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
                                         className="definition-tags"
                                         saving={definitionLoading || tagsLoading}
                                         tags={value || []}
-                                        onChange={(_, tags) => onChange(tags)}
+                                        onChange={(tags) => onChange(tags)}
                                         style={{ marginBottom: 4 }}
                                         tagsAvailable={tags}
                                     />

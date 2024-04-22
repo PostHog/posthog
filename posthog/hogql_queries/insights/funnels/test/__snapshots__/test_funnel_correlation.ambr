@@ -41,8 +41,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -74,7 +74,7 @@
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors ON equals(event__pdi.person_id, funnel_actors.actor_id)
-  WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
+  WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
   UNION ALL
@@ -110,8 +110,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -186,8 +186,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -268,8 +268,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -312,12 +312,6 @@
          persons.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -362,8 +356,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -427,7 +421,13 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(persons.id, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -455,12 +455,6 @@
          persons.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -505,8 +499,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -570,7 +564,13 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(persons.id, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -598,12 +598,6 @@
          persons.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -648,8 +642,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -713,7 +707,13 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(persons.id, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -741,12 +741,6 @@
          persons.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -791,8 +785,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -856,7 +850,13 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(persons.id, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -918,8 +918,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -944,7 +944,7 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
   GROUP BY name
   HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), ifNull(notIn((prop).1, []), 0))
   LIMIT 100
@@ -981,8 +981,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -1052,8 +1052,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -1078,7 +1078,7 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
   GROUP BY name
   HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), ifNull(notIn((prop).1, []), 0))
   LIMIT 100
@@ -1115,8 +1115,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -1181,8 +1181,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -1207,7 +1207,7 @@
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-  WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
+  WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
   UNION ALL
@@ -1243,8 +1243,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -1278,13 +1278,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -1330,8 +1323,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -1375,9 +1368,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1389,13 +1389,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -1441,8 +1434,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -1486,9 +1479,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1500,13 +1500,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -1552,8 +1545,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -1597,9 +1590,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1611,13 +1611,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -1663,8 +1656,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -1708,9 +1701,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1753,8 +1753,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -1787,7 +1787,7 @@
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-  WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
+  WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
   UNION ALL
@@ -1823,8 +1823,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -1866,13 +1866,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -1918,8 +1911,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -1963,9 +1956,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1977,13 +1977,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -2029,8 +2022,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -2074,9 +2067,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2119,8 +2119,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -2145,7 +2145,7 @@
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-  WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
+  WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
   UNION ALL
@@ -2181,8 +2181,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -2216,13 +2216,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -2268,8 +2261,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -2313,9 +2306,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2327,13 +2327,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -2379,8 +2372,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -2424,9 +2417,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2438,13 +2438,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -2490,8 +2483,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -2535,9 +2528,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2549,13 +2549,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -2601,8 +2594,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -2646,9 +2639,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2691,8 +2691,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -2725,7 +2725,7 @@
                       and isNull(max_steps)))
      WHERE ifNull(in(steps, [1, 2]), 0)
      ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-  WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
+  WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
   UNION ALL
@@ -2761,8 +2761,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -2804,13 +2804,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -2856,8 +2849,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -2901,9 +2894,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2915,13 +2915,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM events AS event
@@ -2967,8 +2960,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -3012,9 +3005,16 @@
                          and isNull(max_steps)))
         WHERE ifNull(in(steps, [1, 2]), 0)
         ORDER BY aggregation_target ASC) AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(funnel_actors.first_timestamp, toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(equals(event.team_id, 2), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC'))), equals(event.team_id, 2), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-14 23:59:59', 6, 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
-     ORDER BY actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3060,8 +3060,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -3134,8 +3134,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -3169,13 +3169,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -3220,8 +3213,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -3275,7 +3268,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3287,13 +3287,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -3338,8 +3331,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -3393,7 +3386,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3405,13 +3405,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -3456,8 +3449,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -3511,7 +3504,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3523,13 +3523,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -3574,8 +3567,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -3629,7 +3622,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3675,8 +3675,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -3749,8 +3749,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -3818,8 +3818,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -3892,8 +3892,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -3927,13 +3927,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -3978,8 +3971,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4033,7 +4026,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4045,13 +4045,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -4096,8 +4089,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4151,7 +4144,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4163,13 +4163,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -4214,8 +4207,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4269,7 +4262,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4281,13 +4281,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -4332,8 +4325,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4387,7 +4380,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4433,8 +4433,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -4507,8 +4507,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -4576,8 +4576,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -4650,8 +4650,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -4685,13 +4685,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -4736,8 +4729,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4791,7 +4784,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4803,13 +4803,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -4854,8 +4847,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -4909,7 +4902,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -4921,13 +4921,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -4972,8 +4965,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5027,7 +5020,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5039,13 +5039,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -5090,8 +5083,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5145,7 +5138,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5191,8 +5191,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -5265,8 +5265,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -5334,8 +5334,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -5408,8 +5408,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -5443,13 +5443,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -5494,8 +5487,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5549,7 +5542,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5561,13 +5561,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -5612,8 +5605,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5667,7 +5660,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5679,13 +5679,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -5730,8 +5723,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5785,7 +5778,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5797,13 +5797,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -5848,8 +5841,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -5903,7 +5896,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -5949,8 +5949,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -6023,8 +6023,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -6092,8 +6092,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -6166,8 +6166,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,
@@ -6201,13 +6201,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -6252,8 +6245,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -6307,7 +6300,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -6319,13 +6319,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -6370,8 +6363,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -6425,7 +6418,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -6437,13 +6437,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -6488,8 +6481,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -6543,7 +6536,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(equals(funnel_actors.steps, 2), 0)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -6555,13 +6555,6 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events
      FROM
@@ -6606,8 +6599,8 @@
                         uuid_1 AS uuid_1,
                         `$session_id_1` AS `$session_id_1`,
                         `$window_id_1` AS `$window_id_1`,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                         tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
                         tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
                         if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, step_1_matching_event)) AS final_matching_event
@@ -6661,7 +6654,14 @@
         ORDER BY aggregation_target ASC) AS funnel_actors
      WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
      GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source ON equals(groups.key, source.actor_id)
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -6707,8 +6707,8 @@
                         latest_0 AS latest_0,
                         step_1 AS step_1,
                         latest_1 AS latest_1,
-                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                        if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                        if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
                  FROM
                    (SELECT aggregation_target AS aggregation_target,
                            timestamp AS timestamp,
@@ -6781,8 +6781,8 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
               FROM
                 (SELECT aggregation_target AS aggregation_target,
                         timestamp AS timestamp,

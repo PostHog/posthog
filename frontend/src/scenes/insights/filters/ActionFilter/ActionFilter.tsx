@@ -7,13 +7,22 @@ import { IconPlusSmall } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useEffect } from 'react'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
-import { ActionFilter as ActionFilterType, FilterType, FunnelExclusionLegacy, InsightType, Optional } from '~/types'
+import {
+    ActionFilter as ActionFilterType,
+    ChartDisplayType,
+    FilterType,
+    FunnelExclusionLegacy,
+    InsightType,
+    Optional,
+} from '~/types'
 
 import { teamLogic } from '../../../teamLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
@@ -147,6 +156,9 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         mathAvailability,
         customRowSuffix,
         hasBreakdown: !!filters.breakdown,
+        trendsDisplayCategory: isTrendsFilter(filters)
+            ? DISPLAY_TYPES_TO_CATEGORY[filters.display || ChartDisplayType.ActionsLineGraph]
+            : null,
         actionsTaxonomicGroupTypes,
         propertiesTaxonomicGroupTypes,
         propertyFiltersPopover,

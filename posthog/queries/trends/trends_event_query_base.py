@@ -18,7 +18,7 @@ from posthog.queries.trends.util import (
     get_active_user_params,
 )
 from posthog.queries.util import get_person_properties_mode
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 class TrendsEventQueryBase(EventQuery):
@@ -80,7 +80,7 @@ class TrendsEventQueryBase(EventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+        if self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
             self._should_join_distinct_ids = False
 
         is_entity_per_user = self._entity.math in (
@@ -97,7 +97,7 @@ class TrendsEventQueryBase(EventQuery):
             self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
-        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
+        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
             self._should_join_persons = False
         else:
             EventQuery._determine_should_join_persons(self)
@@ -107,7 +107,7 @@ class TrendsEventQueryBase(EventQuery):
             # If aggregating by person, exclude events with null/zero person IDs
             return (
                 f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
-                if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+                if self._person_on_events_mode != PersonsOnEventsMode.disabled
                 else ""
             )
         else:

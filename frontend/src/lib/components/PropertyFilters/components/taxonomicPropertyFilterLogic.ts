@@ -51,10 +51,14 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     })),
     actions({
-        selectItem: (taxonomicGroup: TaxonomicFilterGroup, propertyKey?: TaxonomicFilterValue, item?: any) => ({
+        selectItem: (
+            taxonomicGroup: TaxonomicFilterGroup,
+            propertyKey?: TaxonomicFilterValue,
+            itemPropertyFilterType?: PropertyFilterType
+        ) => ({
             taxonomicGroup,
             propertyKey,
-            item,
+            itemPropertyFilterType,
         }),
         openDropdown: true,
         closeDropdown: true,
@@ -89,8 +93,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ taxonomicGroup, propertyKey, item }) => {
-            const itemPropertyFilterType = item?.propertyFilterType as PropertyFilterType
+        selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
             const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === PropertyFilterType.Cohort) {
@@ -126,8 +129,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     }
                     const operator =
                         property_name_to_default_operator_override[propertyKey] ||
-                        property_value_type_to_default_operator_override[propertyValueType ?? ''] ||
                         (isPropertyFilterWithOperator(values.filter) ? values.filter.operator : null) ||
+                        property_value_type_to_default_operator_override[propertyValueType ?? ''] ||
                         PropertyOperator.Exact
 
                     const isGroupNameFilter = taxonomicGroup.type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
@@ -139,7 +142,6 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         operator,
                         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
                         group_type_index: taxonomicGroup.groupTypeIndex,
-                        table: item.table,
                     }
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, property)
                 }

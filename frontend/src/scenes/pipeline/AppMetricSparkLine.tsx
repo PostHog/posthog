@@ -11,28 +11,29 @@ export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNod
         const logic = pipelineNodeMetricsLogic({ pluginConfigId: pipelineNode.id })
         const { appMetricsResponse } = useValues(logic)
 
+        // The metrics response has last 7 days time wise, we're showing the
+        // sparkline graph by day, so ignore the potential 8th day
+        const successes = appMetricsResponse ? appMetricsResponse.metrics.successes.slice(-7) : []
+        const failures = appMetricsResponse ? appMetricsResponse.metrics.failures.slice(-7) : []
+        const dates = appMetricsResponse ? appMetricsResponse.metrics.dates.slice(-7) : []
+
         const displayData: SparklineTimeSeries[] = [
             {
                 color: 'success',
                 name: 'Events sent',
-                values: appMetricsResponse ? appMetricsResponse.metrics.successes : [],
+                values: successes,
             },
         ]
         if (appMetricsResponse?.metrics.failures.some((failure) => failure > 0)) {
             displayData.push({
                 color: 'danger',
                 name: 'Events dropped',
-                values: appMetricsResponse ? appMetricsResponse.metrics.failures : [],
+                values: failures,
             })
         }
 
         return (
-            <Sparkline
-                loading={appMetricsResponse === null}
-                labels={appMetricsResponse ? appMetricsResponse.metrics.dates : []}
-                data={displayData}
-                className="max-w-24"
-            />
+            <Sparkline loading={appMetricsResponse === null} labels={dates} data={displayData} className="max-w-24" />
         )
     }
 }

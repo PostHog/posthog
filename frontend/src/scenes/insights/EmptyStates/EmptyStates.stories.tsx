@@ -17,6 +17,9 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        testOptions: {
+            waitForSelector: '.empty-state-inner',
+        },
     },
 }
 export default meta

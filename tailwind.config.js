@@ -7,6 +7,8 @@ const config = {
             // TODO: Move all colors over to Tailwind
             // Currently color utility classes are still generated with SCSS in colors.scss due to relying on our color
             // CSS vars in lots of stylesheets
+
+            purple: '#B62AD9',
         },
         fontFamily: {
             sans: [

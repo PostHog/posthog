@@ -95,7 +95,7 @@ CROSS JOIN sessions_query
                         "start": start,
                         "mid": mid,
                         "end": end,
-                        "event_properties": self.event_properties(),
+                        "event_properties": self.all_properties(),
                         "session_where": self.session_where(include_previous_period=True),
                         "session_having": self.session_having(include_previous_period=True),
                         "sample_rate": self._sample_ratio,
@@ -164,7 +164,7 @@ CROSS JOIN sessions_query
                         "start": start,
                         "mid": mid,
                         "end": end,
-                        "event_properties": self.event_properties(),
+                        "event_properties": self.all_properties(),
                         "session_where": self.session_where(include_previous_period=False),
                         "session_having": self.session_having(include_previous_period=False),
                         "sample_rate": self._sample_ratio,
@@ -181,27 +181,27 @@ CROSS JOIN sessions_query
             return parse_select(
                 """
 SELECT
-    uniq(if(min_timestamp >= {mid} AND min_timestamp < {end}, person_id, NULL)) AS unique_users,
-    uniq(if(min_timestamp >= {start} AND min_timestamp < {mid}, person_id, NULL)) AS previous_unique_users,
-    sumIf(filtered_pageview_count, min_timestamp >= {mid} AND min_timestamp < {end}) AS current_pageviews,
-    sumIf(filtered_pageview_count, min_timestamp >= {start} AND min_timestamp < {mid}) AS previous_pageviews,
-    uniq(if(min_timestamp >= {mid} AND min_timestamp < {end}, session_id, NULL)) AS unique_sessions,
-    uniq(if(min_timestamp >= {start} AND min_timestamp < {mid}, session_id, NULL)) AS previous_unique_sessions,
-    avg(if(min_timestamp >= {mid}, duration, NULL)) AS avg_duration_s,
-    avg(if(min_timestamp < {mid}, duration, NULL)) AS prev_avg_duration_s,
-    avg(if(min_timestamp >= {mid}, is_bounce, NULL)) AS bounce_rate,
-    avg(if(min_timestamp < {mid}, is_bounce, NULL)) AS prev_bounce_rate
+    uniq(if(start_timestamp >= {mid} AND start_timestamp < {end}, person_id, NULL)) AS unique_users,
+    uniq(if(start_timestamp >= {start} AND start_timestamp < {mid}, person_id, NULL)) AS previous_unique_users,
+    sumIf(filtered_pageview_count, start_timestamp >= {mid} AND start_timestamp < {end}) AS current_pageviews,
+    sumIf(filtered_pageview_count, start_timestamp >= {start} AND start_timestamp < {mid}) AS previous_pageviews,
+    uniq(if(start_timestamp >= {mid} AND start_timestamp < {end}, session_id, NULL)) AS unique_sessions,
+    uniq(if(start_timestamp >= {start} AND start_timestamp < {mid}, session_id, NULL)) AS previous_unique_sessions,
+    avg(if(start_timestamp >= {mid}, session_duration, NULL)) AS avg_duration_s,
+    avg(if(start_timestamp < {mid}, session_duration, NULL)) AS prev_avg_duration_s,
+    avg(if(start_timestamp >= {mid}, is_bounce, NULL)) AS bounce_rate,
+    avg(if(start_timestamp < {mid}, is_bounce, NULL)) AS prev_bounce_rate
 FROM (
     SELECT
         any(events.person_id) as person_id,
         events.`$session_id` as session_id,
-        min(sessions.min_timestamp) as min_timestamp,
-        any(sessions.duration) as duration,
-        any(sessions.pageview_count) as session_pageview_count,
-        any(sessions.autocapture_count) as session_autocapture_count,
+        min(sessions.$start_timestamp) as start_timestamp,
+        any(sessions.$session_duration) as session_duration,
+        any(sessions.$pageview_count) as session_pageview_count,
+        any(sessions.$autocapture_count) as session_autocapture_count,
         count() as filtered_pageview_count,
         and(
-             duration < 30,
+             session_duration < 30,
              session_pageview_count = 1,
             session_autocapture_count = 0
          ) as is_bounce
@@ -213,12 +213,13 @@ FROM (
         event = '$pageview',
         timestamp >= {start},
         timestamp < {end},
-        {event_properties}
+        {event_properties},
+        {session_properties}
     )
     GROUP BY `$session_id`
     HAVING and(
-        min_timestamp >= {start},
-        min_timestamp < {end}
+        start_timestamp >= {start},
+        start_timestamp < {end}
     )
 )
 
@@ -228,6 +229,7 @@ FROM (
                     "mid": mid,
                     "end": end,
                     "event_properties": self.event_properties(),
+                    "session_properties": self.session_properties(),
                 },
             )
         else:
@@ -240,7 +242,7 @@ FROM (
     NULL as previous_pageviews,
     uniq(session_id) AS unique_sessions,
     NULL as previous_unique_sessions,
-    avg(duration) AS avg_duration_s,
+    avg(session_duration) AS avg_duration_s,
     NULL as prev_avg_duration_s,
     avg(is_bounce) AS bounce_rate,
     NULL as prev_bounce_rate
@@ -248,13 +250,13 @@ FROM (
     SELECT
         any(events.person_id) as person_id,
         events.`$session_id` as session_id,
-        min(sessions.min_timestamp) as min_timestamp,
-        any(sessions.duration) as duration,
-        any(sessions.pageview_count) as session_pageview_count,
-        any(sessions.autocapture_count) as session_autocapture_count,
+        min(sessions.$start_timestamp) as $start_timestamp,
+        any(sessions.$session_duration) as session_duration,
+        any(sessions.$pageview_count) as session_pageview_count,
+        any(sessions.$autocapture_count) as session_autocapture_count,
         count() as filtered_pageview_count,
         and(
-             duration < 30,
+             session_duration < 30,
              session_pageview_count = 1,
             session_autocapture_count = 0
          ) as is_bounce
@@ -266,16 +268,22 @@ FROM (
         event = '$pageview',
         timestamp >= {mid},
         timestamp < {end},
-        {event_properties}
+        {event_properties},
+        {session_properties}
     )
     GROUP BY `$session_id`
     HAVING and(
-        min_timestamp >= {mid},
-        min_timestamp < {end}
+        $start_timestamp >= {mid},
+        $start_timestamp < {end}
     )
 )
                 """,
-                placeholders={"mid": mid, "end": end, "event_properties": self.event_properties()},
+                placeholders={
+                    "mid": mid,
+                    "end": end,
+                    "event_properties": self.event_properties(),
+                    "session_properties": self.session_properties(),
+                },
             )
 
     def calculate(self):
@@ -285,6 +293,7 @@ FROM (
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
         assert response.results
 
@@ -299,6 +308,7 @@ FROM (
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
             ],
             samplingRate=self._sample_rate,
+            modifiers=self.modifiers,
         )
 
     @cached_property
@@ -310,8 +320,21 @@ FROM (
             now=datetime.now(),
         )
 
+    def all_properties(self) -> ast.Expr:
+        properties = self.query.properties + self._test_account_filters
+        return property_to_expr(properties, team=self.team)
+
     def event_properties(self) -> ast.Expr:
-        return property_to_expr(self.query.properties + self._test_account_filters, team=self.team)
+        properties = [
+            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
+        ]
+        return property_to_expr(properties, team=self.team, scope="event")
+
+    def session_properties(self) -> ast.Expr:
+        properties = [
+            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
+        ]
+        return property_to_expr(properties, team=self.team, scope="session")
 
 
 def to_data(
@@ -337,3 +360,10 @@ def to_data(
         if value is not None and previous is not None and previous != 0
         else None,
     }
+
+
+def get_property_type(property):
+    if isinstance(property, dict):
+        return property["type"]
+    else:
+        return property.type

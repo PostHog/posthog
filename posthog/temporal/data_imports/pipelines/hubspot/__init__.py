@@ -110,7 +110,7 @@ def crm_objects(
         custom_props = [prop for prop in all_props if not prop.startswith("hs_")]
         props = props + custom_props  # type: ignore
 
-    props = ",".join(sorted(list(set(props))))
+    props = ",".join(sorted(set(props)))
 
     if len(props) > 10000:
         raise ValueError(

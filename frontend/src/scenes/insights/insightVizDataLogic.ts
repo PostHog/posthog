@@ -11,6 +11,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils'
 import posthog from 'posthog-js'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -32,6 +33,8 @@ import {
 } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
+    DatabaseSchemaQueryResponseField,
+    DataWarehouseNode,
     DateRange,
     FunnelExclusionSteps,
     FunnelsQuery,
@@ -79,6 +82,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
+            dataWarehouseSceneLogic,
+            ['externalTablesMap'],
         ],
         actions: [
             insightLogic,
@@ -173,6 +178,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
+        funnelPathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.funnelPathsFilter : null)],
 
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
@@ -214,11 +220,39 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdownFilter?.breakdown
             },
         ],
+        isBreakdownSeries: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter): boolean => {
+                return !!breakdownFilter?.breakdown
+            },
+        ],
 
         isDataWarehouseSeries: [
             (s) => [s.isTrends, s.series],
             (isTrends, series): boolean => {
                 return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
+            },
+        ],
+
+        currentDataWarehouseSchemaColumns: [
+            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.externalTablesMap],
+            (
+                series,
+                isSingleSeries,
+                isDataWarehouseSeries,
+                isBreakdownSeries,
+                externalTablesMap
+            ): DatabaseSchemaQueryResponseField[] => {
+                if (
+                    !series ||
+                    series.length === 0 ||
+                    (!isSingleSeries && !isBreakdownSeries) ||
+                    !isDataWarehouseSeries
+                ) {
+                    return []
+                }
+
+                return externalTablesMap[(series[0] as DataWarehouseNode).table_name].columns
             },
         ],
 

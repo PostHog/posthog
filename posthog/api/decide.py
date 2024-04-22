@@ -49,9 +49,11 @@ def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     ) or hostname_in_allowed_url_list(team.recording_domains, referer)
     # TODO this is a short term fix for beta testers
     # TODO we will match on the app identifier in the origin instead and allow users to auth those
-    is_authorized_android_client: bool = user_agent is not None and "posthog-android" in user_agent
+    is_authorized_mobile_client: bool = user_agent is not None and any(
+        keyword in user_agent for keyword in ["posthog-android", "posthog-ios"]
+    )
 
-    return is_authorized_web_client or is_authorized_android_client
+    return is_authorized_web_client or is_authorized_mobile_client
 
 
 def hostname_in_allowed_url_list(allowed_url_list: Optional[List[str]], hostname: Optional[str]) -> bool:

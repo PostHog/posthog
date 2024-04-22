@@ -1,7 +1,7 @@
 import './Spinner.scss'
 
 import { IconClock } from '@posthog/icons'
-import clsx from 'clsx'
+import { twJoin, twMerge } from 'tailwind-merge'
 
 export interface SpinnerProps {
     textColored?: boolean
@@ -12,7 +12,7 @@ export interface SpinnerProps {
 export function Spinner({ textColored = false, className }: SpinnerProps): JSX.Element {
     return (
         <svg
-            className={clsx('LemonIcon Spinner', textColored && `Spinner--textColored`, className)}
+            className={twMerge('LemonIcon Spinner', textColored && `Spinner--textColored`, className)}
             viewBox="0 0 48 48"
             xmlns="http://www.w3.org/2000/svg"
         >
@@ -41,11 +41,11 @@ export function SpinnerOverlay({
     mode?: 'spinning' | 'waiting'
 }): JSX.Element {
     return (
-        <div className={clsx('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
+        <div className={twJoin('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
             {mode === 'waiting' ? (
                 <IconClock className="text-5xl text-primary z-10 animate-pulse drop-shadow-xl" />
             ) : (
-                <Spinner className={clsx('text-5xl', className)} {...spinnerProps} />
+                <Spinner className={twMerge('text-5xl', className)} {...spinnerProps} />
             )}
         </div>
     )

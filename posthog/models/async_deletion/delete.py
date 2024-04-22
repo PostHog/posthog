@@ -44,7 +44,7 @@ class AsyncDeletionProcess(ABC):
                         "Updated `delete_verified_at` for AsyncDeletion",
                         {
                             "count": len(to_verify),
-                            "team_ids": list(set(row.team_id for row in to_verify)),
+                            "team_ids": list({row.team_id for row in to_verify}),
                         },
                     )
 

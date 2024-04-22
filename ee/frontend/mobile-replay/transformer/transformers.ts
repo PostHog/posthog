@@ -11,6 +11,7 @@ import {
 } from '@rrweb/types'
 import { captureMessage } from '@sentry/react'
 import { isObject } from 'lib/utils'
+import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'
 
 import {
     attributes,
@@ -103,6 +104,10 @@ function isKeyboardEvent(x: unknown): x is keyboardEvent {
 
 export function _isPositiveInteger(id: unknown): id is number {
     return typeof id === 'number' && id > 0 && id % 1 === 0
+}
+
+function _isNullish(x: unknown): x is null | undefined {
+    return x === null || x === undefined
 }
 
 function isRemovedNodeMutation(x: addedNodeMutation | removedNodeMutation): x is removedNodeMutation {
@@ -218,6 +223,17 @@ function makeTextElement(
     // because we might have to style the text, we always wrap it in a div
     // and apply styles to that
     const id = context.idSequence.next().value
+
+    const childNodes = [...children]
+    if (!_isNullish(wireframe.text)) {
+        childNodes.unshift({
+            type: NodeType.Text,
+            textContent: wireframe.text,
+            // since the text node is wrapped, we assign it a synthetic id
+            id,
+        })
+    }
+
     return {
         result: {
             type: NodeType.Element,
@@ -227,15 +243,7 @@ function makeTextElement(
                 'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,
-            childNodes: [
-                {
-                    type: NodeType.Text,
-                    textContent: wireframe.text,
-                    // since the text node is wrapped, we assign it a synthetic id
-                    id: id,
-                },
-                ...children,
-            ],
+            childNodes,
         },
         context,
     }
@@ -270,6 +278,9 @@ export function makePlaceholderElement(
                     horizontalAlign: 'center',
                     backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
                     color: wireframe.style?.color || FOREGROUND,
+                    backgroundImage: PLACEHOLDER_SVG_DATA_IMAGE_URL,
+                    backgroundSize: 'auto',
+                    backgroundRepeat: 'unset',
                     ...context.styleOverride,
                 }),
                 'data-rrweb-id': wireframe.id,
@@ -983,6 +994,7 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
 
 function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext): addedNodeMutation[] | null {
     const converted = convertWireframe(add.wireframe, context)
+
     if (!converted) {
         return null
     }
@@ -1383,6 +1395,7 @@ function makeCSSReset(context: ConversionContext): serializedNodeWithId {
                         border: 0;
                         outline: 0;
                         background: transparent;
+                        padding-block: 0 !important;
                     }
                     .input:focus {
                         outline: none;

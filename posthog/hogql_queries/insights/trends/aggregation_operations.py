@@ -1,10 +1,12 @@
 from typing import List, Optional, cast, Union
+from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
-from posthog.schema import EventsNode, ActionsNode, DataWarehouseNode
+from posthog.schema import BaseMathType, ChartDisplayType, EventsNode, ActionsNode, DataWarehouseNode
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 
 
 class QueryAlternator:
@@ -48,9 +50,10 @@ class QueryAlternator:
         self._select_from = join_expr
 
 
-class AggregationOperations:
+class AggregationOperations(DataWarehouseInsightQueryMixin):
     team: Team
     series: Union[EventsNode, ActionsNode, DataWarehouseNode]
+    chart_display_type: ChartDisplayType
     query_date_range: QueryDateRange
     should_aggregate_values: bool
 
@@ -58,11 +61,13 @@ class AggregationOperations:
         self,
         team: Team,
         series: Union[EventsNode, ActionsNode, DataWarehouseNode],
+        chart_display_type: ChartDisplayType,
         query_date_range: QueryDateRange,
         should_aggregate_values: bool,
     ) -> None:
         self.team = team
         self.series = series
+        self.chart_display_type = chart_display_type
         self.query_date_range = query_date_range
         self.should_aggregate_values = should_aggregate_values
 
@@ -155,6 +160,8 @@ class AggregationOperations:
 
         if self.series.math_property == "$session_duration":
             chain = ["session_duration"]
+        elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
+            chain = [self.series.math_property]
         else:
             chain = ["properties", self.series.math_property]
 
@@ -314,9 +321,20 @@ class AggregationOperations:
     def _events_query(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        date_from_with_lookback = "{date_from} - {inclusive_lookback}"
+        if self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.series.math in (
+            BaseMathType.weekly_active,
+            BaseMathType.monthly_active,
+        ):
+            # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
+            # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
+            # into a count of unique users between `date_to - INTERVAL (7|30) DAY` and `date_to`.
+            # This way we at least ensure the date range is the probably expected 7 or 30 days.
+            date_from_with_lookback = "{date_to} - {inclusive_lookback}"
+
         date_filters = [
             parse_expr(
-                "timestamp >= {date_from} - {inclusive_lookback}",
+                f"timestamp >= {date_from_with_lookback}",
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                     **self._interval_placeholders(),
@@ -346,6 +364,14 @@ class AggregationOperations:
                 """
                     SELECT
                         count({id_field}) AS total
+                    FROM {table} AS e
+                    WHERE {events_where_clause}
+                    GROUP BY {person_field}
+                """
+                if isinstance(self.series, DataWarehouseNode)
+                else """
+                    SELECT
+                        count({id_field}) AS total
                     FROM events AS e
                     SAMPLE {sample}
                     WHERE {events_where_clause}
@@ -353,6 +379,7 @@ class AggregationOperations:
                 """,
                 placeholders={
                     "id_field": self._id_field,
+                    "table": self._table_expr,
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,
                     "person_field": ast.Field(

@@ -38,7 +38,7 @@ def get_pool(workload: Workload, team_id=None, readonly=False):
     if (
         workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
     ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
-        return make_ch_pool(host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST)
+        return make_ch_pool(host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, verify=False)
 
     return make_ch_pool()
 

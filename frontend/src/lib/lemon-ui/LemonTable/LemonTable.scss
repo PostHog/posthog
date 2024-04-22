@@ -176,7 +176,8 @@
 
                 // Cancel the vertical margin for CodeSnippet actions
                 // This is annoyingly specific, but really needed for CodeSnippet to look good in expanded table rows
-                .CodeSnippet__actions .LemonButton {
+                .CodeSnippet__actions > .LemonButton,
+                .LemonButtonWithSideAction__side-button > .LemonButton {
                     margin-top: 0;
                     margin-bottom: 0;
                 }

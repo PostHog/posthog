@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -18,10 +18,10 @@ from posthog.test.base import BaseTest
 class TestFilters(BaseTest):
     maxDiff = None
 
-    def _parse_expr(self, expr: str, placeholders: Dict[str, Any] = None):
+    def _parse_expr(self, expr: str, placeholders: Optional[Dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
-    def _parse_select(self, select: str, placeholders: Dict[str, Any] = None):
+    def _parse_select(self, select: str, placeholders: Optional[Dict[str, Any]] = None):
         return clear_locations(parse_select(select, placeholders=placeholders))
 
     def _print_ast(self, node: ast.Expr):

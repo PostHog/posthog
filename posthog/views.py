@@ -116,6 +116,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         },
         "data_warehouse_integrations": {"hubspot": {"client_id": hubspot_client_id}},
         "object_storage": is_cloud() or is_object_storage_available(),
+        "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
     }
 
     if settings.DEBUG or settings.E2E_TESTING:

@@ -5,7 +5,6 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
@@ -44,7 +43,6 @@ export function ProductCard({
     className?: string
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { setIncludeIntro } = useActions(onboardingLogic)
     const { user } = useValues(userLogic)
     const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
@@ -77,8 +75,9 @@ export function ProductCard({
                         className="relative"
                         onClick={(e) => {
                             e.stopPropagation()
-                            router.actions.push(getProductUri(product.type as ProductKey, featureFlags))
+                            router.actions.push(getProductUri(product.type as ProductKey))
                         }}
+                        data-attr={`return-to-${product.type}`}
                     >
                         <Icons.IconCheckCircle className="absolute top-0 right-0" color="green" />
                     </div>

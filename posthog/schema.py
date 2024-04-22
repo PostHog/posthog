@@ -121,14 +121,14 @@ class ChartAxis(BaseModel):
 
 class ChartDisplayType(str, Enum):
     ActionsLineGraph = "ActionsLineGraph"
-    ActionsLineGraphCumulative = "ActionsLineGraphCumulative"
-    ActionsAreaGraph = "ActionsAreaGraph"
-    ActionsTable = "ActionsTable"
-    ActionsPie = "ActionsPie"
     ActionsBar = "ActionsBar"
-    ActionsBarValue = "ActionsBarValue"
-    WorldMap = "WorldMap"
+    ActionsAreaGraph = "ActionsAreaGraph"
+    ActionsLineGraphCumulative = "ActionsLineGraphCumulative"
     BoldNumber = "BoldNumber"
+    ActionsPie = "ActionsPie"
+    ActionsBarValue = "ActionsBarValue"
+    ActionsTable = "ActionsTable"
+    WorldMap = "WorldMap"
 
 
 class CohortPropertyFilter(BaseModel):
@@ -151,6 +151,16 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
+class DataWarehouseEventsModifier(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id_field: str
+    id_field: str
+    table_name: str
+    timestamp_field: str
+
+
 class DatabaseSchemaQueryResponseField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -168,6 +178,14 @@ class DateRange(BaseModel):
     )
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    explicitDate: Optional[bool] = Field(
+        default=None,
+        description="Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+    )
+
+
+class DatetimeDay(RootModel[AwareDatetime]):
+    root: AwareDatetime
 
 
 class Day(RootModel[int]):
@@ -405,15 +423,16 @@ class PersonsArgMaxVersion(str, Enum):
 
 class PersonsOnEventsMode(str, Enum):
     disabled = "disabled"
-    v1_enabled = "v1_enabled"
-    v1_mixed = "v1_mixed"
-    v2_enabled = "v2_enabled"
+    person_id_no_override_properties_on_events = "person_id_no_override_properties_on_events"
+    person_id_override_properties_on_events = "person_id_override_properties_on_events"
+    person_id_override_properties_joined = "person_id_override_properties_joined"
 
 
 class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataWarehouseEventsModifiers: Optional[List[DataWarehouseEventsModifier]] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
@@ -446,7 +465,7 @@ class DayItem(BaseModel):
         extra="forbid",
     )
     label: str
-    value: Union[str, int]
+    value: Union[str, AwareDatetime, int]
 
 
 class IntervalItem(BaseModel):
@@ -586,8 +605,6 @@ class PathsFilter(BaseModel):
     edgeLimit: Optional[int] = None
     endPoint: Optional[str] = None
     excludeEvents: Optional[List[str]] = None
-    funnelFilter: Optional[Dict[str, Any]] = None
-    funnelPaths: Optional[FunnelPathType] = None
     includeEventTypes: Optional[List[PathType]] = None
     localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
     maxEdgeWeight: Optional[int] = None
@@ -635,6 +652,7 @@ class PropertyFilterType(str, Enum):
     group = "group"
     hogql = "hogql"
     data_warehouse = "data_warehouse"
+    data_warehouse_person_property = "data_warehouse_person_property"
 
 
 class PropertyMathType(str, Enum):
@@ -717,7 +735,7 @@ class QueryStatus(BaseModel):
     complete: Optional[bool] = False
     end_time: Optional[AwareDatetime] = None
     error: Optional[bool] = False
-    error_message: Optional[str] = ""
+    error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
     query_async: Optional[bool] = True
@@ -800,7 +818,7 @@ class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Literal["$session_duration"] = "$session_duration"
+    key: str
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["session"] = "session"
@@ -842,6 +860,7 @@ class StickinessQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
@@ -852,6 +871,9 @@ class TimeToSeeDataQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["TimeToSeeDataQuery"] = "TimeToSeeDataQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
     sessionEnd: Optional[str] = None
     sessionId: Optional[str] = Field(default=None, description="Project to filter on. Defaults to current session")
@@ -932,6 +954,7 @@ class TrendsQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
@@ -995,6 +1018,7 @@ class WebOverviewQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
@@ -1029,6 +1053,7 @@ class WebStatsTableQueryResponse(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     offset: Optional[int] = None
     results: List
@@ -1045,6 +1070,7 @@ class WebTopClicksQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
     samplingRate: Optional[SamplingRate] = None
@@ -1061,6 +1087,7 @@ class ActorsQueryResponse(BaseModel):
     hogql: str
     limit: int
     missing_actors_count: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: int
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
@@ -1103,6 +1130,9 @@ class DataNode(BaseModel):
         extra="forbid",
     )
     kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
 
 
@@ -1113,6 +1143,17 @@ class ChartSettings(BaseModel):
     goalLines: Optional[List[GoalLine]] = None
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[List[ChartAxis]] = None
+
+
+class DataWarehousePersonPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["data_warehouse_person_property"] = "data_warehouse_person_property"
+    value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
 class DataWarehousePropertyFilter(BaseModel):
@@ -1156,6 +1197,7 @@ class EventsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: Optional[int] = None
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
@@ -1181,6 +1223,7 @@ class FunnelCorrelationResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: Optional[int] = None
     results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
@@ -1214,6 +1257,7 @@ class FunnelsQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: Union[FunnelTimeToConvertResults, List[Dict[str, Any]], List[List[Dict[str, Any]]]]
     timings: Optional[List[QueryTiming]] = None
@@ -1296,6 +1340,7 @@ class InsightActorsQueryBase(BaseModel):
         extra="forbid",
     )
     includeRecordings: Optional[bool] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
 
 
@@ -1322,6 +1367,7 @@ class LifecycleQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
@@ -1341,6 +1387,7 @@ class PathsQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
@@ -1353,7 +1400,6 @@ class PersonPropertyFilter(BaseModel):
     key: str
     label: Optional[str] = None
     operator: PropertyOperator
-    table: Optional[str] = None
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
@@ -1365,6 +1411,7 @@ class QueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: Any
     timings: Optional[List[QueryTiming]] = None
@@ -1378,6 +1425,7 @@ class QueryResponseAlternative3(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: Optional[int] = None
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
@@ -1393,6 +1441,7 @@ class QueryResponseAlternative4(BaseModel):
     hogql: str
     limit: int
     missing_actors_count: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: int
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
@@ -1453,6 +1502,7 @@ class QueryResponseAlternative10(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
@@ -1469,6 +1519,7 @@ class QueryResponseAlternative11(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     offset: Optional[int] = None
     results: List
@@ -1485,6 +1536,7 @@ class QueryResponseAlternative12(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
     samplingRate: Optional[SamplingRate] = None
@@ -1499,6 +1551,7 @@ class QueryResponseAlternative13(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
@@ -1512,6 +1565,7 @@ class QueryResponseAlternative17(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     offset: Optional[int] = None
     results: FunnelCorrelationResult
     timings: Optional[List[QueryTiming]] = None
@@ -1632,6 +1686,9 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     kind: Literal["TimeToSeeDataSessionsQuery"] = "TimeToSeeDataSessionsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(default=None, description="Cached query response")
     teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
 
@@ -1641,6 +1698,7 @@ class WebAnalyticsQueryBase(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
@@ -1653,6 +1711,7 @@ class WebOverviewQuery(BaseModel):
     compare: Optional[bool] = None
     dateRange: Optional[DateRange] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -1670,6 +1729,7 @@ class WebStatsTableQuery(BaseModel):
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -1682,6 +1742,7 @@ class WebTopClicksQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -1730,6 +1791,7 @@ class DashboardFilter(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = None
@@ -1740,6 +1802,7 @@ class DataWarehouseNode(BaseModel):
         extra="forbid",
     )
     custom_name: Optional[str] = None
+    distinct_id_field: str
     fixedProperties: Optional[
         List[
             Union[
@@ -1754,6 +1817,7 @@ class DataWarehouseNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -1769,6 +1833,9 @@ class DataWarehouseNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     properties: Optional[
         List[
@@ -1784,6 +1851,7 @@ class DataWarehouseNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1797,6 +1865,9 @@ class DatabaseSchemaQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[Dict[str, List[DatabaseSchemaQueryResponseField]]] = Field(
         default=None, description="Cached query response"
     )
@@ -1821,6 +1892,7 @@ class EntityNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -1834,6 +1906,9 @@ class EntityNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     properties: Optional[
         List[
@@ -1849,6 +1924,7 @@ class EntityNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1875,6 +1951,7 @@ class EventsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -1889,6 +1966,9 @@ class EventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     orderBy: Optional[List[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -1905,6 +1985,7 @@ class EventsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1934,6 +2015,7 @@ class EventsQuery(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -1942,6 +2024,9 @@ class EventsQuery(BaseModel):
     )
     kind: Literal["EventsQuery"] = "EventsQuery"
     limit: Optional[int] = Field(default=None, description="Number of rows to return")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: Optional[List[str]] = Field(default=None, description="Columns to order by")
     personId: Optional[str] = Field(default=None, description="Show events for a given person")
@@ -1959,6 +2044,7 @@ class EventsQuery(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -1986,6 +2072,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -2002,6 +2089,9 @@ class FunnelExclusionActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     properties: Optional[
         List[
@@ -2017,6 +2107,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2043,6 +2134,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -2059,6 +2151,9 @@ class FunnelExclusionEventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     orderBy: Optional[List[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -2075,6 +2170,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2101,6 +2197,7 @@ class HogQLFilters(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = None
@@ -2113,7 +2210,9 @@ class HogQLQuery(BaseModel):
     explain: Optional[bool] = None
     filters: Optional[HogQLFilters] = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
-    modifiers: Optional[HogQLQueryModifiers] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     query: str
     response: Optional[HogQLQueryResponse] = Field(default=None, description="Cached query response")
     values: Optional[Dict[str, Any]] = Field(
@@ -2141,6 +2240,7 @@ class PersonsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -2149,6 +2249,9 @@ class PersonsNode(BaseModel):
     )
     kind: Literal["PersonsNode"] = "PersonsNode"
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     offset: Optional[int] = None
     properties: Optional[
         List[
@@ -2164,6 +2267,7 @@ class PersonsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2191,6 +2295,7 @@ class PropertyGroupFilterValue(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ],
         ]
     ]
@@ -2203,6 +2308,7 @@ class QueryResponseAlternative14(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[RetentionResult]
     timings: Optional[List[QueryTiming]] = None
@@ -2259,6 +2365,7 @@ class RetentionQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[RetentionResult]
     timings: Optional[List[QueryTiming]] = None
@@ -2275,6 +2382,9 @@ class SessionsTimelineQuery(BaseModel):
         default=None, description="Only fetch sessions that started before this timestamp (default: '+5s')"
     )
     kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     personId: Optional[str] = Field(default=None, description="Fetch sessions only for a given person")
     response: Optional[SessionsTimelineQueryResponse] = Field(default=None, description="Cached query response")
 
@@ -2298,6 +2408,7 @@ class ActionsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(
@@ -2312,6 +2423,9 @@ class ActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     name: Optional[str] = None
     properties: Optional[
         List[
@@ -2327,6 +2441,7 @@ class ActionsNode(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -2374,6 +2489,9 @@ class HogQLAutocomplete(BaseModel):
     endPosition: int = Field(..., description="End position of the editor word")
     filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
     kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[HogQLAutocompleteResponse] = Field(default=None, description="Cached query response")
     select: str = Field(..., description="Full select query to validate")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -2403,6 +2521,9 @@ class RetentionQuery(BaseModel):
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
     kind: Literal["RetentionQuery"] = "RetentionQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2418,6 +2539,7 @@ class RetentionQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2440,6 +2562,9 @@ class StickinessQuery(BaseModel):
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
     kind: Literal["StickinessQuery"] = "StickinessQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2455,6 +2580,7 @@ class StickinessQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2483,6 +2609,9 @@ class TrendsQuery(BaseModel):
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2498,6 +2627,7 @@ class TrendsQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2520,6 +2650,7 @@ class FilterType(BaseModel):
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
     breakdown_hide_other_aggregation: Optional[bool] = None
+    breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
@@ -2554,6 +2685,7 @@ class FilterType(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2579,6 +2711,9 @@ class FunnelsQuery(BaseModel):
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
     kind: Literal["FunnelsQuery"] = "FunnelsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2594,6 +2729,7 @@ class FunnelsQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2615,6 +2751,9 @@ class InsightsQueryBase(BaseModel):
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
     kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2630,6 +2769,7 @@ class InsightsQueryBase(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2653,6 +2793,9 @@ class LifecycleQuery(BaseModel):
     lifecycleFilter: Optional[LifecycleFilter] = Field(
         default=None, description="Properties specific to the lifecycle insight"
     )
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     properties: Optional[
         Union[
             List[
@@ -2668,6 +2811,7 @@ class LifecycleQuery(BaseModel):
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -2687,39 +2831,13 @@ class NamedParametersTypeofDateRangeForFilter(BaseModel):
     source: Optional[FilterType] = None
 
 
-class PathsQuery(BaseModel):
+class FunnelPathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
-    )
-    kind: Literal["PathsQuery"] = "PathsQuery"
-    pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                    DataWarehousePropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = Field(default=None, description="Property filters for all series")
-    response: Optional[PathsQueryResponse] = None
-    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    funnelPathType: Optional[FunnelPathType] = None
+    funnelSource: FunnelsQuery
+    funnelStep: Optional[int] = None
 
 
 class FunnelsActorsQuery(BaseModel):
@@ -2745,8 +2863,66 @@ class FunnelsActorsQuery(BaseModel):
     )
     includeRecordings: Optional[bool] = None
     kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
     source: FunnelsQuery
+
+
+class PathsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    filterTestAccounts: Optional[bool] = Field(
+        default=None, description="Exclude internal and test users by applying the respective filters"
+    )
+    funnelPathsFilter: Optional[FunnelPathsFilter] = Field(
+        default=None, description="Used for displaying paths in relation to funnel steps."
+    )
+    kind: Literal["PathsQuery"] = "PathsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
+    properties: Optional[
+        Union[
+            List[
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingDurationFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                ]
+            ],
+            PropertyGroupFilter,
+        ]
+    ] = Field(default=None, description="Property filters for all series")
+    response: Optional[PathsQueryResponse] = None
+    samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+
+
+class FunnelCorrelationQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelCorrelationEventExcludePropertyNames: Optional[List[str]] = None
+    funnelCorrelationEventNames: Optional[List[str]] = None
+    funnelCorrelationExcludeEventNames: Optional[List[str]] = None
+    funnelCorrelationExcludeNames: Optional[List[str]] = None
+    funnelCorrelationNames: Optional[List[str]] = None
+    funnelCorrelationType: FunnelCorrelationResultsType
+    kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
+    response: Optional[FunnelCorrelationResponse] = None
+    source: FunnelsActorsQuery
 
 
 class InsightVizNode(BaseModel):
@@ -2773,41 +2949,6 @@ class InsightVizNode(BaseModel):
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
-class FunnelCorrelationQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    funnelCorrelationEventExcludePropertyNames: Optional[List[str]] = None
-    funnelCorrelationEventNames: Optional[List[str]] = None
-    funnelCorrelationExcludeEventNames: Optional[List[str]] = None
-    funnelCorrelationExcludeNames: Optional[List[str]] = None
-    funnelCorrelationNames: Optional[List[str]] = None
-    funnelCorrelationType: FunnelCorrelationResultsType
-    kind: Literal["FunnelCorrelationQuery"] = "FunnelCorrelationQuery"
-    response: Optional[FunnelCorrelationResponse] = None
-    source: FunnelsActorsQuery
-
-
-class InsightActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: Optional[Union[str, int]] = None
-    compare: Optional[Compare] = None
-    day: Optional[Union[str, int]] = None
-    includeRecordings: Optional[bool] = None
-    interval: Optional[int] = Field(
-        default=None, description="An interval selected out of available intervals in source query."
-    )
-    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
-    response: Optional[ActorsQueryResponse] = None
-    series: Optional[int] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
-    status: Optional[str] = None
-
-
 class FunnelCorrelationActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2828,13 +2969,36 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = None
     includeRecordings: Optional[bool] = None
     kind: Literal["FunnelCorrelationActorsQuery"] = "FunnelCorrelationActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     response: Optional[ActorsQueryResponse] = None
     source: FunnelCorrelationQuery
+
+
+class InsightActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[Union[str, int]] = None
+    compare: Optional[Compare] = None
+    day: Optional[Union[str, int]] = None
+    includeRecordings: Optional[bool] = None
+    interval: Optional[int] = Field(
+        default=None, description="An interval selected out of available intervals in source query."
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
+    response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
+    status: Optional[str] = None
 
 
 class InsightActorsQueryOptions(BaseModel):
@@ -2864,11 +3028,15 @@ class ActorsQuery(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = None
     kind: Literal["ActorsQuery"] = "ActorsQuery"
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     offset: Optional[int] = None
     orderBy: Optional[List[str]] = None
     properties: Optional[
@@ -2885,6 +3053,7 @@ class ActorsQuery(BaseModel):
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
             ]
         ]
     ] = None
@@ -2982,6 +3151,9 @@ class HogQLMetadata(BaseModel):
     ] = Field(default=None, description='Query within which "expr" is validated. Defaults to "select * from events"')
     filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     response: Optional[HogQLMetadataResponse] = Field(default=None, description="Cached query response")
     select: Optional[str] = Field(
         default=None, description="Full select query to validate (use `select` or `expr`, but not both)"

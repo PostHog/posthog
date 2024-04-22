@@ -1,5 +1,9 @@
 .NotFoundComponent {
-    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 50rem;
+    padding: 0 1rem;
     margin: 6rem auto;
     text-align: center;
 

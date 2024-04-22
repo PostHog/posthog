@@ -1,5 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -7,7 +8,6 @@ import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationBasicType } from '~/types'
@@ -48,7 +48,7 @@ export function OtherOrganizationButton({
 export function NewOrganizationButton(): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     return (
         <LemonButton
@@ -61,8 +61,7 @@ export function NewOrganizationButton(): JSX.Element {
                         showCreateOrganizationModal()
                     },
                     {
-                        cloud: false,
-                        selfHosted: true,
+                        guardOnCloud: false,
                     }
                 )
             }

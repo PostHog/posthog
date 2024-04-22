@@ -32,13 +32,13 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import (
-    CSV_EXPORT_LIMIT,
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     LIMIT,
     OFFSET,
     FunnelVizType,
 )
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User, Team
@@ -220,11 +220,11 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
 
 class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
-    To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
+    To create or update persons, use a PostHog library of your choice and [use an identify call](/product-analytics/identify). This API endpoint is only for reading and deleting.
     """
 
     scope_object = "person"
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
+    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
@@ -646,7 +646,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def create(self, *args, **kwargs):
         raise MethodNotAllowed(
             method="POST",
-            detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/integrate/identifying-user for details.",
+            detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/product-analytics/identify for details.",
         )
 
     def _set_properties(self, properties, user):
@@ -932,21 +932,11 @@ def prepare_actor_query_filter(filter: T) -> T:
     new_group = {
         "type": "OR",
         "values": [
-            {
-                "key": "email",
-                "type": "person",
-                "value": search,
-                "operator": "icontains",
-            },
+            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
             {"key": "name", "type": "person", "value": search, "operator": "icontains"},
-            {
-                "key": "distinct_id",
-                "type": "event",
-                "value": search,
-                "operator": "icontains",
-            },
-        ]
-        + group_properties_filter_group,
+            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
+            *group_properties_filter_group,
+        ],
     }
     prop_group = (
         {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}

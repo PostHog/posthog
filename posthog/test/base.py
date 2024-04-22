@@ -95,9 +95,9 @@ def _setup_test_data(klass):
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
     klass.project, klass.team = Project.objects.create_with_team(
         organization=klass.organization,
-        team_fields=dict(
-            api_token=klass.CONFIG_API_TOKEN,
-            test_account_filters=[
+        team_fields={
+            "api_token": klass.CONFIG_API_TOKEN,
+            "test_account_filters": [
                 {
                     "key": "email",
                     "value": "@posthog.com",
@@ -105,8 +105,8 @@ def _setup_test_data(klass):
                     "type": "person",
                 }
             ],
-            has_completed_onboarding_for={"product_analytics": True},
-        ),
+            "has_completed_onboarding_for": {"product_analytics": True},
+        },
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
@@ -409,9 +409,9 @@ def cleanup_materialized_columns():
 
 
 def also_test_with_materialized_columns(
-    event_properties=[],
-    person_properties=[],
-    group_properties=[],
+    event_properties=None,
+    person_properties=None,
+    group_properties=None,
     verify_no_jsonextract=True,
     # :TODO: Remove this when groups-on-events is released
     materialize_only_with_person_on_events=False,
@@ -422,6 +422,12 @@ def also_test_with_materialized_columns(
     Requires a unittest class with ClickhouseTestMixin mixed in
     """
 
+    if group_properties is None:
+        group_properties = []
+    if person_properties is None:
+        person_properties = []
+    if event_properties is None:
+        event_properties = []
     try:
         from ee.clickhouse.materialized_columns.analyze import materialize
     except:
@@ -481,7 +487,8 @@ class QueryMatchingTest:
         # :TRICKY: team_id changes every test, avoid it messing with snapshots.
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
-            query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            query = re.sub(r"(\"?) IN \(\d+(, ?\d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
             # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
             query = re.sub(
                 r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
@@ -506,6 +513,24 @@ class QueryMatchingTest:
             r"equals(\1\2, 2)",
             query,
         )
+
+        #### Cohort replacements
+        # replace cohort id lists in queries too
+        query = re.sub(
+            r"in((.*)?cohort_id, \[\d+(, ?\d+)*\])",
+            r"in(\1cohort_id, [1, 2, 3, 4, 5 /* ... */])",
+            query,
+        )
+        # replace explicit timestamps in cohort queries
+        query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
+
+        # replace cohort generated conditions
+        query = re.sub(
+            r"_condition_\d+_level",
+            r"_condition_X_level",
+            query,
+        )
+        #### Cohort replacements end
 
         # Replace organization_id and notebook_id lookups, for postgres
         query = re.sub(
@@ -551,6 +576,11 @@ class QueryMatchingTest:
         query = re.sub(
             rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""",
             r"""user_id:0 request:_snapshot_""",
+            query,
+        )
+        query = re.sub(
+            rf"""user_id:([0-9]+)""",
+            r"""user_id:0""",
             query,
         )
 
@@ -974,7 +1004,7 @@ def snapshot_clickhouse_alter_queries(fn):
 
         for query in queries:
             if "FROM system.columns" not in query:
-                self.assertQueryMatchesSnapshot(query)
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped
 

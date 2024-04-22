@@ -3,7 +3,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import type { payGateMiniLogicType } from './payGateMiniLogicType'
 
@@ -35,8 +35,22 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
     selectors(({ values, props }) => ({
         productWithFeature: [
             (s) => [s.billing],
-            (billing) =>
-                billing?.products?.find((product) => product.features?.some((f) => f.key === props.featureKey)),
+            (billing) => {
+                let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined =
+                    billing?.products?.find((product) => product.features?.some((f) => f.key === props.featureKey))
+                if (!foundProduct) {
+                    const allAddons = billing?.products?.map((product) => product.addons).flat() || []
+                    foundProduct = allAddons.find((addon) => addon.features?.some((f) => f.key === props.featureKey))
+                }
+                return foundProduct
+            },
+        ],
+        isAddonProduct: [
+            (s) => [s.billing, s.productWithFeature],
+            (billing, productWithFeature) =>
+                billing?.products?.some((product) =>
+                    product.addons?.some((addon) => addon.type === productWithFeature?.type)
+                ),
         ],
         featureInfo: [
             (s) => [s.productWithFeature],

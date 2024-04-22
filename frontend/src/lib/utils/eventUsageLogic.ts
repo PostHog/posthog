@@ -23,6 +23,7 @@ import {
     AccessLevel,
     AnyPartialFilterType,
     AnyPropertyFilter,
+    CohortType,
     DashboardMode,
     DashboardType,
     EntityType,
@@ -385,6 +386,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
+        reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
+            experiment,
+            newStartDate,
+        }),
         reportExperimentCompleted: (
             experiment: Experiment,
             endDate: Dayjs,
@@ -395,6 +400,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             endDate,
             duration,
             significant,
+        }),
+        reportExperimentExposureCohortCreated: (experiment: Experiment, cohort: CohortType) => ({ experiment, cohort }),
+        reportExperimentExposureCohortEdited: (existingCohort: CohortType, newCohort: CohortType) => ({
+            existingCohort,
+            newCohort,
         }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -457,11 +467,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
         reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
         reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
-        reportActivationSideBarShown: (
-            activeTasksCount: number,
-            completedTasksCount: number,
-            completionPercent: number
-        ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
         reportRoleCreated: (role: string) => ({ role }),
@@ -507,8 +512,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
         reportCommandBarActionSearch: (query: string) => ({ query }),
         reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
+        reportBillingCTAShown: true,
     }),
     listeners(({ values }) => ({
+        reportBillingCTAShown: () => {
+            posthog.capture('billing CTA shown')
+        },
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },
@@ -973,6 +982,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 launch_date: launchDate.toISOString(),
             })
         },
+        reportExperimentStartDateChange: ({ experiment, newStartDate }) => {
+            posthog.capture('experiment start date changed', {
+                name: experiment.name,
+                id: experiment.id,
+                old_start_date: experiment.start_date,
+                new_start_date: newStartDate,
+            })
+        },
         reportExperimentCompleted: ({ experiment, endDate, duration, significant }) => {
             posthog.capture('experiment completed', {
                 name: experiment.name,
@@ -983,6 +1000,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 end_date: endDate.toISOString(),
                 duration,
                 significant,
+            })
+        },
+        reportExperimentExposureCohortCreated: ({ experiment, cohort }) => {
+            posthog.capture('experiment exposure cohort created', {
+                experiment_id: experiment.id,
+                cohort_filters: cohort.filters,
+            })
+        },
+        reportExperimentExposureCohortEdited: ({ existingCohort, newCohort }) => {
+            posthog.capture('experiment exposure cohort edited', {
+                existing_filters: existingCohort.filters,
+                new_filters: newCohort.filters,
+                id: newCohort.id,
             })
         },
         reportPropertyGroupFilterAdded: () => {
@@ -1086,13 +1116,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture(`${name} team setting updated`, {
                 setting: name,
                 value,
-            })
-        },
-        reportActivationSideBarShown: ({ activeTasksCount, completedTasksCount, completionPercent }) => {
-            posthog.capture('activation sidebar shown', {
-                active_tasks_count: activeTasksCount,
-                completed_tasks_count: completedTasksCount,
-                completion_percent_count: completionPercent,
             })
         },
         reportActivationSideBarTaskClicked: ({ key }) => {

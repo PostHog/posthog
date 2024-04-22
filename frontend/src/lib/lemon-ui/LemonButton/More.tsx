@@ -2,19 +2,14 @@ import { IconEllipsis } from '@posthog/icons'
 
 import { PopoverProps } from '../Popover/Popover'
 import { LemonButtonWithDropdown } from '.'
-import { LemonButtonProps, LemonButtonWithDropdownProps } from './LemonButton'
+import { LemonButtonProps } from './LemonButton'
 
-export type MoreProps = Partial<Pick<PopoverProps, 'overlay' | 'placement'>> &
-    LemonButtonProps & {
-        'data-attr'?: string
-        onClick?: LemonButtonWithDropdownProps['onClick']
-    }
+export type MoreProps = Partial<Pick<PopoverProps, 'overlay' | 'placement'>> & LemonButtonProps
 
 export function More({
     overlay,
-    placement = 'bottom-end',
     'data-attr': dataAttr,
-    onClick,
+    placement = 'bottom-end',
     ...buttonProps
 }: MoreProps): JSX.Element {
     return (
@@ -23,14 +18,13 @@ export function More({
             data-attr={dataAttr ?? 'more-button'}
             icon={<IconEllipsis />}
             dropdown={{
-                placement,
+                placement: placement,
                 actionable: true,
                 overlay,
             }}
             size="small"
             {...buttonProps}
             disabled={!overlay}
-            onClick={onClick}
         />
     )
 }

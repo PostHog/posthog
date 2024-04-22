@@ -8,9 +8,11 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
+import { createKafkaProducer } from '../../../kafka/producer'
 import { PluginsServerConfig, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
@@ -63,6 +65,8 @@ export interface TeamIDWithConfig {
 }
 
 /**
+ * @deprecated Delete reduceRecordingMessages and associated tests when deleting this.
+ *
  * The SessionRecordingIngesterV3
  * relies on EFS network storage to avoid the need to delay kafka commits and instead uses the disk
  * as the persistent volume for both blob data and the metadata around ingestion.
@@ -81,6 +85,7 @@ export class SessionRecordingIngesterV3 {
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
     // this allows us to output more information for that partition
     private debugPartition: number | undefined = undefined
+    private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined
 
     constructor(
         private globalServerConfig: PluginsServerConfig,
@@ -136,8 +141,8 @@ export class SessionRecordingIngesterV3 {
          */
         this.promises.add(promise)
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        promise.finally(() => this.promises.delete(promise))
+        // we void the promise returned by finally here to avoid the need to await it
+        void promise.finally(() => this.promises.delete(promise))
 
         return promise
     }
@@ -191,11 +196,15 @@ export class SessionRecordingIngesterV3 {
                         for (const message of messages) {
                             counterKafkaMessageReceived.inc({ partition: message.partition })
 
-                            const recordingMessage = await parseKafkaMessage(message, (token) =>
-                                this.teamsRefresher.get().then((teams) => ({
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                }))
+                            const recordingMessage = await parseKafkaMessage(
+                                message,
+                                (token) =>
+                                    this.teamsRefresher.get().then((teams) => ({
+                                        teamId: teams[token]?.teamId || null,
+                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                    })),
+                                // v3 consumer does not emit ingestion warnings
+                                undefined
                             )
 
                             if (recordingMessage) {
@@ -274,23 +283,29 @@ export class SessionRecordingIngesterV3 {
         await this.teamsRefresher.refresh()
 
         // NOTE: This is the only place where we need to use the shared server config
+        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
+        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
+
+        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
+            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
+        )
+        this.sharedClusterProducerWrapper.producer.connect()
+
+        // NOTE: This is the only place where we need to use the shared server config
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
-            this.consoleLogsIngester = new ConsoleLogsIngester(this.globalServerConfig)
-            await this.consoleLogsIngester.start()
+            this.consoleLogsIngester = new ConsoleLogsIngester(this.sharedClusterProducerWrapper.producer)
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
-            this.replayEventsIngester = new ReplayEventsIngester(this.globalServerConfig)
-            await this.replayEventsIngester.start()
+            this.replayEventsIngester = new ReplayEventsIngester(this.sharedClusterProducerWrapper.producer)
         }
-
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
-
+        // the batch consumer reads from the session replay kafka cluster
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
         this.batchConsumer = await startBatchConsumer({
-            connectionConfig,
+            connectionConfig: replayClusterConnectionConfig,
             groupId: KAFKA_CONSUMER_GROUP_ID,
             topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             autoCommit: true, // NOTE: This is the crucial difference between this and the other consumer
@@ -340,14 +355,11 @@ export class SessionRecordingIngesterV3 {
             )
         )
 
-        if (this.replayEventsIngester) {
-            void this.scheduleWork(this.replayEventsIngester.stop())
-        }
-        if (this.consoleLogsIngester) {
-            void this.scheduleWork(this.consoleLogsIngester!.stop())
-        }
-
         const promiseResults = await Promise.allSettled(this.promises)
+
+        if (this.sharedClusterProducerWrapper) {
+            await this.sharedClusterProducerWrapper.disconnect()
+        }
 
         status.info('👍', 'session-replay-ingestion - stopped!')
 
@@ -456,55 +468,58 @@ export class SessionRecordingIngesterV3 {
     }
 
     private setupHttpRoutes() {
-        // Mimic the app sever's endpoint
-        expressApp.get('/api/projects/:projectId/session_recordings/:sessionId/snapshots', async (req, res) => {
-            await runInstrumentedFunction({
-                statsKey: `recordingingester.http.getSnapshots`,
-                func: async () => {
-                    try {
-                        const startTime = Date.now()
-                        res.on('finish', function () {
-                            status.info('⚡️', `GET ${req.url} - ${res.statusCode} - ${Date.now() - startTime}ms`)
-                        })
+        // Mimic the app server's endpoint
+        expressApp.get(
+            '/api/projects/:projectId/session_recordings/:sessionId/snapshots',
+            async (req: any, res: any) => {
+                await runInstrumentedFunction({
+                    statsKey: `recordingingester.http.getSnapshots`,
+                    func: async () => {
+                        try {
+                            const startTime = Date.now()
+                            res.on('finish', function () {
+                                status.info('⚡️', `GET ${req.url} - ${res.statusCode} - ${Date.now() - startTime}ms`)
+                            })
 
-                        // validate that projectId is a number and sessionId is UUID like
-                        const projectId = parseInt(req.params.projectId)
-                        if (isNaN(projectId)) {
-                            res.sendStatus(404)
-                            return
-                        }
-
-                        const sessionId = req.params.sessionId
-                        if (!/^[0-9a-f-]+$/.test(sessionId)) {
-                            res.sendStatus(404)
-                            return
-                        }
-
-                        status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
-
-                        // We don't know the partition upfront so we have to recursively check all partitions
-                        const partitions = await readdir(this.rootDir).catch(() => [])
-
-                        for (const partition of partitions) {
-                            const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
-                            const exists = await stat(sessionDir).catch(() => null)
-
-                            if (!exists) {
-                                continue
+                            // validate that projectId is a number and sessionId is UUID like
+                            const projectId = parseInt(req.params.projectId)
+                            if (isNaN(projectId)) {
+                                res.sendStatus(404)
+                                return
                             }
 
-                            const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
-                            fileStream.pipe(res)
-                            return
-                        }
+                            const sessionId = req.params.sessionId
+                            if (!/^[0-9a-f-]+$/.test(sessionId)) {
+                                res.sendStatus(404)
+                                return
+                            }
 
-                        res.sendStatus(404)
-                    } catch (e) {
-                        status.error('🔥', 'session-replay-ingestion - failed to fetch session', e)
-                        res.sendStatus(500)
-                    }
-                },
-            })
-        })
+                            status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
+
+                            // We don't know the partition upfront so we have to recursively check all partitions
+                            const partitions = await readdir(this.rootDir).catch(() => [])
+
+                            for (const partition of partitions) {
+                                const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
+                                const exists = await stat(sessionDir).catch(() => null)
+
+                                if (!exists) {
+                                    continue
+                                }
+
+                                const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
+                                fileStream.pipe(res)
+                                return
+                            }
+
+                            res.sendStatus(404)
+                        } catch (e) {
+                            status.error('🔥', 'session-replay-ingestion - failed to fetch session', e)
+                            res.sendStatus(500)
+                        }
+                    },
+                })
+            }
+        )
     }
 }

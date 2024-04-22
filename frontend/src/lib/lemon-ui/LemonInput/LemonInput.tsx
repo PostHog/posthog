@@ -8,7 +8,7 @@ import React, { useRef, useState } from 'react'
 
 interface LemonInputPropsBase
     extends Pick<
-        // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
+        // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
         React.InputHTMLAttributes<HTMLInputElement>,
         | 'className'
         | 'onFocus'
@@ -42,7 +42,7 @@ interface LemonInputPropsBase
     /** Special case - show a transparent background rather than white */
     transparentBackground?: boolean
     /** Size of the element. Default: `'medium'`. */
-    size?: 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium'
     onPressEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void
     'data-attr'?: string
     'aria-label'?: string
@@ -85,13 +85,13 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         transparentBackground = false,
         size = 'medium',
         stopPropagation = false,
-        ...textProps
+        ...props
     },
     ref
 ): JSX.Element {
     const _ref = useRef<HTMLInputElement | null>(null)
     const inputRef = ref || _ref
-    const [focused, setFocused] = useState<boolean>(Boolean(textProps.autoFocus))
+    const [focused, setFocused] = useState<boolean>(Boolean(props.autoFocus))
     const [passwordVisible, setPasswordVisible] = useState<boolean>(false)
 
     const focus = (): void => {
@@ -149,11 +149,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 size && `LemonInput--${size}`,
                 fullWidth && 'LemonInput--full-width',
                 value && 'LemonInput--has-content',
-                !textProps.disabled && focused && 'LemonInput--focused',
+                !props.disabled && focused && 'LemonInput--focused',
                 transparentBackground && 'LemonInput--transparent-background',
                 className
             )}
-            aria-disabled={textProps.disabled}
+            aria-disabled={props.disabled}
             onClick={() => focus()}
         >
             {prefix}
@@ -167,9 +167,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                         event.stopPropagation()
                     }
                     if (type === 'number') {
-                        onChange?.(
-                            !isNaN(event.currentTarget.valueAsNumber) ? event.currentTarget.valueAsNumber : undefined
-                        )
+                        onChange?.(event.currentTarget.valueAsNumber)
                     } else {
                         onChange?.(event.currentTarget.value ?? '')
                     }
@@ -196,7 +194,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                         onPressEnter(event)
                     }
                 }}
-                {...textProps}
+                {...props}
             />
             {suffix}
         </span>

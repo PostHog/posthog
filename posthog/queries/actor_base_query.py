@@ -148,7 +148,7 @@ class ActorBaseQuery:
 
         params = {
             "team_id": self._team.pk,
-            "session_ids": sorted(list(session_ids)),  # Sort for stable queries
+            "session_ids": sorted(session_ids),  # Sort for stable queries
             # widen the date range a little
             # we don't want to exclude sessions that start or end within a
             # reasonable time of the query date range

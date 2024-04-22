@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.database.models import FieldTraverser, LazyJoin, StringDatabaseField, ExpressionField, Table
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import print_ast
@@ -17,7 +17,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
 from posthog.warehouse.models.join import DataWarehouseJoin
 
@@ -134,7 +134,7 @@ class TestDatabase(BaseTest):
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
-            == "SELECT number AS number FROM (SELECT numbers.number AS number FROM numbers(2) AS numbers) LIMIT 10000"
+            == "SELECT number AS number, expression AS expression, double AS double FROM (SELECT numbers.number AS number, plus(1, 1) AS expression, multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
         ), query
 
     def test_database_warehouse_joins(self):
@@ -176,7 +176,7 @@ class TestDatabase(BaseTest):
         )
 
         sql = "select some_field.key from events"
-        with pytest.raises(HogQLException):
+        with pytest.raises(ExposedHogQLError):
             print_ast(parse_select(sql), context, dialect="clickhouse")
 
     def test_database_warehouse_joins_other_team(self):
@@ -200,7 +200,7 @@ class TestDatabase(BaseTest):
         )
 
         sql = "select some_field.key from events"
-        with pytest.raises(HogQLException):
+        with pytest.raises(ExposedHogQLError):
             print_ast(parse_select(sql), context, dialect="clickhouse")
 
     def test_database_warehouse_joins_bad_key_expression(self):
@@ -288,3 +288,35 @@ class TestDatabase(BaseTest):
         assert poe.fields["some_field"] is not None
 
         print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+
+    def test_database_warehouse_joins_on_view(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="event_view",
+            query={"query": "SELECT event AS event from events"},
+            columns={"event": "String"},
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="event_view",
+            source_table_key="event",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="some_field",
+        )
+
+        db = create_hogql_database(team_id=self.team.pk)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        sql = "select event_view.some_field.key from event_view"
+        print_ast(parse_select(sql), context, dialect="clickhouse")
+
+        sql = "select some_field.key from event_view"
+        print_ast(parse_select(sql), context, dialect="clickhouse")
+
+        sql = "select e.some_field.key from event_view as e"
+        print_ast(parse_select(sql), context, dialect="clickhouse")

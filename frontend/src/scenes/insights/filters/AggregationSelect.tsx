@@ -132,7 +132,7 @@ export function AggregationSelect({
 
     return (
         <LemonSelect
-            className={className}
+            className={className || 'flex-1'}
             value={value}
             onChange={(newValue) => {
                 if (newValue !== null) {

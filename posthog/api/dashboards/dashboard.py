@@ -7,7 +7,6 @@ from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,14 +21,12 @@ from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
-from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
 
@@ -157,13 +154,6 @@ class DashboardSerializer(DashboardBasicSerializer):
             "effective_privilege_level",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
-
-    def validate_description(self, value: str) -> str:
-        if value and not check_is_feature_available_for_team(
-            self.context["team_id"], AvailableFeature.TEAM_COLLABORATION
-        ):
-            raise PermissionDenied("You must have paid for dashboard collaboration to set the dashboard description")
-        return value
 
     def validate_filters(self, value) -> Dict:
         if not isinstance(value, dict):

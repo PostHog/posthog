@@ -2,8 +2,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from pydantic import ConfigDict, BaseModel
 
 from posthog.hogql.base import Expr
-from posthog.hogql.errors import HogQLException, NotImplementedException
-from posthog.schema import HogQLQueryModifiers
+from posthog.hogql.errors import ResolutionError, NotImplementedError
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -24,6 +23,7 @@ class DatabaseField(FieldOrTable):
     name: str
     array: Optional[bool] = None
     nullable: Optional[bool] = None
+    hidden: bool = False
 
 
 class IntegerDatabaseField(DatabaseField):
@@ -65,47 +65,44 @@ class ExpressionField(DatabaseField):
 class FieldTraverser(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    chain: List[str]
+    chain: List[str | int]
 
 
 class Table(FieldOrTable):
     fields: Dict[str, FieldOrTable]
     model_config = ConfigDict(extra="forbid")
 
-    def has_field(self, name: str) -> bool:
-        return name in self.fields
+    def has_field(self, name: str | int) -> bool:
+        return str(name) in self.fields
 
-    def get_field(self, name: str) -> FieldOrTable:
+    def get_field(self, name: str | int) -> FieldOrTable:
+        name = str(name)
         if self.has_field(name):
             return self.fields[name]
         raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
-        raise NotImplementedException("Table.to_printed_clickhouse not overridden")
+        raise NotImplementedError("Table.to_printed_clickhouse not overridden")
 
     def to_printed_hogql(self) -> str:
-        raise NotImplementedException("Table.to_printed_hogql not overridden")
+        raise NotImplementedError("Table.to_printed_hogql not overridden")
 
     def avoid_asterisk_fields(self) -> List[str]:
         return []
 
     def get_asterisk(self):
-        fields_to_avoid = self.avoid_asterisk_fields() + ["team_id"]
+        fields_to_avoid = [*self.avoid_asterisk_fields(), "team_id"]
         asterisk: Dict[str, FieldOrTable] = {}
         for key, field in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            if (
-                isinstance(field, Table)
-                or isinstance(field, LazyJoin)
-                or isinstance(field, FieldTraverser)
-                or isinstance(field, ExpressionField)
-            ):
+            if isinstance(field, Table) or isinstance(field, LazyJoin) or isinstance(field, FieldTraverser):
                 pass  # ignore virtual tables and columns for now
             elif isinstance(field, DatabaseField):
-                asterisk[key] = field
+                if not field.hidden:  # Skip over hidden fields
+                    asterisk[key] = field
             else:
-                raise HogQLException(f"Unknown field type {type(field).__name__} for asterisk")
+                raise ResolutionError(f"Unknown field type {type(field).__name__} for asterisk")
         return asterisk
 
 
@@ -122,20 +119,22 @@ class LazyJoin(FieldOrTable):
             return self.join_table
 
         if context.database is None:
-            raise HogQLException("Database is not set")
+            raise ResolutionError("Database is not set")
 
         return context.database.get_table(self.join_table)
 
 
 class LazyTable(Table):
     """
-    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers)`
+    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers, node: SelectQuery)`
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], modifiers: HogQLQueryModifiers) -> Any:
-        raise NotImplementedException("LazyTable.lazy_select not overridden")
+    def lazy_select(
+        self, requested_fields: Dict[str, List[str | int]], context: "HogQLContext", node: "SelectQuery"
+    ) -> Any:
+        raise NotImplementedError("LazyTable.lazy_select not overridden")
 
 
 class VirtualTable(Table):

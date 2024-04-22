@@ -106,6 +106,7 @@ export const capture = async ({
             })
         ),
         key: teamId ? teamId.toString() : '',
+        waitForAck: true,
     })
 }
 

@@ -110,7 +110,7 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
 export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
-        ? 'You need to set a key'
+        ? 'Please set a key'
         : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
         ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
         : undefined

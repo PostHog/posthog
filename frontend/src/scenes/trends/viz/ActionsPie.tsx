@@ -57,7 +57,7 @@ export function ActionsPie({
     const showAggregation = !pieChartVizOptions?.hideAggregation
 
     const isTrendsQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
         isTrends &&
         query &&
         isInsightVizNode(query) &&
@@ -117,6 +117,10 @@ export function ActionsPie({
                           query: {
                               kind: NodeKind.InsightActorsQuery,
                               source: query.source,
+                          },
+                          additionalSelect: {
+                              value_at_data_point: 'event_count',
+                              matched_recordings: 'matched_recordings',
                           },
                       })
                   } else if (selectedUrl) {

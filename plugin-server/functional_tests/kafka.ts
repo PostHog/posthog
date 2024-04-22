@@ -36,7 +36,17 @@ export async function createKafkaProducer() {
     return producer
 }
 
-export async function produce({ topic, message, key }: { topic: string; message: Buffer | null; key: string }) {
+export async function produce({
+    topic,
+    message,
+    key,
+    waitForAck,
+}: {
+    topic: string
+    message: Buffer | null
+    key: string
+    waitForAck: boolean
+}) {
     producer = producer ?? (await createKafkaProducer())
-    await defaultProduce({ producer, topic, value: message, key: Buffer.from(key) })
+    await defaultProduce({ producer, topic, value: message, key: Buffer.from(key), waitForAck })
 }

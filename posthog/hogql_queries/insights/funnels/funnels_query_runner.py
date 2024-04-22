@@ -92,6 +92,7 @@ class FunnelsQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
         results = self.funnel_class._format_results(response.results)
@@ -99,7 +100,7 @@ class FunnelsQueryRunner(QueryRunner):
         if response.timings is not None:
             timings.extend(response.timings)
 
-        return FunnelsQueryResponse(results=results, timings=timings, hogql=hogql)
+        return FunnelsQueryResponse(results=results, timings=timings, hogql=hogql, modifiers=self.modifiers)
 
     @cached_property
     def funnel_order_class(self):

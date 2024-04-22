@@ -2,6 +2,7 @@ from typing import cast
 
 from django.db.models import Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
+from django.views import View
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -22,10 +23,10 @@ class OrganizationMemberObjectPermissions(BasePermission):
 
     message = "Your cannot edit other organization members."
 
-    def has_object_permission(self, request: Request, view, membership: OrganizationMembership) -> bool:
+    def has_object_permission(self, request: Request, view: View, membership: OrganizationMembership) -> bool:
         if request.method in SAFE_METHODS:
             return True
-        organization = extract_organization(membership)
+        organization = extract_organization(membership, view)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
             user_id=cast(User, request.user).id,
             organization=organization,

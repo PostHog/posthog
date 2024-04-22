@@ -40,7 +40,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.client import sync_execute
 from posthog.constants import (
-    CSV_EXPORT_LIMIT,
     INSIGHT_FUNNELS,
     INSIGHT_LIFECYCLE,
     INSIGHT_PATHS,
@@ -50,6 +49,7 @@ from posthog.constants import (
     OFFSET,
     PropertyOperatorType,
 )
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User, Person
@@ -100,6 +100,9 @@ class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
 
+    # If this cohort is an exposure cohort for an experiment
+    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+
     class Meta:
         model = Cohort
         fields = [
@@ -117,6 +120,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "experiment_set",
         ]
         read_only_fields = [
             "id",
@@ -126,6 +130,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "last_calculation",
             "errors_calculating",
             "count",
+            "experiment_set",
         ]
 
     def _handle_static(self, cohort: Cohort, context: Dict, validated_data: Dict) -> None:
@@ -160,7 +165,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
-            update_cohort(cohort)
+            update_cohort(cohort, initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -235,6 +240,9 @@ class CohortSerializer(serializers.ModelSerializer):
         if is_deletion_change:
             cohort.deleted = deleted_state
             if deleted_state:
+                # De-attach from experiments
+                cohort.experiment_set.set([])
+
                 AsyncDeletion.objects.get_or_create(
                     deletion_type=DeletionType.Cohort_full,
                     team_id=cohort.team.pk,
@@ -261,7 +269,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                update_cohort(cohort)
+                update_cohort(cohort, initiating_user=request.user)
 
         report_user_action(
             request.user,
@@ -292,7 +300,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-        return queryset.prefetch_related("created_by", "team").order_by("-created_at")
+        return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
 
     @action(
         methods=["GET"],

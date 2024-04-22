@@ -61,9 +61,11 @@ const isDirectLink = (url: string): boolean => {
     return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
 }
 
-const isPostHogComDocs = (url: string): boolean => {
+const isPostHogComDocs = (url: string): url is PostHogComDocsURL => {
     return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
 }
+
+export type PostHogComDocsURL = `https://${'www.' | ''}posthog.com/docs/${string}`
 
 /**
  * Link

@@ -10,6 +10,7 @@ from posthog.schema import (
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
+    DateRange,
     ElementPropertyFilter,
     EventPropertyFilter,
     EventsNode,
@@ -17,26 +18,34 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelPathType,
+    FunnelPathsFilter,
     FunnelVizType,
+    FunnelsQuery,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     Key,
+    LifecycleQuery,
     LifecycleToggle,
+    MathGroupTypeIndex,
     PathCleaningFilter,
     PathType,
+    PathsQuery,
     PersonPropertyFilter,
     PropertyMathType,
     PropertyOperator,
     RetentionPeriod,
+    RetentionQuery,
     RetentionType,
     SessionPropertyFilter,
     StepOrderValue,
+    StickinessQuery,
     TrendsFilter,
     FunnelsFilter,
     RetentionFilter,
     PathsFilter,
     StickinessFilter,
     LifecycleFilter,
+    TrendsQuery,
 )
 from posthog.test.base import BaseTest
 
@@ -954,14 +963,26 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query.dateRange, DateRange)
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
+
+    def test_date_range_with_explict_date_setting(self):
+        filter = {"date_from": "-14d", "date_to": "-7d", "explicit_date": "on"}
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query.dateRange, DateRange)
+        self.assertEqual(query.dateRange.date_from, "-14d")
+        self.assertEqual(query.dateRange.date_to, "-7d")
+        self.assertEqual(query.dateRange.explicitDate, True)
 
     def test_interval(self):
         filter = {"interval": "hour"}
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, TrendsQuery)
         self.assertEqual(query.interval, "hour")
 
     def test_series_default(self):
@@ -969,6 +990,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, TrendsQuery)
         self.assertEqual(query.series, [])
 
     def test_series_custom(self):
@@ -979,6 +1001,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.series,
             [
@@ -1000,6 +1023,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.series,
             [
@@ -1038,6 +1062,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.series,
             [
@@ -1057,7 +1082,7 @@ class TestFilterToQuery(BaseTest):
                     event="$pageview",
                     name="$pageview",
                     math="unique_group",
-                    math_group_type_index=0,
+                    math_group_type_index=MathGroupTypeIndex.number_0,
                 ),
                 EventsNode(
                     event="$pageview",
@@ -1164,10 +1189,11 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.series,
             [
-                EventsNode(event="$pageview", name="$pageview", properties=[]),
+                EventsNode(event="$pageview", name="$pageview", properties=None),
                 EventsNode(
                     event="$pageview",
                     name="$pageview",
@@ -1204,7 +1230,7 @@ class TestFilterToQuery(BaseTest):
                 EventsNode(
                     event="$pageview",
                     name="$pageview",
-                    properties=[SessionPropertyFilter(value=1, operator=PropertyOperator.gt)],
+                    properties=[SessionPropertyFilter(key="$session_duration", value=1, operator=PropertyOperator.gt)],
                 ),
                 EventsNode(
                     event="$pageview",
@@ -1252,6 +1278,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.breakdownFilter,
             BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
@@ -1262,6 +1289,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.breakdownFilter,
             BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
@@ -1272,6 +1300,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.breakdownFilter,
             BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="some_prop"),
@@ -1294,6 +1323,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, TrendsQuery)
         self.assertEqual(
             query.trendsFilter,
             TrendsFilter(
@@ -1359,6 +1389,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, FunnelsQuery)
         self.assertEqual(
             query.funnelsFilter,
             FunnelsFilter(
@@ -1407,6 +1438,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, RetentionQuery)
         self.assertEqual(
             query.retentionFilter,
             RetentionFilter(
@@ -1467,6 +1499,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, PathsQuery)
         self.assertEqual(
             query.pathsFilter,
             PathsFilter(
@@ -1484,24 +1517,21 @@ class TestFilterToQuery(BaseTest):
                 excludeEvents=["http://localhost:8000/events"],
                 stepLimit=5,
                 pathGroupings=["/merchant/*/payment"],
-                funnelPaths=FunnelPathType.funnel_path_between_steps,
-                funnelFilter={
-                    "insight": "FUNNELS",
-                    "events": [
-                        {
-                            "type": "events",
-                            "id": "$pageview",
-                            "order": 0,
-                            "name": "$pageview",
-                            "math": "total",
-                        },
-                        {"type": "events", "id": None, "order": 1, "math": "total"},
+            ),
+        )
+        self.assertEqual(
+            query.funnelPathsFilter,
+            FunnelPathsFilter(
+                funnelPathType=FunnelPathType.funnel_path_between_steps,
+                funnelSource=FunnelsQuery(
+                    series=[
+                        EventsNode(event="$pageview", name="$pageview"),
+                        EventsNode(event=None, name="All events"),
                     ],
-                    "funnel_viz_type": "steps",
-                    "exclusions": [],
-                    "filter_test_accounts": True,
-                    "funnel_step": 2,
-                },
+                    filterTestAccounts=True,
+                    funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.steps, exclusions=[]),
+                ),
+                funnelStep=2,
             ),
         )
 
@@ -1516,6 +1546,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, StickinessQuery)
         self.assertEqual(
             query.stickinessFilter,
             StickinessFilter(compare=True, showLegend=True, showValuesOnSeries=True),
@@ -1531,6 +1562,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
+        assert isinstance(query, LifecycleQuery)
         self.assertEqual(
             query.lifecycleFilter,
             LifecycleFilter(
