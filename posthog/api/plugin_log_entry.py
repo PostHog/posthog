@@ -19,7 +19,7 @@ class PluginLogEntrySerializer(DataclassSerializer):
         dataclass = PluginLogEntry
 
 
-class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "plugin"
     serializer_class = PluginLogEntrySerializer
     permission_classes = [PluginsAccessLevelPermission, PluginOwnershipPermission]
@@ -47,7 +47,7 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
 
         type_filter = [PluginLogEntryType[t] for t in (self.request.GET.getlist("type_filter", []))]
         data = fetch_plugin_log_entries(
-            team_id=self.parents_query_dict["team_id"],
+            team_id=self.team_id,
             plugin_config_id=self.parents_query_dict["plugin_config_id"],
             after=after,
             before=before,

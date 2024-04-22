@@ -87,7 +87,7 @@ class HistoricalExportsAppMetricsViewSet(
         return response.Response(
             {
                 "results": historical_exports_activity(
-                    team_id=self.parents_query_dict["team_id"],
+                    team_id=self.team_id,
                     plugin_config_id=self.parents_query_dict["plugin_config_id"],
                 )
             }

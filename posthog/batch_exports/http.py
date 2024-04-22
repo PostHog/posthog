@@ -445,11 +445,11 @@ class BatchExportLogEntrySerializer(DataclassSerializer):
         dataclass = BatchExportLogEntry
 
 
-class BatchExportLogViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "batch_export"
     serializer_class = BatchExportLogEntrySerializer
 
-    def get_queryset(self):
+    def list(self, request, *args, **kwargs):
         limit_raw = self.request.GET.get("limit")
         limit: int | None
         if limit_raw:
@@ -472,7 +472,7 @@ class BatchExportLogViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
 
         level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (self.request.GET.getlist("level_filter", []))]
         return fetch_batch_export_log_entries(
-            team_id=self.parents_query_dict["team_id"],
+            team_id=self.team_id,
             batch_export_id=self.parents_query_dict["batch_export_id"],
             run_id=self.parents_query_dict.get("run_id", None),
             after=after,
