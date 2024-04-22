@@ -24,7 +24,7 @@ function scrollToTimeElement(
     getTimeElement(calendarEl, props)?.scrollIntoView({
         block: 'start',
         inline: 'nearest',
-        behavior: skipAnimation ? 'instant' : 'smooth',
+        behavior: skipAnimation ? ('instant' as ScrollBehavior) : 'smooth',
     })
 }
 
