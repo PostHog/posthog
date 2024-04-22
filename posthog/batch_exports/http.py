@@ -95,6 +95,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     queryset = BatchExportRun.objects.all()
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
+    filter_rewrite_rules = {"team_id": "batch_export__team_id"}
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -106,9 +107,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
         date_range = (after_datetime, before_datetime)
 
         queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
-
-        if date_range:
-            queryset = queryset.filter(created_at__range=date_range)
+        queryset = queryset.filter(created_at__range=date_range)
 
         return queryset.order_by("-created_at")
 
