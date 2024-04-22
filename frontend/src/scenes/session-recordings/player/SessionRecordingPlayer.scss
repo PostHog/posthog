@@ -63,20 +63,11 @@
         flex-shrink: 0;
         min-width: 20rem;
         max-width: 50%;
-
-        .PlayerInspectorPreview {
-            position: absolute;
-            inset: 0;
-            z-index: 1;
-            cursor: pointer;
-            transition: opacity 0.2s ease-in-out;
-        }
     }
 
     &--wide {
         .SessionRecordingPlayer__inspector {
             min-width: 26rem;
-            max-width: 50%;
         }
     }
 

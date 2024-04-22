@@ -87,12 +87,7 @@ export function PlayerController({
                     </div>
                     <div className="flex pl-2">
                         <Tooltip title={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}>
-                            <LemonButton
-                                size="small"
-                                onClick={() => {
-                                    setIsFullScreen(!isFullScreen)
-                                }}
-                            >
+                            <LemonButton size="small" onClick={() => setIsFullScreen(!isFullScreen)}>
                                 <IconFullScreen
                                     className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')}
                                 />
