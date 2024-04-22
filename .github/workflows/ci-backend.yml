@@ -221,6 +221,10 @@ jobs:
               run: |
                   uv pip install --system -r requirements.txt -r requirements-dev.txt
 
+            - name: Run migrations for this PR
+              run: |
+                  python manage.py migrate
+
             - name: Check migrations
               run: |
                   python manage.py makemigrations --check --dry-run
