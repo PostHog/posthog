@@ -38,7 +38,7 @@ ACCESS_CONTROL_LEVELS_RESOURCE: Tuple[AccessControlLevelResource, ...] = get_arg
 
 
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
-    if resource in ["project"]:
+    if resource in ["project", "organization"]:
         return list(ACCESS_CONTROL_LEVELS_MEMBER)
 
     return list(ACCESS_CONTROL_LEVELS_RESOURCE)
@@ -47,6 +47,8 @@ def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
 def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
     if resource in ["project"]:
         return "admin"
+    if resource in ["organization"]:
+        return "member"
     return "editor"
 
 
@@ -295,6 +297,12 @@ class UserAccessControl:
         if org_membership.level >= OrganizationMembership.Level.ADMIN:
             return highest_access_level(resource)
 
+        if resource == "organization":
+            # Organization access is controlled via membership level only
+            if org_membership.level >= OrganizationMembership.Level.ADMIN:
+                return "admin"
+            return "member"
+
         # If access controls aren't supported, then we return the default access level
         if not self.access_controls_supported:
             return default_access_level(resource) if not explicit else None
@@ -459,7 +467,7 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             return UserAccessControl(user, organization_id=str(user.current_organization_id))
 
     def get_user_access_level(self, obj: Model) -> Optional[str]:
-        # Check if self.instance is a list - if so we want to preload the user acccess controls
+        # Check if self.instance is a list - if so we want to preload the user access controls
         if not self._preloaded_access_controls and isinstance(self.instance, list):
             self.user_access_control.preload_object_access_controls(self.instance)
             self._preloaded_access_controls = True

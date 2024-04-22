@@ -250,6 +250,24 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         )
         assert filtered_teams == [self.team, team2, team3]
 
+    def test_organization_access_control(self):
+        # A team isn't always available like for organization level routing
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        uac = UserAccessControl(user=self.user, organization_id=self.organization.id)
+
+        assert uac.check_access_level_for_object(self.organization, "member") is True
+        assert uac.check_access_level_for_object(self.organization, "admin") is False
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        uac = UserAccessControl(user=self.user, organization_id=self.organization.id)
+
+        assert uac.check_access_level_for_object(self.organization, "admin") is True
+
 
 class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
     """
