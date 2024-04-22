@@ -316,13 +316,13 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
 
-        invoice_schema = await _create_schema("Invoice", new_source, team)
+        charge_schema = await _create_schema("Charge", new_source, team)
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
             run_id=new_job.pk,
             source_id=new_source.pk,
-            schema_id=invoice_schema.id,
+            schema_id=charge_schema.id,
         )
 
         return new_job, inputs
@@ -331,8 +331,8 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
     job_2, job_2_inputs = await setup_job_2()
 
     with mock.patch("stripe.Customer.list") as mock_customer_list, mock.patch(
-        "stripe.Invoice.list"
-    ) as mock_invoice_list, override_settings(
+        "stripe.Charge.list"
+    ) as mock_charge_list, override_settings(
         BUCKET_URL=f"s3://{BUCKET_NAME}",
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
@@ -347,10 +347,10 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             "has_more": False,
         }
 
-        mock_invoice_list.return_value = {
+        mock_charge_list.return_value = {
             "data": [
                 {
-                    "id": "inv_123",
+                    "id": "chg_123",
                     "customer": "cus_1",
                 }
             ],
@@ -366,10 +366,10 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
         )
         assert len(job_1_customer_objects["Contents"]) == 1
 
-        job_2_invoice_objects = await minio_client.list_objects_v2(
-            Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path}/invoice/"
+        job_2_charge_objects = await minio_client.list_objects_v2(
+            Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path}/charge/"
         )
-        assert len(job_2_invoice_objects["Contents"]) == 1
+        assert len(job_2_charge_objects["Contents"]) == 1
 
 
 @pytest.mark.django_db(transaction=True)
