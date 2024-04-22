@@ -27,6 +27,9 @@ pub struct Config {
     #[envconfig(default = "1.0")]
     pub otel_sampling_rate: f64,
 
+    #[envconfig(default = "capture")]
+    pub otel_service_name: String,
+
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 }

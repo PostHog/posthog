@@ -43,6 +43,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
+    otel_service_name: "capture-testing".to_string(),
     export_prometheus: false,
 });
 

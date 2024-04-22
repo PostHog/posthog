@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use envconfig::Envconfig;
-use opentelemetry::KeyValue;
+use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
@@ -31,7 +31,7 @@ async fn shutdown() {
     tracing::info!("Shutting down gracefully...");
 }
 
-fn init_tracer(sink_url: &str, sampling_rate: f64) -> Tracer {
+fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_trace_config(
@@ -42,7 +42,7 @@ fn init_tracer(sink_url: &str, sampling_rate: f64) -> Tracer {
                 .with_id_generator(RandomIdGenerator::default())
                 .with_resource(Resource::new(vec![KeyValue::new(
                     "service.name",
-                    "capture",
+                    Value::from(service_name.to_string()),
                 )])),
         )
         .with_batch_config(BatchConfig::default())
@@ -67,7 +67,13 @@ async fn main() {
     let otel_layer = config
         .otel_url
         .clone()
-        .map(|url| OpenTelemetryLayer::new(init_tracer(&url, config.otel_sampling_rate)))
+        .map(|url| {
+            OpenTelemetryLayer::new(init_tracer(
+                &url,
+                config.otel_sampling_rate,
+                &config.otel_service_name,
+            ))
+        })
         .with_filter(LevelFilter::from_level(Level::INFO));
     tracing_subscriber::registry()
         .with(log_layer)
