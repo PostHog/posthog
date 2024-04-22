@@ -82,15 +82,19 @@ async def stripe_pagination(
     logger.info(f"Stripe: getting {endpoint}")
 
     if endpoint in INCREMENTAL_ENDPOINTS:
-        _starting_after_state = dlt.current.resource_state(f"team_{team_id}_{source_id}_{endpoint}").setdefault(
-            "starting_after", {"last_value": None}
+        _ending_before_state = dlt.current.resource_state(f"team_{team_id}_{source_id}_{endpoint}").setdefault(
+            "ending_before", {"last_value": None}
         )
-        _starting_after = _starting_after_state.get("last_value", None)
+        _ending_before = _ending_before_state.get("last_value", None)
+        _starting_after = None
     else:
         _starting_after = starting_after
+        _ending_before = starting_after
 
     while True:
-        if starting_after is not None:
+        if _ending_before is not None:
+            logger.info(f"Stripe: getting {endpoint} before {_ending_before}")
+        elif _starting_after is not None:
             logger.info(f"Stripe: getting {endpoint} after {_starting_after}")
 
         count = 0
@@ -99,16 +103,24 @@ async def stripe_pagination(
             api_key,
             account_id,
             endpoint,
+            ending_before=_ending_before,
             starting_after=_starting_after,
             start_date=start_date,
             end_date=end_date,
         )
 
         if len(response["data"]) > 0:
-            _starting_after = response["data"][-1]["id"]
-
             if endpoint in INCREMENTAL_ENDPOINTS:
-                _starting_after_state["last_value"] = _starting_after
+                if _starting_after is None and _ending_before is None:
+                    _ending_before_state["last_value"] = response["data"][0]["id"]
+
+                if _ending_before is not None:
+                    _ending_before = response["data"][0]["id"]
+                else:
+                    _starting_after = response["data"][-1]["id"]
+            else:
+                _starting_after = response["data"][-1]["id"]
+
         yield response["data"]
 
         count, status = await check_limit(

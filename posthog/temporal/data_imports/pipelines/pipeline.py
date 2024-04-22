@@ -101,7 +101,8 @@ class DataImportPipeline:
         total_counts: Counter = Counter({})
 
         if self._incremental:
-            counts: Counter = Counter({})
+            # will get overwritten
+            counts: Counter = Counter({"start": 1})
 
             while counts:
                 pipeline.run(self.source, loader_file_format=self.loader_file_format)
