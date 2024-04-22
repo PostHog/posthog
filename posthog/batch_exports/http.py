@@ -329,9 +329,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = BatchExportSerializer
 
     def get_queryset(self):
-        if not isinstance(self.request.user, User):
-            raise NotAuthenticated()
-
         return super().get_queryset().exclude(deleted=True).order_by("-created_at").prefetch_related("destination")
 
     @action(methods=["POST"], detail=True)
