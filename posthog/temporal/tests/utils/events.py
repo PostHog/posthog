@@ -44,6 +44,7 @@ def generate_test_events(
     site_url: str | None = "",
     set_field: dict | None = None,
     set_once: dict | None = None,
+    start: int = 0,
 ):
     """Generate a list of events for testing."""
     _timestamp = random.choice(possible_datetimes)
@@ -77,7 +78,7 @@ def generate_test_events(
             "set": set_field,
             "set_once": set_once,
         }
-        for i in range(count)
+        for i in range(start, count + start)
     ]
 
     return events
@@ -176,6 +177,7 @@ async def generate_test_events_in_clickhouse(
             properties=properties,
             person_properties=person_properties,
             inserted_at=inserted_at,
+            start=len(events),
         )
 
         # Add duplicates if required
