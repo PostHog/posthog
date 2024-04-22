@@ -154,7 +154,7 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
         team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id
     )
 
-    run_id = await activity_environment.run(create_external_data_job_model_activity, inputs)
+    run_id, _ = await activity_environment.run(create_external_data_job_model_activity, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()
@@ -180,7 +180,7 @@ async def test_create_external_job_activity_schemas_exist(activity_environment, 
 
     inputs = CreateExternalDataJobModelActivityInputs(team_id=team.id, source_id=new_source.pk, schema_id=schema.id)
 
-    run_id = await activity_environment.run(create_external_data_job_model_activity, inputs)
+    run_id, _ = await activity_environment.run(create_external_data_job_model_activity, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()
@@ -207,7 +207,7 @@ async def test_create_external_job_activity_update_schemas(activity_environment,
 
     inputs = CreateExternalDataJobModelActivityInputs(team_id=team.id, source_id=new_source.pk, schema_id=schema.id)
 
-    run_id = await activity_environment.run(create_external_data_job_model_activity, inputs)
+    run_id, _ = await activity_environment.run(create_external_data_job_model_activity, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()

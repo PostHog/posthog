@@ -3,6 +3,7 @@ import uuid
 
 from asgiref.sync import sync_to_async
 from temporalio import activity
+from typing import Tuple
 
 # TODO: remove dependency
 from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
@@ -10,10 +11,7 @@ from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
 )
-from posthog.warehouse.models import (
-    sync_old_schemas_with_new_schemas,
-    ExternalDataSource,
-)
+from posthog.warehouse.models import sync_old_schemas_with_new_schemas, ExternalDataSource, aget_schema_by_id
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, get_postgres_schemas
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
@@ -26,7 +24,7 @@ class CreateExternalDataJobModelActivityInputs:
 
 
 @activity.defn
-async def create_external_data_job_model_activity(inputs: CreateExternalDataJobModelActivityInputs) -> str:
+async def create_external_data_job_model_activity(inputs: CreateExternalDataJobModelActivityInputs) -> Tuple[str, bool]:
     run = await sync_to_async(create_external_data_job)(
         team_id=inputs.team_id,
         external_data_source_id=inputs.source_id,
@@ -65,4 +63,8 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
         f"Created external data job for external data source {inputs.source_id}",
     )
 
-    return str(run.id)
+    schema_model = await aget_schema_by_id(inputs.schema_id, inputs.team_id)
+    if schema_model is None:
+        raise ValueError(f"Schema with ID {inputs.schema_id} not found")
+
+    return str(run.id), schema_model.is_incremental
