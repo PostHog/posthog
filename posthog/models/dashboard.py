@@ -81,7 +81,7 @@ class Dashboard(models.Model):
     __repr__ = sane_repr("team_id", "id", "name")
 
     def __str__(self):
-        return self.name or self.id
+        return self.name or str(self.id)
 
     @property
     def is_sharing_enabled(self):
