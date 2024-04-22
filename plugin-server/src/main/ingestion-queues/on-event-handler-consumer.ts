@@ -6,7 +6,6 @@ import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-to
 import { Hub, PluginsServerConfig } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { status } from '../../utils/status'
-import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
@@ -43,6 +42,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     postgres,
     teamManager,
     organizationManager,
+    actionMatcher,
     serverConfig,
     rustyHook,
     appMetrics,
@@ -54,6 +54,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     serverConfig: PluginsServerConfig
     rustyHook: RustyHook
     appMetrics: AppMetrics
+    actionMatcher: ActionMatcher
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
@@ -73,9 +74,6 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     })
     setupEventHandlers(consumer)
 
-    const actionManager = new ActionManager(postgres, serverConfig)
-    await actionManager.start()
-    const actionMatcher = new ActionMatcher(postgres, actionManager)
     const hookCannon = new HookCommander(
         postgres,
         teamManager,

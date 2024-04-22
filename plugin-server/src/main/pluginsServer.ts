@@ -10,21 +10,17 @@ import { Counter } from 'prom-client'
 import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { buildIntegerMatcher, defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
+import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
-import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
+import { createHub, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PeriodicTask } from '../utils/periodic-task'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createRedisClient, delay } from '../utils/utils'
-import { AppMetrics } from '../worker/ingestion/app-metrics'
-import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { DeferredPersonOverrideWorker, FlatPersonOverrideWriter } from '../worker/ingestion/person-state'
-import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
-import { RustyHook } from '../worker/rusty-hook'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
@@ -361,38 +357,18 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncWebhooksHandlers) {
-            // If we have a hub, then reuse some of it's attributes, otherwise
-            // we need to create them. We only initialize the ones we need.
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
-            const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
-            const rustyHook =
-                hub?.rustyHook ??
-                new RustyHook(
-                    buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true),
-                    serverConfig.RUSTY_HOOK_ROLLOUT_PERCENTAGE,
-                    serverConfig.RUSTY_HOOK_URL,
-                    serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
-                )
-            const appMetrics =
-                hub?.appMetrics ??
-                new AppMetrics(
-                    KafkaProducerWrapper,
-                    serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-                    serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-                )
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
 
             const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
-                    postgres: postgres,
-                    kafka: kafka,
-                    teamManager: teamManager,
-                    organizationManager: organizationManager,
+                    postgres: hub.postgres,
+                    kafka: hub.kafka,
+                    teamManager: hub.teamManager,
+                    organizationManager: hub.organizationManager,
                     serverConfig: serverConfig,
-                    rustyHook: rustyHook,
-                    appMetrics: appMetrics,
+                    rustyHook: hub.rustyHook,
+                    appMetrics: hub.appMetrics,
+                    actionMatcher: hub.actionMatcher,
                 })
 
             stopWebhooksHandlerConsumer = webhooksStopConsumer
