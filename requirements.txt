@@ -261,6 +261,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
+    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -268,7 +270,7 @@ grpcio==1.57.0
     #   grpcio-status
 grpcio-status==1.57.0
     # via google-api-core
-gunicorn==20.1.0
+gunicorn==22.0.0
     # via -r requirements.in
 h11==0.13.0
     # via
@@ -374,6 +376,7 @@ packaging==23.1
     #   aiokafka
     #   dlt
     #   google-cloud-bigquery
+    #   gunicorn
     #   snowflake-connector-python
     #   webdriver-manager
 pandas==2.2.0
