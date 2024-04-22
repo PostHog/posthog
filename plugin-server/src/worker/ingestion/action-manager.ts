@@ -1,5 +1,8 @@
-import { Action, ActionStep, Hook, RawAction, Team } from '../../types'
+import * as schedule from 'node-schedule'
+
+import { Action, ActionStep, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 
 export type ActionMap = Record<Action['id'], Action>
@@ -7,17 +10,33 @@ type ActionCache = Record<Team['id'], ActionMap>
 
 export class ActionManager {
     private ready: boolean
-    private postgres: PostgresRouter
     private actionCache: ActionCache
+    private pubSub: PubSub
 
-    constructor(postgres: PostgresRouter) {
+    constructor(private postgres: PostgresRouter, private serverConfig: PluginsServerConfig) {
         this.ready = false
-        this.postgres = postgres
         this.actionCache = {}
+
+        this.pubSub = new PubSub(this.serverConfig, {
+            'reload-action': async (message) => {
+                const { actionId, teamId } = JSON.parse(message)
+                await this.reloadAction(teamId, actionId)
+            },
+            'drop-action': (message) => {
+                const { actionId, teamId } = JSON.parse(message)
+                this.dropAction(teamId, actionId)
+            },
+        })
     }
 
-    public async prepare(): Promise<void> {
+    public async start(): Promise<void> {
+        await this.pubSub.start()
         await this.reloadAllActions()
+
+        // every 5 minutes all ActionManager caches are reloaded for eventual consistency
+        schedule.scheduleJob('*/5 * * * *', async () => {
+            await this.reloadAllActions()
+        })
         this.ready = true
     }
 

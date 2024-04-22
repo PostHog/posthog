@@ -1,12 +1,10 @@
 import { Consumer, Kafka } from 'kafkajs'
-import * as schedule from 'node-schedule'
 import { AppMetrics } from 'worker/ingestion/app-metrics'
 import { RustyHook } from 'worker/rusty-hook'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub, PluginsServerConfig } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
-import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
@@ -75,8 +73,8 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     })
     setupEventHandlers(consumer)
 
-    const actionManager = new ActionManager(postgres)
-    await actionManager.prepare()
+    const actionManager = new ActionManager(postgres, serverConfig)
+    await actionManager.start()
     const actionMatcher = new ActionMatcher(postgres, actionManager)
     const hookCannon = new HookCommander(
         postgres,
@@ -87,24 +85,6 @@ export const startAsyncWebhooksHandlerConsumer = async ({
         serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
     )
     const concurrency = serverConfig.TASKS_PER_WORKER || 20
-
-    const pubSub = new PubSub(serverConfig, {
-        'reload-action': async (message) => {
-            const { actionId, teamId } = JSON.parse(message)
-            await actionManager.reloadAction(teamId, actionId)
-        },
-        'drop-action': (message) => {
-            const { actionId, teamId } = JSON.parse(message)
-            actionManager.dropAction(teamId, actionId)
-        },
-    })
-
-    await pubSub.start()
-
-    // every 5 minutes all ActionManager caches are reloaded for eventual consistency
-    schedule.scheduleJob('*/5 * * * *', async () => {
-        await actionManager.reloadAllActions()
-    })
 
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
