@@ -81,6 +81,7 @@ celery==5.3.4
     # via
     #   -r requirements.in
     #   celery-redbeat
+    #   sentry-sdk
 celery-redbeat==2.1.1
     # via -r requirements.in
 certifi==2019.11.28
@@ -114,10 +115,11 @@ click-plugins==1.1.1
     # via celery
 click-repl==0.3.0
     # via celery
-clickhouse-driver==0.2.4
+clickhouse-driver==0.2.6
     # via
     #   -r requirements.in
     #   clickhouse-pool
+    #   sentry-sdk
 clickhouse-pool==0.5.3
     # via -r requirements.in
 cryptography==37.0.2
@@ -164,6 +166,7 @@ django==4.2.11
     #   djangorestframework
     #   djangorestframework-dataclasses
     #   drf-spectacular
+    #   sentry-sdk
 django-axes==5.9.0
     # via -r requirements.in
 django-cors-headers==3.5.0
@@ -385,7 +388,9 @@ oauthlib==3.1.0
     #   requests-oauthlib
     #   social-auth-core
 openai==1.10.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   sentry-sdk
 openapi-schema-validator==0.6.2
     # via openapi-spec-validator
 openapi-spec-validator==0.7.1
@@ -586,7 +591,7 @@ semantic-version==2.8.5
     # via -r requirements.in
 semver==3.0.2
     # via dlt
-sentry-sdk==1.14.0
+sentry-sdk[celery,clickhouse-driver,django,openai]==1.44.1
     # via -r requirements.in
 simplejson==3.19.2
     # via dlt
@@ -645,7 +650,9 @@ tenacity==8.2.3
 threadpoolctl==3.3.0
     # via scikit-learn
 tiktoken==0.6.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   sentry-sdk
 token-bucket==0.3.0
     # via -r requirements.in
 tomlkit==0.12.3

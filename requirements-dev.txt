@@ -225,7 +225,7 @@ requests==2.31.0
     #   responses
 responses==0.23.1
     # via -r requirements-dev.in
-ruff==0.1.2
+ruff==0.3.7
     # via -r requirements-dev.in
 six==1.16.0
     # via

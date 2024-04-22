@@ -230,9 +230,11 @@ def fetch_batch_export_log_entries(
     before: dt.datetime | None = None,
     search: str | None = None,
     limit: int | None = None,
-    level_filter: list[BatchExportLogEntryLevel] = [],
+    level_filter: typing.Optional[list[BatchExportLogEntryLevel]] = None,
 ) -> list[BatchExportLogEntry]:
     """Fetch a list of batch export log entries from ClickHouse."""
+    if level_filter is None:
+        level_filter = []
     clickhouse_where_parts: list[str] = []
     clickhouse_kwargs: dict[str, typing.Any] = {}
 
