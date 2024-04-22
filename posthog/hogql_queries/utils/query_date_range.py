@@ -265,7 +265,7 @@ class QueryDateRange:
         }
 
     def interval_bounds_from_str(self, time_frame: str) -> tuple[datetime, datetime]:
-        date_from = parse(time_frame, tzinfos={None: self._team.timezone_info})
+        date_from = parse(time_frame, tzinfos={None: self._team.timezone_info})  # type: ignore
         date_to = date_from + self.interval_relativedelta()
         return date_from, date_to
 
