@@ -303,15 +303,17 @@ export const experimentLogic = kea<experimentLogicType>([
             let response: Experiment | null = null
             const isUpdate = !!values.experimentId && values.experimentId !== 'new'
 
-            if (
-                experimentInsightType === InsightType.FUNNELS &&
-                (!experiment.filters.events?.length || experiment.filters.events.length < 2)
-            ) {
-                return lemonToast.error(
-                    `Please make sure there are at least two funnel steps before ${
-                        isUpdate ? 'updating' : 'creating'
-                    } this experiment.`
-                )
+            if (experimentInsightType === InsightType.FUNNELS) {
+                const actions = experiment.filters.actions || []
+                const events = experiment.filters.events || []
+
+                if (events.length + actions.length < 2) {
+                    return lemonToast.error(
+                        `Please make sure there are at least two funnel steps before ${
+                            isUpdate ? 'updating' : 'creating'
+                        } this experiment.`
+                    )
+                }
             }
 
             try {
