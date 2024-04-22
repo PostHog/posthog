@@ -260,8 +260,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.128.1
-    version: 1.128.1
+    specifier: 1.128.0
+    version: 1.128.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -356,7 +356,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -12841,7 +12841,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -17478,8 +17477,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.128.1:
-    resolution: {integrity: sha512-+CIiZf+ijhgAF8g6K+PfaDbSBiADfRaXzrlYKmu5IEN8ghunFd06EV5QM68cwLUEkti4FXn7AAM3k9/KxJgvcA==}
+  /posthog-js@1.128.0:
+    resolution: {integrity: sha512-l52Xk9NnmwNRhgCFWhx0OAIlA+ZXVCqoT3sjQBj6oJhflFQMXYRaJIdWF9EGLG9DWFrka5iTKIlW9swQYuzxNQ==}
     dependencies:
       fflate: 0.4.8
       preact: 10.20.2
