@@ -65,7 +65,6 @@ export const resizerLogic = kea<resizerLogicType>([
         ],
     })),
     selectors({
-        placement: [(_, p) => [p.placement], (placement) => placement],
         desiredSize: [
             (s) => [s.size, s.resizingSize, s.isResizeInProgress],
             (size, resizingSize, isResizeInProgress) => {
