@@ -62,7 +62,7 @@
         position: relative;
         flex-shrink: 0;
         min-width: 20rem;
-        max-width: 35%;
+        max-width: 50%;
 
         .PlayerInspectorPreview {
             position: absolute;
@@ -70,12 +70,6 @@
             z-index: 1;
             cursor: pointer;
             transition: opacity 0.2s ease-in-out;
-        }
-    }
-
-    &--medium {
-        .SessionRecordingPlayer__inspector {
-            max-width: 35%;
         }
     }
 

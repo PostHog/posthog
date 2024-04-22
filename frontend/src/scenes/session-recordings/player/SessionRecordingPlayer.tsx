@@ -64,6 +64,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
+    const playerMainRef = useRef<HTMLDivElement>(null)
 
     const logicProps: SessionRecordingPlayerLogicProps = {
         sessionRecordingId,
@@ -143,6 +144,15 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             ref: playerRef,
         }
     )
+    const { size: playerMainSize } = useResizeBreakpoints(
+        {
+            0: 'small',
+            650: 'medium',
+        },
+        {
+            ref: playerMainRef,
+        }
+    )
 
     const isWidescreen = !isFullScreen && size === 'wide'
 
@@ -184,12 +194,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                         <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                     ) : (
                         <>
-                            <div className="SessionRecordingPlayer__main">
+                            <div ref={playerMainRef} className="SessionRecordingPlayer__main">
                                 {!noMeta || isFullScreen ? (
-                                    <PlayerMeta
-                                        inspectorExpanded={inspectorExpanded}
-                                        toggleInspectorExpanded={() => setInspectorExpanded(!inspectorExpanded)}
-                                    />
+                                    <PlayerMeta linkIconsOnly={playerMainSize === 'small'} />
                                 ) : null}
 
                                 <div className="SessionRecordingPlayer__body" draggable={draggable} {...elementProps}>
@@ -197,7 +204,10 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                     <PlayerFrameOverlay />
                                 </div>
                                 <LemonDivider className="my-0" />
-                                <PlayerController metaIconsOnly={compactLayout} />
+                                <PlayerController
+                                    inspectorExpanded={inspectorExpanded}
+                                    toggleInspectorExpanded={() => setInspectorExpanded(!inspectorExpanded)}
+                                />
                             </div>
                             {!noInspector && inspectorExpanded && (
                                 <PlayerInspector
