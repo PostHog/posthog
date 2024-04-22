@@ -7,7 +7,7 @@ aiosignal==1.2.0
     # via aiohttp
 annotated-types==0.5.0
     # via pydantic
-argcomplete==2.0.0
+argcomplete==3.3.0
     # via datamodel-code-generator
 asgiref==3.7.2
     # via django
@@ -19,7 +19,7 @@ attrs==23.2.0
     # via aiohttp
 black==23.9.1
     # via datamodel-code-generator
-build==0.10.0
+build==1.2.1
     # via pip-tools
 certifi==2019.11.28
     # via
@@ -33,13 +33,13 @@ click==8.1.7
     # via
     #   black
     #   pip-tools
-colorama==0.4.4
+colorama==0.4.6
     # via pytest-watch
 coreapi==2.3.3
     # via djangorestframework-stubs
 coreschema==0.0.4
     # via coreapi
-coverage==5.5
+coverage==7.4.4
     # via pytest-cov
 cryptography==37.0.2
     # via
@@ -52,14 +52,14 @@ django==4.2.11
     #   django-stubs-ext
 django-stubs==1.8.0
     # via djangorestframework-stubs
-django-stubs-ext==0.7.0
+django-stubs-ext==4.2.7
     # via django-stubs
 djangorestframework-stubs==1.4.0
 dnspython==2.2.1
     # via email-validator
 docopt==0.6.2
     # via pytest-watch
-email-validator==2.0.0.post2
+email-validator==2.1.1
     # via pydantic
 exceptiongroup==1.2.0
     # via pytest
@@ -73,7 +73,7 @@ frozenlist==1.3.0
     #   aiosignal
 genson==1.2.2
     # via datamodel-code-generator
-icdiff==2.0.5
+icdiff==2.0.7
     # via pytest-icdiff
 idna==2.8
     # via
@@ -83,9 +83,9 @@ idna==2.8
     #   yarl
 inflect==5.6.2
     # via datamodel-code-generator
-iniconfig==1.1.1
+iniconfig==2.0.0
     # via pytest
-isort==5.2.2
+isort==5.13.2
     # via datamodel-code-generator
 itypes==1.2.0
     # via coreapi
@@ -124,7 +124,7 @@ pip==24.0
 pip-tools==7.3.0
 platformdirs==3.11.0
     # via black
-pluggy==0.13.1
+pluggy==1.5.0
     # via pytest
 pprintpp==0.4.0
     # via pytest-icdiff
@@ -184,22 +184,21 @@ sortedcontainers==2.4.0
     # via fakeredis
 sqlparse==0.4.4
     # via django
-syrupy==4.6.0
-toml==0.10.1
-    # via
-    #   coverage
-    #   datamodel-code-generator
+syrupy==4.6.1
+toml==0.10.2
+    # via datamodel-code-generator
 tomli==2.0.1
     # via
     #   black
     #   build
+    #   coverage
     #   mypy
     #   pip-tools
     #   pyproject-hooks
     #   pytest
 types-freezegun==1.1.10
 types-markdown==3.3.9
-types-python-dateutil==2.8.3
+types-python-dateutil==2.9.0.20240316
 types-pytz==2023.3.0.0
     # via types-tzlocal
 types-pyyaml==6.0.1
@@ -226,7 +225,7 @@ urllib3==1.26.18
     #   responses
 urllib3-secure-extra==0.1.0
     # via urllib3
-watchdog==2.1.8
+watchdog==4.0.0
     # via pytest-watch
 wheel==0.42.0
     # via pip-tools

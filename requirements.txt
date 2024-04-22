@@ -9,7 +9,6 @@ aioboto3==12.0.0
 aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
-    #   aiobotocore
     #   s3fs
 aiohttp==3.9.3
     # via
@@ -84,6 +83,7 @@ celery==5.3.4
     # via
     #   -r requirements.in
     #   celery-redbeat
+    #   sentry-sdk
 celery-redbeat==2.1.1
     # via -r requirements.in
 certifi==2019.11.28
@@ -118,10 +118,11 @@ click-plugins==1.1.1
     # via celery
 click-repl==0.3.0
     # via celery
-clickhouse-driver==0.2.4
+clickhouse-driver==0.2.6
     # via
     #   -r requirements.in
     #   clickhouse-pool
+    #   sentry-sdk
 clickhouse-pool==0.5.3
     # via -r requirements.in
 cryptography==37.0.2
@@ -168,6 +169,7 @@ django==4.2.11
     #   djangorestframework
     #   djangorestframework-dataclasses
     #   drf-spectacular
+    #   sentry-sdk
 django-axes==5.9.0
     # via -r requirements.in
 django-cors-headers==3.5.0
@@ -256,7 +258,6 @@ giturlparse==0.12.0
     # via dlt
 google-api-core[grpc]==2.11.1
     # via
-    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0
@@ -392,7 +393,9 @@ oauthlib==3.1.0
     #   requests-oauthlib
     #   social-auth-core
 openai==1.10.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   sentry-sdk
 openapi-schema-validator==0.6.2
     # via openapi-spec-validator
 openapi-spec-validator==0.7.1
@@ -459,9 +462,7 @@ protobuf==4.22.1
     #   proto-plus
     #   temporalio
 psycopg[binary]==3.1.13
-    # via
-    #   -r requirements.in
-    #   psycopg
+    # via -r requirements.in
 psycopg-binary==3.1.13
     # via psycopg
 psycopg2-binary==2.9.7
@@ -600,7 +601,7 @@ semantic-version==2.8.5
     # via -r requirements.in
 semver==3.0.2
     # via dlt
-sentry-sdk==1.14.0
+sentry-sdk[celery,clickhouse-driver,django,openai]==1.44.1
     # via -r requirements.in
 simplejson==3.19.2
     # via dlt
@@ -659,7 +660,9 @@ tenacity==8.2.3
 threadpoolctl==3.3.0
     # via scikit-learn
 tiktoken==0.6.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   sentry-sdk
 token-bucket==0.3.0
     # via -r requirements.in
 tomli==2.0.1
@@ -724,7 +727,6 @@ urllib3[secure,socks]==1.26.18
     #   requests
     #   selenium
     #   sentry-sdk
-    #   urllib3
 urllib3-secure-extra==0.1.0
     # via urllib3
 vine==5.0.0
