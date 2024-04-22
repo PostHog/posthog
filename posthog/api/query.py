@@ -79,7 +79,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             result = process_query_model(
                 self.team,
                 data.query,
-                execution_mode=ExecutionMode.CALCULATION_REQUESTED if data.refresh else ExecutionMode.CACHE_ONLY,
+                execution_mode=ExecutionMode.CALCULATION_REQUESTED
+                if data.refresh
+                else ExecutionMode.CALCULATION_ONLY_IF_STALE,
             )
             return Response(result)
         except (ExposedHogQLError, ExposedCHQueryError) as e:

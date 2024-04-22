@@ -106,7 +106,9 @@ def execute_process_query(
             team=team,
             query_json=query_json,
             limit_context=limit_context,
-            execution_mode=ExecutionMode.CALCULATION_REQUESTED if refresh_requested else ExecutionMode.CACHE_ONLY,
+            execution_mode=ExecutionMode.CALCULATION_REQUESTED
+            if refresh_requested
+            else ExecutionMode.CALCULATION_ONLY_IF_STALE,
         )
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True
