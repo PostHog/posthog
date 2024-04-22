@@ -132,7 +132,10 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                                 'opacity-25': date.isBefore(startOfMonth) || date.isAfter(endOfMonth),
                                                 LemonCalendar__today: date.isSame(today, 'd'),
                                             }),
-                                            disabledReason: pastDate ? 'Cannot select dates in the past' : undefined,
+                                            disabledReason:
+                                                props.fromToday && pastDate
+                                                    ? 'Cannot select dates in the past'
+                                                    : undefined,
                                         }
 
                                         const buttonProps =
